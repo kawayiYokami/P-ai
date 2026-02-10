@@ -57,6 +57,7 @@ export type ChatTurn = {
   id: string;
   userText: string;
   userImages: Array<{ mime: string; bytesBase64: string }>;
+  userAudios: Array<{ mime: string; bytesBase64: string }>;
   assistantText: string;
 };
 
