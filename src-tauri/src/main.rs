@@ -1454,6 +1454,10 @@ async fn call_model_openai_style(
 }
 
 fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
+  if label == "chat" {
+    let _ = archive_selected_conversation_if_idle(app);
+  }
+
   let window = app
     .get_webview_window(label)
     .ok_or_else(|| format!("Window '{label}' not found"))?;
@@ -1471,6 +1475,29 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
   let _ = window.show();
   let _ = window.set_focus();
   let _ = window.emit("easy-call:refresh", ());
+  Ok(())
+}
+
+fn archive_selected_conversation_if_idle(app: &AppHandle) -> Result<(), String> {
+  let state = app.state::<AppState>();
+  let guard = state
+    .state_lock
+    .lock()
+    .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+  let app_config = read_config(&state.config_path)?;
+  let mut data = read_app_data(&state.data_path)?;
+  ensure_default_agent(&mut data);
+
+  let api_config = resolve_selected_api_config(&app_config, None)
+    .ok_or_else(|| "No API config available".to_string())?;
+  let selected_agent_id = data.selected_agent_id.clone();
+  let changed = archive_if_idle(&mut data, &api_config.id, &selected_agent_id);
+  if changed {
+    write_app_data(&state.data_path, &data)?;
+  }
+
+  drop(guard);
   Ok(())
 }
 

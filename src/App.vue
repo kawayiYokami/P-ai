@@ -215,7 +215,9 @@ const allTurns = computed<ChatTurn[]>(() => {
         assistantText = renderMessage(msgs[i + 1]);
         i++;
       }
-      turns.push({ id: msg.id, userText, userImages, assistantText });
+      if (userText || userImages.length > 0 || assistantText.trim()) {
+        turns.push({ id: msg.id, userText, userImages, assistantText });
+      }
     }
   }
   return turns;
