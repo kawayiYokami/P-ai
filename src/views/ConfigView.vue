@@ -2,9 +2,10 @@
   <div class="grid gap-2">
     <div class="tabs tabs-boxed tabs-sm">
       <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">快捷键</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">API配置</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">API</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">工具</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'agent' }" @click="$emit('update:configTab', 'agent')">智能体</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">对话设置</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">对话</a>
     </div>
 
     <template v-if="configTab === 'hotkey'">
@@ -80,14 +81,40 @@
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" /></label>
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
         </div>
-        <div v-if="selectedApiConfig.enableTools" class="rounded border border-base-300 bg-base-100 px-2 py-1 text-[11px]">
-          <div class="font-medium mb-1">默认工具</div>
-          <div v-for="tool in selectedApiConfig.tools" :key="tool.id">
-            {{ tool.id }}: {{ tool.command }} {{ tool.args.join(" ") }}
-          </div>
-        </div>
       </div>
 
+    </template>
+
+    <template v-else-if="configTab === 'tools'">
+      <div v-if="!selectedApiConfig" class="text-xs opacity-70">未选择 API 配置</div>
+      <template v-else>
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-medium">当前 API 配置：{{ selectedApiConfig.name }}</div>
+          <button class="btn btn-sm btn-ghost bg-base-100" :class="{ loading: checkingToolsStatus }" @click="$emit('refreshToolsStatus')">
+            刷新状态
+          </button>
+        </div>
+        <div v-if="!selectedApiConfig.enableTools" class="text-xs opacity-70">此 API 配置未启用工具调用。</div>
+        <div v-else class="grid gap-2">
+          <div
+            v-for="tool in selectedApiConfig.tools"
+            :key="tool.id"
+            class="rounded border border-base-300 bg-base-100 p-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-xs font-medium">{{ tool.id }}</div>
+              <div
+                class="badge badge-xs"
+                :class="statusBadgeClass(tool.id)"
+              >
+                {{ statusText(tool.id) }}
+              </div>
+            </div>
+            <div class="text-[11px] opacity-80 mt-1">{{ tool.command }} {{ tool.args.join(" ") }}</div>
+            <div class="text-[11px] opacity-70 mt-1">{{ statusDetail(tool.id) }}</div>
+          </div>
+        </div>
+      </template>
     </template>
 
     <template v-else-if="configTab === 'agent'">
@@ -107,7 +134,7 @@
       </div>
     </template>
 
-    <template v-else>
+    <template v-else-if="configTab === 'chatSettings'">
       <label class="form-control">
         <div class="label py-1"><span class="label-text text-xs">默认AI配置</span></div>
         <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm">
@@ -132,19 +159,21 @@
 </template>
 
 <script setup lang="ts">
-import type { AgentProfile, ApiConfigItem, AppConfig } from "../types/app";
+import type { AgentProfile, ApiConfigItem, AppConfig, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 
-type ConfigTab = "hotkey" | "api" | "agent" | "chatSettings";
+type ConfigTab = "hotkey" | "api" | "tools" | "agent" | "chatSettings";
 
-defineProps<{
+const props = defineProps<{
   config: AppConfig;
   configTab: ConfigTab;
   currentTheme: "light" | "forest";
   selectedApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
+  checkingToolsStatus: boolean;
   modelOptions: string[];
+  toolStatuses: ToolLoadStatus[];
   agents: AgentProfile[];
   selectedAgentId: string;
   selectedAgent: AgentProfile | null;
@@ -157,10 +186,31 @@ defineEmits<{
   (e: "update:userAlias", value: string): void;
   (e: "toggleTheme"): void;
   (e: "refreshModels"): void;
+  (e: "refreshToolsStatus"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;
   (e: "addAgent"): void;
   (e: "removeSelectedAgent"): void;
   (e: "openCurrentHistory"): void;
 }>();
+
+function toolStatusById(id: string): ToolLoadStatus | undefined {
+  return props.toolStatuses.find((s) => s.id === id);
+}
+
+function statusText(id: string): string {
+  return toolStatusById(id)?.status ?? "unknown";
+}
+
+function statusDetail(id: string): string {
+  return toolStatusById(id)?.detail ?? "尚未检查";
+}
+
+function statusBadgeClass(id: string): string {
+  const status = toolStatusById(id)?.status;
+  if (status === "loaded") return "badge-success";
+  if (status === "failed" || status === "timeout") return "badge-error";
+  if (status === "disabled") return "badge-ghost";
+  return "badge-outline";
+}
 </script>

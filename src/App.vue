@@ -35,7 +35,9 @@
         :selected-api-config="selectedApiConfig"
         :base-url-reference="baseUrlReference"
         :refreshing-models="refreshingModels"
+        :checking-tools-status="checkingToolsStatus"
         :model-options="selectedModelOptions"
+        :tool-statuses="toolStatuses"
         :agents="agents"
         :selected-agent-id="selectedAgentId"
         :selected-agent="selectedAgent"
@@ -45,6 +47,7 @@
         @update:user-alias="userAlias = $event"
         @toggle-theme="toggleTheme"
         @refresh-models="refreshModels"
+        @refresh-tools-status="refreshToolsStatus"
         @add-api-config="addApiConfig"
         @remove-selected-api-config="removeSelectedApiConfig"
         @add-agent="addAgent"
@@ -119,13 +122,14 @@ import type {
   ChatMessage,
   ChatSettings,
   ChatSnapshot,
+  ToolLoadStatus,
 } from "./types/app";
 
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
 
 const config = reactive<AppConfig>({ hotkey: "Alt+C", selectedApiConfigId: "", apiConfigs: [] });
-const configTab = ref<"hotkey" | "api" | "agent" | "chatSettings">("hotkey");
+const configTab = ref<"hotkey" | "api" | "tools" | "agent" | "chatSettings">("hotkey");
 const currentTheme = ref<"light" | "forest">("light");
 const agents = ref<AgentProfile[]>([]);
 const selectedAgentId = ref("default-agent");
@@ -146,6 +150,8 @@ const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
 const refreshingModels = ref(false);
+const checkingToolsStatus = ref(false);
+const toolStatuses = ref<ToolLoadStatus[]>([]);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const alwaysOnTop = ref(false);
@@ -206,8 +212,13 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
 
 function defaultApiTools() {
   return [
-    { id: "fetch", command: "uvx", args: ["mcp-server-fetch"] },
-    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"] },
+    {
+      id: "fetch",
+      command: "npx",
+      args: ["-y", "@iflow-mcp/fetch"],
+      values: {},
+    },
+    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], values: {} },
   ];
 }
 
@@ -396,6 +407,26 @@ async function refreshModels() {
     status.value = `Refresh models failed: ${String(e)}`;
   } finally {
     refreshingModels.value = false;
+  }
+}
+
+async function refreshToolsStatus() {
+  if (!selectedApiConfig.value) return;
+  checkingToolsStatus.value = true;
+  try {
+    toolStatuses.value = await invoke<ToolLoadStatus[]>("check_tools_status", {
+      input: { apiConfigId: selectedApiConfig.value.id },
+    });
+  } catch (e) {
+    toolStatuses.value = [
+      {
+        id: "tools",
+        status: "failed",
+        detail: String(e),
+      },
+    ];
+  } finally {
+    checkingToolsStatus.value = false;
   }
 }
 
@@ -697,6 +728,23 @@ watch(
     if (selectedApiConfig.value.tools.length === 0) {
       selectedApiConfig.value.tools = defaultApiTools();
     }
+  },
+);
+
+watch(
+  () => [configTab.value, config.selectedApiConfigId, selectedApiConfig.value?.enableTools],
+  async ([tab, id, enabled]) => {
+    if (tab !== "tools") return;
+    if (!id) return;
+    if (!enabled) {
+      toolStatuses.value = (selectedApiConfig.value?.tools ?? []).map((t) => ({
+        id: t.id,
+        status: "disabled",
+        detail: "此 API 配置未启用工具调用。",
+      }));
+      return;
+    }
+    await refreshToolsStatus();
   },
 );
 </script>

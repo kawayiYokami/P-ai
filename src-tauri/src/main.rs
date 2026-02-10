@@ -1,10 +1,16 @@
 
-use std::{fs, io::Cursor, path::PathBuf, sync::Mutex};
+use std::{
+  fs,
+  io::Cursor,
+  path::PathBuf,
+  sync::Mutex,
+};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
 use image::ImageFormat;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use scraper::{Html, Selector};
 use rig::{
   OneOrMany,
   completion::{
@@ -36,6 +42,8 @@ struct ApiToolConfig {
   id: String,
   command: String,
   args: Vec<String>,
+  #[serde(default)]
+  values: Value,
 }
 
 fn default_false() -> bool {
@@ -46,13 +54,15 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
   vec![
     ApiToolConfig {
       id: "fetch".to_string(),
-      command: "uvx".to_string(),
-      args: vec!["mcp-server-fetch".to_string()],
+      command: "npx".to_string(),
+      args: vec!["-y".to_string(), "@iflow-mcp/fetch".to_string()],
+      values: serde_json::json!({}),
     },
     ApiToolConfig {
       id: "bing-search".to_string(),
       command: "npx".to_string(),
       args: vec!["-y".to_string(), "bing-cn-mcp".to_string()],
+      values: serde_json::json!({}),
     },
   ]
 }
@@ -186,6 +196,20 @@ struct RefreshModelsInput {
   request_format: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckToolsStatusInput {
+  api_config_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolLoadStatus {
+  id: String,
+  status: String,
+  detail: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct OpenAIModelListItem {
   id: String,
@@ -194,6 +218,34 @@ struct OpenAIModelListItem {
 #[derive(Debug, Clone, Deserialize)]
 struct OpenAIModelListResponse {
   data: Vec<OpenAIModelListItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIChatCompletionChoice {
+  message: OpenAIChatAssistantMessage,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIChatCompletionResponse {
+  choices: Vec<OpenAIChatCompletionChoice>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIChatAssistantMessage {
+  content: Option<Value>,
+  tool_calls: Option<Vec<OpenAIToolCall>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIToolCall {
+  id: String,
+  function: OpenAIToolCallFunction,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIToolCallFunction {
+  name: String,
+  arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,6 +377,14 @@ struct PreparedPrompt {
   latest_user_text: String,
   latest_images: Vec<(String, String)>,
   latest_audios: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct McpExposedTool {
+  openai_name: String,
+  mcp_name: String,
+  description: Option<String>,
+  input_schema: Value,
 }
 
 struct AppState {
@@ -766,7 +826,11 @@ fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
   }
 }
 
-async fn call_model_openai_style(api_config: &ResolvedApiConfig, model_name: &str, prepared: PreparedPrompt) -> Result<String, String> {
+async fn call_model_openai_rig_style(
+  api_config: &ResolvedApiConfig,
+  model_name: &str,
+  prepared: PreparedPrompt,
+) -> Result<String, String> {
   let mut content_items: Vec<UserContent> = vec![UserContent::text(prepared.preamble)];
 
   if !prepared.latest_user_text.trim().is_empty() {
@@ -803,6 +867,372 @@ async fn call_model_openai_style(api_config: &ResolvedApiConfig, model_name: &st
     .prompt(prompt_message)
     .await
     .map_err(|err| format!("rig prompt failed: {err}"))
+}
+
+fn value_to_text(value: &Value) -> String {
+  match value {
+    Value::String(s) => s.clone(),
+    other => serde_json::to_string(other).unwrap_or_else(|_| "<invalid json>".to_string()),
+  }
+}
+
+fn parse_assistant_text(content: &Option<Value>) -> String {
+  match content {
+    Some(Value::String(s)) => s.clone(),
+    Some(Value::Array(items)) => items
+      .iter()
+      .filter_map(|it| it.get("text").and_then(Value::as_str))
+      .collect::<Vec<_>>()
+      .join("\n")
+      .trim()
+      .to_string(),
+    Some(other) => value_to_text(other),
+    None => String::new(),
+  }
+}
+
+fn build_openai_tools_payload(tools: &[McpExposedTool]) -> Vec<Value> {
+  tools
+    .iter()
+    .map(|tool| {
+      serde_json::json!({
+        "type": "function",
+        "function": {
+          "name": tool.openai_name,
+          "description": tool.description.clone().unwrap_or_default(),
+          "parameters": tool.input_schema,
+        }
+      })
+    })
+    .collect()
+}
+
+fn build_builtin_tools_payload(selected_api: &ApiConfig) -> Vec<McpExposedTool> {
+  if !selected_api.enable_tools {
+    return Vec::new();
+  }
+  selected_api
+    .tools
+    .iter()
+    .filter_map(|tool| {
+      if tool.id == "fetch" {
+        return Some(McpExposedTool {
+          openai_name: "fetch".to_string(),
+          mcp_name: "fetch".to_string(),
+          description: Some("Fetch webpage text.".to_string()),
+          input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "description": "URL" },
+              "max_length": { "type": "integer", "description": "Max chars", "default": 1800 }
+            },
+            "required": ["url"]
+          }),
+        });
+      }
+      if tool.id == "bing-search" {
+        return Some(McpExposedTool {
+          openai_name: "bing_search".to_string(),
+          mcp_name: "bing-search".to_string(),
+          description: Some("Search web with Bing.".to_string()),
+          input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+              "query": { "type": "string", "description": "Query" },
+              "num_results": { "type": "integer", "description": "Result count", "default": 5 }
+            },
+            "required": ["query"]
+          }),
+        });
+      }
+      None
+    })
+    .collect()
+}
+
+fn clean_text(input: &str) -> String {
+  input
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(12))
+    .build()
+    .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+  let resp = client
+    .get(url)
+    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+    .send()
+    .await
+    .map_err(|err| format!("Fetch url failed: {err}"))?;
+  let status = resp.status();
+  if !status.is_success() {
+    return Err(format!("Fetch url failed with status {status}"));
+  }
+  let html = resp.text().await.map_err(|err| format!("Read body failed: {err}"))?;
+  let document = Html::parse_document(&html);
+  let body_selector = Selector::parse("body").map_err(|err| format!("Parse selector failed: {err}"))?;
+  let raw = document
+    .select(&body_selector)
+    .next()
+    .map(|n| n.text().collect::<Vec<_>>().join(" "))
+    .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "));
+  let cleaned = clean_text(&raw);
+  let truncated = if cleaned.len() > max_length {
+    format!("{}...", &cleaned[..max_length])
+  } else {
+    cleaned
+  };
+  Ok(serde_json::json!({
+    "url": url,
+    "content": truncated
+  }))
+}
+
+async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, String> {
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(12))
+    .build()
+    .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+  let mut last_error: Option<String> = None;
+  for base in ["https://cn.bing.com", "https://www.bing.com"] {
+    let url = format!("{base}/search?q={}", urlencoding::encode(query));
+    let resp = client
+      .get(&url)
+      .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+      .send()
+      .await;
+    let Ok(resp) = resp else {
+      last_error = Some("request failed".to_string());
+      continue;
+    };
+    if !resp.status().is_success() {
+      last_error = Some(format!("status {}", resp.status()));
+      continue;
+    }
+    let html = resp.text().await.map_err(|err| format!("Read search body failed: {err}"))?;
+    let doc = Html::parse_document(&html);
+    let item_sel = Selector::parse("li.b_algo").map_err(|err| format!("Parse selector failed: {err}"))?;
+    let title_sel = Selector::parse("h2").map_err(|err| format!("Parse selector failed: {err}"))?;
+    let a_sel = Selector::parse("h2 a").map_err(|err| format!("Parse selector failed: {err}"))?;
+    let p_sel = Selector::parse("p").map_err(|err| format!("Parse selector failed: {err}"))?;
+    let mut rows = Vec::new();
+    for item in doc.select(&item_sel).take(num_results.max(1)) {
+      let title = item
+        .select(&title_sel)
+        .next()
+        .map(|n| clean_text(&n.text().collect::<Vec<_>>().join(" ")))
+        .unwrap_or_default();
+      let link = item
+        .select(&a_sel)
+        .next()
+        .and_then(|n| n.value().attr("href"))
+        .unwrap_or_default()
+        .to_string();
+      let snippet = item
+        .select(&p_sel)
+        .next()
+        .map(|n| clean_text(&n.text().collect::<Vec<_>>().join(" ")))
+        .unwrap_or_default();
+      if !title.is_empty() && !link.is_empty() {
+        rows.push(serde_json::json!({"title": title, "url": link, "snippet": snippet}));
+      }
+    }
+    if !rows.is_empty() {
+      return Ok(serde_json::json!({"query": query, "results": rows}));
+    }
+    last_error = Some("no results parsed".to_string());
+  }
+  Err(format!(
+    "bing search failed: {}",
+    last_error.unwrap_or_else(|| "unknown".to_string())
+  ))
+}
+
+async fn execute_builtin_tool(name: &str, args: Value) -> Result<Value, String> {
+  match name {
+    "fetch" => {
+      let url = args
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "fetch.url is required".to_string())?;
+      let max_length = args
+        .get("max_length")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(1800);
+      builtin_fetch(url, max_length).await
+    }
+    "bing-search" => {
+      let query = args
+        .get("query")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "bing_search.query is required".to_string())?;
+      let num = args
+        .get("num_results")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(5);
+      builtin_bing_search(query, num).await
+    }
+    _ => Err(format!("Unsupported builtin tool: {name}")),
+  }
+}
+
+fn openai_headers(api_key: &str) -> Result<HeaderMap, String> {
+  let mut headers = HeaderMap::new();
+  headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+  let auth = format!("Bearer {}", api_key.trim());
+  let auth_value = HeaderValue::from_str(&auth)
+    .map_err(|err| format!("Build authorization header failed: {err}"))?;
+  headers.insert(AUTHORIZATION, auth_value);
+  Ok(headers)
+}
+
+fn normalize_openai_chat_base(base_url: &str) -> String {
+  let base = base_url.trim().trim_end_matches('/');
+  if base.to_ascii_lowercase().ends_with("/chat/completions") {
+    return base.to_string();
+  }
+  if base.to_ascii_lowercase().ends_with("/v1") {
+    return format!("{base}/chat/completions");
+  }
+  format!("{base}/v1/chat/completions")
+}
+
+async fn call_model_openai_with_tools(
+  api_config: &ResolvedApiConfig,
+  selected_api: &ApiConfig,
+  model_name: &str,
+  prepared: PreparedPrompt,
+) -> Result<String, String> {
+  let exposed_tools = build_builtin_tools_payload(selected_api);
+  if exposed_tools.is_empty() {
+    return call_model_openai_rig_style(api_config, model_name, prepared).await;
+  }
+
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(60))
+    .default_headers(openai_headers(&api_config.api_key)?)
+    .build()
+    .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+  let url = normalize_openai_chat_base(&api_config.base_url);
+
+  let mut messages = vec![
+    serde_json::json!({"role":"system","content": prepared.preamble}),
+    serde_json::json!({"role":"user","content": prepared.latest_user_text}),
+  ];
+  let tools_payload = build_openai_tools_payload(&exposed_tools);
+
+  for _ in 0..4 {
+    let body = serde_json::json!({
+      "model": model_name,
+      "messages": messages,
+      "tools": tools_payload,
+      "tool_choice": "auto",
+      "temperature": 0.2
+    });
+
+    let resp = client
+      .post(&url)
+      .json(&body)
+      .send()
+      .await
+      .map_err(|err| format!("OpenAI chat completion failed: {err}"))?;
+    if !resp.status().is_success() {
+      let status = resp.status();
+      let raw = resp.text().await.unwrap_or_default();
+      return Err(format!(
+        "OpenAI chat completion failed with status {status}: {}",
+        raw.chars().take(300).collect::<String>()
+      ));
+    }
+
+    let parsed = resp
+      .json::<OpenAIChatCompletionResponse>()
+      .await
+      .map_err(|err| format!("Parse OpenAI chat completion failed: {err}"))?;
+    let message = parsed
+      .choices
+      .first()
+      .ok_or_else(|| "OpenAI chat completion returned no choices".to_string())?
+      .message
+      .clone();
+
+    let tool_calls = message.tool_calls.unwrap_or_default();
+    if tool_calls.is_empty() {
+      return Ok(parse_assistant_text(&message.content));
+    }
+
+    let assistant_tool_calls = tool_calls
+      .iter()
+      .map(|tc| {
+        serde_json::json!({
+          "id": tc.id,
+          "type": "function",
+          "function": {
+            "name": tc.function.name,
+            "arguments": tc.function.arguments,
+          }
+        })
+      })
+      .collect::<Vec<_>>();
+    messages.push(serde_json::json!({
+      "role":"assistant",
+      "content": message.content.unwrap_or(Value::Null),
+      "tool_calls": assistant_tool_calls
+    }));
+
+    for tc in tool_calls {
+      let Some(exposed) = exposed_tools
+        .iter()
+        .find(|tool| tool.openai_name == tc.function.name)
+      else {
+        messages.push(serde_json::json!({
+          "role":"tool",
+          "tool_call_id": tc.id,
+          "content": format!("Tool '{}' is not registered.", tc.function.name)
+        }));
+        continue;
+      };
+
+      let args = if tc.function.arguments.trim().is_empty() {
+        serde_json::json!({})
+      } else {
+        serde_json::from_str::<Value>(&tc.function.arguments)
+          .map_err(|err| format!("Parse tool arguments failed ({}): {err}", tc.function.name))?
+      };
+
+      let result_value = execute_builtin_tool(&exposed.mcp_name, args).await?;
+      let tool_text = value_to_text(&result_value);
+      messages.push(serde_json::json!({
+        "role":"tool",
+        "tool_call_id": tc.id,
+        "content": tool_text
+      }));
+    }
+  }
+
+  Err("Tool call exceeded max iterations.".to_string())
+}
+
+async fn call_model_openai_style(
+  api_config: &ResolvedApiConfig,
+  selected_api: &ApiConfig,
+  model_name: &str,
+  prepared: PreparedPrompt,
+) -> Result<String, String> {
+  if selected_api.enable_tools
+    && selected_api.request_format.trim() == "openai"
+    && prepared.latest_images.is_empty()
+    && prepared.latest_audios.is_empty()
+  {
+    return call_model_openai_with_tools(api_config, selected_api, model_name, prepared).await;
+  }
+  call_model_openai_rig_style(api_config, model_name, prepared).await
 }
 
 fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
@@ -1123,7 +1553,7 @@ fn get_archive_messages(archive_id: String, state: State<'_, AppState>) -> Resul
 }
 #[tauri::command]
 async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -> Result<SendChatResult, String> {
-  let (resolved_api, model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
+  let (resolved_api, selected_api, model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
     let guard = state
       .state_lock
       .lock()
@@ -1196,6 +1626,7 @@ async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -
 
     (
       resolved_api,
+      api_config,
       model_name,
       prepared,
       conversation_id,
@@ -1204,7 +1635,7 @@ async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -
     )
   };
 
-  let assistant_text = call_model_openai_style(&resolved_api, &model_name, prepared_prompt).await?;
+  let assistant_text = call_model_openai_style(&resolved_api, &selected_api, &model_name, prepared_prompt).await?;
 
   {
     let guard = state
@@ -1316,6 +1747,55 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
 }
 
 #[tauri::command]
+fn check_tools_status(
+  input: CheckToolsStatusInput,
+  state: State<'_, AppState>,
+) -> Result<Vec<ToolLoadStatus>, String> {
+  let guard = state
+    .state_lock
+    .lock()
+    .map_err(|_| "Failed to lock state mutex".to_string())?;
+  let mut config = read_config(&state.config_path)?;
+  normalize_api_tools(&mut config);
+  drop(guard);
+
+  let selected = resolve_selected_api_config(&config, input.api_config_id.as_deref())
+    .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+
+  if !selected.enable_tools {
+    return Ok(
+      selected
+        .tools
+        .iter()
+        .map(|tool| ToolLoadStatus {
+          id: tool.id.clone(),
+          status: "disabled".to_string(),
+          detail: "此 API 配置未启用工具调用。".to_string(),
+        })
+        .collect(),
+    );
+  }
+
+  let mut statuses = Vec::new();
+  for tool in selected.tools {
+    let (status, detail) = match tool.id.as_str() {
+      "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
+      "bing-search" => ("loaded".to_string(), "内置 Bing 爬虫搜索可用".to_string()),
+      other => (
+        "failed".to_string(),
+        format!("未支持的内置工具: {other}"),
+      ),
+    };
+    statuses.push(ToolLoadStatus {
+      id: tool.id,
+      status,
+      detail,
+    });
+  }
+  Ok(statuses)
+}
+
+#[tauri::command]
 async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> {
   let app_config = {
     let guard = state
@@ -1342,7 +1822,8 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     latest_audios: Vec::new(),
   };
 
-  call_model_openai_style(&api_config, &api_config.model, prepared).await
+  let selected = ApiConfig::default();
+  call_model_openai_style(&api_config, &selected, &api_config.model, prepared).await
 }
 
 fn main() {
@@ -1385,6 +1866,7 @@ fn main() {
       get_archive_messages,
       send_chat_message,
       refresh_models,
+      check_tools_status,
       send_debug_probe
     ])
     .run(tauri::generate_context!())

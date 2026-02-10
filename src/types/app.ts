@@ -2,6 +2,7 @@ export type ApiToolItem = {
   id: string;
   command: string;
   args: string[];
+  values: Record<string, unknown>;
 };
 
 export type ApiConfigItem = {
@@ -49,3 +50,9 @@ export type ChatSnapshot = {
 export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
 
 export type ChatSettings = { selectedAgentId: string; userAlias: string };
+
+export type ToolLoadStatus = {
+  id: string;
+  status: "loaded" | "failed" | "timeout" | "disabled";
+  detail: string;
+};
