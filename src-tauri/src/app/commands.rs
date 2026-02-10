@@ -595,6 +595,52 @@ fn check_tools_status(
 }
 
 #[tauri::command]
+fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let entries = data.image_text_cache.len();
+    let total_chars = data
+        .image_text_cache
+        .iter()
+        .map(|entry| entry.text.chars().count())
+        .sum::<usize>();
+    let latest_updated_at = data
+        .image_text_cache
+        .iter()
+        .map(|entry| entry.updated_at.clone())
+        .max();
+
+    Ok(ImageTextCacheStats {
+        entries,
+        total_chars,
+        latest_updated_at,
+    })
+}
+
+#[tauri::command]
+fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+    data.image_text_cache.clear();
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+
+    Ok(ImageTextCacheStats {
+        entries: 0,
+        total_chars: 0,
+        latest_updated_at: None,
+    })
+}
+
+#[tauri::command]
 async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> {
     let app_config = {
         let guard = state

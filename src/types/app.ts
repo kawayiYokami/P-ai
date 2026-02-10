@@ -66,3 +66,9 @@ export type ToolLoadStatus = {
   status: "loaded" | "failed" | "timeout" | "disabled";
   detail: string;
 };
+
+export type ImageTextCacheStats = {
+  entries: number;
+  totalChars: number;
+  latestUpdatedAt?: string;
+};

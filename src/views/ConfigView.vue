@@ -177,12 +177,23 @@
       <div class="flex gap-1">
         <button class="btn btn-sm" @click="$emit('openCurrentHistory')">查看当前未归档记录</button>
       </div>
+      <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="font-medium">图片转文缓存</span>
+          <div class="flex gap-1">
+            <button class="btn btn-xs btn-ghost" :class="{ loading: cacheStatsLoading }" @click="$emit('refreshImageCacheStats')">刷新</button>
+            <button class="btn btn-xs btn-ghost" :disabled="cacheStats.entries === 0" @click="$emit('clearImageCache')">清理</button>
+          </div>
+        </div>
+        <div class="mt-1 opacity-80">条目: {{ cacheStats.entries }} | 字符: {{ cacheStats.totalChars }}</div>
+        <div class="mt-1 opacity-70">最近更新: {{ cacheStats.latestUpdatedAt || "-" }}</div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { AgentProfile, ApiConfigItem, AppConfig, ToolLoadStatus } from "../types/app";
+import type { AgentProfile, ApiConfigItem, AppConfig, ImageTextCacheStats, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 
 type ConfigTab = "hotkey" | "api" | "tools" | "agent" | "chatSettings";
@@ -204,6 +215,8 @@ const props = defineProps<{
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   audioCapableApiConfigs: ApiConfigItem[];
+  cacheStats: ImageTextCacheStats;
+  cacheStatsLoading: boolean;
 }>();
 
 defineEmits<{
@@ -218,6 +231,8 @@ defineEmits<{
   (e: "addAgent"): void;
   (e: "removeSelectedAgent"): void;
   (e: "openCurrentHistory"): void;
+  (e: "refreshImageCacheStats"): void;
+  (e: "clearImageCache"): void;
 }>();
 
 function toolStatusById(id: string): ToolLoadStatus | undefined {

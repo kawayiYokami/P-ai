@@ -45,6 +45,8 @@
         :text-capable-api-configs="textCapableApiConfigs"
         :image-capable-api-configs="imageCapableApiConfigs"
         :audio-capable-api-configs="audioCapableApiConfigs"
+        :cache-stats="imageCacheStats"
+        :cache-stats-loading="imageCacheStatsLoading"
         @update:config-tab="configTab = $event"
         @update:selected-agent-id="selectedAgentId = $event"
         @update:user-alias="userAlias = $event"
@@ -56,6 +58,8 @@
         @add-agent="addAgent"
         @remove-selected-agent="removeSelectedAgent"
         @open-current-history="openCurrentHistory"
+        @refresh-image-cache-stats="refreshImageCacheStats"
+        @clear-image-cache="clearImageCache"
       />
 
       <ChatView
@@ -129,6 +133,7 @@ import type {
   ChatSettings,
   ChatSnapshot,
   ChatTurn,
+  ImageTextCacheStats,
   ToolLoadStatus,
 } from "./types/app";
 
@@ -169,6 +174,8 @@ const chatting = ref(false);
 const refreshingModels = ref(false);
 const checkingToolsStatus = ref(false);
 const toolStatuses = ref<ToolLoadStatus[]>([]);
+const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
+const imageCacheStatsLoading = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const alwaysOnTop = ref(false);
@@ -299,7 +306,9 @@ function normalizeApiBindingsLocal() {
   }
   if (
     config.sttApiConfigId
-    && !config.apiConfigs.some((a) => a.id === config.sttApiConfigId && a.enableAudio)
+    && !config.apiConfigs.some(
+      (a) => a.id === config.sttApiConfigId && a.enableAudio && a.requestFormat === "openai_tts",
+    )
   ) {
     config.sttApiConfigId = undefined;
   }
@@ -525,6 +534,29 @@ async function refreshToolsStatus() {
     ];
   } finally {
     checkingToolsStatus.value = false;
+  }
+}
+
+async function refreshImageCacheStats() {
+  imageCacheStatsLoading.value = true;
+  try {
+    imageCacheStats.value = await invoke<ImageTextCacheStats>("get_image_text_cache_stats");
+  } catch (e) {
+    status.value = `Load image cache stats failed: ${String(e)}`;
+  } finally {
+    imageCacheStatsLoading.value = false;
+  }
+}
+
+async function clearImageCache() {
+  imageCacheStatsLoading.value = true;
+  try {
+    imageCacheStats.value = await invoke<ImageTextCacheStats>("clear_image_text_cache");
+    status.value = "图片转文缓存已清理。";
+  } catch (e) {
+    status.value = `Clear image cache failed: ${String(e)}`;
+  } finally {
+    imageCacheStatsLoading.value = false;
   }
 }
 
@@ -861,6 +893,9 @@ onMounted(async () => {
     await loadConfig();
     await loadAgents();
     await loadChatSettings();
+    if (viewMode.value === "config") {
+      await refreshImageCacheStats();
+    }
     if (viewMode.value === "chat") {
       await refreshChatSnapshot();
       await loadAllMessages();
@@ -974,6 +1009,14 @@ watch(
       return;
     }
     await refreshToolsStatus();
+  },
+);
+
+watch(
+  () => configTab.value,
+  async (tab) => {
+    if (tab !== "chatSettings") return;
+    await refreshImageCacheStats();
   },
 );
 </script>

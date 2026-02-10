@@ -213,6 +213,14 @@ struct ToolLoadStatus {
     detail: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageTextCacheStats {
+    entries: usize,
+    total_chars: usize,
+    latest_updated_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct OpenAIModelListItem {
     id: String,
@@ -556,6 +564,8 @@ fn main() {
             send_chat_message,
             refresh_models,
             check_tools_status,
+            get_image_text_cache_stats,
+            clear_image_text_cache,
             send_debug_probe
         ])
         .run(tauri::generate_context!())
@@ -636,6 +646,19 @@ mod tests {
             Some("text-b".to_string())
         );
         assert_eq!(find_image_text_cache(&data, "h1", "vision-b"), None);
+    }
+
+    #[test]
+    fn compute_image_hash_hex_should_be_stable() {
+        let png_1x1_red = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9WfXkAAAAASUVORK5CYII=";
+        let part = BinaryPart {
+            mime: "image/png".to_string(),
+            bytes_base64: png_1x1_red.to_string(),
+        };
+        let h1 = compute_image_hash_hex(&part).expect("hash1");
+        let h2 = compute_image_hash_hex(&part).expect("hash2");
+        assert_eq!(h1, h2);
+        assert!(!h1.is_empty());
     }
 
     #[test]
