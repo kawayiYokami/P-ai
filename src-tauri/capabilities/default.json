@@ -13,6 +13,7 @@
     "core:window:allow-show",
     "core:window:allow-set-always-on-top",
     "core:window:allow-is-always-on-top",
+    "core:window:allow-set-size",
     "global-shortcut:default"
   ]
 }

@@ -1,11 +1,11 @@
 
 <template>
-  <div class="window-shell text-sm">
-    <div class="navbar min-h-10 h-10 px-2 bg-base-200 border-b border-base-300">
-      <div class="flex-1 h-full flex items-center cursor-move select-none" @mousedown.left.prevent="startDrag">
+  <div class="window-shell text-sm bg-base-200">
+    <div class="navbar min-h-10 h-10 px-2 relative cursor-move select-none" :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'" @mousedown.left.prevent="startDrag">
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
         <span class="font-semibold text-sm">{{ titleText }}</span>
       </div>
-      <div class="flex-none flex gap-1" data-tauri-disable-drag-region>
+      <div class="flex-none flex gap-1 ml-auto" @mousedown.stop>
         <template v-if="viewMode === 'chat'">
           <button
             class="btn btn-ghost btn-xs"
@@ -16,242 +16,102 @@
           >
             <Pin class="h-3.5 w-3.5" />
           </button>
-          <button class="btn btn-error btn-xs" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
+          <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
         </template>
         <template v-else>
           <button class="btn btn-ghost btn-xs" title="Minimize" @click.stop="minimizeWindow" :disabled="!windowReady"><Minus class="h-3.5 w-3.5" /></button>
           <button class="btn btn-ghost btn-xs" title="Maximize" @click.stop="toggleMaximize" :disabled="!windowReady"><Square class="h-3.5 w-3.5" /></button>
-          <button class="btn btn-error btn-xs" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
+          <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
         </template>
       </div>
     </div>
 
-    <div class="window-content p-3">
-      <template v-if="viewMode === 'config'">
-        <div class="grid gap-2">
-          <div class="tabs tabs-boxed tabs-sm">
-            <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="configTab = 'hotkey'">快捷键</a>
-            <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="configTab = 'api'">API配置</a>
-            <a class="tab" :class="{ 'tab-active': configTab === 'agent' }" @click="configTab = 'agent'">智能体</a>
-            <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="configTab = 'chatSettings'">对话设置</a>
-          </div>
+    <div class="window-content" :class="viewMode === 'chat' ? 'flex flex-col' : 'p-3'">
+      <ConfigView
+        v-if="viewMode === 'config'"
+        :config="config"
+        :config-tab="configTab"
+        :current-theme="currentTheme"
+        :selected-api-config="selectedApiConfig"
+        :base-url-reference="baseUrlReference"
+        :refreshing-models="refreshingModels"
+        :loading="loading"
+        :agents="agents"
+        :selected-agent-id="selectedAgentId"
+        :selected-agent="selectedAgent"
+        :user-alias="userAlias"
+        @update:config-tab="configTab = $event"
+        @update:selected-agent-id="selectedAgentId = $event"
+        @update:user-alias="userAlias = $event"
+        @toggle-theme="toggleTheme"
+        @load-config="loadConfig"
+        @refresh-models="refreshModels"
+        @add-api-config="addApiConfig"
+        @remove-selected-api-config="removeSelectedApiConfig"
+        @add-agent="addAgent"
+        @remove-selected-agent="removeSelectedAgent"
+        @open-current-history="openCurrentHistory"
+      />
 
-          <template v-if="configTab === 'hotkey'">
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">Hotkey</span></div>
-              <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+C" />
-            </label>
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">主题</span></div>
-              <button class="btn btn-sm w-full" @click="toggleTheme">
-                {{ currentTheme === 'light' ? '🌞 浅色模式' : '🌙 深色模式' }}
-              </button>
-            </label>
-            <div class="flex gap-1">
-              <button class="btn btn-primary btn-sm flex-1" :class="{ loading: saving }" @click="saveConfig">保存配置</button>
-              <button class="btn btn-sm" :class="{ loading: loading }" @click="loadConfig">重载</button>
-            </div>
-          </template>
+      <ChatView
+        v-else-if="viewMode === 'chat'"
+        :user-alias="userAlias"
+        :agent-name="selectedAgent?.name || '助理'"
+        :latest-user-text="latestUserText"
+        :latest-assistant-text="latestAssistantText"
+        :clipboard-images="clipboardImages"
+        :chat-input="chatInput"
+        :chat-input-placeholder="chatInputPlaceholder"
+        :chatting="chatting"
+        @update:chat-input="chatInput = $event"
+        @remove-clipboard-image="removeClipboardImage"
+        @send-chat="sendChat"
+        @stop-chat="stopChat"
+      />
 
-          <template v-else-if="configTab === 'api'">
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">当前API配置</span></div>
-              <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm">
-                <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-            </label>
+      <ArchivesView
+        v-else
+        :archives="archives"
+        :archive-messages="archiveMessages"
+        :render-message="renderMessage"
+        @load-archives="loadArchives"
+        @select-archive="selectArchive"
+      />
 
-            <div v-if="selectedApiConfig" class="grid gap-2">
-              <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" placeholder="配置名称" />
-              <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
-                <option value="openai">openai</option>
-                <option value="gemini">gemini</option>
-                <option value="deepseek/kimi">deepseek/kimi</option>
-              </select>
-              <input v-model="selectedApiConfig.baseUrl" class="input input-bordered input-sm" :placeholder="baseUrlReference" />
-              <input v-model="selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
-              <div class="flex gap-1">
-                <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
-                <button class="btn btn-sm btn-square" :class="{ loading: refreshingModels }" :disabled="refreshingModels" @click="refreshModels"><RefreshCw class="h-4 w-4" /></button>
-              </div>
-              <div class="flex gap-2">
-                <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
-                <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-                <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" /></label>
-              </div>
-            </div>
-
-            <div class="flex gap-1">
-              <button class="btn btn-sm" @click="addApiConfig"><Plus class="h-4 w-4" /></button>
-              <button class="btn btn-sm" :disabled="config.apiConfigs.length <= 1" @click="removeSelectedApiConfig"><Trash2 class="h-4 w-4" /></button>
-              <button class="btn btn-primary btn-sm flex-1" :class="{ loading: saving }" @click="saveConfig">保存配置</button>
-              <button class="btn btn-sm" :class="{ loading: loading }" @click="loadConfig">重载</button>
-            </div>
-          </template>
-
-          <template v-else-if="configTab === 'agent'">
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">当前智能体</span></div>
-              <select v-model="selectedAgentId" class="select select-bordered select-sm">
-                <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-            </label>
-            <div v-if="selectedAgent" class="grid gap-2">
-              <input v-model="selectedAgent.name" class="input input-bordered input-sm" placeholder="智能体名称" />
-              <textarea v-model="selectedAgent.systemPrompt" class="textarea textarea-bordered textarea-sm" rows="4" placeholder="系统提示词"></textarea>
-            </div>
-            <div class="flex gap-1">
-              <button class="btn btn-sm" @click="addAgent"><Plus class="h-4 w-4" /></button>
-              <button class="btn btn-sm" :disabled="agents.length <= 1" @click="removeSelectedAgent"><Trash2 class="h-4 w-4" /></button>
-              <button class="btn btn-primary btn-sm flex-1" @click="saveAgents">保存智能体</button>
-            </div>
-          </template>
-
-          <template v-else>
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">默认AI配置</span></div>
-              <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm">
-                <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-            </label>
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">默认智能体</span></div>
-              <select v-model="selectedAgentId" class="select select-bordered select-sm">
-                <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-            </label>
-            <label class="form-control">
-              <div class="label py-1"><span class="label-text text-xs">用户称谓</span></div>
-              <input v-model="userAlias" class="input input-bordered input-sm" placeholder="用户" />
-            </label>
-            <div class="flex gap-1">
-              <button class="btn btn-primary btn-sm flex-1" :class="{ loading: saving }" @click="saveChatPreferences">保存对话设置</button>
-              <button class="btn btn-sm" @click="openCurrentHistory">查看当前未归档记录</button>
-            </div>
-          </template>
-        </div>
-      </template>
-      <template v-else-if="viewMode === 'chat'">
-        <div class="grid gap-2">
-          <div class="chat chat-end">
-            <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
-            <div class="chat-bubble max-w-[92%] whitespace-pre-wrap">{{ latestUserText || "..." }}</div>
-          </div>
-          <div class="chat chat-start">
-            <div class="chat-header text-[11px] opacity-70 mb-1">{{ selectedAgent?.name || "助理" }}</div>
-            <div class="chat-bubble max-w-[92%] whitespace-pre-wrap">{{ latestAssistantText || "..." }}</div>
-          </div>
-
-          <div v-if="clipboardImages.length > 0" class="flex flex-wrap gap-1">
-            <div
-              v-for="(img, idx) in clipboardImages"
-              :key="`${img.mime}-${idx}`"
-              class="badge badge-outline gap-1 py-3"
-            >
-              <ImageIcon class="h-3.5 w-3.5" />
-              <span class="text-[11px]">图片{{ idx + 1 }}</span>
-              <button class="btn btn-ghost btn-xs btn-square" @click="removeClipboardImage(idx)">
-                <X class="h-3 w-3" />
-              </button>
-            </div>
-          </div>
-
-          <textarea
-            v-model="chatInput"
-            ref="chatTextarea"
-            class="textarea textarea-bordered textarea-sm resize-none"
-            :style="{ height: textareaHeight + 'px', minHeight: '50px', maxHeight: '600px' }"
-            placeholder="输入问题，支持 Ctrl+V 粘贴图片/文本"
-            @input="adjustTextareaHeight"
-          ></textarea>
-          <button class="btn btn-primary btn-sm" :class="{ loading: chatting }" @click="sendChat">发送</button>
-          <div v-if="clipboardImages.length > 0" class="text-[11px] opacity-70">已粘贴图片 {{ clipboardImages.length }} 张（发送时自动压缩存储）</div>
-        </div>
-
-        <dialog ref="historyDialog" class="modal">
-          <div class="modal-box max-w-xl">
-            <h3 class="font-semibold text-sm mb-2">当前会话记录（未归档）</h3>
-            <div class="max-h-96 overflow-auto space-y-2">
-              <div v-for="m in currentHistory" :key="m.id" class="text-xs border border-base-300 rounded p-2">
-                <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
-                <div class="whitespace-pre-wrap">{{ renderMessage(m) }}</div>
-              </div>
-            </div>
-            <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">关闭</button></div>
-          </div>
-        </dialog>
-      </template>
-
-      <template v-else>
-        <div class="grid gap-2">
-          <button class="btn btn-sm" @click="loadArchives">刷新归档</button>
-          <div class="grid grid-cols-1 gap-1 max-h-56 overflow-auto">
-            <button v-for="a in archives" :key="a.archiveId" class="btn btn-sm justify-start" @click="selectArchive(a.archiveId)">
-              {{ a.archivedAt }} · {{ a.title }}
-            </button>
-          </div>
-          <div class="divider my-1">归档内容</div>
-          <div class="max-h-80 overflow-auto space-y-2">
-            <div v-for="m in archiveMessages" :key="m.id" class="text-xs border border-base-300 rounded p-2">
+      <dialog ref="historyDialog" class="modal">
+        <div class="modal-box max-w-xl">
+          <h3 class="font-semibold text-sm mb-2">当前会话记录（未归档）</h3>
+          <div class="max-h-96 overflow-auto space-y-2">
+            <div v-for="m in currentHistory" :key="m.id" class="text-xs border border-base-300 rounded p-2">
               <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
               <div class="whitespace-pre-wrap">{{ renderMessage(m) }}</div>
             </div>
           </div>
+          <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">关闭</button></div>
         </div>
-      </template>
+      </dialog>
 
-      <div v-if="viewMode !== 'chat'" class="alert py-2 mt-2" :class="statusClass"><span class="text-xs">{{ status }}</span></div>
     </div>
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, WebviewWindow } from "@tauri-apps/api/window";
-import { Image as ImageIcon, Minus, Pin, Plus, RefreshCw, Square, Trash2, X } from "lucide-vue-next";
-
-type ApiConfigItem = {
-  id: string;
-  name: string;
-  requestFormat: string;
-  enableText: boolean;
-  enableImage: boolean;
-  enableAudio: boolean;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-};
-
-type AppConfig = {
-  hotkey: string;
-  selectedApiConfigId: string;
-  apiConfigs: ApiConfigItem[];
-};
-
-type AgentProfile = {
-  id: string;
-  name: string;
-  systemPrompt: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type MessagePart =
-  | { type: "text"; text: string }
-  | { type: "image"; mime: string; bytesBase64: string }
-  | { type: "audio"; mime: string; bytesBase64: string };
-
-type ChatMessage = { id: string; role: string; parts: MessagePart[] };
-type ChatSnapshot = {
-  conversationId: string;
-  latestUser?: ChatMessage;
-  latestAssistant?: ChatMessage;
-  activeMessageCount: number;
-};
-
-type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
-type ChatSettings = { selectedAgentId: string; userAlias: string };
+import { Minus, Pin, Square, X } from "lucide-vue-next";
+import ConfigView from "./views/ConfigView.vue";
+import ChatView from "./views/ChatView.vue";
+import ArchivesView from "./views/ArchivesView.vue";
+import type {
+  AgentProfile,
+  ApiConfigItem,
+  AppConfig,
+  ArchiveSummary,
+  ChatMessage,
+  ChatSettings,
+  ChatSnapshot,
+} from "./types/app";
 
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
@@ -263,8 +123,6 @@ const agents = ref<AgentProfile[]>([]);
 const selectedAgentId = ref("default-agent");
 const userAlias = ref("用户");
 const chatInput = ref("");
-const chatTextarea = ref<HTMLTextAreaElement | null>(null);
-const textareaHeight = ref(50);
 const latestUserText = ref("");
 const latestAssistantText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
@@ -281,13 +139,22 @@ const chatting = ref(false);
 const refreshingModels = ref(false);
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const alwaysOnTop = ref(false);
+const configAutosaveReady = ref(false);
+const agentsAutosaveReady = ref(false);
+const chatSettingsAutosaveReady = ref(false);
+const suppressAutosave = ref(false);
+let configAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let agentsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-const titleText = computed(() => (viewMode.value === "chat" ? "Easy Call AI - 对话窗口" : viewMode.value === "archives" ? "Easy Call AI - 归档窗口" : "Easy Call AI - 配置窗口"));
-const statusClass = computed(() => {
-  const s = status.value.toLowerCase();
-  if (s.includes("failed") || s.includes("error")) return "alert-error";
-  if (s.includes("loading") || s.includes("saving") || s.includes("sending") || s.includes("refresh")) return "alert-warning";
-  return "alert-success";
+const titleText = computed(() => {
+  if (viewMode.value === "chat") {
+    return `与 ${selectedAgent.value?.name || "助理"} 的对话`;
+  }
+  if (viewMode.value === "archives") {
+    return "Easy Call AI - 归档窗口";
+  }
+  return "Easy Call AI - 配置窗口";
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
@@ -329,6 +196,7 @@ function renderMessage(msg: ChatMessage): string {
 }
 
 async function loadConfig() {
+  suppressAutosave.value = true;
   loading.value = true;
   status.value = "Loading config...";
   try {
@@ -341,11 +209,13 @@ async function loadConfig() {
   } catch (e) {
     status.value = `Load failed: ${String(e)}`;
   } finally {
+    suppressAutosave.value = false;
     loading.value = false;
   }
 }
 
 async function saveConfig() {
+  suppressAutosave.value = true;
   saving.value = true;
   status.value = "Saving config...";
   try {
@@ -357,30 +227,44 @@ async function saveConfig() {
   } catch (e) {
     status.value = `Save failed: ${String(e)}`;
   } finally {
+    suppressAutosave.value = false;
     saving.value = false;
   }
 }
 
 async function loadAgents() {
-  const list = await invoke<AgentProfile[]>("load_agents");
-  agents.value = list;
-  if (!agents.value.some((a) => a.id === selectedAgentId.value)) selectedAgentId.value = agents.value[0]?.id ?? "default-agent";
+  suppressAutosave.value = true;
+  try {
+    const list = await invoke<AgentProfile[]>("load_agents");
+    agents.value = list;
+    if (!agents.value.some((a) => a.id === selectedAgentId.value)) selectedAgentId.value = agents.value[0]?.id ?? "default-agent";
+  } finally {
+    suppressAutosave.value = false;
+  }
 }
 
 async function loadChatSettings() {
-  const settings = await invoke<ChatSettings>("load_chat_settings");
-  if (agents.value.some((a) => a.id === settings.selectedAgentId)) {
-    selectedAgentId.value = settings.selectedAgentId;
+  suppressAutosave.value = true;
+  try {
+    const settings = await invoke<ChatSettings>("load_chat_settings");
+    if (agents.value.some((a) => a.id === settings.selectedAgentId)) {
+      selectedAgentId.value = settings.selectedAgentId;
+    }
+    userAlias.value = settings.userAlias?.trim() || "用户";
+  } finally {
+    suppressAutosave.value = false;
   }
-  userAlias.value = settings.userAlias?.trim() || "用户";
 }
 
 async function saveAgents() {
+  suppressAutosave.value = true;
   try {
     agents.value = await invoke<AgentProfile[]>("save_agents", { input: { agents: agents.value } });
     status.value = "Agents saved.";
   } catch (e) {
     status.value = `Save agents failed: ${String(e)}`;
+  } finally {
+    suppressAutosave.value = false;
   }
 }
 
@@ -396,6 +280,33 @@ async function saveChatPreferences() {
   } finally {
     saving.value = false;
   }
+}
+
+function scheduleConfigAutosave() {
+  if (suppressAutosave.value) return;
+  if (!configAutosaveReady.value) return;
+  if (configAutosaveTimer) clearTimeout(configAutosaveTimer);
+  configAutosaveTimer = setTimeout(() => {
+    void saveConfig();
+  }, 350);
+}
+
+function scheduleAgentsAutosave() {
+  if (suppressAutosave.value) return;
+  if (!agentsAutosaveReady.value) return;
+  if (agentsAutosaveTimer) clearTimeout(agentsAutosaveTimer);
+  agentsAutosaveTimer = setTimeout(() => {
+    void saveAgents();
+  }, 350);
+}
+
+function scheduleChatSettingsAutosave() {
+  if (suppressAutosave.value) return;
+  if (!chatSettingsAutosaveReady.value) return;
+  if (chatSettingsAutosaveTimer) clearTimeout(chatSettingsAutosaveTimer);
+  chatSettingsAutosaveTimer = setTimeout(() => {
+    void saveChatPreferences();
+  }, 350);
 }
 
 function addApiConfig() {
@@ -449,38 +360,50 @@ async function refreshChatSnapshot() {
     status.value = `Load chat snapshot failed: ${String(e)}`;
   }
 }
+let chatGeneration = 0;
+
 async function sendChat() {
   const text = chatInput.value.trim();
   if (!text && clipboardImages.value.length === 0) {
-    status.value = "请输入文本或先粘贴图片。";
     return;
   }
 
+  // 立刻刷新 UI：显示用户消息 + loading 气泡
+  const imageCount = clipboardImages.value.length;
+  const userPreview = [text, imageCount > 0 ? `[图片 x${imageCount}]` : ""].filter(Boolean).join("\n");
+  latestUserText.value = userPreview;
+  latestAssistantText.value = "";
+
+  const sentImages = [...clipboardImages.value];
+  const sentModel = config.apiConfigs.find((a) => a.id === config.selectedApiConfigId)?.model;
+  chatInput.value = "";
+  clipboardImages.value = [];
+
+  const gen = ++chatGeneration;
   chatting.value = true;
-  status.value = "Sending...";
   try {
     const result = await invoke<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
       input: {
         apiConfigId: config.selectedApiConfigId,
         agentId: selectedAgentId.value,
-        payload: {
-          text,
-          images: clipboardImages.value,
-          model: config.apiConfigs.find((a) => a.id === config.selectedApiConfigId)?.model,
-        },
+        payload: { text, images: sentImages, model: sentModel },
       },
     });
-
+    if (gen !== chatGeneration) return;
     latestUserText.value = result.latestUserText;
     latestAssistantText.value = result.assistantText;
-    status.value = result.archivedBeforeSend ? "已自动归档旧会话，并发送到新会话。" : "发送完成。";
-    chatInput.value = "";
-    clipboardImages.value = [];
   } catch (e) {
-    status.value = `Chat failed: ${String(e)}`;
+    if (gen !== chatGeneration) return;
+    latestAssistantText.value = `Error: ${String(e)}`;
   } finally {
-    chatting.value = false;
+    if (gen === chatGeneration) chatting.value = false;
   }
+}
+
+function stopChat() {
+  chatGeneration++;
+  chatting.value = false;
+  latestAssistantText.value = "(已中断)";
 }
 
 async function openCurrentHistory() {
@@ -617,23 +540,31 @@ async function toggleAlwaysOnTop() {
   await appWindow.setAlwaysOnTop(alwaysOnTop.value);
 }
 
-function toggleTheme() {
-  currentTheme.value = currentTheme.value === "light" ? "forest" : "light";
-  document.documentElement.setAttribute("data-theme", currentTheme.value);
+function applyTheme(theme: "light" | "forest") {
+  currentTheme.value = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("theme", theme);
 }
 
-function adjustTextareaHeight() {
-  if (!chatTextarea.value) return;
-  const textarea = chatTextarea.value;
-  textarea.style.height = "auto";
-  const newHeight = Math.min(Math.max(textarea.scrollHeight, 50), 600);
-  textareaHeight.value = newHeight;
+function toggleTheme() {
+  const next = currentTheme.value === "light" ? "forest" : "light";
+  applyTheme(next);
+  emit("easy-call:theme-changed", next);
 }
 
 onMounted(async () => {
   appWindow = getCurrentWindow();
   viewMode.value = appWindow.label === "chat" ? "chat" : appWindow.label === "archives" ? "archives" : "config";
   windowReady.value = true;
+
+  // 从 localStorage 恢复主题
+  const savedTheme = localStorage.getItem("theme") as "light" | "forest" | null;
+  if (savedTheme) applyTheme(savedTheme);
+
+  // 监听其他窗口的主题变更
+  await listen<string>("easy-call:theme-changed", (event) => {
+    applyTheme(event.payload as "light" | "forest");
+  });
 
   window.addEventListener("paste", onPaste);
   const refreshAll = async () => {
@@ -649,6 +580,9 @@ onMounted(async () => {
   };
 
   await refreshAll();
+  configAutosaveReady.value = true;
+  agentsAutosaveReady.value = true;
+  chatSettingsAutosaveReady.value = true;
   if (viewMode.value === "chat") {
     try {
       alwaysOnTop.value = await appWindow.isAlwaysOnTop();
@@ -657,7 +591,50 @@ onMounted(async () => {
     }
   }
   await listen("easy-call:refresh", async () => {
+    configAutosaveReady.value = false;
+    agentsAutosaveReady.value = false;
+    chatSettingsAutosaveReady.value = false;
     await refreshAll();
+    configAutosaveReady.value = true;
+    agentsAutosaveReady.value = true;
+    chatSettingsAutosaveReady.value = true;
   });
 });
+
+watch(
+  () => ({
+    hotkey: config.hotkey,
+    selectedApiConfigId: config.selectedApiConfigId,
+    apiConfigs: config.apiConfigs.map((a) => ({
+      id: a.id,
+      name: a.name,
+      requestFormat: a.requestFormat,
+      enableText: a.enableText,
+      enableImage: a.enableImage,
+      enableAudio: a.enableAudio,
+      baseUrl: a.baseUrl,
+      apiKey: a.apiKey,
+      model: a.model,
+    })),
+  }),
+  () => scheduleConfigAutosave(),
+  { deep: true },
+);
+
+watch(
+  () => agents.value.map((a) => ({
+    id: a.id,
+    name: a.name,
+    systemPrompt: a.systemPrompt,
+    createdAt: a.createdAt,
+    updatedAt: a.updatedAt,
+  })),
+  () => scheduleAgentsAutosave(),
+  { deep: true },
+);
+
+watch(
+  () => ({ selectedAgentId: selectedAgentId.value, userAlias: userAlias.value }),
+  () => scheduleChatSettingsAutosave(),
+);
 </script>
