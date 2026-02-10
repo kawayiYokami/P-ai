@@ -17,9 +17,14 @@
       </div>
       <div class="chat chat-start">
         <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
-        <div class="chat-bubble max-w-[92%] whitespace-pre-wrap bg-white text-black">
+        <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
           <span v-if="chatting" class="loading loading-dots loading-sm"></span>
-          <template v-else>{{ latestAssistantText || "..." }}</template>
+          <div
+            v-else-if="latestAssistantText"
+            v-html="renderedAssistantHtml"
+            @click="handleAssistantLinkClick"
+          ></div>
+          <template v-else>...</template>
         </div>
       </div>
     </div>
@@ -54,6 +59,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ArrowUp, Image as ImageIcon, Square, X } from "lucide-vue-next";
+import MarkdownIt from "markdown-it";
+import DOMPurify from "dompurify";
+import { invoke } from "@tauri-apps/api/core";
 
 const props = defineProps<{
   userAlias: string;
@@ -78,4 +86,72 @@ const localChatInput = computed({
   get: () => props.chatInput,
   set: (value: string) => emit("update:chatInput", value),
 });
+
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
+
+const renderedAssistantHtml = computed(() => {
+  const raw = md.render(props.latestAssistantText || "");
+  return DOMPurify.sanitize(raw);
+});
+
+async function handleAssistantLinkClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  const anchor = target?.closest("a") as HTMLAnchorElement | null;
+  if (!anchor) return;
+  const href = anchor.getAttribute("href")?.trim() || "";
+  if (!href || (!href.startsWith("http://") && !href.startsWith("https://"))) return;
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    await invoke("open_external_url", { url: href });
+  } catch {
+    // ignore
+  }
+}
 </script>
+
+<style scoped>
+.assistant-markdown :deep(p) {
+  margin: 0 0 0.4rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.assistant-markdown :deep(ul),
+.assistant-markdown :deep(ol) {
+  margin: 0.2rem 0 0.4rem 1rem;
+  padding: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.assistant-markdown :deep(li),
+.assistant-markdown :deep(a) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.assistant-markdown :deep(code) {
+  background: rgb(0 0 0 / 8%);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.8em;
+}
+
+.assistant-markdown :deep(pre) {
+  background: rgb(0 0 0 / 8%);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.55rem;
+  overflow-x: auto;
+  margin: 0.3rem 0 0.45rem;
+}
+
+.assistant-markdown :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+</style>

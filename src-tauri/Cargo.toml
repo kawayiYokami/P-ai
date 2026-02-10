@@ -24,6 +24,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 uuid = { version = "1", features = ["v4"] }
 scraper = "0.20"
 urlencoding = "2.1"
+webbrowser = "1.0"
 
 [features]
 default = ["custom-protocol"]

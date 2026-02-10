@@ -1551,6 +1551,17 @@ fn get_archive_messages(archive_id: String, state: State<'_, AppState>) -> Resul
 
   Ok(archive.source_conversation.messages.clone())
 }
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  let trimmed = url.trim();
+  if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+    return Err("Only http/https URLs are allowed.".to_string());
+  }
+  webbrowser::open(trimmed).map_err(|err| format!("Open browser failed: {err}"))?;
+  Ok(())
+}
+
 #[tauri::command]
 async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -> Result<SendChatResult, String> {
   let (resolved_api, selected_api, model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
@@ -1864,6 +1875,7 @@ fn main() {
       get_active_conversation_messages,
       list_archives,
       get_archive_messages,
+      open_external_url,
       send_chat_message,
       refresh_models,
       check_tools_status,
