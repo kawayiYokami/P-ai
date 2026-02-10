@@ -34,7 +34,6 @@ body {
 .window-content {
   flex: 1;
   overflow: auto;
-  background: hsl(var(--b1));
 }
 
 /* 自定义滚动条样式 */
