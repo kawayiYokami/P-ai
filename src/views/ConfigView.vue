@@ -48,6 +48,7 @@
         <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" placeholder="配置名称" />
         <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
           <option value="openai">openai</option>
+          <option value="openai_tts">openai_tts</option>
           <option value="gemini">gemini</option>
           <option value="deepseek/kimi">deepseek/kimi</option>
         </select>
@@ -136,9 +137,31 @@
 
     <template v-else-if="configTab === 'chatSettings'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">默认AI配置</span></div>
-        <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm">
-          <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+        <div class="label py-1"><span class="label-text text-xs">对话AI</span></div>
+        <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
+          <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </label>
+      <label class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">音转文AI（可选）</span></div>
+        <select
+          :value="config.sttApiConfigId ?? ''"
+          class="select select-bordered select-sm"
+          @change="config.sttApiConfigId = (($event.target as HTMLSelectElement).value || undefined)"
+        >
+          <option value="">不配置</option>
+          <option v-for="a in audioCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </label>
+      <label class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">图转文AI（可选）</span></div>
+        <select
+          :value="config.visionApiConfigId ?? ''"
+          class="select select-bordered select-sm"
+          @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)"
+        >
+          <option value="">不配置</option>
+          <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label class="form-control">
@@ -178,6 +201,9 @@ const props = defineProps<{
   selectedAgentId: string;
   selectedAgent: AgentProfile | null;
   userAlias: string;
+  textCapableApiConfigs: ApiConfigItem[];
+  imageCapableApiConfigs: ApiConfigItem[];
+  audioCapableApiConfigs: ApiConfigItem[];
 }>();
 
 defineEmits<{

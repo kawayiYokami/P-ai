@@ -22,6 +22,9 @@ export type ApiConfigItem = {
 export type AppConfig = {
   hotkey: string;
   selectedApiConfigId: string;
+  chatApiConfigId: string;
+  sttApiConfigId?: string;
+  visionApiConfigId?: string;
   apiConfigs: ApiConfigItem[];
 };
 

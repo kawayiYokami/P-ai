@@ -42,6 +42,9 @@
         :selected-agent-id="selectedAgentId"
         :selected-agent="selectedAgent"
         :user-alias="userAlias"
+        :text-capable-api-configs="textCapableApiConfigs"
+        :image-capable-api-configs="imageCapableApiConfigs"
+        :audio-capable-api-configs="audioCapableApiConfigs"
         @update:config-tab="configTab = $event"
         @update:selected-agent-id="selectedAgentId = $event"
         @update:user-alias="userAlias = $event"
@@ -132,7 +135,14 @@ import type {
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
 
-const config = reactive<AppConfig>({ hotkey: "Alt+·", selectedApiConfigId: "", apiConfigs: [] });
+const config = reactive<AppConfig>({
+  hotkey: "Alt+·",
+  selectedApiConfigId: "",
+  chatApiConfigId: "",
+  sttApiConfigId: undefined,
+  visionApiConfigId: undefined,
+  apiConfigs: [],
+});
 const configTab = ref<"hotkey" | "api" | "tools" | "agent" | "chatSettings">("hotkey");
 const currentTheme = ref<"light" | "forest">("light");
 const agents = ref<AgentProfile[]>([]);
@@ -180,6 +190,17 @@ const titleText = computed(() => {
   return "Easy Call AI - 配置窗口";
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
+const textCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableText));
+const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
+const audioCapableApiConfigs = computed(() =>
+  config.apiConfigs.filter((a) => a.enableAudio && a.requestFormat === "openai_tts"),
+);
+const activeChatApiConfigId = computed(
+  () => config.chatApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
+);
+const activeChatApiConfig = computed(
+  () => config.apiConfigs.find((a) => a.id === activeChatApiConfigId.value) ?? null,
+);
 const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
@@ -190,10 +211,11 @@ const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com/v1beta/openai";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
+  if (format === "openai_tts") return "https://api.siliconflow.cn/v1/audio/transcriptions";
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {
-  const api = selectedApiConfig.value;
+  const api = activeChatApiConfig.value;
   if (!api) return "输入问题";
   const hints: string[] = [];
   if (api.enableImage) hints.push("Ctrl+V 粘贴图片");
@@ -257,6 +279,28 @@ function defaultApiTools() {
   ];
 }
 
+function normalizeApiBindingsLocal() {
+  if (!config.apiConfigs.length) return;
+  if (!config.apiConfigs.some((a) => a.id === config.selectedApiConfigId)) {
+    config.selectedApiConfigId = config.apiConfigs[0].id;
+  }
+  if (!config.apiConfigs.some((a) => a.id === config.chatApiConfigId && a.enableText)) {
+    config.chatApiConfigId = textCapableApiConfigs.value[0]?.id ?? config.selectedApiConfigId;
+  }
+  if (
+    config.sttApiConfigId
+    && !config.apiConfigs.some((a) => a.id === config.sttApiConfigId && a.enableAudio)
+  ) {
+    config.sttApiConfigId = undefined;
+  }
+  if (
+    config.visionApiConfigId
+    && !config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage)
+  ) {
+    config.visionApiConfigId = undefined;
+  }
+}
+
 function renderMessage(msg: ChatMessage): string {
   return msg.parts.map((p) => {
     if (p.type === "text") return p.text;
@@ -297,8 +341,11 @@ async function loadConfig() {
     const cfg = await invoke<AppConfig>("load_config");
     config.hotkey = cfg.hotkey;
     config.selectedApiConfigId = cfg.selectedApiConfigId;
+    config.chatApiConfigId = cfg.chatApiConfigId;
+    config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
+    config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...(cfg.apiConfigs.length ? cfg.apiConfigs : [createApiConfig("default")]));
-    if (!config.apiConfigs.some((a) => a.id === config.selectedApiConfigId)) config.selectedApiConfigId = config.apiConfigs[0].id;
+    normalizeApiBindingsLocal();
     status.value = "Config loaded.";
   } catch (e) {
     status.value = `Load failed: ${String(e)}`;
@@ -316,7 +363,11 @@ async function saveConfig() {
     const saved = await invoke<AppConfig>("save_config", { config: { ...config } });
     config.hotkey = saved.hotkey;
     config.selectedApiConfigId = saved.selectedApiConfigId;
+    config.chatApiConfigId = saved.chatApiConfigId;
+    config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
+    config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...saved.apiConfigs);
+    normalizeApiBindingsLocal();
     status.value = "Config saved.";
   } catch (e) {
     status.value = `Save failed: ${String(e)}`;
@@ -407,6 +458,7 @@ function addApiConfig() {
   const c = createApiConfig();
   config.apiConfigs.push(c);
   config.selectedApiConfigId = c.id;
+  normalizeApiBindingsLocal();
 }
 
 function removeSelectedApiConfig() {
@@ -414,6 +466,7 @@ function removeSelectedApiConfig() {
   const idx = config.apiConfigs.findIndex((a) => a.id === config.selectedApiConfigId);
   if (idx >= 0) config.apiConfigs.splice(idx, 1);
   config.selectedApiConfigId = config.apiConfigs[0].id;
+  normalizeApiBindingsLocal();
 }
 
 function addAgent() {
@@ -466,9 +519,9 @@ async function refreshToolsStatus() {
 }
 
 async function refreshChatSnapshot() {
-  if (!config.selectedApiConfigId || !selectedAgentId.value) return;
+  if (!activeChatApiConfigId.value || !selectedAgentId.value) return;
   try {
-    const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: config.selectedApiConfigId, agentId: selectedAgentId.value } });
+    const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value } });
     latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
     latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
@@ -477,10 +530,10 @@ async function refreshChatSnapshot() {
   }
 }
 async function loadAllMessages() {
-  if (!config.selectedApiConfigId || !selectedAgentId.value) return;
+  if (!activeChatApiConfigId.value || !selectedAgentId.value) return;
   try {
     const msgs = await invoke<ChatMessage[]>("get_active_conversation_messages", {
-      input: { apiConfigId: config.selectedApiConfigId, agentId: selectedAgentId.value },
+      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value },
     });
     allMessages.value = msgs;
   } catch (e) {
@@ -573,7 +626,7 @@ async function sendChat() {
   latestAssistantText.value = "";
 
   const sentImages = [...clipboardImages.value];
-  const sentModel = config.apiConfigs.find((a) => a.id === config.selectedApiConfigId)?.model;
+  const sentModel = activeChatApiConfig.value?.model;
   chatInput.value = "";
   clipboardImages.value = [];
 
@@ -603,7 +656,7 @@ async function sendChat() {
   try {
     const result = await invoke<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
       input: {
-        apiConfigId: config.selectedApiConfigId,
+        apiConfigId: activeChatApiConfigId.value,
         agentId: selectedAgentId.value,
         payload: { text, images: sentImages, model: sentModel },
       },
@@ -635,7 +688,7 @@ function stopChat() {
 
 async function openCurrentHistory() {
   try {
-    currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: config.selectedApiConfigId, agentId: selectedAgentId.value } });
+    currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value } });
     historyDialog.value?.showModal();
   } catch (e) {
     status.value = `Load history failed: ${String(e)}`;
@@ -663,7 +716,7 @@ function onPaste(event: ClipboardEvent) {
   if (viewMode.value !== "chat") return;
   const items = event.clipboardData?.items;
   if (!items) return;
-  const apiConfig = selectedApiConfig.value;
+  const apiConfig = activeChatApiConfig.value;
   if (!apiConfig) return;
 
   const text = event.clipboardData?.getData("text/plain");
@@ -705,7 +758,7 @@ async function readBlobAsDataUrl(blob: Blob): Promise<string> {
 
 async function importClipboardImageOnOpen() {
   if (viewMode.value !== "chat") return;
-  const apiConfig = selectedApiConfig.value;
+  const apiConfig = activeChatApiConfig.value;
   if (!apiConfig) return;
 
   if (apiConfig.enableText && !chatInput.value.trim() && navigator.clipboard?.readText) {
@@ -838,6 +891,9 @@ watch(
   () => ({
     hotkey: config.hotkey,
     selectedApiConfigId: config.selectedApiConfigId,
+    chatApiConfigId: config.chatApiConfigId,
+    sttApiConfigId: config.sttApiConfigId,
+    visionApiConfigId: config.visionApiConfigId,
     apiConfigs: config.apiConfigs.map((a) => ({
       id: a.id,
       name: a.name,
@@ -853,6 +909,17 @@ watch(
     })),
   }),
   () => scheduleConfigAutosave(),
+  { deep: true },
+);
+
+watch(
+  () => config.apiConfigs.map((a) => ({
+    id: a.id,
+    enableText: a.enableText,
+    enableImage: a.enableImage,
+    enableAudio: a.enableAudio,
+  })),
+  () => normalizeApiBindingsLocal(),
   { deep: true },
 );
 

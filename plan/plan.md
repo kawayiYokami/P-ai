@@ -1,260 +1,213 @@
-# Easy Call AI 计划（会话系统与双窗口）
+# Easy Call AI 开发计划（可执行版）
 
-## 1. 目标
+## 0. 计划目标
 
-基于现有 `Tauri + Vue + Rust` 工程，落地以下能力：
+在现有 `Tauri + Vue + Rust` 架构上，分阶段实现：
 
-1. 极简对话窗口（独立于配置窗口）
-2. 聊天记录持久化
-3. 会话按“30 分钟无 AI 回复”自动归档
-4. 归档查看器（独立窗口，只读）
-5. 智能体（系统提示词）管理与一键切换
-6. 多模态消息存储与 `Ctrl+V` 粘贴接入
-7. 统一消息格式 + 供应商转换层（为多供应商切换做准备）
-
-说明：toolcall / MCP 字段先设计进模型，不在本期实现执行。
+1. 三种 AI 配置（对话 / 音转文 / 图转文）与能力筛选
+2. 多模态转换管线（图片、音频）
+3. 缓存与归档一致性
+4. 录音交互与错误恢复
+5. 可验证、低成本的测试体系
 
 ---
 
-## 2. 范围与边界（本期）
+## 1. 范围与非范围
 
-### 2.1 本期实现
-- 对话窗口可发送文本，保留完整会话历史
-- 上下文发送基于“当前激活会话”的最新状态
-- UI 仅显示“最新用户发言之后”的消息片段（历史不丢）
-- 归档规则：
-  - 判定点：`最后一次 assistant 消息时间`
-  - 触发点：用户下一次发送前检查
-  - 命中后：当前会话归档并自动新建会话
-- 归档查看器独立窗口（只读浏览）
-- 智能体 CRUD（名称、系统提示词），对话窗口可切换
-- 发送时自动注入“当前时间文本块”
-- `Ctrl+V` 支持多模态素材入库（按 API 配置能力开关）
+### 1.1 本期范围
+- API 配置能力字段：`enable_text` / `enable_image` / `enable_audio` / `enable_tools`
+- 三种 AI 绑定：`chat_api_id` / `stt_api_id` / `vision_api_id`
+- 图片与音频的转换决策逻辑
+- 图片缓存（哈希去重 + 压缩存储）
+- 配置界面与对话界面联动
+- 单元测试 + Mock 集成测试 + 冒烟脚本
 
-### 2.2 本期不实现
-- toolcall 实际执行
-- MCP 实际调用
-- 云同步与跨端记录同步
-- 复杂检索（RAG）
+### 1.2 本期非范围
+- Tool call / MCP 的完整执行（仅保留兼容数据结构）
+- 语音合成（TTS）
+- 云端同步
 
 ---
 
-## 3. 架构与窗口
+## 2. 数据与存储规范
 
-## 3.1 窗口
-1. 配置窗口（已存在）：管理 API 配置 + 智能体设置入口
-2. 对话窗口（新增）：极简发送/展示
-3. 归档查看器（新增）：只读查看历史归档
+统一使用应用配置目录（ProjectDirs）：
 
-## 3.2 窗口关系
-- 配置窗口和对话窗口状态隔离
-- 会话数据由 Rust 端统一存储，前端仅读写接口
-- 托盘菜单后续扩展：
-  - 配置
-  - 对话（打开对话窗）
-  - 归档（打开归档查看器）
-  - 退出
-
----
-
-## 4. 数据模型（内部统一格式）
-
-## 4.0 持久化路径与文件策略（新增）
-
-- 持久化目录统一使用 `ProjectDirs`（与 `config.toml` 同目录）
-- 目录示例：
-  - `~/.config/easycall/easy-call-ai/`（Linux 示例）
-  - Windows 下由 `ProjectDirs` 自动映射到系统配置目录
-
-本期采用“单文件优先”策略，简化一致性与备份：
-
-- `app_data.json`：会话、智能体、归档统一存储
-- `config.toml`：API 配置继续保留（已存在）
-
-后续若数据规模增大，再拆分为多文件（`conversations.json / archives.json / agents.yml`）。
-
-## 4.1 顶层
-```ts
-type StorageSchemaVersion = 1;
-
-interface AppData {
-  version: StorageSchemaVersion;
-  apiConfigs: ApiConfigRef[];
-  agents: AgentProfile[];
-  conversations: Conversation[];
-  archivedConversations: ConversationArchive[];
-}
+```text
+~/.config/easycall/easy-call-ai/
+├── config.toml
+├── conversations.json
+├── agents.yml
+├── archives.json
+└── cache/
+    └── images/
 ```
 
-## 4.2 会话与消息
-```ts
-interface Conversation {
-  id: string;
-  title: string;
-  apiConfigId: string;
-  agentId: string;
-  createdAt: string; // ISO
-  updatedAt: string; // ISO
-  lastAssistantAt?: string; // ISO
-  status: "active" | "archived";
-  messages: ChatMessage[];
-}
+### 2.1 约定
+- 不兼容旧配置（直接采用新结构）
+- 图片仅保存压缩后的缓存版本，不保留原始大图
+- 音频识别完成后不持久化原始音频，仅保留必要文本与元数据
 
-interface ChatMessage {
-  id: string;
-  role: "system" | "user" | "assistant" | "tool";
-  createdAt: string; // ISO
-  providerMeta?: Record<string, unknown>;
-  parts: MessagePart[];
-  toolCall?: ToolCallBlock[]; // 预留
-  mcpCall?: McpCallBlock[];   // 预留
-}
-
-type MessagePart =
-  | { type: "text"; text: string }
-  | { type: "image"; mime: string; bytesBase64: string; name?: string; compressed?: true }
-  | { type: "audio"; mime: string; bytesBase64: string; name?: string; compressed?: true };
-```
-
-## 4.5 多模态压缩存储策略（新增）
-
-- 不保留原图/原音频，入库前统一转码为高压缩格式
-- 图片：
-  - 统一转 `WebP`（质量默认 `75`）
-  - 存储 `image/webp + base64`
-- 音频：
-  - 本期先统一为压缩容器（优先 `audio/ogg`）
-  - 若转码链路受限，先保留现有格式并标记为后续优化项
-- 单条消息多模态总大小上限维持 `10MB`（拍板项）
-
-## 4.3 智能体
-```ts
-interface AgentProfile {
-  id: string;
-  name: string;
-  systemPrompt: string;
-  createdAt: string;
-  updatedAt: string;
-}
-```
-
-## 4.4 归档
-```ts
-interface ConversationArchive {
-  archiveId: string;
-  archivedAt: string;
-  reason: "idle_timeout_30m";
-  sourceConversation: Conversation;
-}
-```
+### 2.2 消息结构（统一转换层）
+- 保留 `text/image/audio/tool_call/mcp` 的扩展位
+- 发送前由 Provider Adapter 转换为各供应商请求体
+- 先实现：`openai` / `gemini` / `deepseek_kimi`
 
 ---
 
-## 5. 转换层设计（关键）
+## 3. 里程碑计划
 
-目标：内部统一消息格式 -> 各供应商请求体。
+## M0 基线冻结（0.5 天）
 
-## 5.1 Adapter 接口
-```ts
-interface ProviderAdapter {
-  buildRequest(input: UnifiedRequest): ProviderRequest;
-  parseResponse(resp: ProviderResponse): UnifiedResponse;
-}
-```
+### 任务
+1. 冻结数据结构 v2（配置、会话、归档、缓存索引）
+2. 新增文档：`docs/data-schema-v2.md`、`docs/migration.md`
+3. 启动时校验必填字段并给出友好提示
 
-## 5.2 首批适配策略
-1. `openai`
-2. `deepseek/kimi`（先按 openai-style）
-3. `gemini`（独立适配，优先文本）
-
-## 5.3 时间块注入
-- 每次发送前，插入系统文本块（不污染用户输入）：
-  - 示例：`Current local time: 2026-02-10T21:33:00+08:00`
+### 验收标准
+1. 新安装可直接启动
+2. 缺失关键字段时提示明确，不崩溃
 
 ---
 
-## 6. 交互与规则
+## M1 三种 AI 配置与筛选（1 天）
 
-## 6.1 对话窗口显示规则
-- 消息发送后，UI 仅展示“最新 user 消息 + 对应 assistant 回复”
-- 对话窗口不展示更早历史
-- 提供一个按钮用于查看“当前未归档会话”的完整记录（独立查看态）
-- 完整历史仍保留在会话内，用于下次上下文构造
+### 任务
+1. 配置中心新增三类 AI 绑定字段
+2. 配置 UI 三个下拉筛选：
+   - 对话 AI：`enable_text = true`
+   - 音转文 AI：`enable_audio = true`
+   - 图转文 AI：`enable_image = true`
+3. 当前选中项显示能力徽标（text/image/audio/tools）
 
-## 6.2 归档规则
-1. 发送前检查当前会话 `lastAssistantAt`
-2. 若超过 30 分钟：
-  - 将会话迁移到 `archivedConversations`
-  - 当前会话标记 archived
-  - 自动创建新 active 会话并继续发送
-
-## 6.3 多模态粘贴
-- `Ctrl+V` 解析剪贴板：
-  - 图片 -> `image` part
-  - 音频文件（若存在）-> `audio` part
-  - 文本 -> `text` part
-- 是否可添加由当前 API 配置能力开关决定（text/image/audio）
+### 验收标准
+1. 三类绑定可独立保存
+2. 重启后配置一致
+3. 无可选项时正确显示空状态与禁用
 
 ---
 
-## 7. 实施里程碑
+## M2 多模态转换管线（2 天）
 
-## M1（数据层与转换层骨架）
-- 新建统一消息模型与持久化文件
-- Conversation/Archive/Agent 的 Rust Command
-- Provider Adapter 基础接口与 openai 实装
+### 任务
+1. 图片流程：
+   - 计算哈希 -> 查缓存
+   - 命中：直接使用缓存文本
+   - 未命中：若对话 AI 支持图片则直发；否则走图转文 AI
+2. 音频流程：
+   - 若对话 AI 支持音频则直发
+   - 否则走音转文 AI，结果回填输入框由用户确认发送
+3. 转换层：
+   - 统一内部消息 -> Provider 请求体
+   - Provider 错误码标准化
 
-验收：
-- 能创建会话、写入消息、重启后恢复
-- 能把内部消息转换成可发送请求
-
-## M2（对话窗口 MVP）
-- 新建对话窗口 UI（极简）
-- 支持发送文本、显示“最新片段”
-- 发送时注入时间块
-- 智能体切换接入
-
-验收：
-- 连续对话上下文正确
-- 切换智能体后系统提示词生效
-
-## M3（归档与查看器）
-- 发送前 30 分钟归档逻辑
-- 归档查看器窗口（只读）
-- 会话与归档列表基础检索
-
-验收：
-- 归档后当前会话不可继续发送
-- 自动新建会话并可继续聊天
-- 归档可被稳定查看
-
-## M4（多模态粘贴与收尾）
-- `Ctrl+V` 多模态素材接入
-- 能力开关校验
-- 错误提示与边界处理
-
-验收：
-- 粘贴图片/文本流程完整
-- 不支持的模态会被正确拦截提示
+### 验收标准
+1. 三供应商（openai/gemini/deepseek_kimi）各通过 1 条图片链路
+2. 音频在“直发”和“转写回填”两路径都可用
+3. 转换失败可重试，错误提示可读
 
 ---
 
-## 8. 需要你审阅拍板的 6 个决策
+## M3 缓存系统（1 天）
 
-已拍板结果：
+### 任务
+1. 图片缓存目录与索引管理（hash、mime、size、timestamps）
+2. 压缩策略（质量与尺寸上限可配置）
+3. 配置页缓存统计与清理
+4. 图转文 AI 切换时缓存可配置是否失效
 
-1. 归档触发：仅发送前检查
-2. 30 分钟判定：基于 `lastAssistantAt`
-3. 切换 API 配置：自动新建会话
-4. 切换智能体：自动新建会话
-5. 对话窗口：永远只显示“最新用户发言+回答”，仅提供按钮查看当前未归档聊天记录
-6. 多模态单条消息限制：10MB
+### 验收标准
+1. 同图二次发送命中缓存
+2. 清理缓存后磁盘占用下降
+3. 缓存损坏时可自动恢复/跳过
 
 ---
 
-## 9. 开发顺序建议（执行）
+## M4 录音功能（2 天）
 
-1. 先做 M1（模型和存储），否则 UI 会反复返工
-2. 再做 M2（对话窗口 MVP）
-3. 然后做 M3（归档与查看器）
-4. 最后做 M4（多模态粘贴）
+### 任务
+1. 按住录音，松开发送/转写
+2. 限制：
+   - 最短时长（默认 1s）
+   - 最长时长（默认 60s）
+   - 可选静音自动停止（默认关）
+3. 录音状态提示、取消、超时处理
+
+### 验收标准
+1. Windows 连续录音 10 次不崩
+2. 小于最短时长自动丢弃并提示
+3. 超时/失败可恢复，不污染输入框
+
+---
+
+## M5 UI 联动与体验收敛（1.5 天）
+
+### 任务
+1. 配置页与对话页状态实时同步（去掉多余干扰提示）
+2. 转换中状态、失败重试、禁用态提示统一
+3. 对话窗口保持极简：仅当前回合主视图 + 历史入口
+
+### 验收标准
+1. 不出现空气泡/空消息
+2. 不支持能力时的文案与行为一致
+3. 关键链路（粘贴图/录音/发送）可在 1~2 步完成
+
+---
+
+## M6 测试与发布门槛（1.5 天）
+
+### 任务
+1. Rust 单测：
+   - Provider 请求体构建
+   - 缓存命中/失效
+   - 转换错误映射
+2. Rust 集成测试：
+   - Mock HTTP 服务覆盖三供应商主流程
+3. 前端测试：
+   - 关键状态机（idle/sending/converting/error）
+4. 冒烟脚本：
+   - 使用 debug API 运行全流程，避免高成本真实调用
+
+### 验收标准
+1. 核心测试通过
+2. 冒烟脚本 1 次通过率 >= 95%
+3. 发布前人工仅需 3 条回归场景
+
+---
+
+## 4. 实施顺序与依赖
+
+1. `M0 -> M1`：先定结构与配置，避免后续反复迁移
+2. `M2` 依赖 `M1`：转换管线必须先拿到三类 AI 绑定
+3. `M3` 可与 `M4` 并行（后端缓存 / 音频模块）
+4. `M5` 在 `M2~M4` 完成后统一收敛交互
+5. `M6` 贯穿补充，但最终统一收口
+
+---
+
+## 5. 风险与对策
+
+1. 录音跨平台差异
+   - 对策：先锁 Windows，其他平台降级提示
+2. Provider 差异导致请求体不兼容
+   - 对策：统一 Adapter + 请求快照测试
+3. 缓存一致性（切换模型后语义变化）
+   - 对策：缓存写入附带 `vision_api_id` 与版本戳
+4. 真实 API 成本过高
+   - 对策：默认 debug provider + mock 测试
+
+---
+
+## 6. 交付清单
+
+1. 代码改动（Rust + Vue）
+2. 数据结构文档与运行手册
+3. 测试脚本与 CI 入口
+4. 发布检查清单（配置、缓存、录音、三供应商）
+
+---
+
+## 7. 当前阶段建议
+
+建议从 `M0 + M1` 一次性完成并提交，再进入 `M2`。  
+这样可以先稳定配置中心，再做多模态主链路，返工最少。
