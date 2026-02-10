@@ -110,6 +110,31 @@ fn save_chat_settings(
 }
 
 #[tauri::command]
+fn save_conversation_api_settings(
+    input: ConversationApiSettings,
+    state: State<'_, AppState>,
+) -> Result<ConversationApiSettings, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+    let mut config = read_config(&state.config_path)?;
+    config.chat_api_config_id = input.chat_api_config_id.clone();
+    config.stt_api_config_id = input.stt_api_config_id.clone();
+    config.vision_api_config_id = input.vision_api_config_id.clone();
+    normalize_app_config(&mut config);
+    write_config(&state.config_path, &config)?;
+    drop(guard);
+
+    Ok(ConversationApiSettings {
+        chat_api_config_id: config.chat_api_config_id,
+        stt_api_config_id: config.stt_api_config_id,
+        vision_api_config_id: config.vision_api_config_id,
+    })
+}
+
+#[tauri::command]
 fn get_chat_snapshot(
     input: SessionSelector,
     state: State<'_, AppState>,
@@ -268,22 +293,20 @@ async fn send_chat_message(
     }
 
     let mut effective_payload = input.payload.clone();
-    if !selected_api.enable_audio {
-        let audios = effective_payload.audios.clone().unwrap_or_default();
-        if !audios.is_empty() {
-            let stt_api = resolve_stt_api_config(&app_config)?;
-            let transcription = transcribe_payload_audios_openai_tts(&stt_api, &audios).await?;
+    let audios = effective_payload.audios.clone().unwrap_or_default();
+    if !audios.is_empty() {
+        let stt_api = resolve_stt_api_config(&app_config)?;
+        let transcription = transcribe_payload_audios_openai_tts(&stt_api, &audios).await?;
 
-            let merged_text = effective_payload
-                .text
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(|text| format!("{text}\n\n{transcription}"))
-                .unwrap_or(transcription);
-            effective_payload.text = Some(merged_text);
-            effective_payload.audios = None;
-        }
+        let merged_text = effective_payload
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|text| format!("{text}\n\n{transcription}"))
+            .unwrap_or(transcription);
+        effective_payload.text = Some(merged_text);
+        effective_payload.audios = None;
     }
 
     if !selected_api.enable_image {
@@ -463,6 +486,26 @@ async fn send_chat_message(
         assistant_text,
         archived_before_send,
     })
+}
+
+#[tauri::command]
+async fn transcribe_audio_input(
+    input: TranscribeAudioInput,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    if input.audios.is_empty() {
+        return Err("No audio payload provided.".to_string());
+    }
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let app_config = read_config(&state.config_path)?;
+    drop(guard);
+
+    let stt_api = resolve_stt_api_config(&app_config)?;
+    let text = transcribe_payload_audios_openai_tts(&stt_api, &input.audios).await?;
+    Ok(text)
 }
 
 async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, String> {

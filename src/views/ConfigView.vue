@@ -32,6 +32,30 @@
         </label>
       </div>
       <div class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">录音测试</span></div>
+        <div class="flex items-center gap-2">
+          <button
+            class="btn btn-sm btn-ghost bg-base-100"
+            :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
+            :title="hotkeyTestRecording ? '松开结束录音' : '按住开始录音'"
+            @mousedown.prevent="$emit('startHotkeyRecordTest')"
+            @mouseup.prevent="$emit('stopHotkeyRecordTest')"
+            @mouseleave.prevent="hotkeyTestRecording && $emit('stopHotkeyRecordTest')"
+            @touchstart.prevent="$emit('startHotkeyRecordTest')"
+            @touchend.prevent="$emit('stopHotkeyRecordTest')"
+          >
+            {{ hotkeyTestRecording ? `录音中 ${Math.max(1, Math.round(hotkeyTestRecordingMs / 1000))}s` : "按住录音" }}
+          </button>
+          <button
+            class="btn btn-sm btn-ghost bg-base-100"
+            :disabled="!hotkeyTestAudioReady"
+            @click="$emit('playHotkeyRecordTest')"
+          >
+            播放录音
+          </button>
+        </div>
+      </div>
+      <div class="form-control">
         <div class="label py-1"><span class="label-text text-xs">主题</span></div>
         <button class="btn btn-sm btn-ghost bg-base-100 w-full flex items-center justify-center gap-2" @click="$emit('toggleTheme')">
           <Sun v-if="currentTheme === 'light'" class="h-4 w-4" />
@@ -42,8 +66,15 @@
     </template>
 
     <template v-else-if="configTab === 'api'">
+      <button
+        class="btn btn-primary btn-sm w-full"
+        :disabled="!configDirty || savingConfig"
+        @click="$emit('saveApiConfig')"
+      >
+        {{ savingConfig ? "保存中..." : configDirty ? "保存配置" : "已保存" }}
+      </button>
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">当前API配置</span></div>
+        <div class="label py-1"><span class="label-text text-sm font-medium">API配置（编辑）</span></div>
         <div class="flex gap-1">
           <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm flex-1">
             <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
@@ -63,60 +94,78 @@
       </label>
 
       <div v-if="selectedApiConfig" class="grid gap-2">
-        <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" placeholder="配置名称" />
-        <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
-          <option value="openai">openai</option>
-          <option value="openai_tts">openai_tts</option>
-          <option value="gemini">gemini</option>
-          <option value="deepseek/kimi">deepseek/kimi</option>
-        </select>
-        <input v-model="selectedApiConfig.baseUrl" class="input input-bordered input-sm" :placeholder="baseUrlReference" />
-        <input v-model="selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
-        <div class="flex gap-1">
-          <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
-          <div class="dropdown dropdown-end">
-            <button tabindex="0" class="btn btn-sm btn-square btn-ghost bg-base-100" :disabled="modelOptions.length === 0" title="选择模型">
-              <ChevronsUpDown class="h-3.5 w-3.5" />
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">配置名称</span></div>
+          <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" placeholder="配置名称" />
+        </label>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">请求格式</span></div>
+          <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
+            <option value="openai">openai</option>
+            <option value="openai_tts">openai_tts</option>
+            <option value="gemini">gemini</option>
+            <option value="deepseek/kimi">deepseek/kimi</option>
+          </select>
+        </label>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">Base URL</span></div>
+          <input v-model="selectedApiConfig.baseUrl" class="input input-bordered input-sm" :placeholder="baseUrlReference" />
+        </label>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">API Key</span></div>
+          <input v-model="selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
+        </label>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">模型</span></div>
+          <div class="flex gap-1">
+            <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
+            <div class="dropdown dropdown-end">
+              <button tabindex="0" class="btn btn-sm btn-square btn-ghost bg-base-100" :disabled="modelOptions.length === 0" title="选择模型">
+                <ChevronsUpDown class="h-3.5 w-3.5" />
+              </button>
+              <ul tabindex="0" class="dropdown-content z-[1] menu p-1 shadow bg-base-100 rounded-box w-52 max-h-56 overflow-auto">
+                <li v-for="modelName in modelOptions" :key="modelName">
+                  <button @click="selectedApiConfig.model = modelName">{{ modelName }}</button>
+                </li>
+              </ul>
+            </div>
+            <button
+              class="btn btn-sm btn-square btn-ghost bg-base-100"
+              :class="{ loading: refreshingModels }"
+              :disabled="refreshingModels"
+              title="刷新模型列表"
+              @click="$emit('refreshModels')"
+            >
+              <RefreshCw class="h-3.5 w-3.5" />
             </button>
-            <ul tabindex="0" class="dropdown-content z-[1] menu p-1 shadow bg-base-100 rounded-box w-52 max-h-56 overflow-auto">
-              <li v-for="modelName in modelOptions" :key="modelName">
-                <button @click="selectedApiConfig.model = modelName">{{ modelName }}</button>
-              </li>
-            </ul>
           </div>
-          <button
-            class="btn btn-sm btn-square btn-ghost bg-base-100"
-            :class="{ loading: refreshingModels }"
-            :disabled="refreshingModels"
-            title="刷新模型列表"
-            @click="$emit('refreshModels')"
-          >
-            <RefreshCw class="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <div class="flex gap-2">
-          <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
-          <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-          <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" /></label>
-          <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
+        </label>
+        <div class="form-control">
+          <div class="label py-1"><span class="label-text text-sm font-medium">能力开关</span></div>
+          <div class="flex gap-2">
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat !== 'openai_tts'" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
+          </div>
         </div>
       </div>
 
     </template>
 
     <template v-else-if="configTab === 'tools'">
-      <div v-if="!selectedApiConfig" class="text-xs opacity-70">未选择 API 配置</div>
+      <div v-if="!toolApiConfig" class="text-xs opacity-70">未配置对话AI</div>
       <template v-else>
         <div class="flex items-center justify-between">
-          <div class="text-xs font-medium">当前 API 配置：{{ selectedApiConfig.name }}</div>
+          <div class="text-xs font-medium">对话AI配置：{{ toolApiConfig.name }}</div>
           <button class="btn btn-sm btn-ghost bg-base-100" :class="{ loading: checkingToolsStatus }" @click="$emit('refreshToolsStatus')">
             刷新状态
           </button>
         </div>
-        <div v-if="!selectedApiConfig.enableTools" class="text-xs opacity-70">此 API 配置未启用工具调用。</div>
+        <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">当前对话AI未启用工具调用。</div>
         <div v-else class="grid gap-2">
           <div
-            v-for="tool in selectedApiConfig.tools"
+            v-for="tool in toolApiConfig.tools"
             :key="tool.id"
             class="rounded border border-base-300 bg-base-100 p-2"
           >
@@ -222,6 +271,7 @@ const props = defineProps<{
   configTab: ConfigTab;
   currentTheme: "light" | "forest";
   selectedApiConfig: ApiConfigItem | null;
+  toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
   checkingToolsStatus: boolean;
@@ -236,6 +286,11 @@ const props = defineProps<{
   audioCapableApiConfigs: ApiConfigItem[];
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
+  configDirty: boolean;
+  savingConfig: boolean;
+  hotkeyTestRecording: boolean;
+  hotkeyTestRecordingMs: number;
+  hotkeyTestAudioReady: boolean;
 }>();
 
 defineEmits<{
@@ -247,11 +302,15 @@ defineEmits<{
   (e: "refreshToolsStatus"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;
+  (e: "saveApiConfig"): void;
   (e: "addAgent"): void;
   (e: "removeSelectedAgent"): void;
   (e: "openCurrentHistory"): void;
   (e: "refreshImageCacheStats"): void;
   (e: "clearImageCache"): void;
+  (e: "startHotkeyRecordTest"): void;
+  (e: "stopHotkeyRecordTest"): void;
+  (e: "playHotkeyRecordTest"): void;
 }>();
 
 function toolStatusById(id: string): ToolLoadStatus | undefined {

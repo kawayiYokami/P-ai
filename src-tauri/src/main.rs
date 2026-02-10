@@ -69,9 +69,9 @@ struct ApiConfig {
     request_format: String,
     #[serde(default = "default_true")]
     enable_text: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     enable_image: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     enable_audio: bool,
     #[serde(default = "default_false")]
     enable_tools: bool,
@@ -105,8 +105,8 @@ impl Default for ApiConfig {
             name: "Default OpenAI".to_string(),
             request_format: "openai".to_string(),
             enable_text: true,
-            enable_image: true,
-            enable_audio: true,
+            enable_image: false,
+            enable_audio: false,
             enable_tools: false,
             tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),
@@ -186,6 +186,12 @@ struct SendChatRequest {
     api_config_id: Option<String>,
     agent_id: String,
     payload: ChatInputPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscribeAudioInput {
+    audios: Vec<BinaryPart>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,6 +539,16 @@ struct ChatSettings {
     user_alias: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationApiSettings {
+    chat_api_config_id: String,
+    #[serde(default)]
+    stt_api_config_id: Option<String>,
+    #[serde(default)]
+    vision_api_config_id: Option<String>,
+}
+
 include!("app/storage_and_stt.rs");
 
 include!("app/conversation.rs");
@@ -577,12 +593,14 @@ fn main() {
             save_agents,
             load_chat_settings,
             save_chat_settings,
+            save_conversation_api_settings,
             get_chat_snapshot,
             get_active_conversation_messages,
             list_archives,
             get_archive_messages,
             open_external_url,
             send_chat_message,
+            transcribe_audio_input,
             refresh_models,
             check_tools_status,
             get_image_text_cache_stats,
@@ -727,6 +745,86 @@ mod tests {
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.stt_api_config_id, None);
+    }
+
+    #[test]
+    fn normalize_app_config_should_not_bind_chat_api_to_selected_api() {
+        let mut cfg = AppConfig {
+            hotkey: "Alt+·".to_string(),
+            record_hotkey: "Alt".to_string(),
+            min_record_seconds: 1,
+            max_record_seconds: 60,
+            selected_api_config_id: "edit-b".to_string(),
+            chat_api_config_id: "chat-a".to_string(),
+            stt_api_config_id: None,
+            vision_api_config_id: None,
+            api_configs: vec![
+                ApiConfig {
+                    id: "chat-a".to_string(),
+                    name: "chat-a".to_string(),
+                    request_format: "openai".to_string(),
+                    enable_text: true,
+                    enable_image: true,
+                    enable_audio: true,
+                    enable_tools: false,
+                    tools: vec![],
+                    base_url: "https://api.openai.com/v1".to_string(),
+                    api_key: "k".to_string(),
+                    model: "m".to_string(),
+                },
+                ApiConfig {
+                    id: "edit-b".to_string(),
+                    name: "edit-b".to_string(),
+                    request_format: "openai".to_string(),
+                    enable_text: true,
+                    enable_image: false,
+                    enable_audio: false,
+                    enable_tools: false,
+                    tools: vec![],
+                    base_url: "https://api.openai.com/v1".to_string(),
+                    api_key: "k".to_string(),
+                    model: "m".to_string(),
+                },
+            ],
+        };
+        normalize_app_config(&mut cfg);
+        assert_eq!(cfg.selected_api_config_id, "edit-b".to_string());
+        assert_eq!(cfg.chat_api_config_id, "chat-a".to_string());
+    }
+
+    #[test]
+    fn normalize_app_config_should_force_openai_tts_audio_only() {
+        let mut cfg = AppConfig {
+            hotkey: "Alt+·".to_string(),
+            record_hotkey: "Alt".to_string(),
+            min_record_seconds: 1,
+            max_record_seconds: 60,
+            selected_api_config_id: "tts-a".to_string(),
+            chat_api_config_id: "tts-a".to_string(),
+            stt_api_config_id: Some("tts-a".to_string()),
+            vision_api_config_id: Some("tts-a".to_string()),
+            api_configs: vec![ApiConfig {
+                id: "tts-a".to_string(),
+                name: "tts-a".to_string(),
+                request_format: "openai_tts".to_string(),
+                enable_text: true,
+                enable_image: true,
+                enable_audio: true,
+                enable_tools: true,
+                tools: vec![],
+                base_url: "https://api.siliconflow.cn/v1/audio/transcriptions".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+            }],
+        };
+        normalize_app_config(&mut cfg);
+        let api = &cfg.api_configs[0];
+        assert!(!api.enable_text);
+        assert!(!api.enable_image);
+        assert!(api.enable_audio);
+        assert!(!api.enable_tools);
+        assert_eq!(cfg.stt_api_config_id, Some("tts-a".to_string()));
+        assert_eq!(cfg.vision_api_config_id, None);
     }
 
     #[test]

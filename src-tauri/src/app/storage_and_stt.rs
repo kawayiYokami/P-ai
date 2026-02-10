@@ -25,6 +25,13 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
 
 fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
+        if api.request_format.trim() == "openai_tts" {
+            api.enable_text = false;
+            api.enable_image = false;
+            api.enable_tools = false;
+        } else {
+            api.enable_audio = false;
+        }
         if api.enable_tools && api.tools.is_empty() {
             api.tools = default_api_tools();
         }
@@ -55,7 +62,7 @@ fn normalize_app_config(config: &mut AppConfig) {
         if let Some(api) = config.api_configs.iter().find(|a| a.enable_text) {
             config.chat_api_config_id = api.id.clone();
         } else {
-            config.chat_api_config_id = config.selected_api_config_id.clone();
+            config.chat_api_config_id = config.api_configs[0].id.clone();
         }
     }
 

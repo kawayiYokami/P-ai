@@ -20,6 +20,18 @@
                 class="rounded max-h-28 object-contain bg-base-100/40"
               />
             </div>
+            <div v-if="turn.userAudios.length > 0" class="mt-2 flex flex-col gap-1">
+              <button
+                v-for="(aud, idx) in turn.userAudios"
+                :key="`${turn.id}-aud-${idx}`"
+                class="btn btn-xs btn-ghost bg-base-100/70 w-fit"
+                @click="toggleAudioPlayback(`${turn.id}-aud-${idx}`, aud)"
+              >
+                <Pause v-if="playingAudioId === `${turn.id}-aud-${idx}`" class="h-3 w-3" />
+                <Play v-else class="h-3 w-3" />
+                <span>语音{{ idx + 1 }}</span>
+              </button>
+            </div>
           </div>
         </div>
         <div v-if="turn.assistantText" class="chat chat-start">
@@ -46,18 +58,12 @@
         </div>
       </template>
 
-      <!-- 空状态 -->
-      <template v-if="turns.length === 0 && !chatting">
-        <div class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
-          <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
-            <template>...</template>
-          </div>
-        </div>
-      </template>
     </div>
 
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
+      <div v-if="chatErrorText" class="alert alert-error mb-2 py-2 px-3 text-xs whitespace-pre-wrap">
+        <span>{{ chatErrorText }}</span>
+      </div>
       <div v-if="clipboardImages.length > 0" class="flex flex-wrap gap-1 mb-2">
         <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
           <ImageIcon class="h-3.5 w-3.5" />
@@ -106,8 +112,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted, watch } from "vue";
-import { ArrowUp, Image as ImageIcon, Mic, Square, X } from "lucide-vue-next";
+import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
+import { ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { invoke } from "@tauri-apps/api/core";
@@ -119,6 +125,7 @@ const props = defineProps<{
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
+  chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   clipboardAudios: Array<{ mime: string; bytesBase64: string; durationMs: number }>;
   chatInput: string;
@@ -149,6 +156,8 @@ const localChatInput = computed({
 });
 
 const scrollContainer = ref<HTMLElement | null>(null);
+const playingAudioId = ref("");
+let activeAudio: HTMLAudioElement | null = null;
 
 const md = new MarkdownIt({
   html: false,
@@ -162,6 +171,42 @@ function renderMarkdown(text: string): string {
 }
 
 const renderedAssistantHtml = computed(() => renderMarkdown(props.latestAssistantText));
+
+function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
+  return `data:${audio.mime};base64,${audio.bytesBase64}`;
+}
+
+function stopAudioPlayback() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+    activeAudio = null;
+  }
+  playingAudioId.value = "";
+}
+
+function toggleAudioPlayback(id: string, audio: { mime: string; bytesBase64: string }) {
+  if (playingAudioId.value === id && activeAudio) {
+    stopAudioPlayback();
+    return;
+  }
+  stopAudioPlayback();
+  const player = new Audio(buildAudioDataUrl(audio));
+  activeAudio = player;
+  playingAudioId.value = id;
+  player.onended = () => {
+    if (activeAudio === player) {
+      activeAudio = null;
+      playingAudioId.value = "";
+    }
+  };
+  void player.play().catch(() => {
+    if (activeAudio === player) {
+      activeAudio = null;
+      playingAudioId.value = "";
+    }
+  });
+}
 
 function scrollToBottom() {
   const el = scrollContainer.value;
@@ -202,6 +247,10 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 
 onMounted(() => {
   nextTick(() => scrollToBottom());
+});
+
+onBeforeUnmount(() => {
+  stopAudioPlayback();
 });
 
 watch(

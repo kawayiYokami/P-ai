@@ -33,6 +33,7 @@
         :config-tab="configTab"
         :current-theme="currentTheme"
         :selected-api-config="selectedApiConfig"
+        :tool-api-config="toolApiConfig"
         :base-url-reference="baseUrlReference"
         :refreshing-models="refreshingModels"
         :checking-tools-status="checkingToolsStatus"
@@ -47,12 +48,18 @@
         :audio-capable-api-configs="audioCapableApiConfigs"
         :cache-stats="imageCacheStats"
         :cache-stats-loading="imageCacheStatsLoading"
+        :config-dirty="configDirty"
+        :saving-config="saving"
+        :hotkey-test-recording="hotkeyTestRecording"
+        :hotkey-test-recording-ms="hotkeyTestRecordingMs"
+        :hotkey-test-audio-ready="!!hotkeyTestAudio"
         @update:config-tab="configTab = $event"
         @update:selected-agent-id="selectedAgentId = $event"
         @update:user-alias="userAlias = $event"
         @toggle-theme="toggleTheme"
         @refresh-models="refreshModels"
         @refresh-tools-status="refreshToolsStatus"
+        @save-api-config="saveConfig"
         @add-api-config="addApiConfig"
         @remove-selected-api-config="removeSelectedApiConfig"
         @add-agent="addAgent"
@@ -60,6 +67,9 @@
         @open-current-history="openCurrentHistory"
         @refresh-image-cache-stats="refreshImageCacheStats"
         @clear-image-cache="clearImageCache"
+        @start-hotkey-record-test="startHotkeyRecordTest"
+        @stop-hotkey-record-test="stopHotkeyRecordTest"
+        @play-hotkey-record-test="playHotkeyRecordTest"
       />
 
       <ChatView
@@ -69,6 +79,7 @@
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
+        :chat-error-text="chatErrorText"
         :clipboard-images="clipboardImages"
         :clipboard-audios="clipboardAudios"
         :chat-input="chatInput"
@@ -168,6 +179,7 @@ const chatInput = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
+const chatErrorText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const clipboardAudios = ref<Array<{ mime: string; bytesBase64: string; durationMs: number }>>([]);
@@ -202,12 +214,27 @@ let agentsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let mediaStream: MediaStream | null = null;
+let recordingAudioContext: AudioContext | null = null;
+let recordingAnalyser: AnalyserNode | null = null;
+let recordingSourceNode: MediaStreamAudioSourceNode | null = null;
+let recordingLevelTimer: ReturnType<typeof setInterval> | null = null;
+let recordingPeakLevel = 0;
+let recordingLevelSupported = false;
 let recordingStartedAt = 0;
 let recordingTickTimer: ReturnType<typeof setInterval> | null = null;
 let recordingMaxTimer: ReturnType<typeof setTimeout> | null = null;
 let recordingDiscardCurrent = false;
+const hotkeyTestRecording = ref(false);
+const hotkeyTestRecordingMs = ref(0);
+const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
+let hotkeyTestRecorder: MediaRecorder | null = null;
+let hotkeyTestStream: MediaStream | null = null;
+let hotkeyTestStartedAt = 0;
+let hotkeyTestTickTimer: ReturnType<typeof setInterval> | null = null;
+let hotkeyTestPlayer: HTMLAudioElement | null = null;
 let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
+const lastSavedConfigJson = ref("");
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
@@ -230,6 +257,7 @@ const activeChatApiConfigId = computed(
 const activeChatApiConfig = computed(
   () => config.apiConfigs.find((a) => a.id === activeChatApiConfigId.value) ?? null,
 );
+const toolApiConfig = computed(() => activeChatApiConfig.value);
 const hasVisionFallback = computed(() =>
   !!config.visionApiConfigId
   && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
@@ -262,6 +290,7 @@ const chatInputPlaceholder = computed(() => {
   if (hints.length === 0) return "输入问题";
   return `输入问题，${hints.join("，")}`;
 });
+const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
 
 const allTurns = computed<ChatTurn[]>(() => {
   const msgs = allMessages.value;
@@ -271,13 +300,14 @@ const allTurns = computed<ChatTurn[]>(() => {
     if (msg.role === "user") {
       const userText = removeBinaryPlaceholders(renderMessage(msg));
       const userImages = extractMessageImages(msg);
+      const userAudios = extractMessageAudios(msg);
       let assistantText = "";
       if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
         assistantText = renderMessage(msgs[i + 1]);
         i++;
       }
-      if (userText || userImages.length > 0 || assistantText.trim()) {
-        turns.push({ id: msg.id, userText, userImages, assistantText });
+      if (userText || userImages.length > 0 || userAudios.length > 0 || assistantText.trim()) {
+        turns.push({ id: msg.id, userText, userImages, userAudios, assistantText });
       }
     }
   }
@@ -296,8 +326,8 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
     name: `API Config ${config.apiConfigs.length + 1}`,
     requestFormat: "openai",
     enableText: true,
-    enableImage: true,
-    enableAudio: true,
+    enableImage: false,
+    enableAudio: false,
     enableTools: false,
     tools: defaultApiTools(),
     baseUrl: "https://api.openai.com/v1",
@@ -318,8 +348,74 @@ function defaultApiTools() {
   ];
 }
 
+function buildConfigSnapshotJson(): string {
+  return JSON.stringify({
+    hotkey: config.hotkey,
+    recordHotkey: config.recordHotkey,
+    minRecordSeconds: config.minRecordSeconds,
+    maxRecordSeconds: config.maxRecordSeconds,
+    selectedApiConfigId: config.selectedApiConfigId,
+    chatApiConfigId: config.chatApiConfigId,
+    sttApiConfigId: config.sttApiConfigId,
+    visionApiConfigId: config.visionApiConfigId,
+    apiConfigs: config.apiConfigs.map((a) => ({
+      id: a.id,
+      name: a.name,
+      requestFormat: a.requestFormat,
+      enableText: a.enableText,
+      enableImage: a.enableImage,
+      enableAudio: a.enableAudio,
+      enableTools: a.enableTools,
+      tools: a.tools,
+      baseUrl: a.baseUrl,
+      apiKey: a.apiKey,
+      model: a.model,
+    })),
+  });
+}
+
+function buildConfigPayload(): AppConfig {
+  return {
+    hotkey: config.hotkey,
+    recordHotkey: config.recordHotkey,
+    minRecordSeconds: config.minRecordSeconds,
+    maxRecordSeconds: config.maxRecordSeconds,
+    selectedApiConfigId: config.selectedApiConfigId,
+    chatApiConfigId: config.chatApiConfigId,
+    ...(config.sttApiConfigId ? { sttApiConfigId: config.sttApiConfigId } : {}),
+    ...(config.visionApiConfigId ? { visionApiConfigId: config.visionApiConfigId } : {}),
+    apiConfigs: config.apiConfigs.map((a) => ({
+      id: a.id,
+      name: a.name,
+      requestFormat: a.requestFormat,
+      enableText: !!a.enableText,
+      enableImage: !!a.enableImage,
+      enableAudio: !!a.enableAudio,
+      enableTools: !!a.enableTools,
+      tools: (a.tools || []).map((t) => ({
+        id: t.id,
+        command: t.command,
+        args: Array.isArray(t.args) ? t.args : [],
+        values: t.values ?? {},
+      })),
+      baseUrl: a.baseUrl,
+      apiKey: a.apiKey,
+      model: a.model,
+    })),
+  };
+}
+
 function normalizeApiBindingsLocal() {
   if (!config.apiConfigs.length) return;
+  for (const api of config.apiConfigs) {
+    if (api.requestFormat === "openai_tts") {
+      api.enableText = false;
+      api.enableImage = false;
+      api.enableTools = false;
+    } else {
+      api.enableAudio = false;
+    }
+  }
   if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
     config.recordHotkey = "Alt";
   }
@@ -329,7 +425,7 @@ function normalizeApiBindingsLocal() {
     config.selectedApiConfigId = config.apiConfigs[0].id;
   }
   if (!config.apiConfigs.some((a) => a.id === config.chatApiConfigId && a.enableText)) {
-    config.chatApiConfigId = textCapableApiConfigs.value[0]?.id ?? config.selectedApiConfigId;
+    config.chatApiConfigId = textCapableApiConfigs.value[0]?.id ?? config.apiConfigs[0].id;
   }
   if (
     config.sttApiConfigId
@@ -379,6 +475,13 @@ function extractMessageImages(msg?: ChatMessage): Array<{ mime: string; bytesBas
     .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
 }
 
+function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
+  if (!msg) return [];
+  return msg.parts
+    .filter((p) => p.type === "audio")
+    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
+}
+
 async function loadConfig() {
   suppressAutosave.value = true;
   loading.value = true;
@@ -395,6 +498,7 @@ async function loadConfig() {
     config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...(cfg.apiConfigs.length ? cfg.apiConfigs : [createApiConfig("default")]));
     normalizeApiBindingsLocal();
+    lastSavedConfigJson.value = buildConfigSnapshotJson();
     status.value = "Config loaded.";
   } catch (e) {
     status.value = `Load failed: ${String(e)}`;
@@ -409,7 +513,8 @@ async function saveConfig() {
   saving.value = true;
   status.value = "Saving config...";
   try {
-    const saved = await invoke<AppConfig>("save_config", { config: { ...config } });
+    console.info("[CONFIG] save_config invoked");
+    const saved = await invoke<AppConfig>("save_config", { config: buildConfigPayload() });
     config.hotkey = saved.hotkey;
     config.recordHotkey = saved.recordHotkey || "Alt";
     config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
@@ -420,9 +525,17 @@ async function saveConfig() {
     config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...saved.apiConfigs);
     normalizeApiBindingsLocal();
+    lastSavedConfigJson.value = buildConfigSnapshotJson();
+    console.info("[CONFIG] save_config success");
     status.value = "Config saved.";
   } catch (e) {
-    status.value = `Save failed: ${String(e)}`;
+    const err = String(e);
+    console.error("[CONFIG] save_config failed:", e);
+    if (err.includes("404")) {
+      status.value = "Save failed: 后端命令不可达（404）。请使用 `pnpm tauri dev` 启动桌面端，而不是仅 `pnpm dev`。";
+    } else {
+      status.value = `Save failed: ${err}`;
+    }
   } finally {
     suppressAutosave.value = false;
     saving.value = false;
@@ -469,7 +582,6 @@ async function saveChatPreferences() {
   saving.value = true;
   status.value = "Saving chat settings...";
   try {
-    await saveConfig();
     await invoke("save_chat_settings", { input: { selectedAgentId: selectedAgentId.value, userAlias: userAlias.value } });
     status.value = "Chat settings saved.";
   } catch (e) {
@@ -479,13 +591,35 @@ async function saveChatPreferences() {
   }
 }
 
-function scheduleConfigAutosave() {
+async function saveConversationApiSettings() {
   if (suppressAutosave.value) return;
-  if (!configAutosaveReady.value) return;
-  if (configAutosaveTimer) clearTimeout(configAutosaveTimer);
-  configAutosaveTimer = setTimeout(() => {
-    void saveConfig();
-  }, 350);
+  try {
+    console.info("[CONFIG] save_conversation_api_settings invoked");
+    const saved = await invoke<{
+      chatApiConfigId: string;
+      sttApiConfigId?: string;
+      visionApiConfigId?: string;
+    }>("save_conversation_api_settings", {
+      input: {
+        chatApiConfigId: config.chatApiConfigId,
+        sttApiConfigId: config.sttApiConfigId || null,
+        visionApiConfigId: config.visionApiConfigId || null,
+      },
+    });
+    config.chatApiConfigId = saved.chatApiConfigId;
+    config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
+    config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
+    lastSavedConfigJson.value = buildConfigSnapshotJson();
+    console.info("[CONFIG] save_conversation_api_settings success");
+  } catch (e) {
+    console.error("[CONFIG] save_conversation_api_settings failed:", e);
+    status.value = `保存对话API设置失败: ${String(e)}`;
+  }
+}
+
+function scheduleConfigAutosave() {
+  // API 配置改为手动保存，保留函数占位避免大范围改动。
+  return;
 }
 
 function scheduleAgentsAutosave() {
@@ -551,11 +685,11 @@ async function refreshModels() {
 }
 
 async function refreshToolsStatus() {
-  if (!selectedApiConfig.value) return;
+  if (!toolApiConfig.value) return;
   checkingToolsStatus.value = true;
   try {
     toolStatuses.value = await invoke<ToolLoadStatus[]>("check_tools_status", {
-      input: { apiConfigId: selectedApiConfig.value.id },
+      input: { apiConfigId: toolApiConfig.value.id },
     });
   } catch (e) {
     toolStatuses.value = [
@@ -699,6 +833,7 @@ async function sendChat() {
   latestUserText.value = text;
   latestUserImages.value = [...clipboardImages.value];
   latestAssistantText.value = "";
+  chatErrorText.value = "";
 
   const sentImages = [...clipboardImages.value];
   const sentAudios = [...clipboardAudios.value];
@@ -748,11 +883,13 @@ async function sendChat() {
     latestUserText.value = removeBinaryPlaceholders(result.latestUserText);
     latestUserImages.value = sentImages;
     enqueueFinalAssistantText(gen, result.assistantText);
+    chatErrorText.value = "";
     await loadAllMessages();
   } catch (e) {
     if (gen !== chatGeneration) return;
     clearStreamBuffer();
-    latestAssistantText.value = `Error: ${String(e)}`;
+    latestAssistantText.value = "";
+    chatErrorText.value = `请求失败：${String(e)}`;
     await loadAllMessages();
   } finally {
     if (gen === chatGeneration) {
@@ -843,6 +980,92 @@ async function readBlobAsDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+function clearHotkeyTestTimers() {
+  if (hotkeyTestTickTimer) {
+    clearInterval(hotkeyTestTickTimer);
+    hotkeyTestTickTimer = null;
+  }
+}
+
+function stopHotkeyTestStream() {
+  if (hotkeyTestStream) {
+    for (const track of hotkeyTestStream.getTracks()) track.stop();
+    hotkeyTestStream = null;
+  }
+}
+
+async function startHotkeyRecordTest() {
+  if (hotkeyTestRecording.value) return;
+  if (recording.value) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    status.value = "当前环境不支持录音。";
+    return;
+  }
+  try {
+    hotkeyTestStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    hotkeyTestRecorder = new MediaRecorder(hotkeyTestStream);
+    const chunks: BlobPart[] = [];
+    hotkeyTestRecorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data);
+    };
+    hotkeyTestRecorder.onstop = async () => {
+      const durationMs = Math.max(0, Date.now() - hotkeyTestStartedAt);
+      hotkeyTestRecording.value = false;
+      clearHotkeyTestTimers();
+      stopHotkeyTestStream();
+      if (chunks.length === 0) return;
+      const blob = new Blob(chunks, { type: hotkeyTestRecorder?.mimeType || "audio/webm" });
+      const dataUrl = await readBlobAsDataUrl(blob);
+      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
+      if (!base64) return;
+      hotkeyTestAudio.value = {
+        mime: blob.type || "audio/webm",
+        bytesBase64: base64,
+        durationMs,
+      };
+      status.value = `录音测试完成（${Math.max(1, Math.round(durationMs / 1000))}s）。`;
+    };
+    hotkeyTestRecorder.start();
+    hotkeyTestStartedAt = Date.now();
+    hotkeyTestRecording.value = true;
+    hotkeyTestRecordingMs.value = 0;
+    clearHotkeyTestTimers();
+    hotkeyTestTickTimer = setInterval(() => {
+      hotkeyTestRecordingMs.value = Math.max(0, Date.now() - hotkeyTestStartedAt);
+    }, 100);
+  } catch (e) {
+    hotkeyTestRecording.value = false;
+    clearHotkeyTestTimers();
+    stopHotkeyTestStream();
+    status.value = `录音测试失败: ${String(e)}`;
+  }
+}
+
+async function stopHotkeyRecordTest() {
+  if (!hotkeyTestRecording.value) return;
+  if (hotkeyTestRecorder && hotkeyTestRecorder.state !== "inactive") {
+    hotkeyTestRecorder.stop();
+  } else {
+    hotkeyTestRecording.value = false;
+    clearHotkeyTestTimers();
+    stopHotkeyTestStream();
+  }
+}
+
+function playHotkeyRecordTest() {
+  if (!hotkeyTestAudio.value) return;
+  if (hotkeyTestPlayer) {
+    hotkeyTestPlayer.pause();
+    hotkeyTestPlayer.currentTime = 0;
+    hotkeyTestPlayer = null;
+  }
+  const src = `data:${hotkeyTestAudio.value.mime};base64,${hotkeyTestAudio.value.bytesBase64}`;
+  hotkeyTestPlayer = new Audio(src);
+  void hotkeyTestPlayer.play().catch(() => {
+    hotkeyTestPlayer = null;
+  });
+}
+
 function clearRecordingTimers() {
   if (recordingTickTimer) {
     clearInterval(recordingTickTimer);
@@ -852,6 +1075,60 @@ function clearRecordingTimers() {
     clearTimeout(recordingMaxTimer);
     recordingMaxTimer = null;
   }
+  if (recordingLevelTimer) {
+    clearInterval(recordingLevelTimer);
+    recordingLevelTimer = null;
+  }
+}
+
+function stopRecordingLevelMonitor() {
+  recordingLevelSupported = false;
+  if (recordingSourceNode) {
+    try {
+      recordingSourceNode.disconnect();
+    } catch {
+      // ignore
+    }
+    recordingSourceNode = null;
+  }
+  if (recordingAnalyser) {
+    try {
+      recordingAnalyser.disconnect();
+    } catch {
+      // ignore
+    }
+    recordingAnalyser = null;
+  }
+  if (recordingAudioContext) {
+    void recordingAudioContext.close().catch(() => {});
+    recordingAudioContext = null;
+  }
+}
+
+function startRecordingLevelMonitor(stream: MediaStream) {
+  stopRecordingLevelMonitor();
+  recordingLevelSupported = false;
+  recordingPeakLevel = 0;
+  const Ctx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return;
+  recordingAudioContext = new Ctx();
+  recordingSourceNode = recordingAudioContext.createMediaStreamSource(stream);
+  recordingAnalyser = recordingAudioContext.createAnalyser();
+  recordingLevelSupported = true;
+  recordingAnalyser.fftSize = 1024;
+  recordingSourceNode.connect(recordingAnalyser);
+  const data = new Float32Array(recordingAnalyser.fftSize);
+  recordingLevelTimer = setInterval(() => {
+    if (!recordingAnalyser) return;
+    recordingAnalyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const v = data[i];
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+    recordingPeakLevel = Math.max(recordingPeakLevel, rms);
+  }, 100);
 }
 
 function matchesRecordHotkey(event: KeyboardEvent): boolean {
@@ -871,6 +1148,7 @@ async function startRecording() {
 
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    startRecordingLevelMonitor(mediaStream);
     mediaRecorder = new MediaRecorder(mediaStream);
     const chunks: BlobPart[] = [];
     recordingDiscardCurrent = false;
@@ -886,6 +1164,7 @@ async function startRecording() {
         for (const track of mediaStream.getTracks()) track.stop();
         mediaStream = null;
       }
+      stopRecordingLevelMonitor();
       const minMs = config.minRecordSeconds * 1000;
       if (recordingDiscardCurrent || durationMs < minMs || chunks.length === 0) {
         if (!recordingDiscardCurrent && durationMs < minMs) {
@@ -893,15 +1172,33 @@ async function startRecording() {
         }
         return;
       }
+      const MIN_VALID_RMS = 0.008;
+      if (recordingLevelSupported && recordingPeakLevel < MIN_VALID_RMS) {
+        status.value = "录音音量过低，未检测到有效语音，已丢弃。";
+        return;
+      }
       const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || "audio/webm" });
       const dataUrl = await readBlobAsDataUrl(blob);
       const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
       if (!base64) return;
-      clipboardAudios.value.push({
-        mime: blob.type || "audio/webm",
-        bytesBase64: base64,
-        durationMs,
-      });
+      try {
+        const text = await invoke<string>("transcribe_audio_input", {
+          input: {
+            audios: [{ mime: blob.type || "audio/webm", bytesBase64: base64 }],
+          },
+        });
+        const trimmed = (text || "").trim();
+        if (trimmed) {
+          chatInput.value = chatInput.value.trim()
+            ? `${chatInput.value.trim()}\n${trimmed}`
+            : trimmed;
+          status.value = "录音已转文字。";
+        } else {
+          status.value = "录音已完成，但未识别到文本。";
+        }
+      } catch (e) {
+        status.value = `录音转文字失败: ${String(e)}`;
+      }
     };
 
     mediaRecorder.start();
@@ -918,6 +1215,7 @@ async function startRecording() {
   } catch (e) {
     recording.value = false;
     clearRecordingTimers();
+    stopRecordingLevelMonitor();
     status.value = `开始录音失败: ${String(e)}`;
     if (mediaStream) {
       for (const track of mediaStream.getTracks()) track.stop();
@@ -934,6 +1232,7 @@ async function stopRecording(discard: boolean) {
   } else {
     recording.value = false;
     clearRecordingTimers();
+    stopRecordingLevelMonitor();
   }
 }
 
@@ -1086,6 +1385,13 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearStreamBuffer();
   void stopRecording(true);
+  void stopHotkeyRecordTest();
+  if (hotkeyTestPlayer) {
+    hotkeyTestPlayer.pause();
+    hotkeyTestPlayer.currentTime = 0;
+    hotkeyTestPlayer = null;
+  }
+  stopRecordingLevelMonitor();
   if (keydownHandler) window.removeEventListener("keydown", keydownHandler);
   if (keyupHandler) window.removeEventListener("keyup", keyupHandler);
 });
@@ -1114,16 +1420,18 @@ watch(
       model: a.model,
     })),
   }),
-  () => scheduleConfigAutosave(),
+  () => { /* 手动保存模式，不自动持久化 API 配置 */ },
   { deep: true },
 );
 
 watch(
   () => config.apiConfigs.map((a) => ({
     id: a.id,
+    requestFormat: a.requestFormat,
     enableText: a.enableText,
     enableImage: a.enableImage,
     enableAudio: a.enableAudio,
+    enableTools: a.enableTools,
   })),
   () => normalizeApiBindingsLocal(),
   { deep: true },
@@ -1147,6 +1455,17 @@ watch(
 );
 
 watch(
+  () => ({
+    chatApiConfigId: config.chatApiConfigId,
+    sttApiConfigId: config.sttApiConfigId,
+    visionApiConfigId: config.visionApiConfigId,
+  }),
+  () => {
+    void saveConversationApiSettings();
+  },
+);
+
+watch(
   () => selectedApiConfig.value?.enableTools,
   (enabled) => {
     if (!enabled || !selectedApiConfig.value) return;
@@ -1157,15 +1476,15 @@ watch(
 );
 
 watch(
-  () => [configTab.value, config.selectedApiConfigId, selectedApiConfig.value?.enableTools],
+  () => [configTab.value, activeChatApiConfigId.value, toolApiConfig.value?.enableTools],
   async ([tab, id, enabled]) => {
     if (tab !== "tools") return;
     if (!id) return;
     if (!enabled) {
-      toolStatuses.value = (selectedApiConfig.value?.tools ?? []).map((t) => ({
+      toolStatuses.value = (toolApiConfig.value?.tools ?? []).map((t) => ({
         id: t.id,
         status: "disabled",
-        detail: "此 API 配置未启用工具调用。",
+        detail: "当前对话AI未启用工具调用。",
       }));
       return;
     }
@@ -1178,6 +1497,17 @@ watch(
   async (tab) => {
     if (tab !== "chatSettings") return;
     await refreshImageCacheStats();
+  },
+);
+
+watch(
+  () => activeChatApiConfigId.value,
+  async (_newId, oldId) => {
+    if (_newId === oldId) return;
+    if (viewMode.value !== "chat") return;
+    await refreshChatSnapshot();
+    await loadAllMessages();
+    visibleTurnCount.value = 1;
   },
 );
 </script>
