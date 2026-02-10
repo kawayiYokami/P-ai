@@ -13,6 +13,24 @@
         <div class="label py-1"><span class="label-text text-xs">Hotkey</span></div>
         <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+·" />
       </label>
+      <div class="grid grid-cols-3 gap-2">
+        <label class="form-control col-span-1">
+          <div class="label py-1"><span class="label-text text-xs">录音键</span></div>
+          <select v-model="config.recordHotkey" class="select select-bordered select-sm">
+            <option value="Alt">Alt</option>
+            <option value="Ctrl">Ctrl</option>
+            <option value="Shift">Shift</option>
+          </select>
+        </label>
+        <label class="form-control col-span-1">
+          <div class="label py-1"><span class="label-text text-xs">最短录音(s)</span></div>
+          <input v-model.number="config.minRecordSeconds" type="number" min="1" max="30" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control col-span-1">
+          <div class="label py-1"><span class="label-text text-xs">最长录音(s)</span></div>
+          <input v-model.number="config.maxRecordSeconds" type="number" min="1" max="600" class="input input-bordered input-sm" />
+        </label>
+      </div>
       <div class="form-control">
         <div class="label py-1"><span class="label-text text-xs">主题</span></div>
         <button class="btn btn-sm btn-ghost bg-base-100 w-full flex items-center justify-center gap-2" @click="$emit('toggleTheme')">

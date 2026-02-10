@@ -70,13 +70,21 @@
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
         :clipboard-images="clipboardImages"
+        :clipboard-audios="clipboardAudios"
         :chat-input="chatInput"
         :chat-input-placeholder="chatInputPlaceholder"
+        :can-record="activeChatApiConfig?.enableAudio || hasSttFallback"
+        :recording="recording"
+        :recording-ms="recordingMs"
+        :record-hotkey="config.recordHotkey"
         :chatting="chatting"
         :turns="visibleTurns"
         :has-more-turns="hasMoreTurns"
         @update:chat-input="chatInput = $event"
         @remove-clipboard-image="removeClipboardImage"
+        @remove-clipboard-audio="removeClipboardAudio"
+        @start-recording="startRecording"
+        @stop-recording="stopRecording(false)"
         @send-chat="sendChat"
         @stop-chat="stopChat"
         @load-more-turns="loadMoreTurns"
@@ -142,6 +150,9 @@ const viewMode = ref<"chat" | "archives" | "config">("config");
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
+  recordHotkey: "Alt",
+  minRecordSeconds: 1,
+  maxRecordSeconds: 60,
   selectedApiConfigId: "",
   chatApiConfigId: "",
   sttApiConfigId: undefined,
@@ -159,6 +170,9 @@ const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
+const clipboardAudios = ref<Array<{ mime: string; bytesBase64: string; durationMs: number }>>([]);
+const recording = ref(false);
+const recordingMs = ref(0);
 
 const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleTurnCount = ref(1);
@@ -186,6 +200,14 @@ const suppressAutosave = ref(false);
 let configAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let agentsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let mediaStream: MediaStream | null = null;
+let recordingStartedAt = 0;
+let recordingTickTimer: ReturnType<typeof setInterval> | null = null;
+let recordingMaxTimer: ReturnType<typeof setTimeout> | null = null;
+let recordingDiscardCurrent = false;
+let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
@@ -298,6 +320,11 @@ function defaultApiTools() {
 
 function normalizeApiBindingsLocal() {
   if (!config.apiConfigs.length) return;
+  if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
+    config.recordHotkey = "Alt";
+  }
+  config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(config.minRecordSeconds) || 1)));
+  config.maxRecordSeconds = Math.max(config.minRecordSeconds, Math.round(Number(config.maxRecordSeconds) || 60));
   if (!config.apiConfigs.some((a) => a.id === config.selectedApiConfigId)) {
     config.selectedApiConfigId = config.apiConfigs[0].id;
   }
@@ -359,6 +386,9 @@ async function loadConfig() {
   try {
     const cfg = await invoke<AppConfig>("load_config");
     config.hotkey = cfg.hotkey;
+    config.recordHotkey = cfg.recordHotkey || "Alt";
+    config.minRecordSeconds = Math.max(1, Math.min(30, Number(cfg.minRecordSeconds || 1)));
+    config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
     config.selectedApiConfigId = cfg.selectedApiConfigId;
     config.chatApiConfigId = cfg.chatApiConfigId;
     config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
@@ -381,6 +411,9 @@ async function saveConfig() {
   try {
     const saved = await invoke<AppConfig>("save_config", { config: { ...config } });
     config.hotkey = saved.hotkey;
+    config.recordHotkey = saved.recordHotkey || "Alt";
+    config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
+    config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
     config.selectedApiConfigId = saved.selectedApiConfigId;
     config.chatApiConfigId = saved.chatApiConfigId;
     config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
@@ -658,7 +691,7 @@ function enqueueFinalAssistantText(gen: number, finalText: string) {
 
 async function sendChat() {
   const text = chatInput.value.trim();
-  if (!text && clipboardImages.value.length === 0) {
+  if (!text && clipboardImages.value.length === 0 && clipboardAudios.value.length === 0) {
     return;
   }
 
@@ -668,9 +701,11 @@ async function sendChat() {
   latestAssistantText.value = "";
 
   const sentImages = [...clipboardImages.value];
+  const sentAudios = [...clipboardAudios.value];
   const sentModel = activeChatApiConfig.value?.model;
   chatInput.value = "";
   clipboardImages.value = [];
+  clipboardAudios.value = [];
 
   const optimisticUserMessage: ChatMessage = {
     id: `optimistic-user-${Date.now()}`,
@@ -681,6 +716,11 @@ async function sendChat() {
         type: "image" as const,
         mime: img.mime,
         bytesBase64: img.bytesBase64,
+      })),
+      ...sentAudios.map((aud) => ({
+        type: "audio" as const,
+        mime: aud.mime,
+        bytesBase64: aud.bytesBase64,
       })),
     ],
   };
@@ -700,7 +740,7 @@ async function sendChat() {
       input: {
         apiConfigId: activeChatApiConfigId.value,
         agentId: selectedAgentId.value,
-        payload: { text, images: sentImages, model: sentModel },
+        payload: { text, images: sentImages, audios: sentAudios, model: sentModel },
       },
       onDelta: deltaChannel,
     });
@@ -789,6 +829,11 @@ function removeClipboardImage(index: number) {
   clipboardImages.value.splice(index, 1);
 }
 
+function removeClipboardAudio(index: number) {
+  if (index < 0 || index >= clipboardAudios.value.length) return;
+  clipboardAudios.value.splice(index, 1);
+}
+
 async function readBlobAsDataUrl(blob: Blob): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -796,6 +841,100 @@ async function readBlobAsDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+}
+
+function clearRecordingTimers() {
+  if (recordingTickTimer) {
+    clearInterval(recordingTickTimer);
+    recordingTickTimer = null;
+  }
+  if (recordingMaxTimer) {
+    clearTimeout(recordingMaxTimer);
+    recordingMaxTimer = null;
+  }
+}
+
+function matchesRecordHotkey(event: KeyboardEvent): boolean {
+  if (config.recordHotkey === "Alt") return event.key === "Alt";
+  if (config.recordHotkey === "Ctrl") return event.key === "Control";
+  if (config.recordHotkey === "Shift") return event.key === "Shift";
+  return false;
+}
+
+async function startRecording() {
+  if (recording.value || chatting.value) return;
+  if (!(activeChatApiConfig.value?.enableAudio || hasSttFallback.value)) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    status.value = "当前环境不支持录音。";
+    return;
+  }
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(mediaStream);
+    const chunks: BlobPart[] = [];
+    recordingDiscardCurrent = false;
+
+    mediaRecorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data);
+    };
+    mediaRecorder.onstop = async () => {
+      const durationMs = Math.max(0, Date.now() - recordingStartedAt);
+      recording.value = false;
+      clearRecordingTimers();
+      if (mediaStream) {
+        for (const track of mediaStream.getTracks()) track.stop();
+        mediaStream = null;
+      }
+      const minMs = config.minRecordSeconds * 1000;
+      if (recordingDiscardCurrent || durationMs < minMs || chunks.length === 0) {
+        if (!recordingDiscardCurrent && durationMs < minMs) {
+          status.value = `录音过短（< ${config.minRecordSeconds}s），已丢弃。`;
+        }
+        return;
+      }
+      const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || "audio/webm" });
+      const dataUrl = await readBlobAsDataUrl(blob);
+      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
+      if (!base64) return;
+      clipboardAudios.value.push({
+        mime: blob.type || "audio/webm",
+        bytesBase64: base64,
+        durationMs,
+      });
+    };
+
+    mediaRecorder.start();
+    recordingStartedAt = Date.now();
+    recording.value = true;
+    recordingMs.value = 0;
+    recordingTickTimer = setInterval(() => {
+      recordingMs.value = Math.max(0, Date.now() - recordingStartedAt);
+    }, 100);
+    recordingMaxTimer = setTimeout(() => {
+      void stopRecording(false);
+      status.value = `录音已达到上限 ${config.maxRecordSeconds}s，自动停止。`;
+    }, config.maxRecordSeconds * 1000);
+  } catch (e) {
+    recording.value = false;
+    clearRecordingTimers();
+    status.value = `开始录音失败: ${String(e)}`;
+    if (mediaStream) {
+      for (const track of mediaStream.getTracks()) track.stop();
+      mediaStream = null;
+    }
+  }
+}
+
+async function stopRecording(discard: boolean) {
+  if (!recording.value) return;
+  recordingDiscardCurrent = discard;
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+  } else {
+    recording.value = false;
+    clearRecordingTimers();
+  }
 }
 
 async function importClipboardImageOnOpen() {
@@ -889,6 +1028,21 @@ onMounted(async () => {
   });
 
   window.addEventListener("paste", onPaste);
+  keydownHandler = (event: KeyboardEvent) => {
+    if (viewMode.value !== "chat") return;
+    if (!matchesRecordHotkey(event)) return;
+    if (event.repeat) return;
+    event.preventDefault();
+    void startRecording();
+  };
+  keyupHandler = (event: KeyboardEvent) => {
+    if (viewMode.value !== "chat") return;
+    if (!matchesRecordHotkey(event)) return;
+    event.preventDefault();
+    void stopRecording(false);
+  };
+  window.addEventListener("keydown", keydownHandler);
+  window.addEventListener("keyup", keyupHandler);
   const refreshAll = async () => {
     await loadConfig();
     await loadAgents();
@@ -926,15 +1080,22 @@ onMounted(async () => {
     agentsAutosaveReady.value = true;
     chatSettingsAutosaveReady.value = true;
   });
+
 });
 
 onBeforeUnmount(() => {
   clearStreamBuffer();
+  void stopRecording(true);
+  if (keydownHandler) window.removeEventListener("keydown", keydownHandler);
+  if (keyupHandler) window.removeEventListener("keyup", keyupHandler);
 });
 
 watch(
   () => ({
     hotkey: config.hotkey,
+    recordHotkey: config.recordHotkey,
+    minRecordSeconds: config.minRecordSeconds,
+    maxRecordSeconds: config.maxRecordSeconds,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
     sttApiConfigId: config.sttApiConfigId,

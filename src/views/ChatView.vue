@@ -67,7 +67,28 @@
           </button>
         </div>
       </div>
+      <div v-if="clipboardAudios.length > 0" class="flex flex-wrap gap-1 mb-2">
+        <div v-for="(aud, idx) in clipboardAudios" :key="`${aud.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
+          <span class="text-[11px]">语音{{ idx + 1 }} ({{ Math.max(1, Math.round(aud.durationMs / 1000)) }}s)</span>
+          <button class="btn btn-ghost btn-xs btn-square" @click="$emit('removeClipboardAudio', idx)">
+            <X class="h-3 w-3" />
+          </button>
+        </div>
+      </div>
       <div class="flex flex-row items-center gap-2">
+        <button
+          class="btn btn-sm btn-circle shrink-0"
+          :class="recording ? 'btn-error' : 'btn-ghost bg-base-100'"
+          :disabled="!canRecord || chatting"
+          :title="recording ? `录音中 ${Math.max(1, Math.round(recordingMs / 1000))}s` : `按住${recordHotkey}或按钮录音`"
+          @mousedown.prevent="$emit('startRecording')"
+          @mouseup.prevent="$emit('stopRecording')"
+          @mouseleave.prevent="recording && $emit('stopRecording')"
+          @touchstart.prevent="$emit('startRecording')"
+          @touchend.prevent="$emit('stopRecording')"
+        >
+          <Mic class="h-3.5 w-3.5" />
+        </button>
         <textarea
           v-model="localChatInput"
           class="flex-1 textarea textarea-sm resize-none border-none bg-transparent focus:outline-none"
@@ -86,7 +107,7 @@
 
 <script setup lang="ts">
 import { computed, ref, nextTick, onMounted, watch } from "vue";
-import { ArrowUp, Image as ImageIcon, Square, X } from "lucide-vue-next";
+import { ArrowUp, Image as ImageIcon, Mic, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { invoke } from "@tauri-apps/api/core";
@@ -99,8 +120,13 @@ const props = defineProps<{
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
+  clipboardAudios: Array<{ mime: string; bytesBase64: string; durationMs: number }>;
   chatInput: string;
   chatInputPlaceholder: string;
+  canRecord: boolean;
+  recording: boolean;
+  recordingMs: number;
+  recordHotkey: string;
   chatting: boolean;
   turns: ChatTurn[];
   hasMoreTurns: boolean;
@@ -109,6 +135,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
   (e: "removeClipboardImage", index: number): void;
+  (e: "removeClipboardAudio", index: number): void;
+  (e: "startRecording"): void;
+  (e: "stopRecording"): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "loadMoreTurns"): void;

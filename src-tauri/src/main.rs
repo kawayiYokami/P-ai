@@ -86,6 +86,18 @@ fn default_true() -> bool {
     true
 }
 
+fn default_record_hotkey() -> String {
+    "Alt".to_string()
+}
+
+fn default_min_record_seconds() -> u32 {
+    1
+}
+
+fn default_max_record_seconds() -> u32 {
+    60
+}
+
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
@@ -108,6 +120,12 @@ impl Default for ApiConfig {
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
     hotkey: String,
+    #[serde(default = "default_record_hotkey")]
+    record_hotkey: String,
+    #[serde(default = "default_min_record_seconds")]
+    min_record_seconds: u32,
+    #[serde(default = "default_max_record_seconds")]
+    max_record_seconds: u32,
     selected_api_config_id: String,
     #[serde(default)]
     chat_api_config_id: String,
@@ -123,6 +141,9 @@ impl Default for AppConfig {
         let api_config = ApiConfig::default();
         Self {
             hotkey: "Alt+·".to_string(),
+            record_hotkey: default_record_hotkey(),
+            min_record_seconds: default_min_record_seconds(),
+            max_record_seconds: default_max_record_seconds(),
             selected_api_config_id: api_config.id.clone(),
             chat_api_config_id: api_config.id.clone(),
             stt_api_config_id: None,
@@ -659,6 +680,53 @@ mod tests {
         let h2 = compute_image_hash_hex(&part).expect("hash2");
         assert_eq!(h1, h2);
         assert!(!h1.is_empty());
+    }
+
+    #[test]
+    fn normalize_app_config_should_fix_invalid_record_and_stt_fields() {
+        let mut cfg = AppConfig {
+            hotkey: "Alt+·".to_string(),
+            record_hotkey: "".to_string(),
+            min_record_seconds: 0,
+            max_record_seconds: 0,
+            selected_api_config_id: "a1".to_string(),
+            chat_api_config_id: "a1".to_string(),
+            stt_api_config_id: Some("a2".to_string()),
+            vision_api_config_id: None,
+            api_configs: vec![
+                ApiConfig {
+                    id: "a1".to_string(),
+                    name: "chat".to_string(),
+                    request_format: "openai".to_string(),
+                    enable_text: true,
+                    enable_image: true,
+                    enable_audio: false,
+                    enable_tools: false,
+                    tools: vec![],
+                    base_url: "https://api.openai.com/v1".to_string(),
+                    api_key: "k".to_string(),
+                    model: "m".to_string(),
+                },
+                ApiConfig {
+                    id: "a2".to_string(),
+                    name: "bad-stt".to_string(),
+                    request_format: "openai".to_string(),
+                    enable_text: true,
+                    enable_image: false,
+                    enable_audio: true,
+                    enable_tools: false,
+                    tools: vec![],
+                    base_url: "https://api.openai.com/v1".to_string(),
+                    api_key: "k".to_string(),
+                    model: "m".to_string(),
+                },
+            ],
+        };
+        normalize_app_config(&mut cfg);
+        assert_eq!(cfg.record_hotkey, "Alt");
+        assert_eq!(cfg.min_record_seconds, 1);
+        assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
+        assert_eq!(cfg.stt_api_config_id, None);
     }
 
     #[test]

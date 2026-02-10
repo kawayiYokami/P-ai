@@ -21,6 +21,9 @@ export type ApiConfigItem = {
 
 export type AppConfig = {
   hotkey: string;
+  recordHotkey: string;
+  minRecordSeconds: number;
+  maxRecordSeconds: number;
   selectedApiConfigId: string;
   chatApiConfigId: string;
   sttApiConfigId?: string;

@@ -59,6 +59,16 @@ fn normalize_app_config(config: &mut AppConfig) {
         }
     }
 
+    if config.record_hotkey.trim().is_empty() {
+        config.record_hotkey = default_record_hotkey();
+    }
+    if config.min_record_seconds == 0 {
+        config.min_record_seconds = default_min_record_seconds();
+    }
+    if config.max_record_seconds < config.min_record_seconds {
+        config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
+    }
+
     config.stt_api_config_id = config
         .stt_api_config_id
         .as_deref()
