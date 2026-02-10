@@ -11,7 +11,7 @@
     <template v-if="configTab === 'hotkey'">
       <label class="form-control">
         <div class="label py-1"><span class="label-text text-xs">Hotkey</span></div>
-        <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+C" />
+        <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+·" />
       </label>
       <div class="form-control">
         <div class="label py-1"><span class="label-text text-xs">主题</span></div>
