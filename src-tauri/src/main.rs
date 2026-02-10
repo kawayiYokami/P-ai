@@ -8,6 +8,7 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
+use futures_util::StreamExt;
 use image::ImageFormat;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use scraper::{Html, Selector};
@@ -122,7 +123,7 @@ impl Default for AppConfig {
   fn default() -> Self {
     let api_config = ApiConfig::default();
     Self {
-      hotkey: "Alt+C".to_string(),
+      hotkey: "Alt+·".to_string(),
       selected_api_config_id: api_config.id.clone(),
       api_configs: vec![api_config],
     }
@@ -221,19 +222,32 @@ struct OpenAIModelListResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct OpenAIChatCompletionChoice {
-  message: OpenAIChatAssistantMessage,
+struct OpenAIStreamChunk {
+  choices: Vec<OpenAIStreamChoice>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct OpenAIChatCompletionResponse {
-  choices: Vec<OpenAIChatCompletionChoice>,
+struct OpenAIStreamChoice {
+  delta: OpenAIStreamDelta,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct OpenAIChatAssistantMessage {
+struct OpenAIStreamDelta {
   content: Option<Value>,
-  tool_calls: Option<Vec<OpenAIToolCall>>,
+  tool_calls: Option<Vec<OpenAIStreamToolCallDelta>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIStreamToolCallDelta {
+  index: usize,
+  id: Option<String>,
+  function: Option<OpenAIStreamToolCallFnDelta>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAIStreamToolCallFnDelta {
+  name: Option<String>,
+  arguments: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -246,6 +260,12 @@ struct OpenAIToolCall {
 struct OpenAIToolCallFunction {
   name: String,
   arguments: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantDeltaEvent {
+  delta: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -876,21 +896,6 @@ fn value_to_text(value: &Value) -> String {
   }
 }
 
-fn parse_assistant_text(content: &Option<Value>) -> String {
-  match content {
-    Some(Value::String(s)) => s.clone(),
-    Some(Value::Array(items)) => items
-      .iter()
-      .filter_map(|it| it.get("text").and_then(Value::as_str))
-      .collect::<Vec<_>>()
-      .join("\n")
-      .trim()
-      .to_string(),
-    Some(other) => value_to_text(other),
-    None => String::new(),
-  }
-}
-
 fn build_openai_tools_payload(tools: &[McpExposedTool]) -> Vec<Value> {
   tools
     .iter()
@@ -1092,15 +1097,204 @@ fn openai_headers(api_key: &str) -> Result<HeaderMap, String> {
   Ok(headers)
 }
 
-fn normalize_openai_chat_base(base_url: &str) -> String {
+fn candidate_openai_chat_urls(base_url: &str) -> Vec<String> {
   let base = base_url.trim().trim_end_matches('/');
-  if base.to_ascii_lowercase().ends_with("/chat/completions") {
-    return base.to_string();
+  if base.is_empty() {
+    return Vec::new();
   }
-  if base.to_ascii_lowercase().ends_with("/v1") {
-    return format!("{base}/chat/completions");
+  let lower = base.to_ascii_lowercase();
+  let mut urls = Vec::new();
+  if lower.ends_with("/chat/completions") {
+    urls.push(base.to_string());
+  } else if lower.ends_with("/v1") {
+    urls.push(format!("{base}/chat/completions"));
+  } else {
+    urls.push(format!("{base}/chat/completions"));
+    urls.push(format!("{base}/v1/chat/completions"));
   }
-  format!("{base}/v1/chat/completions")
+  urls.sort();
+  urls.dedup();
+  urls
+}
+
+fn parse_stream_delta_text(content: &Option<Value>) -> String {
+  match content {
+    Some(Value::String(s)) => s.clone(),
+    Some(Value::Array(items)) => items
+      .iter()
+      .filter_map(|it| it.get("text").and_then(Value::as_str))
+      .collect::<Vec<_>>()
+      .join(""),
+    _ => String::new(),
+  }
+}
+
+/// 通用 OpenAI SSE 流式请求：解析文本 delta（实时推送到 on_delta）和 tool_calls 积累。
+/// 返回 (完整文本, 积累的 tool_calls)。
+async fn openai_stream_request(
+  client: &reqwest::Client,
+  url: &str,
+  body: Value,
+  on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<(String, Vec<OpenAIToolCall>), String> {
+  openai_stream_request_with_sink(client, url, body, |delta| {
+    let send_result = on_delta.send(AssistantDeltaEvent {
+      delta: delta.to_string(),
+    });
+    eprintln!(
+      "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
+      send_result,
+      delta.len()
+    );
+  })
+  .await
+}
+
+async fn openai_stream_request_with_sink<F>(
+  client: &reqwest::Client,
+  url: &str,
+  body: Value,
+  mut on_delta: F,
+) -> Result<(String, Vec<OpenAIToolCall>), String>
+where
+  F: FnMut(&str),
+{
+  eprintln!("[STREAM-DEBUG] openai_stream_request called, url={}", url);
+  let resp = client
+    .post(url)
+    .json(&body)
+    .send()
+    .await
+    .map_err(|err| format!("OpenAI stream request failed: {err}"))?;
+  if !resp.status().is_success() {
+    let status = resp.status();
+    let raw = resp.text().await.unwrap_or_default();
+    return Err(format!(
+      "OpenAI stream failed with status {status}: {}",
+      raw.chars().take(300).collect::<String>()
+    ));
+  }
+
+  let mut stream = resp.bytes_stream();
+  let mut buffer = String::new();
+  let mut output = String::new();
+
+  // 积累 tool_calls：按 index 分组
+  let mut tool_calls_map: std::collections::BTreeMap<usize, (String, String, String)> =
+    std::collections::BTreeMap::new(); // index -> (id, name, arguments)
+
+  while let Some(item) = stream.next().await {
+    let chunk = item.map_err(|err| format!("Read stream chunk failed: {err}"))?;
+    let text = String::from_utf8_lossy(&chunk);
+    buffer.push_str(&text);
+
+    while let Some(pos) = buffer.find('\n') {
+      let line = buffer[..pos].trim_end_matches('\r').to_string();
+      buffer.drain(..=pos);
+
+      if !line.starts_with("data:") {
+        continue;
+      }
+      let data = line["data:".len()..].trim();
+      if data.is_empty() {
+        continue;
+      }
+      if data == "[DONE]" {
+        break;
+      }
+
+      let Ok(parsed) = serde_json::from_str::<OpenAIStreamChunk>(data) else {
+        eprintln!("[STREAM-DEBUG] SSE parse failed: {}", &data[..data.len().min(200)]);
+        continue;
+      };
+      if parsed.choices.is_empty() {
+        continue;
+      }
+      let choice = &parsed.choices[0];
+
+      // 处理文本 delta
+      let delta_text = parse_stream_delta_text(&choice.delta.content);
+      if !delta_text.is_empty() {
+        output.push_str(&delta_text);
+        on_delta(&delta_text);
+      }
+
+      // 处理 tool_calls delta
+      if let Some(tc_deltas) = &choice.delta.tool_calls {
+        for tc_delta in tc_deltas {
+          let entry = tool_calls_map
+            .entry(tc_delta.index)
+            .or_insert_with(|| (String::new(), String::new(), String::new()));
+          if let Some(id) = &tc_delta.id {
+            entry.0 = id.clone();
+          }
+          if let Some(func) = &tc_delta.function {
+            if let Some(name) = &func.name {
+              entry.1.push_str(name);
+            }
+            if let Some(args) = &func.arguments {
+              entry.2.push_str(args);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  let tool_calls: Vec<OpenAIToolCall> = tool_calls_map
+    .into_iter()
+    .map(|(index, (id, name, arguments))| OpenAIToolCall {
+      id: if id.trim().is_empty() {
+        format!("tool_call_{index}")
+      } else {
+        id
+      },
+      function: OpenAIToolCallFunction { name, arguments },
+    })
+    .filter(|tc| !tc.function.name.trim().is_empty())
+    .collect();
+
+  eprintln!("[STREAM-DEBUG] stream done: output_len={}, tool_calls_count={}", output.len(), tool_calls.len());
+  Ok((output, tool_calls))
+}
+
+async fn call_model_openai_stream_text(
+  api_config: &ResolvedApiConfig,
+  model_name: &str,
+  prepared: &PreparedPrompt,
+  on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<String, String> {
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(120))
+    .default_headers(openai_headers(&api_config.api_key)?)
+    .build()
+    .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+  let body = serde_json::json!({
+    "model": model_name,
+    "messages": [
+      { "role": "system", "content": prepared.preamble },
+      { "role": "user", "content": prepared.latest_user_text }
+    ],
+    "stream": true
+  });
+
+  let urls = candidate_openai_chat_urls(&api_config.base_url);
+  if urls.is_empty() {
+    return Err("Base URL is empty.".to_string());
+  }
+
+  let mut errors = Vec::new();
+  for url in urls {
+    match openai_stream_request(&client, &url, body.clone(), on_delta).await {
+      Ok((text, _)) => return Ok(text),
+      Err(err) => errors.push(format!("{url} -> {err}")),
+    }
+  }
+
+  Err(format!(
+    "OpenAI stream request failed for all candidate URLs: {}",
+    errors.join(" || ")
+  ))
 }
 
 async fn call_model_openai_with_tools(
@@ -1108,23 +1302,28 @@ async fn call_model_openai_with_tools(
   selected_api: &ApiConfig,
   model_name: &str,
   prepared: PreparedPrompt,
+  on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<String, String> {
   let exposed_tools = build_builtin_tools_payload(selected_api);
   if exposed_tools.is_empty() {
-    return call_model_openai_rig_style(api_config, model_name, prepared).await;
+    return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
   }
 
   let client = reqwest::Client::builder()
-    .timeout(std::time::Duration::from_secs(60))
+    .timeout(std::time::Duration::from_secs(120))
     .default_headers(openai_headers(&api_config.api_key)?)
     .build()
     .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-  let url = normalize_openai_chat_base(&api_config.base_url);
+  let urls = candidate_openai_chat_urls(&api_config.base_url);
+  if urls.is_empty() {
+    return Err("Base URL is empty.".to_string());
+  }
 
   let mut messages = vec![
     serde_json::json!({"role":"system","content": prepared.preamble}),
     serde_json::json!({"role":"user","content": prepared.latest_user_text}),
   ];
+  let mut full_assistant_text = String::new();
   let tools_payload = build_openai_tools_payload(&exposed_tools);
 
   for _ in 0..4 {
@@ -1133,40 +1332,39 @@ async fn call_model_openai_with_tools(
       "messages": messages,
       "tools": tools_payload,
       "tool_choice": "auto",
-      "temperature": 0.2
+      "temperature": 0.2,
+      "stream": true
     });
 
-    let resp = client
-      .post(&url)
-      .json(&body)
-      .send()
-      .await
-      .map_err(|err| format!("OpenAI chat completion failed: {err}"))?;
-    if !resp.status().is_success() {
-      let status = resp.status();
-      let raw = resp.text().await.unwrap_or_default();
-      return Err(format!(
-        "OpenAI chat completion failed with status {status}: {}",
-        raw.chars().take(300).collect::<String>()
-      ));
+    let mut stream_result: Option<(String, Vec<OpenAIToolCall>)> = None;
+    let mut stream_errors = Vec::new();
+    for url in &urls {
+      match openai_stream_request(&client, url, body.clone(), on_delta).await {
+        Ok(ok) => {
+          stream_result = Some(ok);
+          break;
+        }
+        Err(err) => stream_errors.push(format!("{url} -> {err}")),
+      }
+    }
+    let (text, tool_calls) = stream_result.ok_or_else(|| {
+      format!(
+        "OpenAI tool stream request failed for all candidate URLs: {}",
+        stream_errors.join(" || ")
+      )
+    })?;
+    if !text.is_empty() {
+      if !full_assistant_text.trim().is_empty() {
+        full_assistant_text.push_str("\n\n");
+      }
+      full_assistant_text.push_str(&text);
     }
 
-    let parsed = resp
-      .json::<OpenAIChatCompletionResponse>()
-      .await
-      .map_err(|err| format!("Parse OpenAI chat completion failed: {err}"))?;
-    let message = parsed
-      .choices
-      .first()
-      .ok_or_else(|| "OpenAI chat completion returned no choices".to_string())?
-      .message
-      .clone();
-
-    let tool_calls = message.tool_calls.unwrap_or_default();
     if tool_calls.is_empty() {
-      return Ok(parse_assistant_text(&message.content));
+      return Ok(full_assistant_text);
     }
 
+    // 有 tool_calls：积累到 messages 中，继续循环
     let assistant_tool_calls = tool_calls
       .iter()
       .map(|tc| {
@@ -1180,13 +1378,18 @@ async fn call_model_openai_with_tools(
         })
       })
       .collect::<Vec<_>>();
+    let content_value = if text.is_empty() {
+      Value::Null
+    } else {
+      Value::String(text)
+    };
     messages.push(serde_json::json!({
       "role":"assistant",
-      "content": message.content.unwrap_or(Value::Null),
+      "content": content_value,
       "tool_calls": assistant_tool_calls
     }));
 
-    for tc in tool_calls {
+    for tc in &tool_calls {
       let Some(exposed) = exposed_tools
         .iter()
         .find(|tool| tool.openai_name == tc.function.name)
@@ -1224,14 +1427,29 @@ async fn call_model_openai_style(
   selected_api: &ApiConfig,
   model_name: &str,
   prepared: PreparedPrompt,
+  on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<String, String> {
+  eprintln!("[STREAM-DEBUG] call_model_openai_style: format={}, enable_tools={}, images={}, audios={}",
+    selected_api.request_format, selected_api.enable_tools,
+    prepared.latest_images.len(), prepared.latest_audios.len());
+  // 优先使用工具调用（如果启用）
   if selected_api.enable_tools
     && selected_api.request_format.trim() == "openai"
     && prepared.latest_images.is_empty()
     && prepared.latest_audios.is_empty()
   {
-    return call_model_openai_with_tools(api_config, selected_api, model_name, prepared).await;
+    return call_model_openai_with_tools(api_config, selected_api, model_name, prepared, on_delta).await;
   }
+
+  // 纯文本流式传输（无论工具是否启用，只要没有工具调用就走流式）
+  if selected_api.request_format.trim() == "openai"
+    && prepared.latest_images.is_empty()
+    && prepared.latest_audios.is_empty()
+  {
+    return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
+  }
+
+  // 回退到 rig（支持多模态）
   call_model_openai_rig_style(api_config, model_name, prepared).await
 }
 
@@ -1273,7 +1491,7 @@ fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
 }
 
 fn register_default_hotkey(app: &AppHandle) -> Result<(), String> {
-  let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyC);
+  let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Backquote);
   app
     .global_shortcut()
     .register(shortcut)
@@ -1563,7 +1781,11 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -> Result<SendChatResult, String> {
+async fn send_chat_message(
+  input: SendChatRequest,
+  state: State<'_, AppState>,
+  on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<SendChatResult, String> {
   let (resolved_api, selected_api, model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
     let guard = state
       .state_lock
@@ -1646,7 +1868,8 @@ async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -
     )
   };
 
-  let assistant_text = call_model_openai_style(&resolved_api, &selected_api, &model_name, prepared_prompt).await?;
+  let assistant_text =
+    call_model_openai_style(&resolved_api, &selected_api, &model_name, prepared_prompt, &on_delta).await?;
 
   {
     let guard = state
@@ -1833,8 +2056,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     latest_audios: Vec::new(),
   };
 
-  let selected = ApiConfig::default();
-  call_model_openai_style(&api_config, &selected, &api_config.model, prepared).await
+  call_model_openai_rig_style(&api_config, &api_config.model, prepared).await
 }
 
 fn main() {
@@ -1885,4 +2107,187 @@ fn main() {
     .unwrap_or_else(|err| {
       eprintln!("error while running tauri application: {err}");
     });
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use httpmock::{Method::{GET, POST}, MockServer};
+
+  fn test_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .expect("build tokio runtime")
+  }
+
+  #[test]
+  fn candidate_openai_chat_urls_should_handle_common_forms() {
+    assert_eq!(
+      candidate_openai_chat_urls("https://api.openai.com/v1"),
+      vec!["https://api.openai.com/v1/chat/completions".to_string()]
+    );
+    assert_eq!(
+      candidate_openai_chat_urls("https://gateway.example.com/chat/completions"),
+      vec!["https://gateway.example.com/chat/completions".to_string()]
+    );
+    assert_eq!(
+      candidate_openai_chat_urls("https://gateway.example.com"),
+      vec![
+        "https://gateway.example.com/chat/completions".to_string(),
+        "https://gateway.example.com/v1/chat/completions".to_string()
+      ]
+    );
+    assert!(candidate_openai_chat_urls("  ").is_empty());
+  }
+
+  #[test]
+  fn fetch_models_openai_should_read_models_from_base_url() {
+    let server = MockServer::start();
+    let model_mock = server.mock(|when, then| {
+      when.method(GET).path("/models");
+      then.status(200).json_body(serde_json::json!({
+        "data": [
+          { "id": "gpt-4o-mini" },
+          { "id": "gpt-4.1-mini" }
+        ]
+      }));
+    });
+
+    let input = RefreshModelsInput {
+      base_url: server.base_url(),
+      api_key: "test-key".to_string(),
+      request_format: "openai".to_string(),
+    };
+
+    let rt = test_runtime();
+    let models = rt
+      .block_on(fetch_models_openai(&input))
+      .expect("fetch models from mock");
+
+    model_mock.assert();
+    assert_eq!(models, vec!["gpt-4.1-mini".to_string(), "gpt-4o-mini".to_string()]);
+  }
+
+  #[test]
+  fn fetch_models_openai_should_fallback_to_v1_models() {
+    let server = MockServer::start();
+    let base_404_mock = server.mock(|when, then| {
+      when.method(GET).path("/models");
+      then.status(404).body("not found");
+    });
+    let v1_ok_mock = server.mock(|when, then| {
+      when.method(GET).path("/v1/models");
+      then.status(200).json_body(serde_json::json!({
+        "data": [{ "id": "moonshot-v1-8k" }]
+      }));
+    });
+
+    let input = RefreshModelsInput {
+      base_url: server.base_url(),
+      api_key: "test-key".to_string(),
+      request_format: "openai".to_string(),
+    };
+
+    let rt = test_runtime();
+    let models = rt
+      .block_on(fetch_models_openai(&input))
+      .expect("fallback /v1/models should succeed");
+
+    base_404_mock.assert();
+    v1_ok_mock.assert();
+    assert_eq!(models, vec!["moonshot-v1-8k".to_string()]);
+  }
+
+  #[test]
+  fn openai_stream_request_with_sink_should_emit_incremental_deltas() {
+    let server = MockServer::start();
+    let sse_body = concat!(
+      "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n",
+      "\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n",
+      "\n",
+      "data: [DONE]\n",
+      "\n"
+    );
+    let sse_mock = server.mock(|when, then| {
+      when.method(POST).path("/v1/chat/completions");
+      then
+        .status(200)
+        .header("content-type", "text/event-stream")
+        .body(sse_body);
+    });
+
+    let client = reqwest::Client::builder()
+      .timeout(std::time::Duration::from_secs(10))
+      .build()
+      .expect("build reqwest client");
+    let body = serde_json::json!({
+      "model": "gpt-4o-mini",
+      "messages": [{ "role": "user", "content": "hello" }],
+      "stream": true
+    });
+
+    let mut deltas = Vec::<String>::new();
+    let rt = test_runtime();
+    let (full_text, tool_calls) = rt
+      .block_on(openai_stream_request_with_sink(
+        &client,
+        &format!("{}/v1/chat/completions", server.base_url()),
+        body,
+        |delta| deltas.push(delta.to_string()),
+      ))
+      .expect("stream request should parse");
+
+    sse_mock.assert();
+    assert_eq!(deltas, vec!["你".to_string(), "好".to_string()]);
+    assert_eq!(full_text, "你好".to_string());
+    assert!(tool_calls.is_empty());
+  }
+
+  #[test]
+  fn openai_stream_request_with_sink_should_assemble_tool_calls_from_fragments() {
+    let server = MockServer::start();
+    let sse_body = concat!(
+      "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"bing_\",\"arguments\":\"{\\\"query\\\":\\\"\"}}]}}]}\n",
+      "\n",
+      "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"search\",\"arguments\":\"rust\\\"}\"}}]}}]}\n",
+      "\n",
+      "data: [DONE]\n",
+      "\n"
+    );
+    let sse_mock = server.mock(|when, then| {
+      when.method(POST).path("/v1/chat/completions");
+      then
+        .status(200)
+        .header("content-type", "text/event-stream")
+        .body(sse_body);
+    });
+
+    let client = reqwest::Client::builder()
+      .timeout(std::time::Duration::from_secs(10))
+      .build()
+      .expect("build reqwest client");
+    let body = serde_json::json!({
+      "model": "gpt-4o-mini",
+      "messages": [{ "role": "user", "content": "hello" }],
+      "stream": true
+    });
+
+    let rt = test_runtime();
+    let (_full_text, tool_calls) = rt
+      .block_on(openai_stream_request_with_sink(
+        &client,
+        &format!("{}/v1/chat/completions", server.base_url()),
+        body,
+        |_delta| {},
+      ))
+      .expect("stream tool call should parse");
+
+    sse_mock.assert();
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].id, "call_1".to_string());
+    assert_eq!(tool_calls[0].function.name, "bing_search".to_string());
+    assert_eq!(tool_calls[0].function.arguments, "{\"query\":\"rust\"}".to_string());
+  }
 }

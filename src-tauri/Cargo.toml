@@ -18,14 +18,18 @@ tauri-plugin-global-shortcut = "2"
 time = "=0.3.36"
 rig = { package = "rig-core", version = "0.30.0" }
 tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
-reqwest = { version = "0.11.27", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.11.27", default-features = false, features = ["json", "stream", "rustls-tls"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 uuid = { version = "1", features = ["v4"] }
 scraper = "0.20"
 urlencoding = "2.1"
 webbrowser = "1.0"
+futures-util = "0.3"
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+httpmock = "0.7"

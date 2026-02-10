@@ -34,24 +34,14 @@
 
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
-        <div class="chat chat-end">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
-          <div class="chat-bubble max-w-[92%]">
-            <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
-            <div v-if="latestUserImages.length > 0" class="mt-2 grid gap-1">
-              <img
-                v-for="(img, idx) in latestUserImages"
-                :key="`pending-img-${idx}`"
-                :src="`data:${img.mime};base64,${img.bytesBase64}`"
-                class="rounded max-h-28 object-contain bg-base-100/40"
-              />
-            </div>
-          </div>
-        </div>
         <div class="chat chat-start">
           <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
           <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
-            <span class="loading loading-dots loading-sm"></span>
+            <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
+            <div class="mt-1">
+              <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
+              <span v-else class="loading loading-spinner loading-xs opacity-60"></span>
+            </div>
           </div>
         </div>
       </template>

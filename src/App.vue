@@ -109,8 +109,8 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
 import { Minus, Pin, Square, X } from "lucide-vue-next";
@@ -132,7 +132,7 @@ import type {
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
 
-const config = reactive<AppConfig>({ hotkey: "Alt+C", selectedApiConfigId: "", apiConfigs: [] });
+const config = reactive<AppConfig>({ hotkey: "Alt+·", selectedApiConfigId: "", apiConfigs: [] });
 const configTab = ref<"hotkey" | "api" | "tools" | "agent" | "chatSettings">("hotkey");
 const currentTheme = ref<"light" | "forest">("light");
 const agents = ref<AgentProfile[]>([]);
@@ -491,6 +491,73 @@ function loadMoreTurns() {
 }
 
 let chatGeneration = 0;
+type AssistantDeltaEvent = { delta: string };
+const STREAM_FLUSH_INTERVAL_MS = 33;
+const STREAM_DRAIN_TARGET_MS = 1000;
+let streamPendingText = "";
+let streamDrainDeadline = 0;
+let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
+
+function readDeltaMessage(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (message && typeof message === "object" && "delta" in message) {
+    const value = (message as { delta?: unknown }).delta;
+    return typeof value === "string" ? value : "";
+  }
+  return "";
+}
+
+function clearStreamBuffer() {
+  streamPendingText = "";
+  streamDrainDeadline = 0;
+  if (streamFlushTimer) {
+    clearInterval(streamFlushTimer);
+    streamFlushTimer = null;
+  }
+}
+
+function flushStreamBuffer(gen: number) {
+  if (gen !== chatGeneration) {
+    clearStreamBuffer();
+    return;
+  }
+  if (!streamPendingText) {
+    if (!chatting.value) {
+      clearStreamBuffer();
+    }
+    return;
+  }
+  const now = Date.now();
+  const msLeft = Math.max(1, streamDrainDeadline - now);
+  const ticksLeft = Math.max(1, Math.ceil(msLeft / STREAM_FLUSH_INTERVAL_MS));
+  const step = Math.max(1, Math.ceil(streamPendingText.length / ticksLeft));
+  latestAssistantText.value += streamPendingText.slice(0, step);
+  streamPendingText = streamPendingText.slice(step);
+}
+
+function enqueueStreamDelta(gen: number, delta: string) {
+  if (gen !== chatGeneration || !delta) return;
+  streamPendingText += delta;
+  streamDrainDeadline = Date.now() + STREAM_DRAIN_TARGET_MS;
+  if (!streamFlushTimer) {
+    streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
+  }
+}
+
+function enqueueFinalAssistantText(gen: number, finalText: string) {
+  if (gen !== chatGeneration) return;
+  const text = finalText.trim();
+  if (!text) return;
+  const combined = `${latestAssistantText.value}${streamPendingText}`;
+  if (!combined) {
+    enqueueStreamDelta(gen, finalText);
+    return;
+  }
+  if (text.startsWith(combined)) {
+    const missing = text.slice(combined.length);
+    if (missing) enqueueStreamDelta(gen, missing);
+  }
+}
 
 async function sendChat() {
   const text = chatInput.value.trim();
@@ -508,7 +575,28 @@ async function sendChat() {
   chatInput.value = "";
   clipboardImages.value = [];
 
+  const optimisticUserMessage: ChatMessage = {
+    id: `optimistic-user-${Date.now()}`,
+    role: "user",
+    parts: [
+      ...(text ? [{ type: "text" as const, text }] : []),
+      ...sentImages.map((img) => ({
+        type: "image" as const,
+        mime: img.mime,
+        bytesBase64: img.bytesBase64,
+      })),
+    ],
+  };
+  allMessages.value = [...allMessages.value, optimisticUserMessage];
+  visibleTurnCount.value = 1;
+
   const gen = ++chatGeneration;
+  clearStreamBuffer();
+  const deltaChannel = new Channel<AssistantDeltaEvent>();
+  deltaChannel.onmessage = (event) => {
+    const delta = readDeltaMessage(event);
+    enqueueStreamDelta(gen, delta);
+  };
   chatting.value = true;
   try {
     const result = await invoke<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
@@ -517,23 +605,28 @@ async function sendChat() {
         agentId: selectedAgentId.value,
         payload: { text, images: sentImages, model: sentModel },
       },
+      onDelta: deltaChannel,
     });
     if (gen !== chatGeneration) return;
     latestUserText.value = removeBinaryPlaceholders(result.latestUserText);
     latestUserImages.value = sentImages;
-    latestAssistantText.value = result.assistantText;
+    enqueueFinalAssistantText(gen, result.assistantText);
     await loadAllMessages();
   } catch (e) {
     if (gen !== chatGeneration) return;
+    clearStreamBuffer();
     latestAssistantText.value = `Error: ${String(e)}`;
     await loadAllMessages();
   } finally {
-    if (gen === chatGeneration) chatting.value = false;
+    if (gen === chatGeneration) {
+      chatting.value = false;
+    }
   }
 }
 
 function stopChat() {
   chatGeneration++;
+  clearStreamBuffer();
   chatting.value = false;
   latestAssistantText.value = "(已中断)";
 }
@@ -733,6 +826,10 @@ onMounted(async () => {
     agentsAutosaveReady.value = true;
     chatSettingsAutosaveReady.value = true;
   });
+});
+
+onBeforeUnmount(() => {
+  clearStreamBuffer();
 });
 
 watch(
