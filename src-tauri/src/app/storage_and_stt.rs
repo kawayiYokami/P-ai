@@ -1,0 +1,348 @@
+fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Config path has no parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|err| format!("Create config directory failed: {err}"))
+}
+
+fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
+    if !path.exists() {
+        return Ok(AppConfig::default());
+    }
+
+    let content = fs::read_to_string(path).map_err(|err| format!("Read config failed: {err}"))?;
+    let mut parsed = toml::from_str::<AppConfig>(&content).unwrap_or_default();
+    normalize_app_config(&mut parsed);
+    Ok(parsed)
+}
+
+fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
+    ensure_parent_dir(path)?;
+    let toml_str =
+        toml::to_string_pretty(config).map_err(|err| format!("Serialize config failed: {err}"))?;
+    fs::write(path, toml_str).map_err(|err| format!("Write config failed: {err}"))
+}
+
+fn normalize_api_tools(config: &mut AppConfig) {
+    for api in &mut config.api_configs {
+        if api.enable_tools && api.tools.is_empty() {
+            api.tools = default_api_tools();
+        }
+    }
+}
+
+fn normalize_app_config(config: &mut AppConfig) {
+    if config.api_configs.is_empty() {
+        *config = AppConfig::default();
+        return;
+    }
+
+    normalize_api_tools(config);
+
+    if !config
+        .api_configs
+        .iter()
+        .any(|a| a.id == config.selected_api_config_id)
+    {
+        config.selected_api_config_id = config.api_configs[0].id.clone();
+    }
+
+    let chat_valid = config
+        .api_configs
+        .iter()
+        .any(|a| a.id == config.chat_api_config_id && a.enable_text);
+    if !chat_valid {
+        if let Some(api) = config.api_configs.iter().find(|a| a.enable_text) {
+            config.chat_api_config_id = api.id.clone();
+        } else {
+            config.chat_api_config_id = config.selected_api_config_id.clone();
+        }
+    }
+
+    config.stt_api_config_id = config
+        .stt_api_config_id
+        .as_deref()
+        .filter(|id| {
+            config
+                .api_configs
+                .iter()
+                .any(|a| a.id == *id && a.enable_audio && a.request_format.trim() == "openai_tts")
+        })
+        .map(ToOwned::to_owned);
+
+    config.vision_api_config_id = config
+        .vision_api_config_id
+        .as_deref()
+        .filter(|id| {
+            config
+                .api_configs
+                .iter()
+                .any(|a| a.id == *id && a.enable_image)
+        })
+        .map(ToOwned::to_owned);
+}
+
+fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
+    if !path.exists() {
+        return Ok(AppData::default());
+    }
+
+    let content = fs::read_to_string(path).map_err(|err| format!("Read app_data failed: {err}"))?;
+    let mut parsed = serde_json::from_str::<AppData>(&content).unwrap_or_default();
+    parsed.version = APP_DATA_SCHEMA_VERSION;
+    ensure_default_agent(&mut parsed);
+    Ok(parsed)
+}
+
+fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
+    ensure_parent_dir(path)?;
+    let body = serde_json::to_string_pretty(data)
+        .map_err(|err| format!("Serialize app_data failed: {err}"))?;
+    fs::write(path, body).map_err(|err| format!("Write app_data failed: {err}"))
+}
+
+fn candidate_debug_config_paths() -> Vec<PathBuf> {
+    vec![PathBuf::from(".debug").join("api-key.json")]
+}
+
+fn read_debug_api_config() -> Result<Option<DebugApiConfig>, String> {
+    for path in candidate_debug_config_paths() {
+        if !path.exists() {
+            continue;
+        }
+
+        let content = fs::read_to_string(&path)
+            .map_err(|err| format!("Read debug config failed ({}): {err}", path.display()))?;
+        let parsed = serde_json::from_str::<DebugApiConfig>(&content)
+            .map_err(|err| format!("Parse debug config failed ({}): {err}", path.display()))?;
+        return Ok(Some(parsed));
+    }
+    Ok(None)
+}
+
+fn resolve_selected_api_config(
+    app_config: &AppConfig,
+    requested_id: Option<&str>,
+) -> Option<ApiConfig> {
+    if app_config.api_configs.is_empty() {
+        return None;
+    }
+
+    let target_id = requested_id
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(app_config.chat_api_config_id.as_str());
+
+    if let Some(found) = app_config.api_configs.iter().find(|p| p.id == target_id) {
+        return Some(found.clone());
+    }
+
+    app_config.api_configs.first().cloned()
+}
+
+fn resolve_api_config(
+    app_config: &AppConfig,
+    requested_id: Option<&str>,
+) -> Result<ResolvedApiConfig, String> {
+    if let Some(debug_cfg) = read_debug_api_config()? {
+        let enabled = debug_cfg.enabled.unwrap_or(true);
+        let request_format_ok = debug_cfg
+            .request_format
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("openai")
+            .eq_ignore_ascii_case("openai");
+
+        if enabled && request_format_ok {
+            if debug_cfg.api_key.trim().is_empty() {
+                return Err(".debug/api-key.json exists but apiKey is empty.".to_string());
+            }
+            return Ok(ResolvedApiConfig {
+                request_format: "openai".to_string(),
+                base_url: debug_cfg.base_url.trim().to_string(),
+                api_key: debug_cfg.api_key.trim().to_string(),
+                model: debug_cfg.model.trim().to_string(),
+                fixed_test_prompt: debug_cfg
+                    .fixed_test_prompt
+                    .unwrap_or_else(|| "EASY_CALL_AI_CACHE_TEST_V1".to_string()),
+            });
+        }
+    }
+
+    let selected = resolve_selected_api_config(app_config, requested_id).ok_or_else(|| {
+        "No API config configured. Please add at least one API config.".to_string()
+    })?;
+
+    if selected.api_key.trim().is_empty() {
+        return Err(
+            "Selected API config API key is empty. Please fill it in settings.".to_string(),
+        );
+    }
+
+    Ok(ResolvedApiConfig {
+        request_format: selected.request_format.trim().to_string(),
+        base_url: selected.base_url.trim().to_string(),
+        api_key: selected.api_key.trim().to_string(),
+        model: selected.model.trim().to_string(),
+        fixed_test_prompt: "EASY_CALL_AI_CACHE_TEST_V1".to_string(),
+    })
+}
+
+fn resolve_stt_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
+    let stt_id = app_config.stt_api_config_id.as_deref().ok_or_else(|| {
+        "Current chat API does not support audio and no 音转文AI is configured.".to_string()
+    })?;
+
+    let api = app_config
+        .api_configs
+        .iter()
+        .find(|a| a.id == stt_id)
+        .cloned()
+        .ok_or_else(|| "Configured 音转文AI not found.".to_string())?;
+
+    if !api.enable_audio {
+        return Err("Configured 音转文AI has audio disabled.".to_string());
+    }
+    if api.request_format.trim() != "openai_tts" {
+        return Err("音转文AI must use request format 'openai_tts'.".to_string());
+    }
+    if api.base_url.trim().is_empty() {
+        return Err("音转文AI Base URL is empty.".to_string());
+    }
+    if api.api_key.trim().is_empty() {
+        return Err("音转文AI API key is empty.".to_string());
+    }
+    if api.model.trim().is_empty() {
+        return Err("音转文AI model is empty.".to_string());
+    }
+
+    Ok(api)
+}
+
+fn candidate_openai_transcription_urls(base_url: &str) -> Vec<String> {
+    let base = base_url.trim().trim_end_matches('/').to_string();
+    if base.is_empty() {
+        return Vec::new();
+    }
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/audio/transcriptions") {
+        return vec![base];
+    }
+    if lower.ends_with("/v1") {
+        return vec![format!("{base}/audio/transcriptions")];
+    }
+    let mut urls = vec![
+        format!("{base}/audio/transcriptions"),
+        format!("{base}/v1/audio/transcriptions"),
+    ];
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+fn audio_file_extension_from_mime(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "audio/mpeg" => "mp3",
+        "audio/mp4" => "m4a",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/webm" => "webm",
+        "audio/ogg" => "ogg",
+        _ => "bin",
+    }
+}
+
+async fn transcribe_one_audio_openai_tts(
+    stt_api: &ApiConfig,
+    audio: &BinaryPart,
+) -> Result<String, String> {
+    let raw = B64
+        .decode(audio.bytes_base64.trim())
+        .map_err(|err| format!("Decode audio base64 failed: {err}"))?;
+    if raw.is_empty() {
+        return Err("Audio payload is empty.".to_string());
+    }
+
+    let mime = if audio.mime.trim().is_empty() {
+        "application/octet-stream"
+    } else {
+        audio.mime.trim()
+    };
+    let ext = audio_file_extension_from_mime(mime);
+    let file_name = format!("input.{ext}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+
+    let mut errors = Vec::<String>::new();
+    for url in candidate_openai_transcription_urls(&stt_api.base_url) {
+        let file_part = reqwest::multipart::Part::bytes(raw.clone())
+            .file_name(file_name.clone())
+            .mime_str(mime)
+            .map_err(|err| format!("Build multipart file part failed: {err}"))?;
+        let form = reqwest::multipart::Form::new()
+            .text("model", stt_api.model.trim().to_string())
+            .part("file", file_part);
+
+        let resp = client
+            .post(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", stt_api.api_key.trim()))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|err| format!("STT request failed ({url}): {err}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let raw_body = resp.text().await.unwrap_or_default();
+            let snippet = raw_body.chars().take(300).collect::<String>();
+            errors.push(format!("{url} -> {status} | {snippet}"));
+            continue;
+        }
+
+        let body = resp
+            .json::<OpenAITranscriptionResponse>()
+            .await
+            .map_err(|err| format!("Parse STT response failed ({url}): {err}"))?;
+        let text = body.text.unwrap_or_default();
+        let text = text.trim();
+        if text.is_empty() {
+            errors.push(format!("{url} -> empty transcription text"));
+            continue;
+        }
+        return Ok(text.to_string());
+    }
+
+    if errors.is_empty() {
+        Err("STT request failed: no candidate URL attempted.".to_string())
+    } else {
+        Err(format!("STT failed. Tried: {}", errors.join(" || ")))
+    }
+}
+
+async fn transcribe_payload_audios_openai_tts(
+    stt_api: &ApiConfig,
+    audios: &[BinaryPart],
+) -> Result<String, String> {
+    if audios.is_empty() {
+        return Err("Audio input is empty.".to_string());
+    }
+
+    let mut lines = Vec::<String>::new();
+    for audio in audios {
+        let text = transcribe_one_audio_openai_tts(stt_api, audio).await?;
+        if !text.trim().is_empty() {
+            lines.push(text);
+        }
+    }
+
+    if lines.is_empty() {
+        return Err("STT returned empty text.".to_string());
+    }
+    Ok(lines.join("\n"))
+}
+
+fn is_openai_style_request_format(request_format: &str) -> bool {
+    matches!(request_format.trim(), "openai" | "deepseek/kimi")
+}
