@@ -19,8 +19,6 @@
           <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
         </template>
         <template v-else>
-          <button class="btn btn-ghost btn-xs" title="Minimize" @click.stop="minimizeWindow" :disabled="!windowReady"><Minus class="h-3.5 w-3.5" /></button>
-          <button class="btn btn-ghost btn-xs" title="Maximize" @click.stop="toggleMaximize" :disabled="!windowReady"><Square class="h-3.5 w-3.5" /></button>
           <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
         </template>
       </div>
@@ -64,6 +62,7 @@
         @add-agent="addAgent"
         @remove-selected-agent="removeSelectedAgent"
         @open-current-history="openCurrentHistory"
+        @open-memory-viewer="openMemoryViewer"
         @refresh-image-cache-stats="refreshImageCacheStats"
         @clear-image-cache="clearImageCache"
         @start-hotkey-record-test="startHotkeyRecordTest"
@@ -78,6 +77,8 @@
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
+        :tool-status-text="toolStatusText"
+        :tool-status-state="toolStatusState"
         :chat-error-text="chatErrorText"
         :clipboard-images="clipboardImages"
         :chat-input="chatInput"
@@ -130,6 +131,44 @@
         </div>
       </dialog>
 
+      <dialog ref="memoryDialog" class="modal">
+        <div class="modal-box max-w-xl">
+          <h3 class="font-semibold text-sm mb-2">记忆列表</h3>
+          <div v-if="memoryList.length === 0" class="text-xs opacity-70">暂无记忆</div>
+          <div v-else class="space-y-2">
+            <div class="max-h-96 overflow-auto space-y-2">
+              <div
+                v-for="memory in pagedMemories"
+                :key="memory.id"
+                class="card card-compact bg-base-100 border border-base-300 shadow-md"
+              >
+                <div class="card-body text-xs p-3">
+                  <div class="whitespace-pre-wrap break-words">{{ memory.content }}</div>
+                  <div class="mt-2 flex flex-wrap items-center gap-1">
+                    <span
+                      v-for="(kw, kwIdx) in memory.keywords"
+                      :key="`${memory.id}-kw-${kwIdx}`"
+                      class="badge badge-sm badge-ghost"
+                    >
+                      {{ kw }}
+                    </span>
+                    <span v-if="memory.keywords.length === 0" class="text-[11px] opacity-60">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t border-base-300 pt-2">
+              <span class="text-xs opacity-70">第 {{ memoryPage }} / {{ memoryPageCount }} 页</span>
+              <div class="join">
+                <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">上一页</button>
+                <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">下一页</button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-action"><button class="btn btn-sm" @click="closeMemoryViewer">关闭</button></div>
+        </div>
+      </dialog>
+
     </div>
   </div>
 </template>
@@ -138,7 +177,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowR
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
-import { Minus, Pin, Square, X } from "lucide-vue-next";
+import { Pin, X } from "lucide-vue-next";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
 import ArchivesView from "./views/ArchivesView.vue";
@@ -163,6 +202,7 @@ const config = reactive<AppConfig>({
   recordHotkey: "Alt",
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
+  toolMaxIterations: 10,
   selectedApiConfigId: "",
   chatApiConfigId: "",
   visionApiConfigId: undefined,
@@ -177,6 +217,8 @@ const chatInput = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
+const toolStatusText = ref("");
+const toolStatusState = ref<"running" | "done" | "failed" | "">("");
 const chatErrorText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
@@ -201,6 +243,7 @@ const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
 const imageCacheStatsLoading = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
+const memoryDialog = ref<HTMLDialogElement | null>(null);
 const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
 const agentsAutosaveReady = ref(false);
@@ -246,6 +289,24 @@ let hotkeyTestPlayer: HTMLAudioElement | null = null;
 let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
 const lastSavedConfigJson = ref("");
+const memoryList = ref<MemoryEntry[]>([]);
+const memoryPage = ref(1);
+const MEMORY_PAGE_SIZE = 5;
+
+const sortedMemories = computed(() =>
+  [...memoryList.value].sort((a, b) => {
+    const ta = Date.parse(a.updatedAt || a.createdAt || "");
+    const tb = Date.parse(b.updatedAt || b.createdAt || "");
+    if (Number.isFinite(ta) && Number.isFinite(tb)) return tb - ta;
+    return (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "");
+  }),
+);
+const memoryPageCount = computed(() => Math.max(1, Math.ceil(sortedMemories.value.length / MEMORY_PAGE_SIZE)));
+const pagedMemories = computed(() => {
+  const page = Math.max(1, Math.min(memoryPage.value, memoryPageCount.value));
+  const start = (page - 1) * MEMORY_PAGE_SIZE;
+  return sortedMemories.value.slice(start, start + MEMORY_PAGE_SIZE);
+});
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
@@ -353,6 +414,7 @@ function defaultApiTools() {
       values: {},
     },
     { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], values: {} },
+    { id: "memory-save", command: "builtin", args: ["memory-save"], values: {} },
   ];
 }
 
@@ -362,6 +424,7 @@ function buildConfigSnapshotJson(): string {
     recordHotkey: config.recordHotkey,
     minRecordSeconds: config.minRecordSeconds,
     maxRecordSeconds: config.maxRecordSeconds,
+    toolMaxIterations: config.toolMaxIterations,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
     visionApiConfigId: config.visionApiConfigId,
@@ -387,6 +450,7 @@ function buildConfigPayload(): AppConfig {
     recordHotkey: config.recordHotkey,
     minRecordSeconds: config.minRecordSeconds,
     maxRecordSeconds: config.maxRecordSeconds,
+    toolMaxIterations: config.toolMaxIterations,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
     ...(config.visionApiConfigId ? { visionApiConfigId: config.visionApiConfigId } : {}),
@@ -421,6 +485,7 @@ function normalizeApiBindingsLocal() {
   }
   config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(config.minRecordSeconds) || 1)));
   config.maxRecordSeconds = Math.max(config.minRecordSeconds, Math.round(Number(config.maxRecordSeconds) || 60));
+  config.toolMaxIterations = Math.max(1, Math.min(100, Math.round(Number(config.toolMaxIterations) || 10)));
   if (!config.apiConfigs.some((a) => a.id === config.selectedApiConfigId)) {
     config.selectedApiConfigId = config.apiConfigs[0].id;
   }
@@ -498,6 +563,7 @@ async function loadConfig() {
     config.recordHotkey = cfg.recordHotkey || "Alt";
     config.minRecordSeconds = Math.max(1, Math.min(30, Number(cfg.minRecordSeconds || 1)));
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
+    config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
     config.selectedApiConfigId = cfg.selectedApiConfigId;
     config.chatApiConfigId = cfg.chatApiConfigId;
     config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
@@ -524,6 +590,7 @@ async function saveConfig() {
     config.recordHotkey = saved.recordHotkey || "Alt";
     config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
+    config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
     config.selectedApiConfigId = saved.selectedApiConfigId;
     config.chatApiConfigId = saved.chatApiConfigId;
     config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
@@ -756,7 +823,20 @@ function loadMoreTurns() {
 }
 
 let chatGeneration = 0;
-type AssistantDeltaEvent = { delta: string };
+type AssistantDeltaEvent = {
+  delta?: string;
+  kind?: string;
+  toolName?: string;
+  toolStatus?: "running" | "done" | "failed" | string;
+  message?: string;
+};
+type MemoryEntry = {
+  id: string;
+  content: string;
+  keywords: string[];
+  createdAt: string;
+  updatedAt: string;
+};
 const STREAM_FLUSH_INTERVAL_MS = 33;
 const STREAM_DRAIN_TARGET_MS = 1000;
 let streamPendingText = "";
@@ -770,6 +850,18 @@ function readDeltaMessage(message: unknown): string {
     return typeof value === "string" ? value : "";
   }
   return "";
+}
+
+function readAssistantEvent(message: unknown): AssistantDeltaEvent {
+  if (!message || typeof message !== "object") return {};
+  const m = message as Record<string, unknown>;
+  return {
+    delta: typeof m.delta === "string" ? m.delta : undefined,
+    kind: typeof m.kind === "string" ? m.kind : undefined,
+    toolName: typeof m.toolName === "string" ? m.toolName : undefined,
+    toolStatus: typeof m.toolStatus === "string" ? m.toolStatus : undefined,
+    message: typeof m.message === "string" ? m.message : undefined,
+  };
 }
 
 function clearStreamBuffer() {
@@ -834,6 +926,8 @@ async function sendChat() {
   latestUserText.value = text;
   latestUserImages.value = [...clipboardImages.value];
   latestAssistantText.value = "";
+  toolStatusText.value = "";
+  toolStatusState.value = "";
   chatErrorText.value = "";
 
   const sentImages = [...clipboardImages.value];
@@ -860,7 +954,15 @@ async function sendChat() {
   clearStreamBuffer();
   const deltaChannel = new Channel<AssistantDeltaEvent>();
   deltaChannel.onmessage = (event) => {
-    const delta = readDeltaMessage(event);
+    const parsed = readAssistantEvent(event);
+    if (parsed.kind === "tool_status") {
+      toolStatusText.value = parsed.message || "";
+      toolStatusState.value = parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
+        ? parsed.toolStatus
+        : "";
+      return;
+    }
+    const delta = readDeltaMessage(parsed);
     enqueueStreamDelta(gen, delta);
   };
   chatting.value = true;
@@ -878,12 +980,20 @@ async function sendChat() {
     latestUserImages.value = sentImages;
     enqueueFinalAssistantText(gen, result.assistantText);
     chatErrorText.value = "";
+    if (toolStatusState.value === "running") {
+      toolStatusState.value = "done";
+      toolStatusText.value = "工具调用完成";
+    }
     await loadAllMessages();
   } catch (e) {
     if (gen !== chatGeneration) return;
     clearStreamBuffer();
     latestAssistantText.value = "";
     chatErrorText.value = `请求失败：${String(e)}`;
+    if (!toolStatusText.value) {
+      toolStatusState.value = "failed";
+      toolStatusText.value = "工具调用失败";
+    }
     await loadAllMessages();
   } finally {
     if (gen === chatGeneration) {
@@ -897,6 +1007,8 @@ function stopChat() {
   clearStreamBuffer();
   chatting.value = false;
   latestAssistantText.value = "(已中断)";
+  toolStatusText.value = "";
+  toolStatusState.value = "";
 }
 
 async function openCurrentHistory() {
@@ -910,6 +1022,20 @@ async function openCurrentHistory() {
 
 function closeHistory() {
   historyDialog.value?.close();
+}
+
+async function openMemoryViewer() {
+  try {
+    memoryList.value = await invoke<MemoryEntry[]>("list_memories");
+    memoryPage.value = 1;
+    memoryDialog.value?.showModal();
+  } catch (e) {
+    status.value = `Load memories failed: ${String(e)}`;
+  }
+}
+
+function closeMemoryViewer() {
+  memoryDialog.value?.close();
 }
 
 async function loadArchives() {
@@ -1241,14 +1367,6 @@ async function importClipboardImageOnOpen() {
   }
 }
 
-async function minimizeWindow() { 
-  if (!appWindow) return;
-  await appWindow.minimize(); 
-}
-async function toggleMaximize() { 
-  if (!appWindow) return;
-  await appWindow.toggleMaximize(); 
-}
 async function closeWindow() { 
   if (!appWindow) return;
   await appWindow.hide(); 

@@ -1,4 +1,9 @@
-use std::{fs, io::Cursor, path::PathBuf, sync::Mutex};
+use std::{
+    fs,
+    io::Cursor,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
@@ -8,10 +13,13 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rig::{
     completion::{
         message::{AudioMediaType, ImageDetail, ImageMediaType, UserContent},
-        Message as RigMessage, Prompt,
+        Message as RigMessage, Prompt, ToolDefinition,
     },
+    message::{AssistantContent, ToolResultContent},
     prelude::CompletionClient,
     providers::openai,
+    streaming::{StreamedAssistantContent, StreamingCompletion},
+    tool::{Tool, ToolDyn},
     OneOrMany,
 };
 use scraper::{Html, Selector};
@@ -58,6 +66,12 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             args: vec!["-y".to_string(), "bing-cn-mcp".to_string()],
             values: serde_json::json!({}),
         },
+        ApiToolConfig {
+            id: "memory-save".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["memory-save".to_string()],
+            values: serde_json::json!({}),
+        },
     ]
 }
 
@@ -98,6 +112,10 @@ fn default_max_record_seconds() -> u32 {
     60
 }
 
+fn default_tool_max_iterations() -> u32 {
+    10
+}
+
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
@@ -126,6 +144,8 @@ struct AppConfig {
     min_record_seconds: u32,
     #[serde(default = "default_max_record_seconds")]
     max_record_seconds: u32,
+    #[serde(default = "default_tool_max_iterations")]
+    tool_max_iterations: u32,
     selected_api_config_id: String,
     #[serde(default)]
     chat_api_config_id: String,
@@ -142,6 +162,7 @@ impl Default for AppConfig {
             record_hotkey: default_record_hotkey(),
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),
+            tool_max_iterations: default_tool_max_iterations(),
             selected_api_config_id: api_config.id.clone(),
             chat_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,
@@ -294,6 +315,14 @@ struct OpenAIToolCallFunction {
 #[serde(rename_all = "camelCase")]
 struct AssistantDeltaEvent {
     delta: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,6 +418,16 @@ struct ImageTextCacheEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct MemoryEntry {
+    id: String,
+    content: String,
+    keywords: Vec<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppData {
     version: u32,
     agents: Vec<AgentProfile>,
@@ -400,6 +439,8 @@ struct AppData {
     archived_conversations: Vec<ConversationArchive>,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
+    #[serde(default)]
+    memories: Vec<MemoryEntry>,
 }
 
 impl Default for AppData {
@@ -412,6 +453,7 @@ impl Default for AppData {
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
+            memories: Vec::new(),
         }
     }
 }
@@ -442,17 +484,10 @@ struct PreparedPrompt {
 }
 
 #[derive(Debug, Clone)]
-struct McpExposedTool {
-    openai_name: String,
-    mcp_name: String,
-    description: Option<String>,
-    input_schema: Value,
-}
-
 struct AppState {
     config_path: PathBuf,
     data_path: PathBuf,
-    state_lock: Mutex<()>,
+    state_lock: Arc<Mutex<()>>,
 }
 
 impl AppState {
@@ -464,7 +499,7 @@ impl AppState {
         Ok(Self {
             config_path: config_dir.join("config.toml"),
             data_path: config_dir.join("app_data.json"),
-            state_lock: Mutex::new(()),
+            state_lock: Arc::new(Mutex::new(())),
         })
     }
 }
@@ -581,6 +616,7 @@ fn main() {
             get_chat_snapshot,
             get_active_conversation_messages,
             list_archives,
+            list_memories,
             get_archive_messages,
             open_external_url,
             send_chat_message,
@@ -668,6 +704,7 @@ mod tests {
             record_hotkey: "".to_string(),
             min_record_seconds: 0,
             max_record_seconds: 0,
+            tool_max_iterations: 0,
             selected_api_config_id: "a1".to_string(),
             chat_api_config_id: "a1".to_string(),
             vision_api_config_id: None,
@@ -704,6 +741,7 @@ mod tests {
         assert_eq!(cfg.record_hotkey, "Alt");
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
+        assert_eq!(cfg.tool_max_iterations, 1);
     }
 
     #[test]
@@ -713,6 +751,7 @@ mod tests {
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
+            tool_max_iterations: 10,
             selected_api_config_id: "edit-b".to_string(),
             chat_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
@@ -757,6 +796,7 @@ mod tests {
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
+            tool_max_iterations: 10,
             selected_api_config_id: "tts-a".to_string(),
             chat_api_config_id: "tts-a".to_string(),
             vision_api_config_id: Some("tts-a".to_string()),
@@ -765,7 +805,7 @@ mod tests {
                 name: "tts-a".to_string(),
                 request_format: "openai_tts".to_string(),
                 enable_text: true,
-                enable_image: true,
+                enable_image: false,
                 enable_audio: true,
                 enable_tools: true,
                 tools: vec![],
@@ -777,7 +817,7 @@ mod tests {
         normalize_app_config(&mut cfg);
         let api = &cfg.api_configs[0];
         assert!(api.enable_text);
-        assert!(api.enable_image);
+        assert!(!api.enable_image);
         assert!(!api.enable_audio);
         assert!(api.enable_tools);
         assert_eq!(cfg.vision_api_config_id, None);

@@ -56,6 +56,18 @@
               <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
               <span v-else class="loading loading-spinner loading-xs opacity-60"></span>
             </div>
+            <div v-if="toolStatusText" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
+              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-xs"></span>
+              <span
+                v-else-if="toolStatusState === 'failed'"
+                class="inline-block w-1.5 h-1.5 rounded-full bg-error"
+              ></span>
+              <span
+                v-else-if="toolStatusState === 'done'"
+                class="inline-block w-1.5 h-1.5 rounded-full bg-success"
+              ></span>
+              <span>{{ toolStatusText }}</span>
+            </div>
           </div>
         </div>
       </template>
@@ -122,6 +134,8 @@ const props = defineProps<{
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
+  toolStatusText: string;
+  toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   chatInput: string;

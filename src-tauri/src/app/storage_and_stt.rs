@@ -26,8 +26,17 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
 fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
         api.enable_audio = false;
-        if api.enable_tools && api.tools.is_empty() {
-            api.tools = default_api_tools();
+        if api.enable_tools {
+            if api.tools.is_empty() {
+                api.tools = default_api_tools();
+            } else {
+                let defaults = default_api_tools();
+                for d in defaults {
+                    if !api.tools.iter().any(|t| t.id == d.id) {
+                        api.tools.push(d);
+                    }
+                }
+            }
         }
     }
 }
@@ -69,6 +78,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     if config.max_record_seconds < config.min_record_seconds {
         config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
     }
+    config.tool_max_iterations = config.tool_max_iterations.clamp(1, 100);
 
     config.vision_api_config_id = config
         .vision_api_config_id

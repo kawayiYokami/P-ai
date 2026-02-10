@@ -255,6 +255,21 @@ fn get_archive_messages(
 }
 
 #[tauri::command]
+fn list_memories(state: State<'_, AppState>) -> Result<Vec<MemoryEntry>, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let mut memories = data.memories.clone();
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(memories)
+}
+
+#[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let trimmed = url.trim();
     if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
@@ -262,6 +277,90 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
     webbrowser::open(trimmed).map_err(|err| format!("Open browser failed: {err}"))?;
     Ok(())
+}
+
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn conversation_search_text(conversation: &Conversation) -> String {
+    let mut lines = Vec::<String>::new();
+    for msg in &conversation.messages {
+        for part in &msg.parts {
+            if let MessagePart::Text { text } = part {
+                if !text.trim().is_empty() {
+                    lines.push(text.to_lowercase());
+                }
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn build_memory_board_xml(
+    memories: &[MemoryEntry],
+    search_text: &str,
+    latest_user_text: &str,
+) -> Option<String> {
+    let mut hits = Vec::<(&MemoryEntry, Vec<String>)>::new();
+    let mut corpus = String::new();
+    corpus.push_str(search_text);
+    if !latest_user_text.trim().is_empty() {
+        corpus.push('\n');
+        corpus.push_str(&latest_user_text.to_lowercase());
+    }
+
+    for memory in memories {
+        let mut matched = Vec::<String>::new();
+        for kw in &memory.keywords {
+            let k = kw.trim().to_lowercase();
+            if k.len() < 2 {
+                continue;
+            }
+            if corpus.contains(&k) {
+                matched.push(k);
+            }
+        }
+        if !matched.is_empty() {
+            hits.push((memory, matched));
+        }
+        if hits.len() >= 4 {
+            break;
+        }
+    }
+
+    if hits.is_empty() {
+        return None;
+    }
+
+    let mut out = String::new();
+    out.push_str("<memory_board>\n");
+    out.push_str("  <note>这是记忆提示板，请按需参考，不要编造未命中的记忆。</note>\n");
+    out.push_str("  <memories>\n");
+    for (memory, matched) in hits {
+        out.push_str(&format!("    <memory id=\"{}\">\n", xml_escape(&memory.id)));
+        out.push_str(&format!(
+            "      <keywords>{}</keywords>\n",
+            xml_escape(&memory.keywords.join(","))
+        ));
+        out.push_str(&format!(
+            "      <content>{}</content>\n",
+            xml_escape(&memory.content)
+        ));
+        out.push_str(&format!(
+            "      <reason>命中关键词: {}</reason>\n",
+            xml_escape(&matched.join(","))
+        ));
+        out.push_str("    </memory>\n");
+    }
+    out.push_str("  </memories>\n");
+    out.push_str("</memory_board>");
+    Some(out)
 }
 
 #[tauri::command]
@@ -413,14 +512,32 @@ async fn send_chat_message(
         storage_api.enable_image = true;
         storage_api.enable_audio = true;
         let user_parts = build_user_parts(&input.payload, &storage_api)?;
-        let latest_user_text = effective_user_text.clone();
+        let conversation_before = data.conversations[idx].clone();
+        let search_text = conversation_search_text(&conversation_before);
+        let memory_board_xml =
+            build_memory_board_xml(&data.memories, &search_text, &effective_user_text);
+
+        let latest_user_text = if let Some(xml) = &memory_board_xml {
+            if effective_user_text.trim().is_empty() {
+                xml.clone()
+            } else {
+                format!("{effective_user_text}\n\n{xml}")
+            }
+        } else {
+            effective_user_text.clone()
+        };
 
         let now = now_iso();
+        let mut user_parts_for_storage = user_parts;
+        if let Some(xml) = &memory_board_xml {
+            user_parts_for_storage.push(MessagePart::Text { text: xml.clone() });
+        }
+
         let user_message = ChatMessage {
             id: Uuid::new_v4().to_string(),
             role: "user".to_string(),
             created_at: now.clone(),
-            parts: user_parts,
+            parts: user_parts_for_storage,
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
@@ -431,7 +548,7 @@ async fn send_chat_message(
 
         let conversation = data.conversations[idx].clone();
         let mut prepared = build_prompt(&conversation, &agent, &data.user_alias, &now_iso());
-        prepared.latest_user_text = effective_user_text.clone();
+        prepared.latest_user_text = latest_user_text.clone();
         prepared.latest_images = effective_images.clone();
         prepared.latest_audios = effective_audios.clone();
 
@@ -462,7 +579,9 @@ async fn send_chat_message(
         &selected_api,
         &model_name,
         prepared_prompt,
+        Some(&state),
         &on_delta,
+        app_config.tool_max_iterations as usize,
     )
     .await?;
 
@@ -623,6 +742,7 @@ fn check_tools_status(
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
             "bing-search" => ("loaded".to_string(), "内置 Bing 爬虫搜索可用".to_string()),
+            "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

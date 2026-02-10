@@ -24,6 +24,7 @@ export type AppConfig = {
   recordHotkey: string;
   minRecordSeconds: number;
   maxRecordSeconds: number;
+  toolMaxIterations: number;
   selectedApiConfigId: string;
   chatApiConfigId: string;
   visionApiConfigId?: string;

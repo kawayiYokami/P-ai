@@ -144,7 +144,6 @@
           <div class="flex gap-2">
             <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
             <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" disabled /></label>
             <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
           </div>
         </div>
@@ -155,30 +154,46 @@
     <template v-else-if="configTab === 'tools'">
       <div v-if="!toolApiConfig" class="text-xs opacity-70">未配置对话AI</div>
       <template v-else>
-        <div class="flex items-center justify-between">
-          <div class="text-xs font-medium">对话AI配置：{{ toolApiConfig.name }}</div>
-          <button class="btn btn-sm btn-ghost bg-base-100" :class="{ loading: checkingToolsStatus }" @click="$emit('refreshToolsStatus')">
-            刷新状态
-          </button>
+        <div class="grid gap-2">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text text-xs">工具最大调用轮次</span></div>
+            <input
+              v-model.number="config.toolMaxIterations"
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              class="input input-bordered input-sm"
+            />
+          </label>
+        </div>
+        <div class="flex items-center justify-end">
+          <button class="btn btn-sm btn-ghost bg-base-100" :class="{ loading: checkingToolsStatus }" @click="$emit('refreshToolsStatus')">刷新状态</button>
         </div>
         <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">当前对话AI未启用工具调用。</div>
         <div v-else class="grid gap-2">
           <div
             v-for="tool in toolApiConfig.tools"
             :key="tool.id"
-            class="rounded border border-base-300 bg-base-100 p-2"
+            class="card card-compact bg-base-100 border border-base-300"
           >
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-xs font-medium">{{ tool.id }}</div>
-              <div
-                class="badge badge-xs"
-                :class="statusBadgeClass(tool.id)"
-              >
-                {{ statusText(tool.id) }}
+            <div class="card-body py-2 px-3">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs font-medium">{{ tool.id }}</div>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="tool.id === 'memory-save'"
+                    class="btn btn-xs btn-ghost bg-base-100"
+                    @click="$emit('openMemoryViewer')"
+                  >
+                    查看
+                  </button>
+                  <div class="badge" :class="statusBadgeClass(tool.id)">
+                    {{ statusText(tool.id) }}
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="text-[11px] opacity-80 mt-1">{{ tool.command }} {{ tool.args.join(" ") }}</div>
-            <div class="text-[11px] opacity-70 mt-1">{{ statusDetail(tool.id) }}</div>
           </div>
         </div>
       </template>
@@ -287,6 +302,7 @@ defineEmits<{
   (e: "toggleTheme"): void;
   (e: "refreshModels"): void;
   (e: "refreshToolsStatus"): void;
+  (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;
   (e: "saveApiConfig"): void;
@@ -306,10 +322,6 @@ function toolStatusById(id: string): ToolLoadStatus | undefined {
 
 function statusText(id: string): string {
   return toolStatusById(id)?.status ?? "unknown";
-}
-
-function statusDetail(id: string): string {
-  return toolStatusById(id)?.detail ?? "尚未检查";
 }
 
 function statusBadgeClass(id: string): string {

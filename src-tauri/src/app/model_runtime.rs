@@ -44,74 +44,76 @@ async fn call_model_openai_rig_style(
         .map_err(|err| format!("rig prompt failed: {err}"))
 }
 
-fn value_to_text(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        other => serde_json::to_string(other).unwrap_or_else(|_| "<invalid json>".to_string()),
+fn debug_value_snippet(value: &Value, max_chars: usize) -> String {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "<invalid json>".to_string());
+    if raw.chars().count() <= max_chars {
+        raw
+    } else {
+        let head = raw.chars().take(max_chars).collect::<String>();
+        format!("{head}...")
     }
 }
 
-fn build_openai_tools_payload(tools: &[McpExposedTool]) -> Vec<Value> {
-    tools
-        .iter()
-        .map(|tool| {
-            serde_json::json!({
-              "type": "function",
-              "function": {
-                "name": tool.openai_name,
-                "description": tool.description.clone().unwrap_or_default(),
-                "parameters": tool.input_schema,
-              }
-            })
-        })
-        .collect()
+fn send_tool_status_event(
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    tool_name: &str,
+    tool_status: &str,
+    message: &str,
+) {
+    let send_result = on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("tool_status".to_string()),
+        tool_name: Some(tool_name.to_string()),
+        tool_status: Some(tool_status.to_string()),
+        message: Some(message.to_string()),
+    });
+    eprintln!(
+        "[TOOL-DEBUG] tool_status_event send={:?} name={} status={} message={}",
+        send_result, tool_name, tool_status, message
+    );
 }
 
-fn build_builtin_tools_payload(selected_api: &ApiConfig) -> Vec<McpExposedTool> {
-    if !selected_api.enable_tools {
-        return Vec::new();
+fn tool_enabled(selected_api: &ApiConfig, id: &str) -> bool {
+    selected_api.enable_tools && selected_api.tools.iter().any(|tool| tool.id == id)
+}
+
+#[derive(Debug)]
+struct ToolInvokeError(String);
+
+impl std::fmt::Display for ToolInvokeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
-    selected_api
-    .tools
-    .iter()
-    .filter_map(|tool| {
-      if tool.id == "fetch" {
-        return Some(McpExposedTool {
-          openai_name: "fetch".to_string(),
-          mcp_name: "fetch".to_string(),
-          description: Some("Fetch webpage text.".to_string()),
-          input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-              "url": { "type": "string", "description": "URL" },
-              "max_length": { "type": "integer", "description": "Max chars", "default": 1800 }
-            },
-            "required": ["url"]
-          }),
-        });
-      }
-      if tool.id == "bing-search" {
-        return Some(McpExposedTool {
-          openai_name: "bing_search".to_string(),
-          mcp_name: "bing-search".to_string(),
-          description: Some("Search web with Bing.".to_string()),
-          input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-              "query": { "type": "string", "description": "Query" },
-              "num_results": { "type": "integer", "description": "Result count", "default": 5 }
-            },
-            "required": ["query"]
-          }),
-        });
-      }
-      None
-    })
-    .collect()
+}
+
+impl std::error::Error for ToolInvokeError {}
+
+impl From<String> for ToolInvokeError {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
 }
 
 fn clean_text(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_by_chars(input: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+    let mut out = String::new();
+    for (idx, ch) in input.chars().enumerate() {
+        if idx >= max_chars {
+            break;
+        }
+        out.push(ch);
+    }
+    out.push_str("...");
+    out
 }
 
 async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
@@ -142,11 +144,7 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
         .map(|n| n.text().collect::<Vec<_>>().join(" "))
         .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "));
     let cleaned = clean_text(&raw);
-    let truncated = if cleaned.len() > max_length {
-        format!("{}...", &cleaned[..max_length])
-    } else {
-        cleaned
-    };
+    let truncated = truncate_by_chars(&cleaned, max_length);
     Ok(serde_json::json!({
       "url": url,
       "content": truncated
@@ -219,33 +217,282 @@ async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, S
     ))
 }
 
-async fn execute_builtin_tool(name: &str, args: Value) -> Result<Value, String> {
-    match name {
-        "fetch" => {
-            let url = args
-                .get("url")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "fetch.url is required".to_string())?;
-            let max_length = args
-                .get("max_length")
-                .and_then(Value::as_u64)
-                .map(|n| n as usize)
-                .unwrap_or(1800);
-            builtin_fetch(url, max_length).await
+fn normalize_memory_keywords(raw: &[String]) -> Vec<String> {
+    let mut out = Vec::<String>::new();
+    for item in raw {
+        let v = item.trim().to_lowercase();
+        if v.len() < 2 {
+            continue;
         }
-        "bing-search" => {
-            let query = args
-                .get("query")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "bing_search.query is required".to_string())?;
-            let num = args
-                .get("num_results")
-                .and_then(Value::as_u64)
-                .map(|n| n as usize)
-                .unwrap_or(5);
-            builtin_bing_search(query, num).await
+        if !out.iter().any(|x| x == &v) {
+            out.push(v);
         }
-        _ => Err(format!("Unsupported builtin tool: {name}")),
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    out
+}
+
+fn memory_contains_sensitive(content: &str, keywords: &[String]) -> bool {
+    let mut full = content.to_lowercase();
+    if !keywords.is_empty() {
+        full.push('\n');
+        full.push_str(&keywords.join(" ").to_lowercase());
+    }
+    let danger_tokens = [
+        "password",
+        "passwd",
+        "api key",
+        "apikey",
+        "token",
+        "secret",
+        "private key",
+        "sk-",
+        "ssh-rsa",
+        "验证码",
+        "密码",
+        "密钥",
+        "身份证",
+        "银行卡",
+        "cvv",
+    ];
+    danger_tokens.iter().any(|token| full.contains(token))
+}
+
+fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, String> {
+    let content = args
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "memory_save.content is required".to_string())?;
+    let keywords_raw = args
+        .get("keywords")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "memory_save.keywords is required".to_string())?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let keywords = normalize_memory_keywords(&keywords_raw);
+    if keywords.is_empty() {
+        return Err("memory_save.keywords must contain at least one valid keyword".to_string());
+    }
+    if memory_contains_sensitive(content, &keywords) {
+        eprintln!(
+            "[TOOL-DEBUG] memory-save rejected sensitive content. keywords={}",
+            keywords.join(",")
+        );
+        return Ok(serde_json::json!({
+          "saved": false,
+          "reason": "sensitive_rejected"
+        }));
+    }
+
+    let guard = app_state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&app_state.data_path)?;
+    let now = now_iso();
+    let memory_id = if let Some(existing) = data
+        .memories
+        .iter_mut()
+        .find(|m| m.content.trim() == content)
+    {
+        existing.keywords = keywords.clone();
+        existing.updated_at = now.clone();
+        existing.id.clone()
+    } else {
+        let id = Uuid::new_v4().to_string();
+        data.memories.push(MemoryEntry {
+            id: id.clone(),
+            content: content.to_string(),
+            keywords: keywords.clone(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        });
+        id
+    };
+    write_app_data(&app_state.data_path, &data)?;
+    drop(guard);
+
+    eprintln!(
+        "[TOOL-DEBUG] memory-save saved. id={}, keywords={}, content_len={}, total_memories={}",
+        memory_id,
+        keywords.join(","),
+        content.chars().count(),
+        data.memories.len()
+    );
+
+    Ok(serde_json::json!({
+      "saved": true,
+      "id": memory_id,
+      "keywords": keywords,
+      "updatedAt": now
+    }))
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct FetchToolArgs {
+    url: String,
+    #[serde(default)]
+    max_length: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct BingSearchToolArgs {
+    query: String,
+    #[serde(default)]
+    num_results: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct MemorySaveToolArgs {
+    content: String,
+    keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BuiltinFetchTool;
+
+impl Tool for BuiltinFetchTool {
+    const NAME: &'static str = "fetch";
+    type Error = ToolInvokeError;
+    type Args = FetchToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "fetch".to_string(),
+            description: "Fetch webpage text.".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "url": { "type": "string", "description": "URL" },
+                "max_length": { "type": "integer", "description": "Max chars", "default": 1800 }
+              },
+              "required": ["url"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=fetch args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        );
+        let result = builtin_fetch(&args.url, args.max_length.unwrap_or(1800))
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=fetch result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=fetch err={err}"),
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BuiltinBingSearchTool;
+
+impl Tool for BuiltinBingSearchTool {
+    const NAME: &'static str = "bing_search";
+    type Error = ToolInvokeError;
+    type Args = BingSearchToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "bing_search".to_string(),
+            description: "Search web with Bing.".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "query": { "type": "string", "description": "Query" },
+                "num_results": { "type": "integer", "description": "Result count", "default": 5 }
+              },
+              "required": ["query"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=bing-search args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        );
+        let result = builtin_bing_search(&args.query, args.num_results.unwrap_or(5))
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=bing-search result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => {
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=bing-search err={err}")
+            }
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinMemorySaveTool {
+    app_state: AppState,
+}
+
+impl Tool for BuiltinMemorySaveTool {
+    const NAME: &'static str = "memory_save";
+    type Error = ToolInvokeError;
+    type Args = MemorySaveToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "memory_save".to_string(),
+            description: "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。"
+                .to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "content": { "type": "string", "description": "记忆正文，简洁具体" },
+                "keywords": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "关键词列表，用于后续命中提示板"
+                }
+              },
+              "required": ["content", "keywords"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::json!({
+            "content": args.content,
+            "keywords": args.keywords,
+        });
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=memory-save args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let result = builtin_memory_save(&self.app_state, args_json).map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=memory-save result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => {
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=memory-save err={err}")
+            }
+        }
+        result
     }
 }
 
@@ -302,6 +549,10 @@ async fn openai_stream_request(
     openai_stream_request_with_sink(client, url, body, |delta| {
         let send_result = on_delta.send(AssistantDeltaEvent {
             delta: delta.to_string(),
+            kind: None,
+            tool_name: None,
+            tool_status: None,
+            message: None,
         });
         eprintln!(
             "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
@@ -471,125 +722,231 @@ async fn call_model_openai_with_tools(
     selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
+    app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
 ) -> Result<String, String> {
-    let exposed_tools = build_builtin_tools_payload(selected_api);
-    if exposed_tools.is_empty() {
+    let has_fetch = tool_enabled(selected_api, "fetch");
+    let has_bing = tool_enabled(selected_api, "bing-search");
+    let has_memory = tool_enabled(selected_api, "memory-save");
+    if !has_fetch && !has_bing && !has_memory {
         return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .default_headers(openai_headers(&api_config.api_key)?)
+    let mut client_builder: openai::ClientBuilder =
+        openai::Client::builder().api_key(&api_config.api_key);
+    if !api_config.base_url.is_empty() {
+        client_builder = client_builder.base_url(&api_config.base_url);
+    }
+    let client = client_builder
         .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-    let urls = candidate_openai_chat_urls(&api_config.base_url);
-    if urls.is_empty() {
-        return Err("Base URL is empty.".to_string());
+        .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
+
+    let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+    if has_fetch {
+        tools.push(Box::new(BuiltinFetchTool));
+    }
+    if has_bing {
+        tools.push(Box::new(BuiltinBingSearchTool));
+    }
+    if has_memory {
+        let state = app_state
+            .ok_or_else(|| "memory_save requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemorySaveTool { app_state: state }));
     }
 
-    let mut messages = vec![
-        serde_json::json!({"role":"system","content": prepared.preamble}),
-        serde_json::json!({"role":"user","content": prepared.latest_user_text}),
-    ];
+    let agent = client
+        .clone()
+        .completions_api()
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .tools(tools)
+        .build();
+
     let mut full_assistant_text = String::new();
-    let tools_payload = build_openai_tools_payload(&exposed_tools);
+    let mut current_prompt: RigMessage = prepared.latest_user_text.clone().into();
+    let mut chat_history = Vec::<RigMessage>::new();
 
-    for _ in 0..4 {
-        let body = serde_json::json!({
-          "model": model_name,
-          "messages": messages,
-          "tools": tools_payload,
-          "tool_choice": "auto",
-          "temperature": 0.2,
-          "stream": true
-        });
+    for _ in 0..max_tool_iterations {
+        let mut stream = agent
+            .stream_completion(current_prompt.clone(), chat_history.clone())
+            .await
+            .map_err(|err| format!("rig stream completion build failed: {err}"))?
+            .stream()
+            .await
+            .map_err(|err| format!("rig stream start failed: {err}"))?;
 
-        let mut stream_result: Option<(String, Vec<OpenAIToolCall>)> = None;
-        let mut stream_errors = Vec::new();
-        for url in &urls {
-            match openai_stream_request(&client, url, body.clone(), on_delta).await {
-                Ok(ok) => {
-                    stream_result = Some(ok);
-                    break;
+        chat_history.push(current_prompt.clone());
+
+        let mut turn_text = String::new();
+        let mut tool_calls = Vec::<AssistantContent>::new();
+        let mut tool_results = Vec::<(String, Option<String>, String)>::new();
+        let mut did_call_tool = false;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(StreamedAssistantContent::Text(text)) => {
+                    let send_result = on_delta.send(AssistantDeltaEvent {
+                        delta: text.text.clone(),
+                        kind: None,
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                    eprintln!(
+                        "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
+                        send_result,
+                        text.text.len()
+                    );
+                    turn_text.push_str(&text.text);
                 }
-                Err(err) => stream_errors.push(format!("{url} -> {err}")),
+                Ok(StreamedAssistantContent::ToolCall {
+                    tool_call,
+                    internal_call_id: _,
+                }) => {
+                    did_call_tool = true;
+                    eprintln!(
+                        "[TOOL-DEBUG] tool_call id={} name={} args={}",
+                        tool_call.id,
+                        tool_call.function.name,
+                        tool_call.function.arguments
+                    );
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_call.function.name,
+                        "running",
+                        &format!("正在调用工具：{}", tool_call.function.name),
+                    );
+                    let tool_result = agent
+                        .tool_server_handle
+                        .call_tool(
+                            &tool_call.function.name,
+                            &tool_call.function.arguments.to_string(),
+                        )
+                        .await
+                        .map_err(|err| {
+                            send_tool_status_event(
+                                on_delta,
+                                &tool_call.function.name,
+                                "failed",
+                                &format!("工具调用失败：{} ({err})", tool_call.function.name),
+                            );
+                            format!("Tool call '{}' failed: {err}", tool_call.function.name)
+                        })?;
+                    eprintln!(
+                        "[TOOL-DEBUG] tool_result id={} name={} content={}",
+                        tool_call.id,
+                        tool_call.function.name,
+                        tool_result.chars().take(240).collect::<String>()
+                    );
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_call.function.name,
+                        "done",
+                        &format!("工具调用完成：{}", tool_call.function.name),
+                    );
+
+                    tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
+                    tool_results.push((tool_call.id, tool_call.call_id, tool_result));
+                }
+                Ok(StreamedAssistantContent::Final(_)) => {}
+                Ok(StreamedAssistantContent::Reasoning(_)) => {}
+                Ok(StreamedAssistantContent::ReasoningDelta { .. }) => {}
+                Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
+                Err(err) => return Err(format!("rig streaming failed: {err}")),
             }
         }
-        let (text, tool_calls) = stream_result.ok_or_else(|| {
-            format!(
-                "OpenAI tool stream request failed for all candidate URLs: {}",
-                stream_errors.join(" || ")
-            )
-        })?;
-        if !text.is_empty() {
+
+        if !turn_text.is_empty() {
             if !full_assistant_text.trim().is_empty() {
                 full_assistant_text.push_str("\n\n");
             }
-            full_assistant_text.push_str(&text);
+            full_assistant_text.push_str(&turn_text);
         }
 
-        if tool_calls.is_empty() {
+        if !did_call_tool {
             return Ok(full_assistant_text);
         }
 
-        // 有 tool_calls：积累到 messages 中，继续循环
-        let assistant_tool_calls = tool_calls
-            .iter()
-            .map(|tc| {
-                serde_json::json!({
-                  "id": tc.id,
-                  "type": "function",
-                  "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                  }
-                })
-            })
-            .collect::<Vec<_>>();
-        let content_value = if text.is_empty() {
-            Value::Null
-        } else {
-            Value::String(text)
-        };
-        messages.push(serde_json::json!({
-          "role":"assistant",
-          "content": content_value,
-          "tool_calls": assistant_tool_calls
-        }));
-
-        for tc in &tool_calls {
-            let Some(exposed) = exposed_tools
-                .iter()
-                .find(|tool| tool.openai_name == tc.function.name)
-            else {
-                messages.push(serde_json::json!({
-                  "role":"tool",
-                  "tool_call_id": tc.id,
-                  "content": format!("Tool '{}' is not registered.", tc.function.name)
-                }));
-                continue;
-            };
-
-            let args = if tc.function.arguments.trim().is_empty() {
-                serde_json::json!({})
-            } else {
-                serde_json::from_str::<Value>(&tc.function.arguments).map_err(|err| {
-                    format!("Parse tool arguments failed ({}): {err}", tc.function.name)
-                })?
-            };
-
-            let result_value = execute_builtin_tool(&exposed.mcp_name, args).await?;
-            let tool_text = value_to_text(&result_value);
-            messages.push(serde_json::json!({
-              "role":"tool",
-              "tool_call_id": tc.id,
-              "content": tool_text
-            }));
+        if !tool_calls.is_empty() {
+            chat_history.push(RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::many(tool_calls)
+                    .map_err(|_| "Failed to build assistant tool-call message".to_string())?,
+            });
         }
+
+        for (tool_id, call_id, tool_result) in tool_results {
+            let result_content = OneOrMany::one(ToolResultContent::text(tool_result));
+            let user_content = if let Some(call_id) = call_id {
+                UserContent::tool_result_with_call_id(tool_id, call_id, result_content)
+            } else {
+                UserContent::tool_result(tool_id, result_content)
+            };
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::one(user_content),
+            });
+        }
+
+        current_prompt = chat_history
+            .pop()
+            .ok_or_else(|| "Tool call turn ended with empty chat history".to_string())?;
     }
 
-    Err("Tool call exceeded max iterations.".to_string())
+    send_tool_status_event(
+        on_delta,
+        "tools",
+        "failed",
+        "工具调用达到上限，停止继续调用并立刻汇报。",
+    );
+    let final_instruction = "工具调用次数达到上限，必须立刻汇报。禁止继续调用任何工具。请基于已有信息直接给出结论，并明确不确定性。";
+    current_prompt = final_instruction.into();
+    let final_agent = client
+        .completions_api()
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .build();
+    let mut final_stream = final_agent
+        .stream_completion(current_prompt.clone(), chat_history.clone())
+        .await
+        .map_err(|err| format!("rig final stream build failed: {err}"))?
+        .stream()
+        .await
+        .map_err(|err| format!("rig final stream start failed: {err}"))?;
+    let mut final_text = String::new();
+    while let Some(chunk) = final_stream.next().await {
+        match chunk {
+            Ok(StreamedAssistantContent::Text(text)) => {
+                let send_result = on_delta.send(AssistantDeltaEvent {
+                    delta: text.text.clone(),
+                    kind: None,
+                    tool_name: None,
+                    tool_status: None,
+                    message: None,
+                });
+                eprintln!(
+                    "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
+                    send_result,
+                    text.text.len()
+                );
+                final_text.push_str(&text.text);
+            }
+            Ok(StreamedAssistantContent::Final(_)) => {}
+            Ok(StreamedAssistantContent::Reasoning(_)) => {}
+            Ok(StreamedAssistantContent::ReasoningDelta { .. }) => {}
+            Ok(StreamedAssistantContent::ToolCall { .. }) => {}
+            Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
+            Err(err) => return Err(format!("rig final streaming failed: {err}")),
+        }
+    }
+    if !final_text.trim().is_empty() {
+        if !full_assistant_text.trim().is_empty() {
+            full_assistant_text.push_str("\n\n");
+        }
+        full_assistant_text.push_str(&final_text);
+    }
+    Ok(full_assistant_text)
 }
 
 async fn call_model_openai_style(
@@ -597,7 +954,9 @@ async fn call_model_openai_style(
     selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
+    app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
 ) -> Result<String, String> {
     eprintln!(
         "[STREAM-DEBUG] call_model_openai_style: format={}, enable_tools={}, images={}, audios={}",
@@ -608,7 +967,7 @@ async fn call_model_openai_style(
     );
     // 优先使用工具调用（如果启用）
     if selected_api.enable_tools
-        && selected_api.request_format.trim() == "openai"
+        && is_openai_style_request_format(&selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
@@ -617,13 +976,15 @@ async fn call_model_openai_style(
             selected_api,
             model_name,
             prepared,
+            app_state,
             on_delta,
+            max_tool_iterations,
         )
         .await;
     }
 
     // 纯文本流式传输（无论工具是否启用，只要没有工具调用就走流式）
-    if selected_api.request_format.trim() == "openai"
+    if is_openai_style_request_format(&selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
