@@ -205,6 +205,7 @@
         </div>
         <div class="mt-1 opacity-80">条目: {{ cacheStats.entries }} | 字符: {{ cacheStats.totalChars }}</div>
         <div class="mt-1 opacity-70">最近更新: {{ cacheStats.latestUpdatedAt || "-" }}</div>
+        <div class="mt-1 opacity-60">缓存按“图转文AI配置”隔离，切换图转文AI后会自动使用对应缓存命名空间。</div>
       </div>
     </template>
   </div>
