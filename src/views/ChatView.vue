@@ -201,6 +201,7 @@ import { useI18n } from "vue-i18n";
 import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
+import twemoji from "twemoji";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTurn } from "../types/app";
 
@@ -302,7 +303,13 @@ function splitThinkText(raw: string): { visible: string; inline: string } {
 
 function renderMarkdown(text: string): string {
   const raw = md.render(text || "");
-  return DOMPurify.sanitize(raw);
+  const safeHtml = DOMPurify.sanitize(raw);
+  const withEmoji = twemoji.parse(safeHtml, {
+    folder: "svg",
+    ext: ".svg",
+    className: "twemoji",
+  });
+  return DOMPurify.sanitize(withEmoji);
 }
 
 const latestAssistantParts = computed(() => splitThinkText(props.latestAssistantText));
@@ -515,6 +522,14 @@ watch(
 .assistant-markdown :deep(pre code) {
   background: transparent;
   padding: 0;
+}
+
+.assistant-markdown :deep(img.twemoji) {
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0 0.06em;
+  vertical-align: -0.14em;
+  display: inline-block;
 }
 
 </style>
