@@ -93,6 +93,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
     Ok(ChatSettings {
         selected_agent_id: data.selected_agent_id.clone(),
         user_alias: user_persona_name(&data),
+        response_style_id: data.response_style_id.clone(),
     })
 }
 
@@ -117,12 +118,14 @@ fn save_chat_settings(
     }
     data.selected_agent_id = input.selected_agent_id.clone();
     data.user_alias = user_persona_name(&data);
+    data.response_style_id = normalize_response_style_id(&input.response_style_id);
     write_app_data(&state.data_path, &data)?;
     drop(guard);
 
     Ok(ChatSettings {
         selected_agent_id: input.selected_agent_id,
         user_alias: data.user_alias,
+        response_style_id: data.response_style_id,
     })
 }
 
@@ -449,7 +452,62 @@ fn get_prompt_preview(
 
     let user_name = user_persona_name(&data);
     let user_intro = user_persona_intro(&data);
-    let prepared = build_prompt(&conversation, &agent, &user_name, &user_intro, &now_iso());
+    let mut prepared = build_prompt(
+        &conversation,
+        &agent,
+        &user_name,
+        &user_intro,
+        &data.response_style_id,
+    );
+    let last_archive_summary = data
+        .archived_conversations
+        .iter()
+        .rev()
+        .find(|a| {
+            a.source_conversation.api_config_id == api_config.id
+                && a.source_conversation.agent_id == input.agent_id
+                && !a.summary.trim().is_empty()
+        })
+        .map(|a| a.summary.clone());
+    if let Some(summary) = last_archive_summary {
+        prepared.preamble.push_str(
+            "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",
+        );
+        prepared.preamble.push_str(summary.trim());
+        prepared.preamble.push('\n');
+    }
+    let time_block = build_time_context_block();
+    let mut block2_parts = Vec::<String>::new();
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        block2_parts.push(prepared.latest_user_system_text.clone());
+    }
+    block2_parts.push(time_block);
+    prepared.latest_user_system_text = block2_parts.join("\n\n");
+    let mut user_content = vec![serde_json::json!({
+        "type": "text",
+        "text": prepared.latest_user_text,
+    })];
+    user_content.push(serde_json::json!({
+        "type": "text",
+        "text": prepared.latest_user_system_text,
+    }));
+    for (mime, bytes_base64) in &prepared.latest_images {
+        user_content.push(serde_json::json!({
+            "type": "image",
+            "mime": mime,
+            "bytesBase64Length": bytes_base64.len(),
+        }));
+    }
+    for (mime, bytes_base64) in &prepared.latest_audios {
+        user_content.push(serde_json::json!({
+            "type": "audio",
+            "mime": mime,
+            "bytesBase64Length": bytes_base64.len(),
+        }));
+    }
+    let request_preview = build_request_preview_value(&api_config, &prepared, user_content);
+    let request_body_json = serde_json::to_string_pretty(&request_preview)
+        .map_err(|err| format!("Serialize request preview failed: {err}"))?;
     drop(guard);
 
     Ok(PromptPreview {
@@ -457,6 +515,65 @@ fn get_prompt_preview(
         latest_user_text: prepared.latest_user_text,
         latest_images: prepared.latest_images.len(),
         latest_audios: prepared.latest_audios.len(),
+        request_body_json,
+    })
+}
+
+fn build_request_preview_value(
+    api_config: &ApiConfig,
+    prepared: &PreparedPrompt,
+    user_content: Vec<Value>,
+) -> Value {
+    let mut preview_messages = Vec::<Value>::new();
+    preview_messages.push(serde_json::json!({
+        "role": "system",
+        "content": prepared.preamble.clone()
+    }));
+    for hm in &prepared.history_messages {
+        if hm.role == "assistant" && hm.tool_calls.is_some() {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("assistant".to_string()));
+            if hm.text.trim().is_empty() {
+                msg.insert("content".to_string(), Value::Null);
+            } else {
+                msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+                }
+            }
+            if let Some(calls) = &hm.tool_calls {
+                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+            }
+            preview_messages.push(Value::Object(msg));
+        } else if hm.role == "tool" {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("tool".to_string()));
+            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            if let Some(call_id) = &hm.tool_call_id {
+                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
+            }
+            preview_messages.push(Value::Object(msg));
+        } else {
+            preview_messages.push(serde_json::json!({
+                "role": hm.role,
+                "content": hm.text,
+            }));
+        }
+    }
+    preview_messages.push(serde_json::json!({
+        "role": "user",
+        "content": user_content
+    }));
+    serde_json::json!({
+        "requestFormat": api_config.request_format,
+        "baseUrl": api_config.base_url,
+        "model": api_config.model,
+        "temperature": api_config.temperature,
+        "enableTools": api_config.enable_tools,
+        "toolIds": api_config.tools.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
+        "messages": preview_messages
     })
 }
 
@@ -466,13 +583,24 @@ fn get_system_prompt_preview(
     state: State<'_, AppState>,
 ) -> Result<SystemPromptPreview, String> {
     let preview = get_prompt_preview(input, state)?;
-    let marker = "\n\n[CONVERSATION HISTORY]\n";
-    let system_prompt = if let Some(idx) = preview.preamble.find(marker) {
-        preview.preamble[..idx].to_string()
-    } else {
-        preview.preamble
-    };
-    Ok(SystemPromptPreview { system_prompt })
+    Ok(SystemPromptPreview {
+        system_prompt: preview.preamble,
+    })
+}
+
+fn now_iso_seconds() -> String {
+    let dt = now_utc()
+        .replace_nanosecond(0)
+        .unwrap_or_else(|_| now_utc());
+    dt.format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn build_time_context_block() -> String {
+    format!(
+        "<time_context>\n  <utc>{}</utc>\n</time_context>",
+        now_iso_seconds()
+    )
 }
 
 #[tauri::command]
@@ -818,19 +946,11 @@ fn build_memory_board_xml(
     out.push_str("<memory_board>\n");
     out.push_str("  <note>这是记忆提示板，请按需参考，不要编造未命中的记忆。</note>\n");
     out.push_str("  <memories>\n");
-    for (memory, matched) in hits {
-        out.push_str(&format!("    <memory id=\"{}\">\n", xml_escape(&memory.id)));
-        out.push_str(&format!(
-            "      <keywords>{}</keywords>\n",
-            xml_escape(&memory.keywords.join(","))
-        ));
+    for (memory, _matched) in hits {
+        out.push_str("    <memory>\n");
         out.push_str(&format!(
             "      <content>{}</content>\n",
             xml_escape(&memory.content)
-        ));
-        out.push_str(&format!(
-            "      <reason>命中关键词: {}</reason>\n",
-            xml_escape(&matched.join(","))
         ));
         out.push_str("    </memory>\n");
     }
@@ -963,11 +1083,13 @@ async fn summarize_archived_conversation_with_model(
 
     let prepared = PreparedPrompt {
         preamble: format!("[ARCHIVE TASK]\n{instruction}"),
+        history_messages: Vec::new(),
         latest_user_text: format!(
             "[CONVERSATION]\n{}\n{}",
             transcript.trim(),
             extra_memory.trim()
         ),
+        latest_user_system_text: String::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),
     };
@@ -1434,15 +1556,10 @@ async fn send_chat_message(
         if let Some(xml) = &memory_board_xml {
             extra_text_blocks.push(xml.clone());
         }
-        let latest_user_text = if extra_text_blocks.is_empty() {
-            effective_user_text.clone()
-        } else if effective_user_text.trim().is_empty() {
-            extra_text_blocks.join("\n\n")
-        } else {
-            format!("{effective_user_text}\n\n{}", extra_text_blocks.join("\n\n"))
-        };
+        let latest_user_text = effective_user_text.clone();
 
         let now = now_iso();
+        let time_context_block = build_time_context_block();
 
         let user_message = ChatMessage {
             id: Uuid::new_v4().to_string(),
@@ -1464,7 +1581,13 @@ async fn send_chat_message(
         let conversation = data.conversations[idx].clone();
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
-        let mut prepared = build_prompt(&conversation, &agent, &user_name, &user_intro, &now_iso());
+        let mut prepared = build_prompt(
+            &conversation,
+            &agent,
+            &user_name,
+            &user_intro,
+            &data.response_style_id,
+        );
         if let Some(summary) = last_archive_summary {
             prepared.preamble.push_str(
                 "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",
@@ -1472,7 +1595,13 @@ async fn send_chat_message(
             prepared.preamble.push_str(summary.trim());
             prepared.preamble.push('\n');
         }
+        let mut block2_parts = Vec::<String>::new();
+        if let Some(xml) = &memory_board_xml {
+            block2_parts.push(xml.clone());
+        }
+        block2_parts.push(time_context_block.clone());
         prepared.latest_user_text = latest_user_text.clone();
+        prepared.latest_user_system_text = block2_parts.join("\n\n");
         prepared.latest_images = effective_images.clone();
         prepared.latest_audios = effective_audios.clone();
 
@@ -1510,6 +1639,7 @@ async fn send_chat_message(
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
+    let tool_history_events = model_reply.tool_history_events;
 
     let mut assistant_text_for_storage = assistant_text.clone();
     if !reasoning_standard.trim().is_empty() {
@@ -1539,7 +1669,11 @@ async fn send_chat_message(
                 }],
                 extra_text_blocks: Vec::new(),
                 provider_meta: None,
-                tool_call: None,
+                tool_call: if tool_history_events.is_empty() {
+                    None
+                } else {
+                    Some(tool_history_events.clone())
+                },
                 mcp_call: None,
             });
             conversation.updated_at = now.clone();
@@ -1759,7 +1893,9 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
 
     let prepared = PreparedPrompt {
         preamble: format!("[TIME]\nCurrent UTC time: {}", now_iso()),
+        history_messages: Vec::new(),
         latest_user_text: api_config.fixed_test_prompt.clone(),
+        latest_user_system_text: String::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),
     };

@@ -2,7 +2,7 @@ use std::{
     fs,
     io::Cursor,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -40,6 +40,94 @@ const ARCHIVE_IDLE_SECONDS: i64 = 30 * 60;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const USER_PERSONA_ID: &str = "user-persona";
+const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResponseStylePreset {
+    id: String,
+    name: String,
+    prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HighestInstruction {
+    title: String,
+    rules: Vec<String>,
+}
+
+fn built_in_response_styles() -> &'static Vec<ResponseStylePreset> {
+    static STYLES: OnceLock<Vec<ResponseStylePreset>> = OnceLock::new();
+    STYLES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../src/constants/response-styles.json")).unwrap_or_else(
+            |_| {
+                vec![ResponseStylePreset {
+                    id: DEFAULT_RESPONSE_STYLE_ID.to_string(),
+                    name: "简洁".to_string(),
+                    prompt: "- 用最少但足够的信息回答。".to_string(),
+                }]
+            },
+        )
+    })
+}
+
+fn default_response_style_id() -> String {
+    DEFAULT_RESPONSE_STYLE_ID.to_string()
+}
+
+fn normalize_response_style_id(value: &str) -> String {
+    let id = value.trim();
+    if built_in_response_styles().iter().any(|s| s.id == id) {
+        id.to_string()
+    } else {
+        default_response_style_id()
+    }
+}
+
+fn response_style_preset(id: &str) -> ResponseStylePreset {
+    built_in_response_styles()
+        .iter()
+        .find(|s| s.id == id)
+        .cloned()
+        .or_else(|| built_in_response_styles().first().cloned())
+        .unwrap_or(ResponseStylePreset {
+            id: DEFAULT_RESPONSE_STYLE_ID.to_string(),
+            name: "简洁".to_string(),
+            prompt: "- 用最少但足够的信息回答。".to_string(),
+        })
+}
+
+fn highest_instruction() -> &'static HighestInstruction {
+    static INSTRUCTION: OnceLock<HighestInstruction> = OnceLock::new();
+    INSTRUCTION.get_or_init(|| {
+        serde_json::from_str(include_str!("../../src/constants/highest-instruction.json"))
+            .unwrap_or_else(|_| HighestInstruction {
+                title: "系统准则".to_string(),
+                rules: vec![
+                    "你必须基于客观事实回答问题，不编造数据、来源或结论。".to_string(),
+                    "若信息不足或不确定，直接说明不确定，并给出可验证路径。".to_string(),
+                    "优先给出可执行、可验证、与用户问题直接相关的结论。".to_string(),
+                ],
+            })
+    })
+}
+
+fn highest_instruction_markdown() -> String {
+    let source = highest_instruction();
+    let title = source.title.trim();
+    let title = if title.is_empty() { "系统准则" } else { title };
+    let mut out = format!("# {}\n", title);
+    for rule in &source.rules {
+        let line = rule.trim();
+        if !line.is_empty() {
+            out.push_str("- ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -257,6 +345,7 @@ struct PromptPreview {
     latest_user_text: String,
     latest_images: usize,
     latest_audios: usize,
+    request_body_json: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -486,6 +575,8 @@ struct AppData {
     selected_agent_id: String,
     #[serde(default = "default_user_alias")]
     user_alias: String,
+    #[serde(default = "default_response_style_id")]
+    response_style_id: String,
     conversations: Vec<Conversation>,
     archived_conversations: Vec<ConversationArchive>,
     #[serde(default)]
@@ -501,6 +592,7 @@ impl Default for AppData {
             agents: vec![default_agent(), default_user_persona()],
             selected_agent_id: default_selected_agent_id(),
             user_alias: default_user_alias(),
+            response_style_id: default_response_style_id(),
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
@@ -545,9 +637,20 @@ struct ResolvedApiConfig {
 }
 
 #[derive(Debug, Clone)]
+struct PreparedHistoryMessage {
+    role: String,
+    text: String,
+    tool_calls: Option<Vec<Value>>,
+    tool_call_id: Option<String>,
+    reasoning_content: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 struct PreparedPrompt {
     preamble: String,
+    history_messages: Vec<PreparedHistoryMessage>,
     latest_user_text: String,
+    latest_user_system_text: String,
     latest_images: Vec<(String, String)>,
     latest_audios: Vec<(String, String)>,
 }
@@ -666,6 +769,11 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
         data.user_alias = desired_alias;
         changed = true;
     }
+    let desired_style = normalize_response_style_id(&data.response_style_id);
+    if data.response_style_id != desired_style {
+        data.response_style_id = desired_style;
+        changed = true;
+    }
     changed
 }
 
@@ -674,6 +782,8 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
 struct ChatSettings {
     selected_agent_id: String,
     user_alias: String,
+    #[serde(default = "default_response_style_id")]
+    response_style_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1153,6 +1263,122 @@ mod tests {
             status: "active".to_string(),
             messages,
         }
+    }
+
+    #[test]
+    fn build_prompt_should_include_structured_tool_history_messages() {
+        let now = now_iso();
+        let mut assistant_with_tool = test_text_message("assistant", "我去查一下", &now);
+        assistant_with_tool.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "bing_search",
+                        "arguments": "{\"query\":\"rust\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "{\"results\":[{\"title\":\"Rust\"}]}"
+            }),
+        ]);
+
+        let messages = vec![
+            test_text_message("user", "帮我查 Rust", &now),
+            assistant_with_tool,
+            test_text_message("user", "继续", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+        let agent = default_agent();
+
+        let prepared = build_prompt(&conv, &agent, "用户", "我是...", DEFAULT_RESPONSE_STYLE_ID);
+
+        assert!(
+            prepared
+                .history_messages
+                .iter()
+                .any(|m| m.role == "assistant" && m.tool_calls.is_some())
+        );
+        assert!(
+            prepared.history_messages.iter().any(|m| {
+                m.role == "tool"
+                    && m.tool_call_id.as_deref() == Some("call_1")
+                    && m.text.contains("\"results\"")
+            })
+        );
+    }
+
+    #[test]
+    fn request_preview_should_keep_structured_tool_history_messages() {
+        let api = ApiConfig {
+            id: "api-a".to_string(),
+            name: "api-a".to_string(),
+            request_format: "openai".to_string(),
+            enable_text: true,
+            enable_image: false,
+            enable_audio: false,
+            enable_tools: true,
+            tools: default_api_tools(),
+            base_url: "https://example.com/v1".to_string(),
+            api_key: "k".to_string(),
+            model: "gpt-x".to_string(),
+            temperature: 0.7,
+            context_window_tokens: 128_000,
+        };
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "bing_search", "arguments": "{\"query\":\"rust\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"results\":[{\"title\":\"Rust\"}]}".to_string(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_system_text: "<time_context><utc>2026-02-11T17:30:45Z</utc></time_context>"
+                .to_string(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let preview = build_request_preview_value(
+            &api,
+            &prepared,
+            vec![
+                serde_json::json!({"type":"text","text":"继续"}),
+                serde_json::json!({"type":"text","text":prepared.latest_user_system_text}),
+            ],
+        );
+        let messages = preview
+            .get("messages")
+            .and_then(Value::as_array)
+            .expect("messages array");
+        assert!(messages.iter().any(|m| {
+            m.get("role").and_then(Value::as_str) == Some("assistant")
+                && m.get("tool_calls").and_then(Value::as_array).is_some()
+        }));
+        assert!(messages.iter().any(|m| {
+            m.get("role").and_then(Value::as_str) == Some("tool")
+                && m.get("tool_call_id").and_then(Value::as_str) == Some("call_1")
+        }));
     }
 
     #[test]

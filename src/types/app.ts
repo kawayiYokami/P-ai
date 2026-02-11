@@ -70,7 +70,13 @@ export type ChatTurn = {
 
 export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
 
-export type ChatSettings = { selectedPersonaId: string; userAlias: string };
+export type ResponseStyleOption = {
+  id: string;
+  name: string;
+  prompt: string;
+};
+
+export type ChatSettings = { selectedPersonaId: string; userAlias: string; responseStyleId: string };
 
 export type ToolLoadStatus = {
   id: string;

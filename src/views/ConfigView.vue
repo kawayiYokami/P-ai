@@ -270,9 +270,23 @@
           <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </label>
+      <div class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">对话风格</span></div>
+        <div class="join w-full">
+          <button
+            v-for="style in responseStyleOptions"
+            :key="style.id"
+            class="btn btn-sm join-item flex-1"
+            :class="responseStyleId === style.id ? 'btn-primary' : 'btn-ghost bg-base-100'"
+            @click="$emit('update:responseStyleId', style.id)"
+          >
+            {{ style.name }}
+          </button>
+        </div>
+      </div>
       <div class="flex gap-1">
         <button class="btn btn-sm" @click="$emit('openCurrentHistory')">查看当前未归档记录</button>
-        <button class="btn btn-sm" @click="$emit('openPromptPreview')">预览提示词</button>
+        <button class="btn btn-sm" @click="$emit('openPromptPreview')">预览请求体</button>
         <button class="btn btn-sm" @click="$emit('openSystemPromptPreview')">系统提示词</button>
       </div>
       <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
@@ -344,7 +358,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
-import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ToolLoadStatus } from "../types/app";
+import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 import Cropper from "cropperjs";
 
@@ -367,6 +381,8 @@ const props = defineProps<{
   userPersona: PersonaProfile | null;
   personaEditorId: string;
   selectedPersonaId: string;
+  responseStyleOptions: ResponseStyleOption[];
+  responseStyleId: string;
   selectedPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
   userPersonaAvatarUrl: string;
@@ -387,6 +403,7 @@ const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "update:selectedPersonaId", value: string): void;
+  (e: "update:responseStyleId", value: string): void;
   (e: "toggleTheme"): void;
   (e: "refreshModels"): void;
   (e: "openMemoryViewer"): void;

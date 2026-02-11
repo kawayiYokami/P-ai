@@ -57,6 +57,8 @@
         :selected-persona="selectedPersonaEditor"
         :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
         :user-persona-avatar-url="userPersonaAvatarUrl"
+        :response-style-options="responseStyleOptions"
+        :response-style-id="selectedResponseStyleId"
         :text-capable-api-configs="textCapableApiConfigs"
         :image-capable-api-configs="imageCapableApiConfigs"
         :cache-stats="imageCacheStats"
@@ -71,6 +73,7 @@
         @update:config-tab="configTab = $event"
         @update:persona-editor-id="personaEditorId = $event"
         @update:selected-persona-id="selectedPersonaId = $event"
+        @update:response-style-id="selectedResponseStyleId = $event"
         @toggle-theme="toggleTheme"
         @refresh-models="refreshModels"
         @save-api-config="saveConfig"
@@ -219,7 +222,7 @@
 
       <dialog ref="promptPreviewDialog" class="modal">
         <div class="modal-box max-w-2xl">
-          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? '系统提示词预览' : '提示词预览' }}</h3>
+          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? '系统提示词预览' : '请求体预览' }}</h3>
           <div v-if="promptPreviewLoading" class="text-xs opacity-70">加载中...</div>
           <div v-else class="grid gap-2">
             <div v-if="promptPreviewMode === 'full'" class="text-[11px] opacity-70">
@@ -259,8 +262,10 @@ import type {
   ChatSnapshot,
   ChatTurn,
   ImageTextCacheStats,
+  ResponseStyleOption,
   ToolLoadStatus,
 } from "./types/app";
+import responseStylesJson from "./constants/response-styles.json";
 
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
@@ -282,6 +287,7 @@ const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
 const personaEditorId = ref("default-agent");
 const userAlias = ref("用户");
+const selectedResponseStyleId = ref("concise");
 const avatarDataUrlCache = ref<Record<string, string>>({});
 const chatInput = ref("");
 const latestUserText = ref("");
@@ -459,6 +465,7 @@ const selectedModelOptions = computed(() => {
   if (!id) return [];
   return apiModelOptions.value[id] ?? [];
 });
+const responseStyleOptions = responseStylesJson as ResponseStyleOption[];
 const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com/v1beta/openai";
@@ -883,7 +890,7 @@ async function loadPersonas() {
 async function loadChatSettings() {
   suppressAutosave.value = true;
   try {
-    const settings = await invoke<{ selectedAgentId: string; userAlias: string }>("load_chat_settings");
+    const settings = await invoke<{ selectedAgentId: string; userAlias: string; responseStyleId: string }>("load_chat_settings");
     if (assistantPersonas.value.some((p) => p.id === settings.selectedAgentId)) {
       selectedPersonaId.value = settings.selectedAgentId;
     }
@@ -891,6 +898,11 @@ async function loadChatSettings() {
       personaEditorId.value = selectedPersonaId.value;
     }
     userAlias.value = settings.userAlias?.trim() || "用户";
+    if (responseStyleOptions.some((s) => s.id === settings.responseStyleId)) {
+      selectedResponseStyleId.value = settings.responseStyleId;
+    } else {
+      selectedResponseStyleId.value = "concise";
+    }
   } finally {
     suppressAutosave.value = false;
   }
@@ -916,7 +928,13 @@ async function saveChatPreferences() {
     const targetAgentId = assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)
       ? selectedPersonaId.value
       : assistantPersonas.value[0]?.id || "default-agent";
-    await invoke("save_chat_settings", { input: { selectedAgentId: targetAgentId, userAlias: userAlias.value } });
+    await invoke("save_chat_settings", {
+      input: {
+        selectedAgentId: targetAgentId,
+        userAlias: userAlias.value,
+        responseStyleId: selectedResponseStyleId.value,
+      },
+    });
     selectedPersonaId.value = targetAgentId;
     status.value = "Chat settings saved.";
   } catch (e) {
@@ -1223,6 +1241,7 @@ type PromptPreviewResult = {
   latestUserText: string;
   latestImages: number;
   latestAudios: number;
+  requestBodyJson: string;
 };
 type SystemPromptPreviewResult = {
   systemPrompt: string;
@@ -1473,15 +1492,18 @@ async function openPromptPreview() {
   promptPreviewLatestAudios.value = 0;
   promptPreviewDialog.value?.showModal();
   try {
+    await savePersonas();
+    await saveChatPreferences();
+    await saveConversationApiSettings();
     const preview = await invoke<PromptPreviewResult>("get_prompt_preview", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
-    promptPreviewText.value = preview.preamble || "";
+    promptPreviewText.value = preview.requestBodyJson || "";
     promptPreviewLatestUserText.value = preview.latestUserText || "";
     promptPreviewLatestImages.value = Number(preview.latestImages || 0);
     promptPreviewLatestAudios.value = Number(preview.latestAudios || 0);
   } catch (e) {
-    promptPreviewText.value = `加载提示词失败: ${String(e)}`;
+    promptPreviewText.value = `加载请求体失败: ${String(e)}`;
   } finally {
     promptPreviewLoading.value = false;
   }
@@ -1497,6 +1519,9 @@ async function openSystemPromptPreview() {
   promptPreviewLatestAudios.value = 0;
   promptPreviewDialog.value?.showModal();
   try {
+    await savePersonas();
+    await saveChatPreferences();
+    await saveConversationApiSettings();
     const preview = await invoke<SystemPromptPreviewResult>("get_system_prompt_preview", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
@@ -2131,7 +2156,11 @@ watch(
 );
 
 watch(
-  () => ({ selectedPersonaId: selectedPersonaId.value, userAlias: userAlias.value }),
+  () => ({
+    selectedPersonaId: selectedPersonaId.value,
+    userAlias: userAlias.value,
+    responseStyleId: selectedResponseStyleId.value,
+  }),
   () => scheduleChatSettingsAutosave(),
 );
 

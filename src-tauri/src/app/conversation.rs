@@ -276,12 +276,35 @@ fn render_message_for_context(message: &ChatMessage) -> String {
             MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }
-    for extra in &message.extra_text_blocks {
-        if !extra.trim().is_empty() {
-            chunks.push(extra.clone());
+    format!("{}: {}", message.role.to_uppercase(), chunks.join(" | "))
+}
+
+fn render_message_content_for_model(message: &ChatMessage) -> String {
+    let mut chunks = Vec::<String>::new();
+    for part in &message.parts {
+        match part {
+            MessagePart::Text { text } => chunks.push(text.clone()),
+            MessagePart::Image { .. } => chunks.push("[image attached]".to_string()),
+            MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }
-    format!("{}: {}", message.role.to_uppercase(), chunks.join(" | "))
+    chunks.join(" | ")
+}
+
+fn sanitize_memory_block_xml(raw: &str) -> String {
+    if !raw.contains("<memory_board") {
+        return raw.to_string();
+    }
+    raw.lines()
+        .filter(|line| {
+            let t = line.trim();
+            !(t.starts_with("<keywords>")
+                || t.starts_with("</keywords>")
+                || t.starts_with("<reason>")
+                || t.starts_with("</reason>"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn xml_escape_prompt(input: &str) -> String {
@@ -298,25 +321,119 @@ fn build_prompt(
     agent: &AgentProfile,
     user_name: &str,
     user_intro: &str,
-    current_time: &str,
+    response_style_id: &str,
 ) -> PreparedPrompt {
-    let mut history_lines = Vec::<String>::new();
-    for message in &conversation.messages {
-        history_lines.push(render_message_for_context(message));
+    let latest_user_index = conversation.messages.iter().rposition(|m| m.role == "user");
+    let mut history_messages = Vec::<PreparedHistoryMessage>::new();
+    for (idx, message) in conversation.messages.iter().enumerate() {
+        if Some(idx) == latest_user_index {
+            continue;
+        }
+        if let Some(events) = &message.tool_call {
+            for event in events {
+                let event_role = event
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_lowercase();
+                if event_role == "assistant" {
+                    let text = event
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let tool_calls = event
+                        .get("tool_calls")
+                        .and_then(Value::as_array)
+                        .cloned();
+                    let reasoning_content = event
+                        .get("reasoning_content")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned);
+                    history_messages.push(PreparedHistoryMessage {
+                        role: "assistant".to_string(),
+                        text,
+                        tool_calls,
+                        tool_call_id: None,
+                        reasoning_content,
+                    });
+                } else if event_role == "tool" {
+                    let text = event
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let tool_call_id = event
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned);
+                    if !text.trim().is_empty() || tool_call_id.is_some() {
+                        history_messages.push(PreparedHistoryMessage {
+                            role: "tool".to_string(),
+                            text,
+                            tool_calls: None,
+                            tool_call_id,
+                            reasoning_content: None,
+                        });
+                    }
+                }
+            }
+        }
+        let role = message.role.trim().to_lowercase();
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let text = render_message_content_for_model(message);
+        if text.trim().is_empty() {
+            continue;
+        }
+        history_messages.push(PreparedHistoryMessage {
+            role,
+            text,
+            tool_calls: None,
+            tool_call_id: None,
+            reasoning_content: None,
+        });
     }
+    let user_intro_display = if user_intro.trim().is_empty() {
+        "未提供".to_string()
+    } else {
+        user_intro.trim().to_string()
+    };
+    let response_style = response_style_preset(response_style_id);
+    let highest_instruction_md = highest_instruction_markdown();
 
     let preamble = format!(
-    "[SYSTEM PROMPT]\n{}\n\n[ROLE MAPPING]\nAssistant name: {}\nUser name: {}\nRules:\n- You are the assistant named '{}'.\n- The human user is named '{}'.\n- Never treat yourself as the user.\n\n[USER PROFILE]\n<user_profile>\n  <nickname>{}</nickname>\n  <self_intro>{}</self_intro>\n  <note>这是用户的自我介绍，请用于理解用户偏好与表达风格。</note>\n</user_profile>\n\n[TIME]\nCurrent UTC time: {}\n\n[CONVERSATION HISTORY]\n{}\n",
-    agent.system_prompt,
-    agent.name,
-    user_name,
-    agent.name,
-    user_name,
-    xml_escape_prompt(user_name),
-    xml_escape_prompt(user_intro),
-    current_time,
-    history_lines.join("\n")
-  );
+        "{}\n\
+## 助理设定\n\
+{}\n\
+\n\
+## 用户设定\n\
+- 用户昵称：{}\n\
+- 用户自我介绍：{}\n\
+\n\
+## 角色约束\n\
+- 你是“{}”，用户是“{}”。\n\
+- 不要把自己当作用户，不要混淆双方身份。\n\
+\n\
+## 对话风格\n\
+- 当前风格：{}\n\
+{}\n\
+\n\
+## 语言设定\n\
+- 优先使用用户当前界面语言回答，保持简洁、自然、直接。\n\
+- 若用户明确指定回答语言，以用户指定为准；未指定时保持会话语言一致。\n\
+\n",
+        highest_instruction_md,
+        agent.system_prompt,
+        xml_escape_prompt(user_name),
+        xml_escape_prompt(&user_intro_display),
+        agent.name,
+        user_name,
+        response_style.name,
+        response_style.prompt
+    );
 
     let latest_user = conversation
         .messages
@@ -326,6 +443,7 @@ fn build_prompt(
         .cloned();
 
     let mut latest_user_text = String::new();
+    let mut latest_user_system_text = String::new();
     let mut latest_images = Vec::<(String, String)>::new();
     let mut latest_audios = Vec::<(String, String)>::new();
 
@@ -355,16 +473,22 @@ fn build_prompt(
             if extra.trim().is_empty() {
                 continue;
             }
-            if !latest_user_text.is_empty() {
-                latest_user_text.push('\n');
+            let extra = sanitize_memory_block_xml(&extra);
+            if extra.trim().is_empty() {
+                continue;
             }
-            latest_user_text.push_str(&extra);
+            if !latest_user_system_text.is_empty() {
+                latest_user_system_text.push('\n');
+            }
+            latest_user_system_text.push_str(&extra);
         }
     }
 
     PreparedPrompt {
         preamble,
+        history_messages,
         latest_user_text,
+        latest_user_system_text,
         latest_images,
         latest_audios,
     }

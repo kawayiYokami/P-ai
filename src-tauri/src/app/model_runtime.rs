@@ -3,6 +3,7 @@ struct ModelReply {
     assistant_text: String,
     reasoning_standard: String,
     reasoning_inline: String,
+    tool_history_events: Vec<Value>,
 }
 
 async fn call_model_openai_rig_style(
@@ -10,10 +11,12 @@ async fn call_model_openai_rig_style(
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    let mut content_items: Vec<UserContent> = vec![UserContent::text(prepared.preamble)];
-
+    let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
         content_items.push(UserContent::text(prepared.latest_user_text));
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        content_items.push(UserContent::text(prepared.latest_user_system_text));
     }
 
     for (mime, bytes) in prepared.latest_images {
@@ -43,6 +46,7 @@ async fn call_model_openai_rig_style(
     let agent = client
         .completions_api()
         .agent(model_name)
+        .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
         .build();
     let prompt_message = RigMessage::User {
@@ -57,6 +61,7 @@ async fn call_model_openai_rig_style(
         assistant_text,
         reasoning_standard: String::new(),
         reasoning_inline: String::new(),
+        tool_history_events: Vec::new(),
     })
 }
 
@@ -329,15 +334,17 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
         existing.updated_at = now.clone();
         existing.id.clone()
     } else {
-        let id = Uuid::new_v4().to_string();
         data.memories.push(MemoryEntry {
-            id: id.clone(),
+            id: Uuid::new_v4().to_string(),
             content: content.to_string(),
             keywords: keywords.clone(),
             created_at: now.clone(),
             updated_at: now.clone(),
         });
-        id
+        data.memories
+            .last()
+            .map(|m| m.id.clone())
+            .unwrap_or_else(|| "created".to_string())
     };
     write_app_data(&app_state.data_path, &data)?;
     drop(guard);
@@ -840,12 +847,61 @@ async fn call_model_openai_stream_text(
         .default_headers(openai_headers(&api_config.api_key)?)
         .build()
         .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+    let mut user_content = vec![serde_json::json!({
+      "type": "text",
+      "text": prepared.latest_user_text
+    })];
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+          "type": "text",
+          "text": prepared.latest_user_system_text
+        }));
+    }
+    let mut messages = Vec::<Value>::new();
+    messages.push(serde_json::json!({
+      "role": "system",
+      "content": prepared.preamble.clone()
+    }));
+    for hm in &prepared.history_messages {
+        if hm.role == "assistant" && hm.tool_calls.is_some() {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("assistant".to_string()));
+            if hm.text.trim().is_empty() {
+                msg.insert("content".to_string(), Value::Null);
+            } else {
+                msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+                }
+            }
+            if let Some(calls) = &hm.tool_calls {
+                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+            }
+            messages.push(Value::Object(msg));
+        } else if hm.role == "tool" {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("tool".to_string()));
+            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            if let Some(call_id) = &hm.tool_call_id {
+                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
+            }
+            messages.push(Value::Object(msg));
+        } else {
+            messages.push(serde_json::json!({
+              "role": hm.role,
+              "content": hm.text,
+            }));
+        }
+    }
+    messages.push(serde_json::json!({
+      "role": "user",
+      "content": user_content
+    }));
     let body = serde_json::json!({
       "model": model_name,
-      "messages": [
-        { "role": "system", "content": prepared.preamble },
-        { "role": "user", "content": prepared.latest_user_text }
-      ],
+      "messages": messages,
       "temperature": api_config.temperature,
       "stream": true
     });
@@ -863,6 +919,7 @@ async fn call_model_openai_stream_text(
                     assistant_text: text,
                     reasoning_standard,
                     reasoning_inline,
+                    tool_history_events: Vec::new(),
                 });
             }
             Err(err) => errors.push(format!("{url} -> {err}")),
@@ -982,12 +1039,55 @@ async fn call_model_deepseek_with_tools_http(
 
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
+    let mut tool_history_events = Vec::<Value>::new();
     let mut full_reasoning_inline = String::new();
 
-    let mut messages = vec![
-        serde_json::json!({ "role": "system", "content": prepared.preamble }),
-        serde_json::json!({ "role": "user", "content": prepared.latest_user_text }),
-    ];
+    let mut first_user_content = vec![serde_json::json!({
+      "type": "text",
+      "text": prepared.latest_user_text
+    })];
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        first_user_content.push(serde_json::json!({
+          "type": "text",
+          "text": prepared.latest_user_system_text
+        }));
+    }
+    let mut messages = Vec::<Value>::new();
+    messages.push(serde_json::json!({ "role": "system", "content": prepared.preamble }));
+    for hm in &prepared.history_messages {
+        if hm.role == "assistant" && hm.tool_calls.is_some() {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("assistant".to_string()));
+            if hm.text.trim().is_empty() {
+                msg.insert("content".to_string(), Value::Null);
+            } else {
+                msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+                }
+            }
+            if let Some(calls) = &hm.tool_calls {
+                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+            }
+            messages.push(Value::Object(msg));
+        } else if hm.role == "tool" {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("tool".to_string()));
+            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            if let Some(call_id) = &hm.tool_call_id {
+                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
+            }
+            messages.push(Value::Object(msg));
+        } else {
+            messages.push(serde_json::json!({
+                "role": hm.role,
+                "content": hm.text,
+            }));
+        }
+    }
+    messages.push(serde_json::json!({ "role": "user", "content": first_user_content }));
 
     for _ in 0..max_tool_iterations {
         let body = serde_json::json!({
@@ -1035,6 +1135,7 @@ async fn call_model_deepseek_with_tools_http(
                 assistant_text: full_assistant_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: full_reasoning_inline,
+                tool_history_events,
             });
         }
 
@@ -1051,12 +1152,22 @@ async fn call_model_deepseek_with_tools_http(
                 })
             })
             .collect::<Vec<_>>();
-        messages.push(serde_json::json!({
-            "role": "assistant",
-            "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
-            "reasoning_content": reasoning_standard,
-            "tool_calls": tool_calls_payload
-        }));
+        let assistant_tool_event = if selected_api.request_format.trim() == "deepseek/kimi" {
+            serde_json::json!({
+                "role": "assistant",
+                "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
+                "reasoning_content": reasoning_standard,
+                "tool_calls": tool_calls_payload
+            })
+        } else {
+            serde_json::json!({
+                "role": "assistant",
+                "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
+                "tool_calls": tool_calls_payload
+            })
+        };
+        messages.push(assistant_tool_event.clone());
+        tool_history_events.push(assistant_tool_event);
 
         for tc in tool_calls {
             let tool_name = tc.function.name.clone();
@@ -1085,11 +1196,13 @@ async fn call_model_deepseek_with_tools_http(
                 "done",
                 &format!("工具调用完成：{tool_name}"),
             );
-            messages.push(serde_json::json!({
+            let tool_event = serde_json::json!({
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": tool_result.to_string()
-            }));
+            });
+            messages.push(tool_event.clone());
+            tool_history_events.push(tool_event);
         }
     }
 
@@ -1103,6 +1216,7 @@ async fn call_model_deepseek_with_tools_http(
         assistant_text: full_assistant_text,
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: full_reasoning_inline,
+        tool_history_events,
     })
 }
 
@@ -1169,8 +1283,29 @@ async fn call_model_openai_with_tools(
 
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
-    let mut current_prompt: RigMessage = prepared.latest_user_text.clone().into();
+    let mut tool_history_events = Vec::<Value>::new();
+    let mut prompt_blocks = vec![UserContent::text(prepared.latest_user_text.clone())];
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    }
+    let current_prompt_content = OneOrMany::many(prompt_blocks)
+    .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+    let mut current_prompt: RigMessage = RigMessage::User {
+        content: current_prompt_content,
+    };
     let mut chat_history = Vec::<RigMessage>::new();
+    for hm in &prepared.history_messages {
+        if hm.role == "user" {
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::one(UserContent::text(hm.text.clone())),
+            });
+        } else if hm.role == "assistant" {
+            chat_history.push(RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::text(hm.text.clone())),
+            });
+        }
+    }
 
     for _ in 0..max_tool_iterations {
         let mut stream = agent
@@ -1211,19 +1346,22 @@ async fn call_model_openai_with_tools(
                     internal_call_id: _,
                 }) => {
                     did_call_tool = true;
+                    let tool_call_id = tool_call.id.clone();
+                    let tool_name = tool_call.function.name.clone();
+                    let tool_args_value = tool_call.function.arguments.clone();
                     eprintln!(
                         "[TOOL-DEBUG] tool_call id={} name={} args={}",
-                        tool_call.id,
-                        tool_call.function.name,
-                        tool_call.function.arguments
+                        tool_call_id,
+                        tool_name,
+                        tool_args_value
                     );
                     send_tool_status_event(
                         on_delta,
-                        &tool_call.function.name,
+                        &tool_name,
                         "running",
-                        &format!("正在调用工具：{}", tool_call.function.name),
+                        &format!("正在调用工具：{}", tool_name),
                     );
-                    let tool_args = match &tool_call.function.arguments {
+                    let tool_args = match &tool_args_value {
                         // Some providers return arguments as JSON string payload.
                         // Passing `to_string()` here would double-encode into "\"{...}\"".
                         Value::String(raw) => raw.clone(),
@@ -1231,29 +1369,50 @@ async fn call_model_openai_with_tools(
                     };
                     let tool_result = agent
                         .tool_server_handle
-                        .call_tool(&tool_call.function.name, &tool_args)
+                        .call_tool(&tool_name, &tool_args)
                         .await
                         .map_err(|err| {
                             send_tool_status_event(
                                 on_delta,
-                                &tool_call.function.name,
+                                &tool_name,
                                 "failed",
-                                &format!("工具调用失败：{} ({err})", tool_call.function.name),
+                                &format!("工具调用失败：{} ({err})", tool_name),
                             );
-                            format!("Tool call '{}' failed: {err}", tool_call.function.name)
+                            format!("Tool call '{}' failed: {err}", tool_name)
                         })?;
                     eprintln!(
                         "[TOOL-DEBUG] tool_result id={} name={} content={}",
-                        tool_call.id,
-                        tool_call.function.name,
+                        tool_call_id,
+                        tool_name,
                         tool_result.chars().take(240).collect::<String>()
                     );
                     send_tool_status_event(
                         on_delta,
-                        &tool_call.function.name,
+                        &tool_name,
                         "done",
-                        &format!("工具调用完成：{}", tool_call.function.name),
+                        &format!("工具调用完成：{}", tool_name),
                     );
+                    let assistant_tool_event = serde_json::json!({
+                        "role": "assistant",
+                        "content": Value::Null,
+                        "tool_calls": [
+                            {
+                                "id": tool_call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": tool_args_value
+                                }
+                            }
+                        ]
+                    });
+                    tool_history_events.push(assistant_tool_event);
+                    let tool_event = serde_json::json!({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": tool_result.clone()
+                    });
+                    tool_history_events.push(tool_event);
 
                     tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
                     tool_results.push((tool_call.id, tool_call.call_id, tool_result));
@@ -1306,6 +1465,7 @@ async fn call_model_openai_with_tools(
                 assistant_text: full_assistant_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
+                tool_history_events,
             });
         }
 
@@ -1418,6 +1578,7 @@ async fn call_model_openai_with_tools(
         assistant_text: full_assistant_text,
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
+        tool_history_events,
     })
 }
 
@@ -1499,7 +1660,9 @@ async fn describe_image_with_vision_api(
     let mime = image.mime.trim();
     let prepared = PreparedPrompt {
         preamble: "[SYSTEM PROMPT]\n你是图像理解助手。请读取图片中的关键信息并输出简洁中文描述，保留有价值的文本、数字、UI元素与上下文。".to_string(),
+        history_messages: Vec::new(),
         latest_user_text: "请识别这张图片并给出可用于后续对话的文本描述。".to_string(),
+        latest_user_system_text: String::new(),
         latest_images: vec![(
             if mime.is_empty() {
                 "image/png".to_string()
