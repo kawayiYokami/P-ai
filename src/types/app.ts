@@ -23,6 +23,7 @@ export type ApiConfigItem = {
 
 export type AppConfig = {
   hotkey: string;
+  uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
   recordHotkey: string;
   minRecordSeconds: number;
   maxRecordSeconds: number;

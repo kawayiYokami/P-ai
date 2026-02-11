@@ -49,6 +49,11 @@ fn normalize_app_config(config: &mut AppConfig) {
         return;
     }
     ensure_hotkey_config_normalized(config);
+    let lang = config.ui_language.trim();
+    config.ui_language = match lang {
+        "zh-CN" | "en-US" | "ja-JP" | "ko-KR" => lang.to_string(),
+        _ => default_ui_language(),
+    };
 
     normalize_api_tools(config);
 

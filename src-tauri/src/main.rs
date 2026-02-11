@@ -211,6 +211,10 @@ fn default_tool_max_iterations() -> u32 {
     10
 }
 
+fn default_ui_language() -> String {
+    "zh-CN".to_string()
+}
+
 fn default_api_temperature() -> f64 {
     1.0
 }
@@ -243,6 +247,8 @@ impl Default for ApiConfig {
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
     hotkey: String,
+    #[serde(default = "default_ui_language")]
+    ui_language: String,
     #[serde(default = "default_record_hotkey")]
     record_hotkey: String,
     #[serde(default = "default_min_record_seconds")]
@@ -264,6 +270,7 @@ impl Default for AppConfig {
         let api_config = ApiConfig::default();
         Self {
             hotkey: "Alt+·".to_string(),
+            ui_language: default_ui_language(),
             record_hotkey: default_record_hotkey(),
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),
@@ -940,6 +947,7 @@ mod tests {
     fn normalize_app_config_should_fix_invalid_record_and_stt_fields() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
+            ui_language: default_ui_language(),
             record_hotkey: "".to_string(),
             min_record_seconds: 0,
             max_record_seconds: 0,
@@ -991,6 +999,7 @@ mod tests {
     fn normalize_app_config_should_not_bind_chat_api_to_selected_api() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
+            ui_language: default_ui_language(),
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
@@ -1040,6 +1049,7 @@ mod tests {
     fn normalize_app_config_should_disable_audio_capability_globally() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
+            ui_language: default_ui_language(),
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
@@ -1299,7 +1309,14 @@ mod tests {
         let conv = test_active_conversation_with_messages(messages, Some(now));
         let agent = default_agent();
 
-        let prepared = build_prompt(&conv, &agent, "用户", "我是...", DEFAULT_RESPONSE_STYLE_ID);
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+        );
 
         assert!(
             prepared

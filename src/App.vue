@@ -5,7 +5,7 @@
       <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
         <span class="font-semibold text-sm">{{ titleText }}</span>
         <template v-if="viewMode === 'chat'">
-          <div class="tooltip tooltip-bottom" data-tip="点击强制归档当前对话">
+          <div class="tooltip tooltip-bottom" :data-tip="t('chat.forceArchiveTip')">
             <button
               class="btn btn-ghost btn-xs ml-2"
               :disabled="forcingArchive || chatting"
@@ -22,7 +22,7 @@
           <button
             class="btn btn-ghost btn-xs"
             :class="{ 'btn-active': alwaysOnTop }"
-            :title="alwaysOnTop ? '取消总在最前' : '总在最前窗口'"
+            :title="alwaysOnTop ? t('chat.alwaysOnTopOff') : t('chat.alwaysOnTopOn')"
             @click.stop="toggleAlwaysOnTop"
             :disabled="!windowReady"
           >
@@ -41,6 +41,8 @@
         v-if="viewMode === 'config'"
         :config="config"
         :config-tab="configTab"
+        :ui-language="config.uiLanguage"
+        :locale-options="localeOptions"
         :current-theme="currentTheme"
         :selected-api-config="selectedApiConfig"
         :tool-api-config="toolApiConfig"
@@ -71,6 +73,7 @@
         :hotkey-test-recording-ms="hotkeyTestRecordingMs"
         :hotkey-test-audio-ready="!!hotkeyTestAudio"
         @update:config-tab="configTab = $event"
+        @update:ui-language="setUiLanguage($event)"
         @update:persona-editor-id="personaEditorId = $event"
         @update:selected-persona-id="selectedPersonaId = $event"
         @update:response-style-id="selectedResponseStyleId = $event"
@@ -98,7 +101,7 @@
       <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
         <ChatView
           :user-alias="userAlias"
-          :persona-name="selectedPersona?.name || '助理'"
+          :persona-name="selectedPersona?.name || t('archives.roleAssistant')"
           :user-avatar-url="userAvatarUrl"
           :assistant-avatar-url="selectedPersonaAvatarUrl"
           :latest-user-text="latestUserText"
@@ -134,8 +137,8 @@
         >
           <div class="rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm flex flex-col items-center gap-1">
             <span class="loading loading-spinner loading-sm"></span>
-            <div class="text-sm">正在归档优化上下文...</div>
-            <div class="text-xs opacity-70">期间将暂时锁定输入</div>
+            <div class="text-sm">{{ t("chat.archiving") }}</div>
+            <div class="text-xs opacity-70">{{ t("chat.archivingLock") }}</div>
           </div>
         </div>
       </div>
@@ -154,7 +157,7 @@
 
       <dialog ref="historyDialog" class="modal">
         <div class="modal-box max-w-xl">
-          <h3 class="font-semibold text-sm mb-2">当前会话记录（未归档）</h3>
+          <h3 class="font-semibold text-sm mb-2">{{ t("chat.currentHistoryTitle") }}</h3>
           <div class="max-h-96 overflow-auto space-y-2">
             <div v-for="m in currentHistory" :key="m.id" class="text-xs border border-base-300 rounded p-2">
               <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
@@ -171,13 +174,13 @@
               </div>
             </div>
           </div>
-          <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">关闭</button></div>
+          <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">{{ t("common.close") }}</button></div>
         </div>
       </dialog>
 
       <dialog ref="memoryDialog" class="modal">
         <div class="modal-box max-w-xl">
-          <h3 class="font-semibold text-sm mb-2">记忆列表</h3>
+          <h3 class="font-semibold text-sm mb-2">{{ t("memory.title") }}</h3>
           <input
             ref="memoryImportInput"
             type="file"
@@ -185,7 +188,7 @@
             class="hidden"
             @change="handleMemoryImportFile"
           />
-          <div v-if="memoryList.length === 0" class="text-xs opacity-70">暂无记忆</div>
+          <div v-if="memoryList.length === 0" class="text-xs opacity-70">{{ t("memory.empty") }}</div>
           <div v-else class="space-y-2">
             <div class="max-h-96 overflow-auto space-y-2">
               <div
@@ -209,30 +212,30 @@
               </div>
             </div>
             <div class="flex items-center justify-between border-t border-base-300 pt-2">
-              <span class="text-xs opacity-70">第 {{ memoryPage }} / {{ memoryPageCount }} 页</span>
+              <span class="text-xs opacity-70">{{ t("memory.page", { page: memoryPage, total: memoryPageCount }) }}</span>
               <div class="join">
-                <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">上一页</button>
-                <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">下一页</button>
+                <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">{{ t("memory.prevPage") }}</button>
+                <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">{{ t("memory.nextPage") }}</button>
               </div>
             </div>
           </div>
           <div class="modal-action">
-            <button class="btn btn-sm btn-ghost" @click="exportMemories">导出</button>
-            <button class="btn btn-sm btn-ghost" @click="triggerMemoryImport">导入</button>
-            <button class="btn btn-sm" @click="closeMemoryViewer">关闭</button>
+            <button class="btn btn-sm btn-ghost" @click="exportMemories">{{ t("memory.export") }}</button>
+            <button class="btn btn-sm btn-ghost" @click="triggerMemoryImport">{{ t("memory.import") }}</button>
+            <button class="btn btn-sm" @click="closeMemoryViewer">{{ t("common.close") }}</button>
           </div>
         </div>
       </dialog>
 
       <dialog ref="promptPreviewDialog" class="modal">
         <div class="modal-box max-w-2xl">
-          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? '系统提示词预览' : '请求体预览' }}</h3>
-          <div v-if="promptPreviewLoading" class="text-xs opacity-70">加载中...</div>
+          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? t("prompt.systemPreview") : t("prompt.requestPreview") }}</h3>
+          <div v-if="promptPreviewLoading" class="text-xs opacity-70">{{ t("common.loading") }}</div>
           <div v-else class="grid gap-2">
             <div v-if="promptPreviewMode === 'full'" class="text-[11px] opacity-70">
-              最新输入文本长度: {{ promptPreviewLatestUserText.length }} |
-              图片: {{ promptPreviewLatestImages }} |
-              语音: {{ promptPreviewLatestAudios }}
+              {{ t("prompt.latestInputLength") }}: {{ promptPreviewLatestUserText.length }} |
+              {{ t("prompt.images") }}: {{ promptPreviewLatestImages }} |
+              {{ t("prompt.audios") }}: {{ promptPreviewLatestAudios }}
             </div>
             <textarea
               class="textarea textarea-bordered textarea-sm w-full h-80 font-mono text-xs"
@@ -240,7 +243,7 @@
               :value="promptPreviewText"
             ></textarea>
           </div>
-          <div class="modal-action"><button class="btn btn-sm" @click="closePromptPreview">关闭</button></div>
+          <div class="modal-action"><button class="btn btn-sm" @click="closePromptPreview">{{ t("common.close") }}</button></div>
         </div>
       </dialog>
 
@@ -249,6 +252,7 @@
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
@@ -270,12 +274,15 @@ import type {
   ToolLoadStatus,
 } from "./types/app";
 import responseStylesJson from "./constants/response-styles.json";
+import { normalizeLocale, type SupportedLocale } from "./i18n";
 
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
+const { t, locale } = useI18n();
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
+  uiLanguage: "zh-CN",
   recordHotkey: "Alt",
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
@@ -290,7 +297,7 @@ const currentTheme = ref<"light" | "forest">("light");
 const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
 const personaEditorId = ref("default-agent");
-const userAlias = ref("用户");
+const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
 const avatarDataUrlCache = ref<Record<string, string>>({});
 const chatInput = ref("");
@@ -412,12 +419,12 @@ const pagedMemories = computed(() => {
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
-    return `与 ${selectedPersona.value?.name || "助理"} 的对话`;
+    return t("window.chatTitle", { name: selectedPersona.value?.name || t("archives.roleAssistant") });
   }
   if (viewMode.value === "archives") {
-    return "Easy Call AI - 归档窗口";
+    return t("window.archivesTitle");
   }
-  return "Easy Call AI - 配置窗口";
+  return t("window.configTitle");
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const textCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableText));
@@ -479,11 +486,11 @@ const baseUrlReference = computed(() => {
 });
 const chatInputPlaceholder = computed(() => {
   const api = activeChatApiConfig.value;
-  if (!api) return "输入问题";
+  if (!api) return t("chat.placeholder");
   const hints: string[] = [];
-  if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V 粘贴图片");
-  if (hints.length === 0) return "输入问题";
-  return `输入问题，${hints.join("，")}`;
+  if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V");
+  if (hints.length === 0) return t("chat.placeholder");
+  return t("chat.placeholder");
 });
 const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
 
@@ -625,6 +632,7 @@ function estimateConversationTokens(messages: ChatMessage[]): number {
 function buildConfigSnapshotJson(): string {
   return JSON.stringify({
     hotkey: config.hotkey,
+    uiLanguage: config.uiLanguage,
     recordHotkey: config.recordHotkey,
     minRecordSeconds: config.minRecordSeconds,
     maxRecordSeconds: config.maxRecordSeconds,
@@ -653,6 +661,7 @@ function buildConfigSnapshotJson(): string {
 function buildConfigPayload(): AppConfig {
   return {
     hotkey: config.hotkey,
+    uiLanguage: config.uiLanguage,
     recordHotkey: config.recordHotkey,
     minRecordSeconds: config.minRecordSeconds,
     maxRecordSeconds: config.maxRecordSeconds,
@@ -685,6 +694,7 @@ function buildConfigPayload(): AppConfig {
 
 function normalizeApiBindingsLocal() {
   if (!config.apiConfigs.length) return;
+  config.uiLanguage = normalizeLocale(config.uiLanguage);
   for (const api of config.apiConfigs) {
     api.enableAudio = false;
     api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
@@ -772,7 +782,7 @@ function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBas
 }
 
 function syncUserAliasFromPersona() {
-  const next = (userPersona.value?.name || "").trim() || "用户";
+  const next = (userPersona.value?.name || "").trim() || t("archives.roleUser");
   if (userAlias.value !== next) {
     userAlias.value = next;
   }
@@ -817,10 +827,12 @@ async function preloadPersonaAvatars() {
 async function loadConfig() {
   suppressAutosave.value = true;
   loading.value = true;
-  status.value = "Loading config...";
+  status.value = t("status.loadingConfig");
   try {
     const cfg = await invoke<AppConfig>("load_config");
     config.hotkey = cfg.hotkey;
+    config.uiLanguage = normalizeLocale(cfg.uiLanguage);
+    locale.value = config.uiLanguage;
     config.recordHotkey = cfg.recordHotkey || "Alt";
     config.minRecordSeconds = Math.max(1, Math.min(30, Number(cfg.minRecordSeconds || 1)));
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
@@ -831,9 +843,9 @@ async function loadConfig() {
     config.apiConfigs.splice(0, config.apiConfigs.length, ...(cfg.apiConfigs.length ? cfg.apiConfigs : [createApiConfig("default")]));
     normalizeApiBindingsLocal();
     lastSavedConfigJson.value = buildConfigSnapshotJson();
-    status.value = "Config loaded.";
+    status.value = t("status.configLoaded");
   } catch (e) {
-    status.value = `Load failed: ${String(e)}`;
+    status.value = t("status.loadConfigFailed", { err: String(e) });
   } finally {
     suppressAutosave.value = false;
     loading.value = false;
@@ -843,11 +855,13 @@ async function loadConfig() {
 async function saveConfig() {
   suppressAutosave.value = true;
   saving.value = true;
-  status.value = "Saving config...";
+  status.value = t("status.savingConfig");
   try {
     console.info("[CONFIG] save_config invoked");
     const saved = await invoke<AppConfig>("save_config", { config: buildConfigPayload() });
     config.hotkey = saved.hotkey;
+    config.uiLanguage = normalizeLocale(saved.uiLanguage);
+    locale.value = config.uiLanguage;
     config.recordHotkey = saved.recordHotkey || "Alt";
     config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
@@ -859,14 +873,14 @@ async function saveConfig() {
     normalizeApiBindingsLocal();
     lastSavedConfigJson.value = buildConfigSnapshotJson();
     console.info("[CONFIG] save_config success");
-    status.value = "Config saved.";
+    status.value = t("status.configSaved");
   } catch (e) {
     const err = String(e);
     console.error("[CONFIG] save_config failed:", e);
     if (err.includes("404")) {
-      status.value = "Save failed: 后端命令不可达（404）。请使用 `pnpm tauri dev` 启动桌面端，而不是仅 `pnpm dev`。";
+      status.value = t("status.saveConfigBackend404");
     } else {
-      status.value = `Save failed: ${err}`;
+      status.value = t("status.saveConfigFailed", { err });
     }
   } finally {
     suppressAutosave.value = false;
@@ -880,7 +894,7 @@ async function captureHotkey(value: string) {
   config.hotkey = hotkey;
   await saveConfig();
   if (!status.value.startsWith("Save failed")) {
-    status.value = `呼唤热键已更新为 ${hotkey}`;
+    status.value = t("status.hotkeyUpdated", { hotkey });
   }
 }
 
@@ -912,7 +926,7 @@ async function loadChatSettings() {
     if (!personas.value.some((p) => p.id === personaEditorId.value)) {
       personaEditorId.value = selectedPersonaId.value;
     }
-    userAlias.value = settings.userAlias?.trim() || "用户";
+    userAlias.value = settings.userAlias?.trim() || t("archives.roleUser");
     if (responseStyleOptions.some((s) => s.id === settings.responseStyleId)) {
       selectedResponseStyleId.value = settings.responseStyleId;
     } else {
@@ -928,9 +942,9 @@ async function savePersonas() {
   try {
     personas.value = await invoke<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
     syncUserAliasFromPersona();
-    status.value = "人格已保存。";
+    status.value = t("status.personaSaved");
   } catch (e) {
-    status.value = `Save personas failed: ${String(e)}`;
+    status.value = t("status.savePersonasFailed", { err: String(e) });
   } finally {
     suppressAutosave.value = false;
   }
@@ -938,7 +952,7 @@ async function savePersonas() {
 
 async function saveChatPreferences() {
   saving.value = true;
-  status.value = "Saving chat settings...";
+  status.value = t("status.savingChatSettings");
   try {
     const targetAgentId = assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)
       ? selectedPersonaId.value
@@ -951,9 +965,9 @@ async function saveChatPreferences() {
       },
     });
     selectedPersonaId.value = targetAgentId;
-    status.value = "Chat settings saved.";
+    status.value = t("status.chatSettingsSaved");
   } catch (e) {
-    status.value = `Save chat settings failed: ${String(e)}`;
+    status.value = t("status.saveChatSettingsFailed", { err: String(e) });
   } finally {
     saving.value = false;
   }
@@ -978,7 +992,7 @@ async function saveConversationApiSettings() {
     console.info("[CONFIG] save_conversation_api_settings success");
   } catch (e) {
     console.error("[CONFIG] save_conversation_api_settings failed:", e);
-    status.value = `保存对话API设置失败: ${String(e)}`;
+    status.value = t("status.saveConversationApiFailed", { err: String(e) });
   }
 }
 
@@ -1025,8 +1039,8 @@ function addPersona() {
   const now = new Date().toISOString();
   personas.value.push({
     id,
-    name: `人格 ${assistantPersonas.value.length + 1}`,
-    systemPrompt: "你是...",
+    name: `${t("config.persona.title")} ${assistantPersonas.value.length + 1}`,
+    systemPrompt: t("config.persona.assistantPlaceholder"),
     createdAt: now,
     updatedAt: now,
     avatarPath: undefined,
@@ -1067,11 +1081,11 @@ async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase
       personas.value[idx].updatedAt = new Date().toISOString();
     }
     await ensureAvatarCached(result.path, result.updatedAt);
-    status.value = "头像已保存。";
+    status.value = t("status.avatarSaved");
   } catch (e) {
     const err = String(e);
     avatarError.value = err;
-    status.value = `保存头像失败: ${err}`;
+    status.value = t("status.avatarSaveFailed", { err });
   } finally {
     avatarSaving.value = false;
   }
@@ -1087,11 +1101,11 @@ async function clearAgentAvatar(input: { agentId: string }) {
       personas.value[idx].avatarUpdatedAt = undefined;
       personas.value[idx].updatedAt = new Date().toISOString();
     }
-    status.value = "头像已清除。";
+    status.value = t("status.avatarCleared");
   } catch (e) {
     const err = String(e);
     avatarError.value = err;
-    status.value = `清除头像失败: ${err}`;
+    status.value = t("status.avatarClearFailed", { err });
   }
 }
 
@@ -1103,11 +1117,11 @@ async function refreshModels() {
     const models = await invoke<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
     apiModelOptions.value[selectedApiConfig.value.id] = models;
     if (models.length) selectedApiConfig.value.model = models[0];
-    status.value = `Model list refreshed (${models.length}).`;
+    status.value = t("status.modelListRefreshed", { count: models.length });
   } catch (e) {
     const err = String(e);
     modelRefreshError.value = err;
-    status.value = `Refresh models failed: ${err}`;
+    status.value = t("status.refreshModelsFailed", { err });
   } finally {
     refreshingModels.value = false;
   }
@@ -1138,7 +1152,7 @@ async function refreshImageCacheStats() {
   try {
     imageCacheStats.value = await invoke<ImageTextCacheStats>("get_image_text_cache_stats");
   } catch (e) {
-    status.value = `Load image cache stats failed: ${String(e)}`;
+    status.value = t("status.loadImageCacheStatsFailed", { err: String(e) });
   } finally {
     imageCacheStatsLoading.value = false;
   }
@@ -1148,9 +1162,9 @@ async function clearImageCache() {
   imageCacheStatsLoading.value = true;
   try {
     imageCacheStats.value = await invoke<ImageTextCacheStats>("clear_image_text_cache");
-    status.value = "图片转文缓存已清理。";
+    status.value = t("status.imageCacheCleared");
   } catch (e) {
-    status.value = `Clear image cache failed: ${String(e)}`;
+    status.value = t("status.clearImageCacheFailed", { err: String(e) });
   } finally {
     imageCacheStatsLoading.value = false;
   }
@@ -1165,7 +1179,7 @@ async function refreshChatSnapshot() {
     latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
   } catch (e) {
-    status.value = `Load chat snapshot failed: ${String(e)}`;
+    status.value = t("status.loadChatSnapshotFailed", { err: String(e) });
   } finally {
     perfLog("refreshChatSnapshot", startedAt);
   }
@@ -1183,13 +1197,13 @@ async function forceArchiveNow() {
       },
     });
     status.value = result.archived
-      ? `已强制归档，新增记忆 ${result.mergedMemories} 条。`
+      ? t("status.forceArchiveDone", { count: result.mergedMemories })
       : result.summary;
     await refreshChatSnapshot();
     await loadAllMessages();
     visibleTurnCount.value = 1;
   } catch (e) {
-    status.value = `强制归档失败: ${String(e)}`;
+    status.value = t("status.forceArchiveFailed", { err: String(e) });
   } finally {
     forcingArchive.value = false;
   }
@@ -1205,7 +1219,7 @@ async function loadAllMessages() {
     if (PERF_DEBUG) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
     allMessages.value = msgs;
   } catch (e) {
-    status.value = `Load messages failed: ${String(e)}`;
+    status.value = t("status.loadMessagesFailed", { err: String(e) });
   } finally {
     perfLog("loadAllMessages", startedAt);
   }
@@ -1284,6 +1298,22 @@ function perfLog(label: string, startedAt: number) {
   if (!PERF_DEBUG) return;
   const cost = Math.round((perfNow() - startedAt) * 10) / 10;
   console.log(`[PERF] ${label}: ${cost}ms`);
+}
+
+const localeOptions = computed<Array<{ value: SupportedLocale; label: string }>>(() => [
+  { value: "zh-CN", label: t("config.language.zhCN") },
+  { value: "en-US", label: t("config.language.enUS") },
+  { value: "ja-JP", label: t("config.language.jaJP") },
+  { value: "ko-KR", label: t("config.language.koKR") },
+]);
+
+function setUiLanguage(value: string) {
+  const lang = normalizeLocale(value);
+  if (config.uiLanguage === lang && locale.value === lang) return;
+  config.uiLanguage = lang;
+  locale.value = lang;
+  emit("easy-call:locale-changed", lang);
+  void saveConfig();
 }
 
 function readDeltaMessage(message: unknown): string {
@@ -1440,7 +1470,7 @@ async function sendChat() {
     chatErrorText.value = "";
     if (toolStatusState.value === "running") {
       toolStatusState.value = "done";
-      toolStatusText.value = "工具调用完成";
+      toolStatusText.value = t("status.toolCallDone");
     }
     await loadAllMessages();
   } catch (e) {
@@ -1449,10 +1479,10 @@ async function sendChat() {
     latestAssistantText.value = "";
     latestReasoningStandardText.value = "";
     latestReasoningInlineText.value = "";
-    chatErrorText.value = `请求失败：${String(e)}`;
+    chatErrorText.value = t("status.requestFailed", { err: String(e) });
     if (!toolStatusText.value) {
       toolStatusState.value = "failed";
-      toolStatusText.value = "工具调用失败";
+      toolStatusText.value = t("status.toolCallFailed");
     }
     await loadAllMessages();
   } finally {
@@ -1467,7 +1497,7 @@ function stopChat() {
   chatGeneration++;
   clearStreamBuffer();
   chatting.value = false;
-  latestAssistantText.value = "(已中断)";
+  latestAssistantText.value = t("status.interrupted");
   latestReasoningStandardText.value = "";
   latestReasoningInlineText.value = "";
   reasoningStartedAtMs = 0;
@@ -1480,7 +1510,7 @@ async function openCurrentHistory() {
     currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     historyDialog.value?.showModal();
   } catch (e) {
-    status.value = `Load history failed: ${String(e)}`;
+    status.value = t("status.loadHistoryFailed", { err: String(e) });
   }
 }
 
@@ -1494,7 +1524,7 @@ async function openMemoryViewer() {
     memoryPage.value = 1;
     memoryDialog.value?.showModal();
   } catch (e) {
-    status.value = `Load memories failed: ${String(e)}`;
+    status.value = t("status.loadMemoriesFailed", { err: String(e) });
   }
 }
 
@@ -1523,7 +1553,7 @@ async function openPromptPreview() {
     promptPreviewLatestImages.value = Number(preview.latestImages || 0);
     promptPreviewLatestAudios.value = Number(preview.latestAudios || 0);
   } catch (e) {
-    promptPreviewText.value = `加载请求体失败: ${String(e)}`;
+    promptPreviewText.value = t("status.loadRequestPreviewFailed", { err: String(e) });
   } finally {
     promptPreviewLoading.value = false;
   }
@@ -1547,7 +1577,7 @@ async function openSystemPromptPreview() {
     });
     promptPreviewText.value = preview.systemPrompt || "";
   } catch (e) {
-    promptPreviewText.value = `加载系统提示词失败: ${String(e)}`;
+    promptPreviewText.value = t("status.loadSystemPromptFailed", { err: String(e) });
   } finally {
     promptPreviewLoading.value = false;
   }
@@ -1564,15 +1594,15 @@ async function exportMemories() {
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!path) {
-      status.value = "导出已取消。";
+      status.value = t("status.exportCancelled");
       return;
     }
     const result = await invoke<ExportMemoriesFileResult>("export_memories_to_path", {
       input: { path },
     });
-    status.value = `记忆已导出（${result.count} 条）：${result.path}`;
+    status.value = t("status.memoriesExported", { count: result.count, path: result.path });
   } catch (e) {
-    status.value = `导出记忆失败: ${String(e)}`;
+    status.value = t("status.exportMemoriesFailed", { err: String(e) });
   }
 }
 
@@ -1604,9 +1634,13 @@ async function handleMemoryImportFile(event: Event) {
     });
     memoryList.value = await invoke<MemoryEntry[]>("list_memories");
     memoryPage.value = 1;
-    status.value = `导入完成：新增 ${result.createdCount}，合并 ${result.mergedCount}，总计 ${result.totalCount}。`;
+    status.value = t("status.importMemoriesDone", {
+      created: result.createdCount,
+      merged: result.mergedCount,
+      total: result.totalCount,
+    });
   } catch (e) {
-    status.value = `导入记忆失败: ${String(e)}`;
+    status.value = t("status.importMemoriesFailed", { err: String(e) });
   } finally {
     input.value = "";
   }
@@ -1625,7 +1659,7 @@ async function loadArchives() {
       : archives.value[0].archiveId;
     await selectArchive(targetId);
   } catch (e) {
-    status.value = `Load archives failed: ${String(e)}`;
+    status.value = t("status.loadArchivesFailed", { err: String(e) });
   }
 }
 
@@ -1638,20 +1672,20 @@ async function deleteArchive(archiveId: string) {
   if (!archiveId) return;
   try {
     await invoke("delete_archive", { archiveId });
-    status.value = "归档已删除。";
+    status.value = t("status.archiveDeleted");
     if (selectedArchiveId.value === archiveId) {
       selectedArchiveId.value = "";
       archiveMessages.value = [];
     }
     await loadArchives();
   } catch (e) {
-    status.value = `删除归档失败: ${String(e)}`;
+    status.value = t("status.deleteArchiveFailed", { err: String(e) });
   }
 }
 
 async function exportArchive(payload: { format: "markdown" | "json" }) {
   if (!selectedArchiveId.value) {
-    status.value = "请先选择一个归档。";
+    status.value = t("status.selectArchiveFirst");
     return;
   }
   try {
@@ -1661,9 +1695,9 @@ async function exportArchive(payload: { format: "markdown" | "json" }) {
         format: payload.format,
       },
     });
-    status.value = `归档已导出（${result.format}）：${result.path}`;
+    status.value = t("status.archiveExported", { format: result.format, path: result.path });
   } catch (e) {
-    status.value = `导出归档失败: ${String(e)}`;
+    status.value = t("status.exportArchiveFailed", { err: String(e) });
   }
 }
 
@@ -1730,7 +1764,7 @@ async function startHotkeyRecordTest() {
   if (hotkeyTestRecording.value) return;
   if (recording.value) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    status.value = "当前环境不支持录音。";
+    status.value = t("status.recordUnsupported");
     return;
   }
   try {
@@ -1755,7 +1789,7 @@ async function startHotkeyRecordTest() {
         bytesBase64: base64,
         durationMs,
       };
-      status.value = `录音测试完成（${Math.max(1, Math.round(durationMs / 1000))}s）。`;
+      status.value = t("status.recordTestDone", { seconds: Math.max(1, Math.round(durationMs / 1000)) });
     };
     hotkeyTestRecorder.start();
     hotkeyTestStartedAt = Date.now();
@@ -1769,7 +1803,7 @@ async function startHotkeyRecordTest() {
     hotkeyTestRecording.value = false;
     clearHotkeyTestTimers();
     stopHotkeyTestStream();
-    status.value = `录音测试失败: ${String(e)}`;
+    status.value = t("status.recordTestFailed", { err: String(e) });
   }
 }
 
@@ -1892,7 +1926,7 @@ async function startRecording() {
   };
   const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
   if (!SR) {
-    status.value = "当前环境不支持本地语音识别。";
+    status.value = t("status.speechUnsupported");
     return;
   }
   try {
@@ -1900,7 +1934,7 @@ async function startRecording() {
     recordingRecognizedText = "";
     const recognizer = new SR();
     speechRecognizer = recognizer;
-    recognizer.lang = "zh-CN";
+    recognizer.lang = normalizeLocale(config.uiLanguage);
     recognizer.interimResults = true;
     recognizer.continuous = true;
     recognizer.onresult = (event) => {
@@ -1913,7 +1947,7 @@ async function startRecording() {
       }
     };
     recognizer.onerror = (event) => {
-      status.value = `本地语音识别失败: ${event?.error || "unknown"}`;
+      status.value = t("status.speechFailed", { err: event?.error || "unknown" });
     };
     recognizer.onend = () => {
       recording.value = false;
@@ -1925,9 +1959,9 @@ async function startRecording() {
       const text = recordingRecognizedText.trim();
       if (text) {
         chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
-        status.value = "录音已转文字。";
+        status.value = t("status.recordTranscribed");
       } else {
-        status.value = "未识别到文本。";
+        status.value = t("status.noSpeechText");
       }
       speechRecognizer = null;
       recordingRecognizedText = "";
@@ -1941,12 +1975,12 @@ async function startRecording() {
     }, 100);
     recordingMaxTimer = setTimeout(() => {
       void stopRecording(false);
-      status.value = `录音已达到上限 ${config.maxRecordSeconds}s，自动停止。`;
+      status.value = t("status.recordAutoStopped", { seconds: config.maxRecordSeconds });
     }, config.maxRecordSeconds * 1000);
   } catch (e) {
     recording.value = false;
     clearRecordingTimers();
-    status.value = `开始录音失败: ${String(e)}`;
+    status.value = t("status.recordStartFailed", { err: String(e) });
   }
 }
 
@@ -1995,6 +2029,11 @@ onMounted(async () => {
   await listen<string>("easy-call:theme-changed", (event) => {
     applyTheme(event.payload as "light" | "forest");
   });
+  await listen<string>("easy-call:locale-changed", (event) => {
+    const lang = normalizeLocale(event.payload);
+    config.uiLanguage = lang;
+    locale.value = lang;
+  });
 
   window.addEventListener("paste", onPaste);
   keydownHandler = (event: KeyboardEvent) => {
@@ -2002,7 +2041,7 @@ onMounted(async () => {
     if (!matchesRecordHotkey(event)) return;
     if (hasRecordHotkeyConflict()) {
       if (!conflictHintShown) {
-        status.value = "呼唤热键与录音键冲突，已禁用键盘录音触发，请使用录音按钮。";
+        status.value = t("config.hotkey.conflict");
         conflictHintShown = true;
       }
       return;
@@ -2261,7 +2300,7 @@ watch(
       toolStatuses.value = (toolApiConfig.value?.tools ?? []).map((t) => ({
         id: t.id,
         status: "disabled",
-        detail: "当前对话AI未启用工具调用。",
+        detail: t("config.tools.disabledHint"),
       }));
       return;
     }

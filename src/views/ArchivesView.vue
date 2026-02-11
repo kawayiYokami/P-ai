@@ -1,9 +1,9 @@
 <template>
   <div class="grid gap-2">
     <div class="flex items-center gap-2">
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">刷新归档</button>
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">导出 Markdown</button>
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">导出 JSON</button>
+      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">{{ t("archives.refresh") }}</button>
+      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">{{ t("archives.exportMarkdown") }}</button>
+      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
     </div>
     <div class="grid grid-cols-1 gap-1 max-h-56 overflow-auto">
       <div
@@ -20,14 +20,14 @@
         </button>
         <button
           class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 text-error"
-          title="删除归档"
+          :title="t('archives.deleteTitle')"
           @click="$emit('deleteArchive', a.archiveId)"
         >
-          删除
+          {{ t("archives.delete") }}
         </button>
       </div>
     </div>
-    <div class="divider my-1">归档内容</div>
+    <div class="divider my-1">{{ t("archives.contentDivider") }}</div>
     <div class="max-h-80 overflow-auto space-y-2">
       <div v-for="m in visibleMessages" :key="m.id" class="text-xs border border-base-300 rounded p-2 bg-base-100">
         <div class="flex items-center justify-between mb-1">
@@ -37,7 +37,7 @@
         <div v-if="messageText(m)" class="whitespace-pre-wrap break-words">{{ messageText(m) }}</div>
         <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">
           <details v-for="(tool, idx) in toolSummaries(m)" :key="`${m.id}-tool-${idx}`" class="collapse collapse-arrow border border-base-300 bg-base-200">
-            <summary class="collapse-title py-2 px-3 min-h-0 text-xs">工具调用：{{ tool.name }}</summary>
+            <summary class="collapse-title py-2 px-3 min-h-0 text-xs">{{ t("archives.toolCall", { name: tool.name }) }}</summary>
             <div class="collapse-content px-3 pb-2">
               <div class="whitespace-pre-wrap break-words text-xs opacity-80">{{ tool.content }}</div>
             </div>
@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import type { ArchiveSummary, ChatMessage, MessagePart } from "../types/app";
 
 const props = defineProps<{
@@ -66,6 +67,7 @@ const props = defineProps<{
   archiveMessages: ChatMessage[];
   renderMessage: (msg: ChatMessage) => string;
 }>();
+const { t, locale } = useI18n();
 
 defineEmits<{
   (e: "loadArchives"): void;
@@ -87,9 +89,9 @@ function messageText(msg: ChatMessage): string {
 }
 
 function roleLabel(role: string): string {
-  if (role === "user") return "用户";
-  if (role === "assistant") return "助手";
-  if (role === "tool") return "工具";
+  if (role === "user") return t("archives.roleUser");
+  if (role === "assistant") return t("archives.roleAssistant");
+  if (role === "tool") return t("archives.roleTool");
   return role;
 }
 
@@ -97,7 +99,7 @@ function formatDate(value?: string): string {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  return d.toLocaleString(locale.value);
 }
 
 function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string }> {
@@ -113,7 +115,7 @@ function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string 
       const args = typeof fn.arguments === "string" ? fn.arguments : "";
       return {
         name,
-        content: args ? `参数: ${args}` : "无参数",
+        content: args ? t("archives.toolArgs", { value: args }) : t("archives.toolNoArgs"),
       };
     })
     .filter((v): v is { name: string; content: string } => !!v);

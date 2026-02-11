@@ -3,7 +3,7 @@
     <div ref="scrollContainer" class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
       <!-- 加载更多提示 -->
       <div v-if="hasMoreTurns" class="text-center">
-        <button class="btn btn-ghost btn-xs text-base-content/50" @click="$emit('loadMoreTurns')">加载更多...</button>
+        <button class="btn btn-ghost btn-xs text-base-content/50" @click="$emit('loadMoreTurns')">{{ t("chat.loadMore") }}</button>
       </div>
 
       <!-- 历史对话 turns -->
@@ -12,12 +12,12 @@
           <div class="chat-header mb-1">
             <div v-if="userAvatarUrl" class="avatar">
               <div class="w-7 rounded-full">
-                <img :src="userAvatarUrl" :alt="userAlias || '用户'" :title="userAlias || '用户'" />
+                <img :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" :title="userAlias || t('archives.roleUser')" />
               </div>
             </div>
             <div v-else class="avatar placeholder">
               <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(userAlias || "用户") }}</span>
+                <span>{{ avatarInitial(userAlias || t("archives.roleUser")) }}</span>
               </div>
             </div>
           </div>
@@ -42,7 +42,7 @@
               >
                 <Pause v-if="playingAudioId === `${turn.id}-aud-${idx}`" class="h-3 w-3" />
                 <Play v-else class="h-3 w-3" />
-                <span>语音{{ idx + 1 }}</span>
+                <span>{{ t("chat.voice", { index: idx + 1 }) }}</span>
               </button>
             </div>
           </div>
@@ -51,12 +51,12 @@
           <div class="chat-header mb-1 flex items-center gap-1">
             <div v-if="assistantAvatarUrl" class="avatar">
               <div class="w-7 rounded-full">
-                <img :src="assistantAvatarUrl" :alt="personaName || '助理'" :title="personaName || '助理'" />
+                <img :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" :title="personaName || t('archives.roleAssistant')" />
               </div>
             </div>
             <div v-else class="avatar placeholder">
               <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(personaName || "助理") }}</span>
+                <span>{{ avatarInitial(personaName || t("archives.roleAssistant")) }}</span>
               </div>
             </div>
             <div v-if="turn.assistantReasoningStandard" class="collapse collapse-arrow">
@@ -90,12 +90,12 @@
           <div class="chat-header mb-1 flex items-center gap-1">
             <div v-if="assistantAvatarUrl" class="avatar">
               <div class="w-7 rounded-full">
-                <img :src="assistantAvatarUrl" :alt="personaName || '助理'" :title="personaName || '助理'" />
+                <img :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" :title="personaName || t('archives.roleAssistant')" />
               </div>
             </div>
             <div v-else class="avatar placeholder">
               <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(personaName || "助理") }}</span>
+                <span>{{ avatarInitial(personaName || t("archives.roleAssistant")) }}</span>
               </div>
             </div>
             <div v-if="latestReasoningStandardText" class="collapse collapse-arrow">
@@ -142,7 +142,7 @@
     <div v-show="showJumpToBottom" class="pointer-events-none absolute inset-x-0 bottom-20 z-30 flex justify-center">
       <button
         class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-md"
-        title="回到底部"
+        :title="t('chat.jumpToBottom')"
         @click="jumpToBottom"
       >
         <ArrowDown class="h-4 w-4" />
@@ -159,7 +159,7 @@
       <div v-if="clipboardImages.length > 0" class="flex flex-wrap gap-1 mb-2">
         <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
           <ImageIcon class="h-3.5 w-3.5" />
-          <span class="text-[11px]">图片{{ idx + 1 }}</span>
+          <span class="text-[11px]">{{ t("chat.image", { index: idx + 1 }) }}</span>
           <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting || frozen" @click="$emit('removeClipboardImage', idx)">
             <X class="h-3 w-3" />
           </button>
@@ -170,7 +170,7 @@
           class="btn btn-xs btn-circle shrink-0"
           :class="recording ? 'btn-error' : 'btn-ghost bg-base-100'"
           :disabled="!canRecord || chatting || frozen"
-          :title="recording ? `录音中 ${Math.max(1, Math.round(recordingMs / 1000))}s` : `按住${recordHotkey}或按钮录音`"
+          :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
           @mousedown.prevent="$emit('startRecording')"
           @mouseup.prevent="$emit('stopRecording')"
           @mouseleave.prevent="recording && $emit('stopRecording')"
@@ -197,6 +197,7 @@
 
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
@@ -238,6 +239,7 @@ const emit = defineEmits<{
   (e: "stopChat"): void;
   (e: "loadMoreTurns"): void;
 }>();
+const { t } = useI18n();
 
 const localChatInput = computed({
   get: () => props.chatInput,

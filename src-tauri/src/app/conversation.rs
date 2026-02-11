@@ -322,6 +322,7 @@ fn build_prompt(
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
+    ui_language: &str,
 ) -> PreparedPrompt {
     let latest_user_index = conversation.messages.iter().rposition(|m| m.role == "user");
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
@@ -403,6 +404,12 @@ fn build_prompt(
     };
     let response_style = response_style_preset(response_style_id);
     let highest_instruction_md = highest_instruction_markdown();
+    let language_instruction = match ui_language.trim() {
+        "en-US" => "Please respond in English by default.",
+        "ja-JP" => "通常は日本語で回答してください。",
+        "ko-KR" => "기본적으로 한국어로 답변해 주세요.",
+        _ => "默认使用中文回答。",
+    };
 
     let preamble = format!(
         "{}\n\
@@ -422,8 +429,8 @@ fn build_prompt(
 {}\n\
 \n\
 ## 语言设定\n\
-- 优先使用用户当前界面语言回答，保持简洁、自然、直接。\n\
-- 若用户明确指定回答语言，以用户指定为准；未指定时保持会话语言一致。\n\
+- {}\n\
+- 若用户明确指定回答语言，以用户指定为准。\n\
 \n",
         highest_instruction_md,
         agent.system_prompt,
@@ -432,7 +439,8 @@ fn build_prompt(
         agent.name,
         user_name,
         response_style.name,
-        response_style.prompt
+        response_style.prompt,
+        language_instruction
     );
 
     let latest_user = conversation

@@ -1,16 +1,22 @@
 <template>
   <div class="grid gap-2">
     <div class="tabs tabs-boxed tabs-sm">
-      <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">快捷键</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">{{ t("config.tabs.hotkey") }}</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">API</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">工具</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">人格</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">对话</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">{{ t("config.tabs.tools") }}</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">{{ t("config.tabs.persona") }}</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
     </div>
 
     <template v-if="configTab === 'hotkey'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">呼唤热键</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.language.label") }}</span></div>
+        <select :value="uiLanguage" class="select select-bordered select-sm" @change="$emit('update:uiLanguage', ($event.target as HTMLSelectElement).value)">
+          <option v-for="item in localeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+        </select>
+      </label>
+      <label class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.label") }}</span></div>
         <div class="flex items-center gap-2">
           <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
           <button
@@ -18,19 +24,17 @@
             :class="{ 'btn-primary': hotkeyCapturing }"
             @click="toggleHotkeyCapture"
           >
-            {{ hotkeyCapturing ? "按键中..." : "录制热键" }}
+            {{ hotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
           </button>
         </div>
         <div class="label py-1">
           <span class="label-text-alt text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
         </div>
-        <div v-if="hotkeyRecordConflict" class="text-xs text-error mt-1">
-          呼唤热键与录音键冲突，键盘录音触发将被禁用，请改用录音按钮或调整按键。
-        </div>
+        <div v-if="hotkeyRecordConflict" class="text-xs text-error mt-1">{{ t("config.hotkey.conflict") }}</div>
       </label>
       <div class="grid grid-cols-3 gap-2">
         <label class="form-control col-span-1">
-          <div class="label py-1"><span class="label-text text-xs">录音键</span></div>
+          <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordKey") }}</span></div>
           <select v-model="config.recordHotkey" class="select select-bordered select-sm">
             <option value="Alt">Alt</option>
             <option value="Ctrl">Ctrl</option>
@@ -38,62 +42,62 @@
           </select>
         </label>
         <label class="form-control col-span-1">
-          <div class="label py-1"><span class="label-text text-xs">最短录音(s)</span></div>
+          <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
           <input v-model.number="config.minRecordSeconds" type="number" min="1" max="30" class="input input-bordered input-sm" />
         </label>
         <label class="form-control col-span-1">
-          <div class="label py-1"><span class="label-text text-xs">最长录音(s)</span></div>
+          <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
           <input v-model.number="config.maxRecordSeconds" type="number" min="1" max="600" class="input input-bordered input-sm" />
         </label>
       </div>
       <div class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">录音测试</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordTest") }}</span></div>
         <div class="flex items-center gap-2">
           <button
             class="btn btn-sm btn-ghost bg-base-100"
             :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
-            :title="hotkeyTestRecording ? '松开结束录音' : '按住开始录音'"
+            :title="hotkeyTestRecording ? t('config.hotkey.releaseToStop') : t('config.hotkey.holdToRecord')"
             @mousedown.prevent="$emit('startHotkeyRecordTest')"
             @mouseup.prevent="$emit('stopHotkeyRecordTest')"
             @mouseleave.prevent="hotkeyTestRecording && $emit('stopHotkeyRecordTest')"
             @touchstart.prevent="$emit('startHotkeyRecordTest')"
             @touchend.prevent="$emit('stopHotkeyRecordTest')"
           >
-            {{ hotkeyTestRecording ? `录音中 ${Math.max(1, Math.round(hotkeyTestRecordingMs / 1000))}s` : "按住录音" }}
+            {{ hotkeyTestRecording ? t("chat.recording", { seconds: Math.max(1, Math.round(hotkeyTestRecordingMs / 1000)) }) : t("config.hotkey.holdRecordButton") }}
           </button>
           <button
             class="btn btn-sm btn-ghost bg-base-100"
             :disabled="!hotkeyTestAudioReady"
             @click="$emit('playHotkeyRecordTest')"
           >
-            播放录音
+            {{ t("config.hotkey.playRecord") }}
           </button>
         </div>
       </div>
       <div class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">主题</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.theme") }}</span></div>
         <button class="btn btn-sm btn-ghost bg-base-100 w-full flex items-center justify-center gap-2" @click="$emit('toggleTheme')">
           <Sun v-if="currentTheme === 'light'" class="h-4 w-4" />
           <Moon v-else class="h-4 w-4" />
-          <span>{{ currentTheme === "light" ? "浅色模式" : "深色模式" }}</span>
+          <span>{{ currentTheme === "light" ? t("config.hotkey.lightTheme") : t("config.hotkey.darkTheme") }}</span>
         </button>
       </div>
     </template>
 
     <template v-else-if="configTab === 'api'">
       <button class="btn btn-primary btn-sm w-full" :disabled="!configDirty || savingConfig" @click="$emit('saveApiConfig')">
-        {{ savingConfig ? "保存中..." : configDirty ? "保存配置" : "已保存" }}
+        {{ savingConfig ? t("config.api.saving") : configDirty ? t("config.api.saveConfig") : t("config.api.saved") }}
       </button>
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-sm font-medium">API配置（编辑）</span></div>
+        <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.editTitle") }}</span></div>
         <div class="flex gap-1">
           <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm flex-1">
             <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
-          <button class="btn btn-sm btn-square btn-ghost bg-base-100" title="新增API配置" @click="$emit('addApiConfig')">
+          <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.addConfig')" @click="$emit('addApiConfig')">
             <Plus class="h-3.5 w-3.5" />
           </button>
-          <button class="btn btn-sm btn-square btn-ghost bg-base-100" title="删除当前API配置" :disabled="config.apiConfigs.length <= 1" @click="$emit('removeSelectedApiConfig')">
+          <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.removeConfig')" :disabled="config.apiConfigs.length <= 1" @click="$emit('removeSelectedApiConfig')">
             <Trash2 class="h-3.5 w-3.5" />
           </button>
         </div>
@@ -103,11 +107,11 @@
 
       <div v-if="selectedApiConfig" class="grid gap-2">
         <label class="form-control">
-          <div class="label py-1"><span class="label-text text-sm font-medium">配置名称</span></div>
-          <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" placeholder="配置名称" />
+          <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.configName") }}</span></div>
+          <input v-model="selectedApiConfig.name" class="input input-bordered input-sm" :placeholder="t('config.api.configName')" />
         </label>
         <label class="form-control">
-          <div class="label py-1"><span class="label-text text-sm font-medium">请求格式</span></div>
+          <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.requestFormat") }}</span></div>
           <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
             <option value="openai">openai</option>
             <option value="gemini">gemini</option>
@@ -124,13 +128,13 @@
         </label>
         <label class="form-control">
           <div class="label py-1">
-            <span class="label-text text-sm font-medium">模型</span>
+            <span class="label-text text-sm font-medium">{{ t("config.api.model") }}</span>
             <span class="label-text-alt text-[11px] text-error min-h-4">{{ modelRefreshError || " " }}</span>
           </div>
           <div class="flex gap-1">
             <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
             <div class="dropdown dropdown-end">
-              <button tabindex="0" class="btn btn-sm btn-square btn-ghost bg-base-100" :disabled="modelOptions.length === 0" title="选择模型">
+              <button tabindex="0" class="btn btn-sm btn-square btn-ghost bg-base-100" :disabled="modelOptions.length === 0" :title="t('config.api.pickModel')">
                 <ChevronsUpDown class="h-3.5 w-3.5" />
               </button>
               <ul tabindex="0" class="dropdown-content z-[1] menu p-1 shadow bg-base-100 rounded-box w-52 max-h-56 overflow-auto">
@@ -139,14 +143,14 @@
                 </li>
               </ul>
             </div>
-            <button class="btn btn-sm btn-square btn-ghost bg-base-100" :class="{ loading: refreshingModels }" :disabled="refreshingModels" title="刷新模型列表" @click="$emit('refreshModels')">
+            <button class="btn btn-sm btn-square btn-ghost bg-base-100" :class="{ loading: refreshingModels }" :disabled="refreshingModels" :title="t('config.api.refreshModels')" @click="$emit('refreshModels')">
               <RefreshCw class="h-3.5 w-3.5" />
             </button>
           </div>
         </label>
         <label class="form-control">
           <div class="label py-1">
-            <span class="label-text text-sm font-medium">温度</span>
+            <span class="label-text text-sm font-medium">{{ t("config.api.temperature") }}</span>
             <span class="label-text-alt text-xs opacity-70">{{ Number(selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
           </div>
           <input v-model.number="selectedApiConfig.temperature" type="range" min="0" max="2" step="0.1" class="range range-xs" />
@@ -158,7 +162,7 @@
         </label>
         <label class="form-control">
           <div class="label py-1">
-            <span class="label-text text-sm font-medium">上下文窗口</span>
+            <span class="label-text text-sm font-medium">{{ t("config.api.contextWindow") }}</span>
             <span class="label-text-alt text-xs opacity-70">{{ Math.round(Number(selectedApiConfig.contextWindowTokens ?? 128000)) }}</span>
           </div>
           <input v-model.number="selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-xs" />
@@ -169,33 +173,33 @@
           </div>
         </label>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm font-medium">能力开关</span></div>
+          <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.capabilities") }}</span></div>
           <div class="flex gap-2">
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capText") }}</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capImage") }}</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capTools") }}</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
           </div>
         </div>
       </div>
     </template>
 
     <template v-else-if="configTab === 'tools'">
-      <div v-if="!toolApiConfig" class="text-xs opacity-70">未配置对话AI</div>
+      <div v-if="!toolApiConfig" class="text-xs opacity-70">{{ t("config.tools.noChatApi") }}</div>
       <template v-else>
         <div class="grid gap-2">
           <label class="form-control">
-            <div class="label py-1"><span class="label-text text-xs">工具最大调用轮次</span></div>
+            <div class="label py-1"><span class="label-text text-xs">{{ t("config.tools.maxIterations") }}</span></div>
             <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm" />
           </label>
         </div>
-        <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">当前对话AI未启用工具调用。</div>
+        <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">{{ t("config.tools.disabledHint") }}</div>
         <div v-else class="grid gap-2">
           <div v-for="tool in toolApiConfig.tools" :key="tool.id" class="card card-compact bg-base-100 border border-base-300">
             <div class="card-body py-2 px-3">
               <div class="flex items-center justify-between gap-2">
                 <div class="text-xs font-medium">{{ tool.id }}</div>
                 <div class="flex items-center gap-2">
-                  <button v-if="tool.id === 'memory-save'" class="btn btn-xs btn-ghost bg-base-100" @click="$emit('openMemoryViewer')">查看</button>
+                  <button v-if="tool.id === 'memory-save'" class="btn btn-xs btn-ghost bg-base-100" @click="$emit('openMemoryViewer')">{{ t("config.tools.viewMemory") }}</button>
                   <div class="badge" :class="statusBadgeClass(tool.id)">{{ statusText(tool.id) }}</div>
                 </div>
               </div>
@@ -207,17 +211,17 @@
 
     <template v-else-if="configTab === 'persona'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">人格</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.title") }}</span></div>
         <div class="flex gap-1">
           <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-            <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? "（用户）" : "" }}</option>
+            <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : "" }}</option>
           </select>
-          <button class="btn btn-sm btn-square text-primary bg-base-100" title="新增人格" @click="$emit('addPersona')">
+          <button class="btn btn-sm btn-square text-primary bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
             <Plus class="h-3.5 w-3.5" />
           </button>
           <button
             class="btn btn-sm btn-square text-error bg-base-100"
-            title="删除当前人格"
+            :title="t('config.persona.remove')"
             :disabled="!selectedPersona || selectedPersona.isBuiltInUser || assistantPersonas.length <= 1"
             @click="$emit('removeSelectedPersona')"
           >
@@ -229,13 +233,13 @@
 
       <div v-if="selectedPersona" class="grid gap-2">
         <label class="form-control">
-          <div class="label py-1"><span class="label-text text-xs">人格名称</span></div>
+          <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.name") }}</span></div>
           <div class="flex items-center gap-2">
-            <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" placeholder="人格名称" />
+            <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.persona.name')" />
             <button
               class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
               :disabled="avatarSaving"
-              :title="avatarSaving ? '头像保存中' : '编辑头像'"
+              :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
               @click="openAvatarEditorForSelected"
             >
               <div v-if="selectedPersonaAvatarUrl" class="avatar">
@@ -253,12 +257,12 @@
           <div v-if="avatarError" class="label py-1"><span class="label-text-alt text-error break-all">{{ avatarError }}</span></div>
         </label>
         <label class="form-control">
-          <div class="label py-1"><span class="label-text text-xs">人格设定</span></div>
+          <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.prompt") }}</span></div>
           <textarea
             v-model="selectedPersona.systemPrompt"
             class="textarea textarea-bordered textarea-sm"
             rows="4"
-            :placeholder="selectedPersona.isBuiltInUser ? '我是...' : '你是...'"
+            :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
           ></textarea>
         </label>
       </div>
@@ -267,26 +271,26 @@
 
     <template v-else-if="configTab === 'chatSettings'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">对话AI</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.chatApi") }}</span></div>
         <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
           <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">图转文AI（可选）</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.visionApi") }}</span></div>
         <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)">
-          <option value="">不配置</option>
+          <option value="">{{ t("config.chatSettings.noVision") }}</option>
           <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">AI人格</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.assistantPersona") }}</span></div>
         <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
           <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </label>
       <div class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">对话风格</span></div>
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.responseStyle") }}</span></div>
         <div class="join w-full">
           <button
             v-for="style in responseStyleOptions"
@@ -300,21 +304,21 @@
         </div>
       </div>
       <div class="flex gap-1">
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openCurrentHistory')">查看当前未归档记录</button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openPromptPreview')">预览请求体</button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openSystemPromptPreview')">系统提示词</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openSystemPromptPreview')">{{ t("config.chatSettings.previewSystemPrompt") }}</button>
       </div>
       <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
         <div class="flex items-center justify-between">
-          <span class="font-medium">图片转文缓存</span>
+          <span class="font-medium">{{ t("config.chatSettings.imageCacheTitle") }}</span>
           <div class="flex gap-1">
-            <button class="btn btn-xs btn-ghost" :class="{ loading: cacheStatsLoading }" @click="$emit('refreshImageCacheStats')">刷新</button>
-            <button class="btn btn-xs btn-ghost" :disabled="cacheStats.entries === 0" @click="$emit('clearImageCache')">清理</button>
+            <button class="btn btn-xs btn-ghost" :class="{ loading: cacheStatsLoading }" @click="$emit('refreshImageCacheStats')">{{ t("common.refresh") }}</button>
+            <button class="btn btn-xs btn-ghost" :disabled="cacheStats.entries === 0" @click="$emit('clearImageCache')">{{ t("config.chatSettings.clearCache") }}</button>
           </div>
         </div>
-        <div class="mt-1 opacity-80">条目: {{ cacheStats.entries }} | 字符: {{ cacheStats.totalChars }}</div>
-        <div class="mt-1 opacity-70">最近更新: {{ cacheStats.latestUpdatedAt || "-" }}</div>
-        <div class="mt-1 opacity-60">缓存按“图转文AI配置”隔离，切换图转文AI后会自动使用对应缓存命名空间。</div>
+        <div class="mt-1 opacity-80">{{ t("config.chatSettings.cacheEntries", { entries: cacheStats.entries, chars: cacheStats.totalChars }) }}</div>
+        <div class="mt-1 opacity-70">{{ t("config.chatSettings.cacheUpdatedAt", { value: cacheStats.latestUpdatedAt || "-" }) }}</div>
+        <div class="mt-1 opacity-60">{{ t("config.chatSettings.cacheHint") }}</div>
       </div>
     </template>
   </div>
@@ -322,7 +326,7 @@
   <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="onAvatarFilePicked" />
   <dialog ref="avatarEditorDialog" class="modal">
     <div class="modal-box p-3 max-w-sm">
-      <h3 class="text-sm font-semibold mb-2">编辑头像</h3>
+      <h3 class="text-sm font-semibold mb-2">{{ t("config.persona.editAvatar") }}</h3>
       <div class="rounded border border-base-300 bg-base-100 p-3">
         <div class="flex items-center gap-3">
           <div v-if="avatarEditorAvatarUrl" class="avatar">
@@ -338,13 +342,13 @@
           <div class="text-xs opacity-70 break-all">{{ avatarEditorName }}</div>
         </div>
         <div class="mt-3 flex gap-2">
-          <button class="btn btn-xs" :disabled="!avatarEditorTargetId || avatarSaving" @click="openAvatarPickerForEditor">上传头像</button>
-          <button class="btn btn-xs btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">清除头像</button>
+          <button class="btn btn-xs" :disabled="!avatarEditorTargetId || avatarSaving" @click="openAvatarPickerForEditor">{{ t("config.persona.uploadAvatar") }}</button>
+          <button class="btn btn-xs btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">{{ t("config.persona.clearAvatar") }}</button>
         </div>
         <div v-if="avatarError" class="mt-2 text-xs text-error break-all">{{ avatarError }}</div>
       </div>
       <div class="modal-action mt-2">
-        <button class="btn btn-sm btn-ghost" @click="closeAvatarEditor">关闭</button>
+        <button class="btn btn-sm btn-ghost" @click="closeAvatarEditor">{{ t("common.close") }}</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
@@ -353,15 +357,15 @@
   </dialog>
   <dialog ref="cropDialog" class="modal" @close="destroyCropper">
     <div class="modal-box p-3 max-w-md">
-      <h3 class="text-sm font-semibold mb-2">裁剪头像</h3>
+      <h3 class="text-sm font-semibold mb-2">{{ t("config.persona.cropAvatar") }}</h3>
       <div class="rounded border border-base-300 bg-base-100 p-2 min-h-64">
         <img ref="cropImageEl" :src="cropSource" alt="crop source" class="max-w-full block" />
       </div>
       <div v-if="localCropError || avatarError" class="mt-2 text-xs text-error break-all">{{ localCropError || avatarError }}</div>
       <div class="modal-action mt-2">
-        <button class="btn btn-sm btn-ghost" @click="closeCropDialog">取消</button>
+        <button class="btn btn-sm btn-ghost" @click="closeCropDialog">{{ t("common.cancel") }}</button>
         <button class="btn btn-sm btn-primary" :disabled="!cropperReady || avatarSaving" @click="confirmCrop">
-          {{ avatarSaving ? "保存中..." : "保存头像" }}
+          {{ avatarSaving ? t("config.api.saving") : t("config.persona.saveAvatar") }}
         </button>
       </div>
     </div>
@@ -373,6 +377,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 import Cropper from "cropperjs";
@@ -383,6 +388,8 @@ type AvatarTarget = { agentId: string };
 const props = defineProps<{
   config: AppConfig;
   configTab: ConfigTab;
+  uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
+  localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
   currentTheme: "light" | "forest";
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
@@ -416,6 +423,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
+  (e: "update:uiLanguage", value: string): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "update:selectedPersonaId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
@@ -439,6 +447,7 @@ const emit = defineEmits<{
   (e: "saveAgentAvatar", value: { agentId: string; mime: string; bytesBase64: string }): void;
   (e: "clearAgentAvatar", value: { agentId: string }): void;
 }>();
+const { t } = useI18n();
 
 const avatarFileInput = ref<HTMLInputElement | null>(null);
 const avatarEditorDialog = ref<HTMLDialogElement | null>(null);
@@ -451,7 +460,7 @@ const avatarEditorTargetId = ref("");
 let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
 const hotkeyCapturing = ref(false);
-const hotkeyCaptureHint = ref("点击“录制热键”，然后按下组合键（如 Alt+·）。Esc 取消。");
+const hotkeyCaptureHint = ref(t("config.hotkey.captureDefaultHint"));
 let hotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 const hotkeyRecordConflict = computed(() => {
   const hotkey = String(props.config.hotkey || "").trim().toUpperCase();
@@ -504,13 +513,13 @@ function stopHotkeyCapture() {
 function startHotkeyCapture() {
   if (hotkeyCapturing.value) return;
   hotkeyCapturing.value = true;
-  hotkeyCaptureHint.value = "请按下组合键...";
+  hotkeyCaptureHint.value = t("config.hotkey.captureListeningHint");
   hotkeyCaptureHandler = (event: KeyboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
     if (event.key === "Escape") {
-      hotkeyCaptureHint.value = "已取消录制。";
+      hotkeyCaptureHint.value = t("config.hotkey.captureCancelledHint");
       stopHotkeyCapture();
       return;
     }
@@ -522,22 +531,22 @@ function startHotkeyCapture() {
     if (event.metaKey) modifiers.push("Meta");
 
     if (isModifierKey(event.code)) {
-      hotkeyCaptureHint.value = "请再按一个非修饰键。";
+      hotkeyCaptureHint.value = t("config.hotkey.captureNeedMainKeyHint");
       return;
     }
     if (modifiers.length === 0) {
-      hotkeyCaptureHint.value = "全局热键至少需要一个修饰键（Ctrl/Alt/Shift/Meta）。";
+      hotkeyCaptureHint.value = t("config.hotkey.captureNeedModifierHint");
       return;
     }
 
     const main = mainKeyFromEvent(event).trim();
     if (!main) {
-      hotkeyCaptureHint.value = "未识别到按键，请重试。";
+      hotkeyCaptureHint.value = t("config.hotkey.captureUnrecognizedHint");
       return;
     }
     const combo = `${modifiers.join("+")}+${main}`;
     emit("captureHotkey", combo);
-    hotkeyCaptureHint.value = `已捕获：${combo}`;
+    hotkeyCaptureHint.value = t("config.hotkey.captureCapturedHint", { combo });
     stopHotkeyCapture();
   };
   window.addEventListener("keydown", hotkeyCaptureHandler, true);
@@ -545,7 +554,7 @@ function startHotkeyCapture() {
 
 function toggleHotkeyCapture() {
   if (hotkeyCapturing.value) {
-    hotkeyCaptureHint.value = "已取消录制。";
+    hotkeyCaptureHint.value = t("config.hotkey.captureCancelledHint");
     stopHotkeyCapture();
     return;
   }
@@ -608,7 +617,7 @@ function avatarById(id: string): PersonaProfile | null {
 
 const avatarEditorTarget = () => avatarById(avatarEditorTargetId.value);
 
-const avatarEditorName = computed(() => avatarEditorTarget()?.name || "头像");
+const avatarEditorName = computed(() => avatarEditorTarget()?.name || t("config.persona.avatarFallbackName"));
 const avatarEditorAvatarUrl = computed(() => {
   const target = avatarEditorTarget();
   if (!target) return "";
@@ -681,7 +690,7 @@ async function onAvatarFilePicked(event: Event) {
     await nextTick();
     destroyCropper();
     if (!cropImageEl.value) {
-      localCropError.value = "裁剪组件初始化失败：找不到预览节点。";
+      localCropError.value = t("config.persona.cropInitFailed");
       return;
     }
     cropper = new Cropper(cropImageEl.value, {
@@ -695,17 +704,17 @@ async function onAvatarFilePicked(event: Event) {
     cropperReady.value = true;
     cropDialog.value?.showModal();
   } catch (e) {
-    localCropError.value = `头像读取失败: ${String(e)}`;
+    localCropError.value = t("config.persona.avatarReadFailed", { err: String(e) });
   }
 }
 
 function confirmCrop() {
   if (!cropTarget) {
-    localCropError.value = "未找到头像目标，请重新选择。";
+    localCropError.value = t("config.persona.cropMissingTarget");
     return;
   }
   if (!cropper) {
-    localCropError.value = "裁剪器未就绪，请重新选择图片。";
+    localCropError.value = t("config.persona.cropperNotReady");
     return;
   }
   localCropError.value = "";

@@ -463,6 +463,7 @@ fn get_prompt_preview(
         &user_name,
         &user_intro,
         &data.response_style_id,
+        &app_config.ui_language,
     );
     let last_archive_summary = data
         .archived_conversations
@@ -1893,6 +1894,7 @@ async fn send_chat_message(
             &user_name,
             &user_intro,
             &data.response_style_id,
+            &app_config.ui_language,
         );
         if let Some(summary) = last_archive_summary {
             prepared.preamble.push_str(
