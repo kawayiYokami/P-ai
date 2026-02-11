@@ -180,10 +180,13 @@
           <Mic class="h-3.5 w-3.5" />
         </button>
         <textarea
+          ref="chatInputRef"
           v-model="localChatInput"
-          class="flex-1 textarea textarea-xs"
+          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden"
+          rows="1"
           :disabled="chatting || frozen"
           :placeholder="chatInputPlaceholder"
+          @input="scheduleResizeChatInput"
           @keydown.enter.exact.prevent="!chatting && !frozen && $emit('sendChat')"
         ></textarea>
         <button class="btn btn-xs btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
@@ -248,10 +251,12 @@ const localChatInput = computed({
 });
 
 const scrollContainer = ref<HTMLElement | null>(null);
+const chatInputRef = ref<HTMLTextAreaElement | null>(null);
 const autoFollowOutput = ref(true);
 const playingAudioId = ref("");
 let activeAudio: HTMLAudioElement | null = null;
 let followScrollRaf = 0;
+let resizeInputRaf = 0;
 
 const md = new MarkdownIt({
   html: false,
@@ -371,6 +376,24 @@ function scrollToBottom(behavior: ScrollBehavior = "auto") {
   }
 }
 
+function resizeChatInput() {
+  const el = chatInputRef.value;
+  if (!el) return;
+  const maxHeight = 160;
+  el.style.height = "auto";
+  const nextHeight = Math.min(el.scrollHeight, maxHeight);
+  el.style.height = `${nextHeight}px`;
+  el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+function scheduleResizeChatInput() {
+  if (resizeInputRaf) cancelAnimationFrame(resizeInputRaf);
+  resizeInputRaf = requestAnimationFrame(() => {
+    resizeChatInput();
+    resizeInputRaf = 0;
+  });
+}
+
 function isNearBottom(el: HTMLElement): boolean {
   const threshold = 24;
   const distance = el.scrollHeight - (el.scrollTop + el.clientHeight);
@@ -441,6 +464,7 @@ onMounted(() => {
   nextTick(() => {
     scrollToBottom();
     autoFollowOutput.value = true;
+    resizeChatInput();
   });
 });
 
@@ -449,8 +473,19 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(followScrollRaf);
     followScrollRaf = 0;
   }
+  if (resizeInputRaf) {
+    cancelAnimationFrame(resizeInputRaf);
+    resizeInputRaf = 0;
+  }
   stopAudioPlayback();
 });
+
+watch(
+  () => props.chatInput,
+  () => {
+    nextTick(() => scheduleResizeChatInput());
+  },
+);
 
 watch(
   () => props.chatting,
