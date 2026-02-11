@@ -582,7 +582,7 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
     enableText: true,
     enableImage: false,
     enableAudio: false,
-    enableTools: false,
+    enableTools: true,
     tools: defaultApiTools(),
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",

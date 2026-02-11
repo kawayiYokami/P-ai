@@ -13,8 +13,8 @@
   },
   "config": {
     "tabs": {
-      "hotkey": "ショートカット",
-      "api": "API",
+      "hotkey": "キー",
+      "api": "LLM",
       "tools": "ツール",
       "persona": "人格",
       "chatSettings": "会話"
@@ -27,17 +27,17 @@
       "koKR": "韓国語"
     },
     "hotkey": {
-      "label": "呼び出しホットキー",
-      "recordButton": "ホットキー録音",
-      "recording": "入力待ち...",
-      "captureDefaultHint": "「ホットキー録音」をクリックし、組み合わせ（例: Alt+·）を押してください。Escでキャンセル。",
-      "captureListeningHint": "キーの組み合わせを押してください...",
-      "captureCancelledHint": "録音をキャンセルしました。",
-      "captureNeedMainKeyHint": "修飾キー以外のキーをもう1つ押してください。",
-      "captureNeedModifierHint": "グローバルホットキーには修飾キー（Ctrl/Alt/Shift/Meta）が1つ以上必要です。",
-      "captureUnrecognizedHint": "キーを認識できません。再試行してください。",
-      "captureCapturedHint": "取得: {combo}",
-      "conflict": "呼び出しホットキーと録音キーが競合しています。キーボード録音は無効化されます。",
+      "label": "キー",
+      "recordButton": "キー設定",
+      "recording": "待機中...",
+      "captureDefaultHint": "「キー設定」を押してキー組み合わせ（例: Alt+·）を入力。Escで中止。",
+      "captureListeningHint": "キー組み合わせを入力...",
+      "captureCancelledHint": "入力を中止しました。",
+      "captureNeedMainKeyHint": "修飾キー以外のキーも入力してください。",
+      "captureNeedModifierHint": "グローバルキーは修飾キー（Ctrl/Alt/Shift/Meta）が必要です。",
+      "captureUnrecognizedHint": "キーを認識できません。再入力してください。",
+      "captureCapturedHint": "設定: {combo}",
+      "conflict": "呼び出しキーと録音キーが競合しています。キーボード録音は無効です。",
       "recordKey": "録音キー",
       "minRecordSeconds": "最短録音(s)",
       "maxRecordSeconds": "最長録音(s)",
@@ -54,7 +54,7 @@
       "saving": "保存中...",
       "saveConfig": "設定を保存",
       "saved": "保存済み",
-      "editTitle": "API設定（編集）",
+      "editTitle": "LLM設定（編集）",
       "addConfig": "API設定を追加",
       "removeConfig": "現在のAPI設定を削除",
       "configName": "設定名",
@@ -119,9 +119,9 @@
     "abstract": "抽象"
   },
   "chat": {
-    "loadMore": "さらに読み込む...",
+    "loadMore": "追加読込...",
     "voice": "音声{index}",
-    "jumpToBottom": "一番下へ",
+    "jumpToBottom": "最下部へ",
     "image": "画像{index}",
     "recording": "録音中 {seconds}s",
     "holdRecord": "{hotkey} またはボタン長押しで録音",
@@ -130,7 +130,7 @@
     "alwaysOnTopOff": "最前面固定を解除",
     "alwaysOnTopOn": "最前面に固定",
     "archiving": "コンテキスト最適化のためアーカイブ中...",
-    "archivingLock": "この間は入力が一時的にロックされます",
+    "archivingLock": "処理中は入力を一時ロックします",
     "currentHistoryTitle": "現在の会話履歴（未アーカイブ）"
   },
   "memory": {

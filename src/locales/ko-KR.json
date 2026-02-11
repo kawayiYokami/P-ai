@@ -14,7 +14,7 @@
   "config": {
     "tabs": {
       "hotkey": "단축키",
-      "api": "API",
+      "api": "LLM",
       "tools": "도구",
       "persona": "페르소나",
       "chatSettings": "대화"
@@ -54,7 +54,7 @@
       "saving": "저장 중...",
       "saveConfig": "설정 저장",
       "saved": "저장됨",
-      "editTitle": "API 설정(편집)",
+      "editTitle": "LLM 설정(편집)",
       "addConfig": "API 설정 추가",
       "removeConfig": "현재 API 설정 삭제",
       "configName": "설정 이름",

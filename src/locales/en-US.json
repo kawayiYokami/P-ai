@@ -14,7 +14,7 @@
   "config": {
     "tabs": {
       "hotkey": "Hotkey",
-      "api": "API",
+      "api": "LLM",
       "tools": "Tools",
       "persona": "Persona",
       "chatSettings": "Chat"
@@ -54,7 +54,7 @@
       "saving": "Saving...",
       "saveConfig": "Save Config",
       "saved": "Saved",
-      "editTitle": "API Config (Edit)",
+      "editTitle": "LLM Config (Edit)",
       "addConfig": "Add API Config",
       "removeConfig": "Remove Current API Config",
       "configName": "Config Name",

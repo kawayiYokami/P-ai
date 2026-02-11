@@ -14,7 +14,7 @@
   "config": {
     "tabs": {
       "hotkey": "快捷键",
-      "api": "API",
+      "api": "LLM",
       "tools": "工具",
       "persona": "人格",
       "chatSettings": "对话"
@@ -54,7 +54,7 @@
       "saving": "保存中...",
       "saveConfig": "保存配置",
       "saved": "已保存",
-      "editTitle": "API配置（编辑）",
+      "editTitle": "LLM配置（编辑）",
       "addConfig": "新增API配置",
       "removeConfig": "删除当前API配置",
       "configName": "配置名称",

@@ -178,7 +178,7 @@ struct ApiConfig {
     enable_image: bool,
     #[serde(default = "default_false")]
     enable_audio: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_true")]
     enable_tools: bool,
     #[serde(default = "default_api_tools")]
     tools: Vec<ApiToolConfig>,
@@ -232,7 +232,7 @@ impl Default for ApiConfig {
             enable_text: true,
             enable_image: false,
             enable_audio: false,
-            enable_tools: false,
+            enable_tools: true,
             tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: String::new(),
