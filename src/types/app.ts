@@ -18,6 +18,7 @@ export type ApiConfigItem = {
   apiKey: string;
   model: string;
   temperature: number;
+  contextWindowTokens: number;
 };
 
 export type AppConfig = {

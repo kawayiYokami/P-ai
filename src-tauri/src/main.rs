@@ -97,6 +97,8 @@ struct ApiConfig {
     model: String,
     #[serde(default = "default_api_temperature")]
     temperature: f64,
+    #[serde(default = "default_context_window_tokens")]
+    context_window_tokens: u32,
 }
 
 fn default_true() -> bool {
@@ -123,6 +125,10 @@ fn default_api_temperature() -> f64 {
     1.0
 }
 
+fn default_context_window_tokens() -> u32 {
+    128_000
+}
+
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
@@ -138,6 +144,7 @@ impl Default for ApiConfig {
             api_key: String::new(),
             model: "gpt-4o-mini".to_string(),
             temperature: default_api_temperature(),
+            context_window_tokens: default_context_window_tokens(),
         }
     }
 }
@@ -741,6 +748,7 @@ mod tests {
                     api_key: "k".to_string(),
                     model: "m".to_string(),
                     temperature: 1.0,
+                    context_window_tokens: 128_000,
                 },
                 ApiConfig {
                     id: "a2".to_string(),
@@ -755,6 +763,7 @@ mod tests {
                     api_key: "k".to_string(),
                     model: "m".to_string(),
                     temperature: 1.0,
+                    context_window_tokens: 128_000,
                 },
             ],
         };
@@ -790,6 +799,7 @@ mod tests {
                     api_key: "k".to_string(),
                     model: "m".to_string(),
                     temperature: 1.0,
+                    context_window_tokens: 128_000,
                 },
                 ApiConfig {
                     id: "edit-b".to_string(),
@@ -804,6 +814,7 @@ mod tests {
                     api_key: "k".to_string(),
                     model: "m".to_string(),
                     temperature: 1.0,
+                    context_window_tokens: 128_000,
                 },
             ],
         };
@@ -836,6 +847,7 @@ mod tests {
                 api_key: "k".to_string(),
                 model: "m".to_string(),
                 temperature: 1.0,
+                context_window_tokens: 128_000,
             }],
         };
         normalize_app_config(&mut cfg);
