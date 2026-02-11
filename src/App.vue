@@ -456,6 +456,7 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
     apiKey: "",
     model: "gpt-4o-mini",
     temperature: 1,
+    contextWindowTokens: 128000,
   };
 }
 
@@ -495,6 +496,7 @@ function buildConfigSnapshotJson(): string {
       apiKey: a.apiKey,
       model: a.model,
       temperature: a.temperature,
+      contextWindowTokens: a.contextWindowTokens,
     })),
   });
 }
@@ -527,6 +529,7 @@ function buildConfigPayload(): AppConfig {
       apiKey: a.apiKey,
       model: a.model,
       temperature: Number(a.temperature ?? 1),
+      contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
     })),
   };
 }
@@ -536,6 +539,7 @@ function normalizeApiBindingsLocal() {
   for (const api of config.apiConfigs) {
     api.enableAudio = false;
     api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
+    api.contextWindowTokens = Math.max(16000, Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))));
   }
   if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
     config.recordHotkey = "Alt";
@@ -1649,6 +1653,7 @@ watch(
       apiKey: a.apiKey,
       model: a.model,
       temperature: a.temperature,
+      contextWindowTokens: a.contextWindowTokens,
     })),
   }),
   () => { /* 手动保存模式，不自动持久化 API 配置 */ },
@@ -1664,6 +1669,7 @@ watch(
     enableAudio: a.enableAudio,
     enableTools: a.enableTools,
     temperature: a.temperature,
+    contextWindowTokens: a.contextWindowTokens,
   })),
   () => normalizeApiBindingsLocal(),
   { deep: true },

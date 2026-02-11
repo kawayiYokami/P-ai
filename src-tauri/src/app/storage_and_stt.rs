@@ -27,6 +27,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
         api.enable_audio = false;
         api.temperature = api.temperature.clamp(0.0, 2.0);
+        api.context_window_tokens = api.context_window_tokens.clamp(16_000, 200_000);
         if api.enable_tools {
             if api.tools.is_empty() {
                 api.tools = default_api_tools();
