@@ -134,8 +134,8 @@
           @remove-clipboard-image="removeClipboardImage"
           @start-recording="startRecording"
           @stop-recording="stopRecording(false)"
-          @send-chat="sendChat"
-          @stop-chat="stopChat"
+          @send-chat="handleSendChat"
+          @stop-chat="handleStopChat"
           @load-more-turns="loadMoreTurns"
         />
         <div
@@ -260,7 +260,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Channel } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -268,6 +267,7 @@ import { Pin, X } from "lucide-vue-next";
 import { invokeTauri } from "./services/tauri-api";
 import { useRecordHotkey } from "./composables/use-record-hotkey";
 import { useSpeechRecording } from "./composables/use-speech-recording";
+import { useChatFlow } from "./composables/use-chat-flow";
 import { formatI18nError } from "./utils/error";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
@@ -1251,14 +1251,6 @@ function loadMoreTurns() {
   visibleTurnCount.value++;
 }
 
-let chatGeneration = 0;
-type AssistantDeltaEvent = {
-  delta?: string;
-  kind?: string;
-  toolName?: string;
-  toolStatus?: "running" | "done" | "failed" | string;
-  message?: string;
-};
 type MemoryEntry = {
   id: string;
   content: string;
@@ -1302,12 +1294,6 @@ type PromptPreviewResult = {
 type SystemPromptPreviewResult = {
   systemPrompt: string;
 };
-const STREAM_FLUSH_INTERVAL_MS = 33;
-const STREAM_DRAIN_TARGET_MS = 1000;
-let streamPendingText = "";
-let streamDrainDeadline = 0;
-let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
-let reasoningStartedAtMs = 0;
 let windowBootstrapped = false;
 let suppressChatReloadWatch = false;
 const PERF_DEBUG = true;
@@ -1338,195 +1324,51 @@ function setUiLanguage(value: string) {
   void saveConfig();
 }
 
-function readDeltaMessage(message: unknown): string {
-  if (typeof message === "string") return message;
-  if (message && typeof message === "object" && "delta" in message) {
-    const value = (message as { delta?: unknown }).delta;
-    return typeof value === "string" ? value : "";
-  }
-  return "";
+const chatFlow = useChatFlow({
+  chatting,
+  forcingArchive,
+  chatInput,
+  clipboardImages,
+  latestUserText,
+  latestUserImages,
+  latestAssistantText,
+  latestReasoningStandardText,
+  latestReasoningInlineText,
+  toolStatusText,
+  toolStatusState,
+  chatErrorText,
+  allMessages,
+  visibleTurnCount,
+  activeChatApiConfigId,
+  selectedPersonaId,
+  activeChatModel: () => activeChatApiConfig.value?.model,
+  t: tr,
+  formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
+  removeBinaryPlaceholders,
+  invokeSendChatMessage: ({ apiConfigId, agentId, text, images, model, onDelta }) =>
+    invokeTauri("send_chat_message", {
+      input: {
+        apiConfigId,
+        agentId,
+        payload: { text, images, model },
+      },
+      onDelta,
+    }),
+  onReloadMessages: () => loadAllMessages(),
+});
+
+function handleSendChat() {
+  return chatFlow.sendChat();
 }
 
-function readAssistantEvent(message: unknown): AssistantDeltaEvent {
-  if (!message || typeof message !== "object") return {};
-  const m = message as Record<string, unknown>;
-  return {
-    delta: typeof m.delta === "string" ? m.delta : undefined,
-    kind: typeof m.kind === "string" ? m.kind : undefined,
-    toolName: typeof m.toolName === "string" ? m.toolName : undefined,
-    toolStatus: typeof m.toolStatus === "string" ? m.toolStatus : undefined,
-    message: typeof m.message === "string" ? m.message : undefined,
-  };
+function handleStopChat() {
+  chatFlow.stopChat();
 }
 
 function clearStreamBuffer() {
-  streamPendingText = "";
-  streamDrainDeadline = 0;
-  if (streamFlushTimer) {
-    clearInterval(streamFlushTimer);
-    streamFlushTimer = null;
-  }
+  chatFlow.clearStreamBuffer();
 }
 
-function flushStreamBuffer(gen: number) {
-  if (gen !== chatGeneration) {
-    clearStreamBuffer();
-    return;
-  }
-  if (!streamPendingText) {
-    if (!chatting.value) {
-      clearStreamBuffer();
-    }
-    return;
-  }
-  const now = Date.now();
-  const msLeft = Math.max(1, streamDrainDeadline - now);
-  const ticksLeft = Math.max(1, Math.ceil(msLeft / STREAM_FLUSH_INTERVAL_MS));
-  const step = Math.max(1, Math.ceil(streamPendingText.length / ticksLeft));
-  latestAssistantText.value += streamPendingText.slice(0, step);
-  streamPendingText = streamPendingText.slice(step);
-}
-
-function enqueueStreamDelta(gen: number, delta: string) {
-  if (gen !== chatGeneration || !delta) return;
-  streamPendingText += delta;
-  streamDrainDeadline = Date.now() + STREAM_DRAIN_TARGET_MS;
-  if (!streamFlushTimer) {
-    streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
-  }
-}
-
-function enqueueFinalAssistantText(gen: number, finalText: string) {
-  if (gen !== chatGeneration) return;
-  const text = finalText.trim();
-  if (!text) return;
-  const combined = `${latestAssistantText.value}${streamPendingText}`;
-  if (!combined) {
-    enqueueStreamDelta(gen, finalText);
-    return;
-  }
-  if (text.startsWith(combined)) {
-    const missing = text.slice(combined.length);
-    if (missing) enqueueStreamDelta(gen, missing);
-  }
-}
-
-async function sendChat() {
-  if (chatting.value || forcingArchive.value) return;
-  const text = chatInput.value.trim();
-  if (!text && clipboardImages.value.length === 0) {
-    return;
-  }
-
-  // 立刻刷新 UI：显示用户消息 + loading 气泡
-  latestUserText.value = text;
-  latestUserImages.value = [...clipboardImages.value];
-  latestAssistantText.value = "";
-  latestReasoningStandardText.value = "";
-  latestReasoningInlineText.value = "";
-  toolStatusText.value = "";
-  toolStatusState.value = "";
-  chatErrorText.value = "";
-
-  const sentImages = [...clipboardImages.value];
-  const sentModel = activeChatApiConfig.value?.model;
-  chatInput.value = "";
-  clipboardImages.value = [];
-
-  const optimisticUserMessage: ChatMessage = {
-    id: `optimistic-user-${Date.now()}`,
-    role: "user",
-    parts: [
-      ...(text ? [{ type: "text" as const, text }] : []),
-      ...sentImages.map((img) => ({
-        type: "image" as const,
-        mime: img.mime,
-        bytesBase64: img.bytesBase64,
-      })),
-    ],
-  };
-  allMessages.value = [...allMessages.value, optimisticUserMessage];
-  visibleTurnCount.value = 1;
-
-  const gen = ++chatGeneration;
-  clearStreamBuffer();
-  const deltaChannel = new Channel<AssistantDeltaEvent>();
-  deltaChannel.onmessage = (event) => {
-    const parsed = readAssistantEvent(event);
-    if (parsed.kind === "tool_status") {
-      toolStatusText.value = parsed.message || "";
-      toolStatusState.value = parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
-        ? parsed.toolStatus
-        : "";
-      return;
-    }
-    if (parsed.kind === "reasoning_standard") {
-      const text = readDeltaMessage(parsed);
-      if (text && reasoningStartedAtMs === 0) reasoningStartedAtMs = Date.now();
-      latestReasoningStandardText.value += text;
-      return;
-    }
-    if (parsed.kind === "reasoning_inline") {
-      const text = readDeltaMessage(parsed);
-      if (text && reasoningStartedAtMs === 0) reasoningStartedAtMs = Date.now();
-      latestReasoningInlineText.value += text;
-      return;
-    }
-    const delta = readDeltaMessage(parsed);
-    enqueueStreamDelta(gen, delta);
-  };
-  chatting.value = true;
-  try {
-    const result = await invokeTauri<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
-      input: {
-        apiConfigId: activeChatApiConfigId.value,
-        agentId: selectedPersonaId.value,
-        payload: { text, images: sentImages, model: sentModel },
-      },
-      onDelta: deltaChannel,
-    });
-    if (gen !== chatGeneration) return;
-    latestUserText.value = removeBinaryPlaceholders(result.latestUserText);
-    latestUserImages.value = sentImages;
-    enqueueFinalAssistantText(gen, result.assistantText);
-    chatErrorText.value = "";
-    const currentToolState = toolStatusState.value as "running" | "done" | "failed" | "";
-    if (currentToolState === "running") {
-      toolStatusState.value = "done";
-      toolStatusText.value = t("status.toolCallDone");
-    }
-    await loadAllMessages();
-  } catch (e) {
-    if (gen !== chatGeneration) return;
-    clearStreamBuffer();
-    latestAssistantText.value = "";
-    latestReasoningStandardText.value = "";
-    latestReasoningInlineText.value = "";
-    chatErrorText.value = formatI18nError(tr, "status.requestFailed", e);
-    if (!toolStatusText.value) {
-      toolStatusState.value = "failed";
-      toolStatusText.value = t("status.toolCallFailed");
-    }
-    await loadAllMessages();
-  } finally {
-    if (gen === chatGeneration) {
-      chatting.value = false;
-      reasoningStartedAtMs = 0;
-    }
-  }
-}
-
-function stopChat() {
-  chatGeneration++;
-  clearStreamBuffer();
-  chatting.value = false;
-  latestAssistantText.value = t("status.interrupted");
-  latestReasoningStandardText.value = "";
-  latestReasoningInlineText.value = "";
-  reasoningStartedAtMs = 0;
-  toolStatusText.value = "";
-  toolStatusState.value = "";
-}
 
 async function openCurrentHistory() {
   try {

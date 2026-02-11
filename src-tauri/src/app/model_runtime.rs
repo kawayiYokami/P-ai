@@ -676,7 +676,7 @@ async fn openai_stream_request(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<(String, String, String, Vec<OpenAIToolCall>), String> {
     openai_stream_request_with_sink(client, url, body, |kind, delta| {
-        let send_result = on_delta.send(AssistantDeltaEvent {
+        let _ = on_delta.send(AssistantDeltaEvent {
             delta: delta.to_string(),
             kind: if kind == "text" {
                 None
@@ -687,11 +687,6 @@ async fn openai_stream_request(
             tool_status: None,
             message: None,
         });
-        eprintln!(
-            "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
-            send_result,
-            delta.len()
-        );
     })
     .await
 }
@@ -823,11 +818,6 @@ where
         .filter(|tc| !tc.function.name.trim().is_empty())
         .collect();
 
-    eprintln!(
-        "[STREAM-DEBUG] stream done: output_len={}, tool_calls_count={}",
-        output.len(),
-        tool_calls.len()
-    );
     Ok((
         output,
         reasoning_standard_output,
@@ -1327,18 +1317,13 @@ async fn call_model_openai_with_tools(
         while let Some(chunk) = stream.next().await {
             match chunk {
                 Ok(StreamedAssistantContent::Text(text)) => {
-                    let send_result = on_delta.send(AssistantDeltaEvent {
+                    let _ = on_delta.send(AssistantDeltaEvent {
                         delta: text.text.clone(),
                         kind: None,
                         tool_name: None,
                         tool_status: None,
                         message: None,
                     });
-                    eprintln!(
-                        "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
-                        send_result,
-                        text.text.len()
-                    );
                     turn_text.push_str(&text.text);
                 }
                 Ok(StreamedAssistantContent::ToolCall {
@@ -1525,18 +1510,13 @@ async fn call_model_openai_with_tools(
     while let Some(chunk) = final_stream.next().await {
         match chunk {
             Ok(StreamedAssistantContent::Text(text)) => {
-                let send_result = on_delta.send(AssistantDeltaEvent {
+                let _ = on_delta.send(AssistantDeltaEvent {
                     delta: text.text.clone(),
                     kind: None,
                     tool_name: None,
                     tool_status: None,
                     message: None,
                 });
-                eprintln!(
-                    "[STREAM-DEBUG] on_delta.send result: {:?}, delta_len={}",
-                    send_result,
-                    text.text.len()
-                );
                 final_text.push_str(&text.text);
             }
             Ok(StreamedAssistantContent::Final(_)) => {}
