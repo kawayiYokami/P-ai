@@ -2042,66 +2042,53 @@ async fn send_chat_message(
 
 async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
     let base = input.base_url.trim().trim_end_matches('/');
+    let url = format!("{base}/models");
+    let api_key = input.api_key.trim();
 
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    let auth = format!("Bearer {}", input.api_key.trim());
+    if api_key.contains('\r') || api_key.contains('\n') {
+        return Err("API key contains newline characters. Please paste a single-line token.".to_string());
+    }
+    if matches!(api_key, "..." | "***" | "•••" | "···") {
+        return Err("API key is still a placeholder ('...' / '***'). Please paste the real token.".to_string());
+    }
+    let auth = format!("Bearer {api_key}");
     let auth_value = HeaderValue::from_str(&auth)
-        .map_err(|err| format!("Build authorization header failed: {err}"))?;
-    headers.insert(AUTHORIZATION, auth_value);
-
+        .map_err(|err| {
+            format!(
+                "Build authorization header failed: {err}. The API key may contain invalid characters."
+            )
+        })?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .default_headers(headers)
         .build()
         .map_err(|err| format!("Build HTTP client failed: {err}"))?;
 
-    let mut candidate_urls = vec![format!("{base}/models")];
-    if !base.to_ascii_lowercase().contains("/v1") {
-        candidate_urls.push(format!("{base}/v1/models"));
-    }
-    candidate_urls.sort();
-    candidate_urls.dedup();
+    // 按用户约定：仅使用同一个 URL 规则（base_url + /models），不做额外路径推断。
+    let resp = client
+        .get(&url)
+        .header(AUTHORIZATION, auth_value)
+        .send()
+        .await
+        .map_err(|err| format!("Fetch model list failed ({url}): {err}"))?;
 
-    let mut errors = Vec::new();
-    for url in candidate_urls {
-        let resp = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|err| format!("Fetch model list failed ({url}): {err}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let raw = resp.text().await.unwrap_or_default();
-            let snippet = raw.chars().take(300).collect::<String>();
-            errors.push(format!("{url} -> {status} | {snippet}"));
-            continue;
-        }
-
-        let body = resp
-            .json::<OpenAIModelListResponse>()
-            .await
-            .map_err(|err| format!("Parse model list failed ({url}): {err}"))?;
-
-        let mut models = body
-            .data
-            .into_iter()
-            .map(|item| item.id)
-            .collect::<Vec<_>>();
-        models.sort();
-        models.dedup();
-        return Ok(models);
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let raw = resp.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(600).collect::<String>();
+        return Err(format!(
+            "Fetch model list failed: {url} -> {status} | {snippet}"
+        ));
     }
 
-    if errors.is_empty() {
-        Err("Fetch model list failed: no candidate URL attempted".to_string())
-    } else {
-        Err(format!(
-            "Fetch model list failed. Tried: {}",
-            errors.join(" || ")
-        ))
-    }
+    let body = resp
+        .json::<OpenAIModelListResponse>()
+        .await
+        .map_err(|err| format!("Parse model list failed ({url}): {err}"))?;
+
+    let mut models = body.data.into_iter().map(|item| item.id).collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    Ok(models)
 }
 
 #[tauri::command]
