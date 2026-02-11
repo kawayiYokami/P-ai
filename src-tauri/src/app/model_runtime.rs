@@ -1,8 +1,15 @@
+#[derive(Debug, Clone)]
+struct ModelReply {
+    assistant_text: String,
+    reasoning_standard: String,
+    reasoning_inline: String,
+}
+
 async fn call_model_openai_rig_style(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
-) -> Result<String, String> {
+) -> Result<ModelReply, String> {
     let mut content_items: Vec<UserContent> = vec![UserContent::text(prepared.preamble)];
 
     if !prepared.latest_user_text.trim().is_empty() {
@@ -42,10 +49,15 @@ async fn call_model_openai_rig_style(
         content: prompt_content,
     };
 
-    agent
+    let assistant_text = agent
         .prompt(prompt_message)
         .await
-        .map_err(|err| format!("rig prompt failed: {err}"))
+        .map_err(|err| format!("rig prompt failed: {err}"))?;
+    Ok(ModelReply {
+        assistant_text,
+        reasoning_standard: String::new(),
+        reasoning_inline: String::new(),
+    })
 }
 
 fn debug_value_snippet(value: &Value, max_chars: usize) -> String {
@@ -550,18 +562,120 @@ fn parse_stream_delta_text(content: &Option<Value>) -> String {
     }
 }
 
+fn longest_suffix_prefix_len(text: &str, token: &str) -> usize {
+    let max = std::cmp::min(text.len(), token.len().saturating_sub(1));
+    for len in (1..=max).rev() {
+        if text.ends_with(&token[..len]) {
+            return len;
+        }
+    }
+    0
+}
+
+fn extract_inline_reasoning_from_chunk(
+    chunk: &str,
+    inline_mode: &mut bool,
+    carry: &mut String,
+) -> String {
+    let mut src = String::new();
+    if !carry.is_empty() {
+        src.push_str(carry);
+        carry.clear();
+    }
+    src.push_str(chunk);
+
+    let mut inline = String::new();
+    let mut offset = 0usize;
+    const OPEN: &str = "<think>";
+    const CLOSE: &str = "</think>";
+
+    while offset < src.len() {
+        if *inline_mode {
+            if let Some(pos) = src[offset..].find(CLOSE) {
+                let end = offset + pos;
+                inline.push_str(&src[offset..end]);
+                offset = end + CLOSE.len();
+                *inline_mode = false;
+            } else {
+                let rest = &src[offset..];
+                let keep = longest_suffix_prefix_len(rest, CLOSE);
+                if keep < rest.len() {
+                    inline.push_str(&rest[..rest.len() - keep]);
+                }
+                if keep > 0 {
+                    carry.push_str(&rest[rest.len() - keep..]);
+                }
+                break;
+            }
+        } else if let Some(pos) = src[offset..].find(OPEN) {
+            let end = offset + pos;
+            offset = end + OPEN.len();
+            *inline_mode = true;
+        } else {
+            let rest = &src[offset..];
+            let keep = longest_suffix_prefix_len(rest, OPEN);
+            if keep > 0 {
+                carry.push_str(&rest[rest.len() - keep..]);
+            }
+            break;
+        }
+    }
+
+    inline
+}
+
+fn collect_reasoning_strings(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(s) => {
+            if !s.trim().is_empty() {
+                out.push(s.to_string());
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_reasoning_strings(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for key in ["text", "reasoning", "content"] {
+                if let Some(v) = map.get(key) {
+                    collect_reasoning_strings(v, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_stream_delta_reasoning(delta: &OpenAIStreamDelta) -> String {
+    let mut parts = Vec::<String>::new();
+    if let Some(content) = &delta.reasoning_content {
+        if !content.trim().is_empty() {
+            parts.push(content.clone());
+        }
+    }
+    if let Some(details) = &delta.reasoning_details {
+        collect_reasoning_strings(details, &mut parts);
+    }
+    parts.join("")
+}
+
 /// 通用 OpenAI SSE 流式请求：解析文本 delta（实时推送到 on_delta）和 tool_calls 积累。
-/// 返回 (完整文本, 积累的 tool_calls)。
+/// 返回 (完整文本, 标准思维链, 正文思维链, 积累的 tool_calls)。
 async fn openai_stream_request(
     client: &reqwest::Client,
     url: &str,
     body: Value,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-) -> Result<(String, Vec<OpenAIToolCall>), String> {
-    openai_stream_request_with_sink(client, url, body, |delta| {
+) -> Result<(String, String, String, Vec<OpenAIToolCall>), String> {
+    openai_stream_request_with_sink(client, url, body, |kind, delta| {
         let send_result = on_delta.send(AssistantDeltaEvent {
             delta: delta.to_string(),
-            kind: None,
+            kind: if kind == "text" {
+                None
+            } else {
+                Some(kind.to_string())
+            },
             tool_name: None,
             tool_status: None,
             message: None,
@@ -579,10 +693,10 @@ async fn openai_stream_request_with_sink<F>(
     client: &reqwest::Client,
     url: &str,
     body: Value,
-    mut on_delta: F,
-) -> Result<(String, Vec<OpenAIToolCall>), String>
+    mut on_event: F,
+) -> Result<(String, String, String, Vec<OpenAIToolCall>), String>
 where
-    F: FnMut(&str),
+    F: FnMut(&str, &str),
 {
     eprintln!("[STREAM-DEBUG] openai_stream_request called, url={}", url);
     let resp = client
@@ -603,6 +717,10 @@ where
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
     let mut output = String::new();
+    let mut reasoning_standard_output = String::new();
+    let mut reasoning_inline_output = String::new();
+    let mut inline_mode = false;
+    let mut inline_carry = String::new();
 
     // 积累 tool_calls：按 index 分组
     let mut tool_calls_map: std::collections::BTreeMap<usize, (String, String, String)> =
@@ -640,11 +758,27 @@ where
             }
             let choice = &parsed.choices[0];
 
-            // 处理文本 delta
+            // 处理标准思维链 delta（reasoning_content / reasoning_details）
+            let reasoning_delta = parse_stream_delta_reasoning(&choice.delta);
+            if !reasoning_delta.is_empty() {
+                on_event("reasoning_standard", &reasoning_delta);
+                reasoning_standard_output.push_str(&reasoning_delta);
+            }
+
+            // 处理文本 delta：保留原始文本（包含 <think> 标签），只额外提取正文思考事件
             let delta_text = parse_stream_delta_text(&choice.delta.content);
             if !delta_text.is_empty() {
                 output.push_str(&delta_text);
-                on_delta(&delta_text);
+                on_event("text", &delta_text);
+                let inline = extract_inline_reasoning_from_chunk(
+                    &delta_text,
+                    &mut inline_mode,
+                    &mut inline_carry,
+                );
+                if !inline.is_empty() {
+                    on_event("reasoning_inline", &inline);
+                    reasoning_inline_output.push_str(&inline);
+                }
             }
 
             // 处理 tool_calls delta
@@ -687,7 +821,12 @@ where
         output.len(),
         tool_calls.len()
     );
-    Ok((output, tool_calls))
+    Ok((
+        output,
+        reasoning_standard_output,
+        reasoning_inline_output,
+        tool_calls,
+    ))
 }
 
 async fn call_model_openai_stream_text(
@@ -695,7 +834,7 @@ async fn call_model_openai_stream_text(
     model_name: &str,
     prepared: &PreparedPrompt,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-) -> Result<String, String> {
+) -> Result<ModelReply, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .default_headers(openai_headers(&api_config.api_key)?)
@@ -719,7 +858,13 @@ async fn call_model_openai_stream_text(
     let mut errors = Vec::new();
     for url in urls {
         match openai_stream_request(&client, &url, body.clone(), on_delta).await {
-            Ok((text, _)) => return Ok(text),
+            Ok((text, reasoning_standard, reasoning_inline, _)) => {
+                return Ok(ModelReply {
+                    assistant_text: text,
+                    reasoning_standard,
+                    reasoning_inline,
+                });
+            }
             Err(err) => errors.push(format!("{url} -> {err}")),
         }
     }
@@ -730,6 +875,237 @@ async fn call_model_openai_stream_text(
     ))
 }
 
+fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
+    let mut tools = Vec::<Value>::new();
+    if tool_enabled(selected_api, "fetch") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "fetch",
+                "description": "Fetch webpage text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string" },
+                        "max_length": { "type": "integer", "default": 1800 }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }));
+    }
+    if tool_enabled(selected_api, "bing-search") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "bing_search",
+                "description": "Search web with Bing.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "num_results": { "type": "integer", "default": 5 }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }));
+    }
+    if tool_enabled(selected_api, "memory-save") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "memory_save",
+                "description": "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": { "type": "string" },
+                        "keywords": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["content", "keywords"]
+                }
+            }
+        }));
+    }
+    tools
+}
+
+async fn execute_builtin_tool_call(
+    selected_api: &ApiConfig,
+    app_state: Option<&AppState>,
+    tool_name: &str,
+    args_json: &Value,
+) -> Result<Value, String> {
+    match tool_name {
+        "fetch" if tool_enabled(selected_api, "fetch") => {
+            let args: FetchToolArgs = serde_json::from_value(args_json.clone())
+                .map_err(|err| format!("Parse fetch args failed: {err}"))?;
+            builtin_fetch(&args.url, args.max_length.unwrap_or(1800)).await
+        }
+        "bing_search" | "bing-search" if tool_enabled(selected_api, "bing-search") => {
+            let args: BingSearchToolArgs = serde_json::from_value(args_json.clone())
+                .map_err(|err| format!("Parse bing_search args failed: {err}"))?;
+            builtin_bing_search(&args.query, args.num_results.unwrap_or(5)).await
+        }
+        "memory_save" | "memory-save" if tool_enabled(selected_api, "memory-save") => {
+            let state = app_state.ok_or_else(|| "memory_save requires app state".to_string())?;
+            builtin_memory_save(state, args_json.clone())
+        }
+        _ => Err(format!("Unsupported or disabled tool: {tool_name}")),
+    }
+}
+
+async fn call_model_deepseek_with_tools_http(
+    api_config: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    app_state: Option<&AppState>,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
+) -> Result<ModelReply, String> {
+    let tools = deepseek_tool_schemas(selected_api);
+    if tools.is_empty() {
+        return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .default_headers(openai_headers(&api_config.api_key)?)
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+    let urls = candidate_openai_chat_urls(&api_config.base_url);
+    if urls.is_empty() {
+        return Err("Base URL is empty.".to_string());
+    }
+
+    let mut full_assistant_text = String::new();
+    let mut full_reasoning_standard = String::new();
+    let mut full_reasoning_inline = String::new();
+
+    let mut messages = vec![
+        serde_json::json!({ "role": "system", "content": prepared.preamble }),
+        serde_json::json!({ "role": "user", "content": prepared.latest_user_text }),
+    ];
+
+    for _ in 0..max_tool_iterations {
+        let body = serde_json::json!({
+            "model": model_name,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "temperature": api_config.temperature,
+            "stream": true
+        });
+
+        let mut errors = Vec::new();
+        let mut turn_result: Option<(String, String, String, Vec<OpenAIToolCall>)> = None;
+        for url in &urls {
+            match openai_stream_request(&client, url, body.clone(), on_delta).await {
+                Ok(v) => {
+                    turn_result = Some(v);
+                    break;
+                }
+                Err(err) => errors.push(format!("{url} -> {err}")),
+            }
+        }
+        let (turn_text, reasoning_standard, reasoning_inline, tool_calls) = turn_result.ok_or_else(|| {
+            format!(
+                "DeepSeek stream request failed for all candidate URLs: {}",
+                errors.join(" || ")
+            )
+        })?;
+
+        if !turn_text.trim().is_empty() {
+            if !full_assistant_text.trim().is_empty() {
+                full_assistant_text.push_str("\n\n");
+            }
+            full_assistant_text.push_str(&turn_text);
+        }
+        if !reasoning_standard.trim().is_empty() {
+            full_reasoning_standard.push_str(&reasoning_standard);
+        }
+        if !reasoning_inline.trim().is_empty() {
+            full_reasoning_inline.push_str(&reasoning_inline);
+        }
+
+        if tool_calls.is_empty() {
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: full_reasoning_inline,
+            });
+        }
+
+        let tool_calls_payload = tool_calls
+            .iter()
+            .map(|tc| {
+                serde_json::json!({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
+            "reasoning_content": reasoning_standard,
+            "tool_calls": tool_calls_payload
+        }));
+
+        for tc in tool_calls {
+            let tool_name = tc.function.name.clone();
+            send_tool_status_event(
+                on_delta,
+                &tool_name,
+                "running",
+                &format!("正在调用工具：{tool_name}"),
+            );
+            let args_json: Value = serde_json::from_str(&tc.function.arguments)
+                .map_err(|err| format!("Parse tool arguments failed: {err}"))?;
+            let tool_result = execute_builtin_tool_call(selected_api, app_state, &tool_name, &args_json)
+                .await
+                .map_err(|err| {
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_name,
+                        "failed",
+                        &format!("工具调用失败：{tool_name} ({err})"),
+                    );
+                    err
+                })?;
+            send_tool_status_event(
+                on_delta,
+                &tool_name,
+                "done",
+                &format!("工具调用完成：{tool_name}"),
+            );
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": tool_result.to_string()
+            }));
+        }
+    }
+
+    send_tool_status_event(
+        on_delta,
+        "tools",
+        "failed",
+        "工具调用达到上限，停止继续调用并立刻汇报。",
+    );
+    Ok(ModelReply {
+        assistant_text: full_assistant_text,
+        reasoning_standard: full_reasoning_standard,
+        reasoning_inline: full_reasoning_inline,
+    })
+}
+
 async fn call_model_openai_with_tools(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -738,7 +1114,20 @@ async fn call_model_openai_with_tools(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
-) -> Result<String, String> {
+) -> Result<ModelReply, String> {
+    if selected_api.request_format.trim() == "deepseek/kimi" {
+        return call_model_deepseek_with_tools_http(
+            api_config,
+            selected_api,
+            model_name,
+            prepared,
+            app_state,
+            on_delta,
+            max_tool_iterations,
+        )
+        .await;
+    }
+
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_bing = tool_enabled(selected_api, "bing-search");
     let has_memory = tool_enabled(selected_api, "memory-save");
@@ -779,6 +1168,7 @@ async fn call_model_openai_with_tools(
         .build();
 
     let mut full_assistant_text = String::new();
+    let mut full_reasoning_standard = String::new();
     let mut current_prompt: RigMessage = prepared.latest_user_text.clone().into();
     let mut chat_history = Vec::<RigMessage>::new();
 
@@ -794,6 +1184,7 @@ async fn call_model_openai_with_tools(
         chat_history.push(current_prompt.clone());
 
         let mut turn_text = String::new();
+        let mut turn_reasoning = String::new();
         let mut tool_calls = Vec::<AssistantContent>::new();
         let mut tool_results = Vec::<(String, Option<String>, String)>::new();
         let mut did_call_tool = false;
@@ -865,8 +1256,36 @@ async fn call_model_openai_with_tools(
                     tool_results.push((tool_call.id, tool_call.call_id, tool_result));
                 }
                 Ok(StreamedAssistantContent::Final(_)) => {}
-                Ok(StreamedAssistantContent::Reasoning(_)) => {}
-                Ok(StreamedAssistantContent::ReasoningDelta { .. }) => {}
+                Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
+                    let merged = reasoning.reasoning.join("\n");
+                    if !merged.is_empty() {
+                        if !turn_reasoning.is_empty() {
+                            turn_reasoning.push('\n');
+                        }
+                        turn_reasoning.push_str(&merged);
+                        full_reasoning_standard.push_str(&merged);
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: merged,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
+                Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
+                    if !reasoning.is_empty() {
+                        turn_reasoning.push_str(&reasoning);
+                        full_reasoning_standard.push_str(&reasoning);
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: reasoning,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
                 Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
                 Err(err) => return Err(format!("rig streaming failed: {err}")),
             }
@@ -880,13 +1299,23 @@ async fn call_model_openai_with_tools(
         }
 
         if !did_call_tool {
-            return Ok(full_assistant_text);
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: String::new(),
+            });
         }
 
         if !tool_calls.is_empty() {
+            let mut assistant_items = Vec::<AssistantContent>::new();
+            if selected_api.request_format.trim() == "deepseek/kimi" {
+                // DeepSeek thinking mode + tool calls requires reasoning_content in assistant message.
+                assistant_items.push(AssistantContent::reasoning(turn_reasoning.clone()));
+            }
+            assistant_items.extend(tool_calls);
             chat_history.push(RigMessage::Assistant {
                 id: None,
-                content: OneOrMany::many(tool_calls)
+                content: OneOrMany::many(assistant_items)
                     .map_err(|_| "Failed to build assistant tool-call message".to_string())?,
             });
         }
@@ -948,8 +1377,29 @@ async fn call_model_openai_with_tools(
                 final_text.push_str(&text.text);
             }
             Ok(StreamedAssistantContent::Final(_)) => {}
-            Ok(StreamedAssistantContent::Reasoning(_)) => {}
-            Ok(StreamedAssistantContent::ReasoningDelta { .. }) => {}
+            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
+                let merged = reasoning.reasoning.join("\n");
+                if !merged.is_empty() {
+                    let _ = on_delta.send(AssistantDeltaEvent {
+                        delta: merged,
+                        kind: Some("reasoning_standard".to_string()),
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                }
+            }
+            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
+                if !reasoning.is_empty() {
+                    let _ = on_delta.send(AssistantDeltaEvent {
+                        delta: reasoning,
+                        kind: Some("reasoning_standard".to_string()),
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                }
+            }
             Ok(StreamedAssistantContent::ToolCall { .. }) => {}
             Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
             Err(err) => return Err(format!("rig final streaming failed: {err}")),
@@ -961,7 +1411,11 @@ async fn call_model_openai_with_tools(
         }
         full_assistant_text.push_str(&final_text);
     }
-    Ok(full_assistant_text)
+    Ok(ModelReply {
+        assistant_text: full_assistant_text,
+        reasoning_standard: full_reasoning_standard,
+        reasoning_inline: String::new(),
+    })
 }
 
 async fn call_model_openai_style(
@@ -972,7 +1426,7 @@ async fn call_model_openai_style(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
-) -> Result<String, String> {
+) -> Result<ModelReply, String> {
     eprintln!(
         "[STREAM-DEBUG] call_model_openai_style: format={}, enable_tools={}, images={}, audios={}",
         selected_api.request_format,
@@ -1010,7 +1464,7 @@ async fn call_model_openai_style(
     let original = prepared.clone();
     let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
     match rig_result {
-        Ok(text) => Ok(text),
+        Ok(reply) => Ok(reply),
         Err(err)
             if !original.latest_images.is_empty() && is_image_unsupported_error(&err) =>
         {
@@ -1054,7 +1508,8 @@ async fn describe_image_with_vision_api(
         latest_audios: Vec::new(),
     };
 
-    call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await
+    let reply = call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?;
+    Ok(reply.assistant_text)
 }
 
 

@@ -221,6 +221,8 @@ struct SendChatResult {
     conversation_id: String,
     latest_user_text: String,
     assistant_text: String,
+    reasoning_standard: String,
+    reasoning_inline: String,
     archived_before_send: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +294,8 @@ struct OpenAIStreamChoice {
 #[derive(Debug, Clone, Deserialize)]
 struct OpenAIStreamDelta {
     content: Option<Value>,
+    reasoning_content: Option<String>,
+    reasoning_details: Option<Value>,
     tool_calls: Option<Vec<OpenAIStreamToolCallDelta>>,
 }
 
@@ -934,18 +938,24 @@ mod tests {
 
         let mut deltas = Vec::<String>::new();
         let rt = test_runtime();
-        let (full_text, tool_calls) = rt
+        let (full_text, reasoning_standard, reasoning_inline, tool_calls) = rt
             .block_on(openai_stream_request_with_sink(
                 &client,
                 &format!("{}/v1/chat/completions", server.base_url()),
                 body,
-                |delta| deltas.push(delta.to_string()),
+                |kind, delta| {
+                    if kind == "text" {
+                        deltas.push(delta.to_string());
+                    }
+                },
             ))
             .expect("stream request should parse");
 
         sse_mock.assert();
         assert_eq!(deltas, vec!["你".to_string(), "好".to_string()]);
         assert_eq!(full_text, "你好".to_string());
+        assert!(reasoning_standard.is_empty());
+        assert!(reasoning_inline.is_empty());
         assert!(tool_calls.is_empty());
     }
 
@@ -978,12 +988,12 @@ mod tests {
         });
 
         let rt = test_runtime();
-        let (_full_text, tool_calls) = rt
+        let (_full_text, _reasoning_standard, _reasoning_inline, tool_calls) = rt
             .block_on(openai_stream_request_with_sink(
                 &client,
                 &format!("{}/v1/chat/completions", server.base_url()),
                 body,
-                |_delta| {},
+                |_kind, _delta| {},
             ))
             .expect("stream tool call should parse");
 

@@ -790,7 +790,7 @@ async fn send_chat_message(
         )
     };
 
-    let assistant_text = call_model_openai_style(
+    let model_reply = call_model_openai_style(
         &resolved_api,
         &selected_api,
         &model_name,
@@ -800,6 +800,15 @@ async fn send_chat_message(
         app_config.tool_max_iterations as usize,
     )
     .await?;
+    let assistant_text = model_reply.assistant_text;
+    let reasoning_standard = model_reply.reasoning_standard;
+    let reasoning_inline = model_reply.reasoning_inline;
+
+    let mut assistant_text_for_storage = assistant_text.clone();
+    if !reasoning_standard.trim().is_empty() {
+        assistant_text_for_storage.push_str("\n\n[标准思考]\n");
+        assistant_text_for_storage.push_str(reasoning_standard.trim());
+    }
 
     {
         let guard = state
@@ -819,7 +828,7 @@ async fn send_chat_message(
                 role: "assistant".to_string(),
                 created_at: now.clone(),
                 parts: vec![MessagePart::Text {
-                    text: assistant_text.clone(),
+                    text: assistant_text_for_storage.clone(),
                 }],
                 provider_meta: None,
                 tool_call: None,
@@ -836,6 +845,8 @@ async fn send_chat_message(
         conversation_id,
         latest_user_text,
         assistant_text,
+        reasoning_standard,
+        reasoning_inline,
         archived_before_send,
     })
 }
@@ -1043,6 +1054,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         latest_audios: Vec::new(),
     };
 
-    call_model_openai_rig_style(&api_config, &api_config.model, prepared).await
+    let reply = call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?;
+    Ok(reply.assistant_text)
 }
 

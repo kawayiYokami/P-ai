@@ -60,6 +60,8 @@ export type ChatTurn = {
   userImages: Array<{ mime: string; bytesBase64: string }>;
   userAudios: Array<{ mime: string; bytesBase64: string }>;
   assistantText: string;
+  assistantReasoningStandard: string;
+  assistantReasoningInline: string;
 };
 
 export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };

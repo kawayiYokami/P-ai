@@ -1,39 +1,39 @@
-# Release Checklist
+# 发布验收清单
 
-## Preflight
+## 发布前准备
 
-1. `pnpm install`
-2. `pnpm smoke`
-3. Confirm git worktree is clean
+1. 执行 `pnpm install`
+2. 执行 `pnpm smoke`
+3. 确认工作区干净（`git status` 无未提交改动）
 
-## Functional Verification
+## 功能验收
 
-1. API binding
-   - Configure chat/stt/vision API independently
-   - Restart app and verify settings persist
-2. Chat text
-   - Send text-only message
-   - Verify streaming output
-3. Image fallback
-   - Use chat API with image disabled + vision configured
-   - Paste image and send
-   - Verify reply succeeds
-   - Send same image again and confirm cache stats increase then remain stable
-4. Audio fallback
-   - Use chat API with audio disabled + stt configured
-   - Hold record button (or hold configured key), release to stop
-   - Send and verify transcription merges into user message
-5. Cache panel
-   - Open config -> 对话 tab
-   - Verify cache stats refresh and clear works
+1. API 绑定
+   - 独立配置对话 / 音转文 / 图转文 API
+   - 重启应用后确认配置仍然正确
+2. 文本对话
+   - 发送纯文本
+   - 确认流式输出正常
+3. 图片回退
+   - 对话 API 关闭图片能力，同时配置图转文 API
+   - 粘贴图片并发送
+   - 确认可正常回复
+   - 再发送同一张图，确认缓存命中（缓存统计变化符合预期）
+4. 音频回退
+   - 对话 API 关闭语音能力，同时配置音转文 API
+   - 按住录音按钮（或按住录音快捷键），松开结束
+   - 发送后确认转写文本已并入本次用户消息
+5. 缓存面板
+   - 打开配置窗口 -> 对话标签
+   - 确认缓存统计可刷新，清理按钮可用
 
-## Window & UX
+## 窗口与交互
 
-1. Hotkey toggles chat window visibility
-2. Tray menu opens config/chat/archives
-3. Chat window can drag / close / always-on-top works
+1. 全局快捷键可打开/隐藏对话窗口
+2. 托盘菜单可打开配置/对话/归档窗口
+3. 对话窗口可拖动、可关闭、总在最前可切换
 
-## Regression Guard
+## 回归兜底
 
-1. Rust tests compile (`cargo test --no-run`)
-2. No TypeScript errors (`pnpm -s exec tsc --noEmit`)
+1. Rust 测试编译通过（`cargo test --no-run`）
+2. TypeScript 类型检查通过（`pnpm -s exec tsc --noEmit`）

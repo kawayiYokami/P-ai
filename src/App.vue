@@ -75,6 +75,8 @@
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
+        :latest-reasoning-standard-text="latestReasoningStandardText"
+        :latest-reasoning-inline-text="latestReasoningInlineText"
         :tool-status-text="toolStatusText"
         :tool-status-state="toolStatusState"
         :chat-error-text="chatErrorText"
@@ -226,6 +228,8 @@ const chatInput = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
+const latestReasoningStandardText = ref("");
+const latestReasoningInlineText = ref("");
 const toolStatusText = ref("");
 const toolStatusState = ref<"running" | "done" | "failed" | "">("");
 const chatErrorText = ref("");
@@ -371,6 +375,32 @@ const chatInputPlaceholder = computed(() => {
 });
 const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
 
+function parseAssistantStoredText(rawText: string): {
+  assistantText: string;
+  reasoningStandard: string;
+  reasoningInline: string;
+} {
+  const raw = rawText || "";
+  const standardMarker = "[标准思考]";
+  const standardIdx = raw.indexOf(standardMarker);
+
+  if (standardIdx < 0) {
+    return {
+      assistantText: raw.trim(),
+      reasoningStandard: "",
+      reasoningInline: "",
+    };
+  }
+
+  const reasoningStandard = raw.slice(standardIdx + standardMarker.length).trim();
+
+  return {
+    assistantText: raw.slice(0, standardIdx).trim(),
+    reasoningStandard,
+    reasoningInline: "",
+  };
+}
+
 const allTurns = computed<ChatTurn[]>(() => {
   const msgs = allMessages.value;
   const turns: ChatTurn[] = [];
@@ -381,12 +411,25 @@ const allTurns = computed<ChatTurn[]>(() => {
       const userImages = extractMessageImages(msg);
       const userAudios = extractMessageAudios(msg);
       let assistantText = "";
+      let assistantReasoningStandard = "";
+      let assistantReasoningInline = "";
       if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
-        assistantText = renderMessage(msgs[i + 1]);
+        const parsed = parseAssistantStoredText(renderMessage(msgs[i + 1]));
+        assistantText = parsed.assistantText;
+        assistantReasoningStandard = parsed.reasoningStandard;
+        assistantReasoningInline = parsed.reasoningInline;
         i++;
       }
-      if (userText || userImages.length > 0 || userAudios.length > 0 || assistantText.trim()) {
-        turns.push({ id: msg.id, userText, userImages, userAudios, assistantText });
+      if (userText || userImages.length > 0 || userAudios.length > 0 || assistantText.trim() || assistantReasoningStandard.trim() || assistantReasoningInline.trim()) {
+        turns.push({
+          id: msg.id,
+          userText,
+          userImages,
+          userAudios,
+          assistantText,
+          assistantReasoningStandard,
+          assistantReasoningInline,
+        });
       }
     }
   }
@@ -871,6 +914,7 @@ const STREAM_DRAIN_TARGET_MS = 1000;
 let streamPendingText = "";
 let streamDrainDeadline = 0;
 let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
+let reasoningStartedAtMs = 0;
 
 function readDeltaMessage(message: unknown): string {
   if (typeof message === "string") return message;
@@ -955,6 +999,8 @@ async function sendChat() {
   latestUserText.value = text;
   latestUserImages.value = [...clipboardImages.value];
   latestAssistantText.value = "";
+  latestReasoningStandardText.value = "";
+  latestReasoningInlineText.value = "";
   toolStatusText.value = "";
   toolStatusState.value = "";
   chatErrorText.value = "";
@@ -991,6 +1037,18 @@ async function sendChat() {
         : "";
       return;
     }
+    if (parsed.kind === "reasoning_standard") {
+      const text = readDeltaMessage(parsed);
+      if (text && reasoningStartedAtMs === 0) reasoningStartedAtMs = Date.now();
+      latestReasoningStandardText.value += text;
+      return;
+    }
+    if (parsed.kind === "reasoning_inline") {
+      const text = readDeltaMessage(parsed);
+      if (text && reasoningStartedAtMs === 0) reasoningStartedAtMs = Date.now();
+      latestReasoningInlineText.value += text;
+      return;
+    }
     const delta = readDeltaMessage(parsed);
     enqueueStreamDelta(gen, delta);
   };
@@ -1018,6 +1076,8 @@ async function sendChat() {
     if (gen !== chatGeneration) return;
     clearStreamBuffer();
     latestAssistantText.value = "";
+    latestReasoningStandardText.value = "";
+    latestReasoningInlineText.value = "";
     chatErrorText.value = `请求失败：${String(e)}`;
     if (!toolStatusText.value) {
       toolStatusState.value = "failed";
@@ -1027,6 +1087,7 @@ async function sendChat() {
   } finally {
     if (gen === chatGeneration) {
       chatting.value = false;
+      reasoningStartedAtMs = 0;
     }
   }
 }
@@ -1036,6 +1097,9 @@ function stopChat() {
   clearStreamBuffer();
   chatting.value = false;
   latestAssistantText.value = "(已中断)";
+  latestReasoningStandardText.value = "";
+  latestReasoningInlineText.value = "";
+  reasoningStartedAtMs = 0;
   toolStatusText.value = "";
   toolStatusState.value = "";
 }

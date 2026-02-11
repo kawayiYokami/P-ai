@@ -36,20 +36,63 @@
             </div>
           </div>
         </div>
-        <div v-if="turn.assistantText" class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ personaName || "助理" }}</div>
-          <div
-            class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown"
-            v-html="renderMarkdown(turn.assistantText)"
-            @click="handleAssistantLinkClick"
-          ></div>
+        <div v-if="turn.assistantText || turn.assistantReasoningStandard || turn.assistantReasoningInline" class="chat chat-start">
+          <div class="chat-header text-[11px] opacity-70 mb-1 flex items-center gap-1">
+            <span>{{ personaName || "助理" }}</span>
+            <div v-if="turn.assistantReasoningStandard" class="collapse collapse-arrow">
+              <input type="checkbox" />
+              <div class="collapse-title">
+                {{ lastLinePreview(turn.assistantReasoningStandard) || "..." }}
+              </div>
+              <div class="collapse-content">
+                {{ turn.assistantReasoningStandard }}
+              </div>
+            </div>
+            <div v-if="(splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline)" class="collapse collapse-arrow">
+              <input type="checkbox" />
+              <div class="collapse-title">
+                {{ lastLinePreview(splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline) || "..." }}
+              </div>
+              <div class="collapse-content">
+                {{ splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline }}
+              </div>
+            </div>
+          </div>
+          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+            <div
+              v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
+              @click="handleAssistantLinkClick"
+            ></div>
+          </div>
         </div>
       </template>
 
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
         <div class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ personaName || "助理" }}</div>
+          <div class="chat-header text-[11px] opacity-70 mb-1 flex items-center gap-1">
+            <span>{{ personaName || "助理" }}</span>
+            <div v-if="latestReasoningStandardText" class="collapse collapse-arrow">
+              <input type="checkbox" />
+              <div class="collapse-title flex items-center gap-1">
+                <span>{{ lastLinePreview(latestReasoningStandardText) || "..." }}</span>
+                <span class="loading loading-dots loading-xs opacity-60"></span>
+              </div>
+              <div class="collapse-content">
+                {{ latestReasoningStandardText }}
+              </div>
+            </div>
+            <div v-if="latestInlineReasoningText" class="collapse collapse-arrow">
+              <input type="checkbox" />
+              <div class="collapse-title flex items-center gap-1">
+                <span>{{ lastLinePreview(latestInlineReasoningText) || "..." }}</span>
+                <span class="loading loading-dots loading-xs opacity-60"></span>
+              </div>
+              <div class="collapse-content">
+                {{ latestInlineReasoningText }}
+              </div>
+            </div>
+          </div>
           <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
             <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
             <div class="mt-1">
@@ -134,6 +177,8 @@ const props = defineProps<{
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
+  latestReasoningStandardText: string;
+  latestReasoningInlineText: string;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string;
@@ -174,12 +219,43 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
+function splitThinkText(raw: string): { visible: string; inline: string } {
+  const input = raw || "";
+  const regex = /<think>([\s\S]*?)<\/think>/gi;
+  const blocks: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(input)) !== null) {
+    const text = (m[1] || "").trim();
+    if (text) blocks.push(text);
+  }
+  const visible = input.replace(regex, "").trim();
+  return {
+    visible,
+    inline: blocks.join("\n\n"),
+  };
+}
+
 function renderMarkdown(text: string): string {
   const raw = md.render(text || "");
   return DOMPurify.sanitize(raw);
 }
 
-const renderedAssistantHtml = computed(() => renderMarkdown(props.latestAssistantText));
+const latestAssistantParts = computed(() => splitThinkText(props.latestAssistantText));
+const latestInlineReasoningText = computed(
+  () => latestAssistantParts.value.inline || props.latestReasoningInlineText || "",
+);
+const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts.value.visible));
+
+function lastLinePreview(raw: string): string {
+  if (!raw) return "";
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const last = lines.length ? lines[lines.length - 1] : raw.trim();
+  if (!last) return "";
+  return last.length > 42 ? `${last.slice(0, 42)}...` : last;
+}
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
   return `data:${audio.mime};base64,${audio.bytesBase64}`;
@@ -317,4 +393,5 @@ watch(
   background: transparent;
   padding: 0;
 }
+
 </style>
