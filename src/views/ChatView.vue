@@ -37,7 +37,7 @@
           </div>
         </div>
         <div v-if="turn.assistantText" class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ personaName || "助理" }}</div>
           <div
             class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown"
             v-html="renderMarkdown(turn.assistantText)"
@@ -49,7 +49,7 @@
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
         <div class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ personaName || "助理" }}</div>
           <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
             <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
             <div class="mt-1">
@@ -130,7 +130,7 @@ import type { ChatTurn } from "../types/app";
 
 const props = defineProps<{
   userAlias: string;
-  agentName: string;
+  personaName: string;
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;

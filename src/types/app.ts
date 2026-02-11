@@ -31,7 +31,7 @@ export type AppConfig = {
   apiConfigs: ApiConfigItem[];
 };
 
-export type AgentProfile = {
+export type PersonaProfile = {
   id: string;
   name: string;
   systemPrompt: string;
@@ -63,7 +63,7 @@ export type ChatTurn = {
 
 export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
 
-export type ChatSettings = { selectedAgentId: string; userAlias: string };
+export type ChatSettings = { selectedPersonaId: string; userAlias: string };
 
 export type ToolLoadStatus = {
   id: string;

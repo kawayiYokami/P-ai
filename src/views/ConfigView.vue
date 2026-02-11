@@ -4,13 +4,13 @@
       <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">快捷键</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">API</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">工具</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'agent' }" @click="$emit('update:configTab', 'agent')">智能体</a>
+      <a class="tab" :class="{ 'tab-active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">人格</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">对话</a>
     </div>
 
     <template v-if="configTab === 'hotkey'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">Hotkey</span></div>
+        <div class="label py-1"><span class="label-text text-xs">呼唤热键</span></div>
         <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+·" />
       </label>
       <div class="grid grid-cols-3 gap-2">
@@ -93,6 +93,8 @@
         </div>
       </label>
 
+      <div class="divider my-0"></div>
+
       <div v-if="selectedApiConfig" class="grid gap-2">
         <label class="form-control">
           <div class="label py-1"><span class="label-text text-sm font-medium">配置名称</span></div>
@@ -167,9 +169,6 @@
             />
           </label>
         </div>
-        <div class="flex items-center justify-end">
-          <button class="btn btn-sm btn-ghost bg-base-100" :class="{ loading: checkingToolsStatus }" @click="$emit('refreshToolsStatus')">刷新状态</button>
-        </div>
         <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">当前对话AI未启用工具调用。</div>
         <div v-else class="grid gap-2">
           <div
@@ -199,20 +198,27 @@
       </template>
     </template>
 
-    <template v-else-if="configTab === 'agent'">
+    <template v-else-if="configTab === 'persona'">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">当前智能体</span></div>
-        <select :value="selectedAgentId" class="select select-bordered select-sm" @change="$emit('update:selectedAgentId', ($event.target as HTMLSelectElement).value)">
-          <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+        <div class="label py-1"><span class="label-text text-xs">当前人格</span></div>
+        <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
+          <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </label>
-      <div v-if="selectedAgent" class="grid gap-2">
-        <input v-model="selectedAgent.name" class="input input-bordered input-sm" placeholder="智能体名称" />
-        <textarea v-model="selectedAgent.systemPrompt" class="textarea textarea-bordered textarea-sm" rows="4" placeholder="系统提示词"></textarea>
+      <div class="divider my-0"></div>
+      <div v-if="selectedPersona" class="grid gap-2">
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-xs">人格名称</span></div>
+          <input v-model="selectedPersona.name" class="input input-bordered input-sm" placeholder="人格名称" />
+        </label>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text text-xs">人格设定</span></div>
+          <textarea v-model="selectedPersona.systemPrompt" class="textarea textarea-bordered textarea-sm" rows="4" placeholder="系统提示词"></textarea>
+        </label>
       </div>
       <div class="flex gap-1">
-        <button class="btn btn-sm" @click="$emit('addAgent')">新增</button>
-        <button class="btn btn-sm" :disabled="agents.length <= 1" @click="$emit('removeSelectedAgent')">删除</button>
+        <button class="btn btn-sm" @click="$emit('addPersona')">新增</button>
+        <button class="btn btn-sm" :disabled="personas.length <= 1" @click="$emit('removeSelectedPersona')">删除</button>
       </div>
     </template>
 
@@ -235,9 +241,9 @@
         </select>
       </label>
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">默认智能体</span></div>
-        <select :value="selectedAgentId" class="select select-bordered select-sm" @change="$emit('update:selectedAgentId', ($event.target as HTMLSelectElement).value)">
-          <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+        <div class="label py-1"><span class="label-text text-xs">默认人格</span></div>
+        <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
+          <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </label>
       <label class="form-control">
@@ -264,10 +270,10 @@
 </template>
 
 <script setup lang="ts">
-import type { AgentProfile, ApiConfigItem, AppConfig, ImageTextCacheStats, ToolLoadStatus } from "../types/app";
+import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "agent" | "chatSettings";
+type ConfigTab = "hotkey" | "api" | "tools" | "persona" | "chatSettings";
 
 const props = defineProps<{
   config: AppConfig;
@@ -277,12 +283,11 @@ const props = defineProps<{
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
-  checkingToolsStatus: boolean;
   modelOptions: string[];
   toolStatuses: ToolLoadStatus[];
-  agents: AgentProfile[];
-  selectedAgentId: string;
-  selectedAgent: AgentProfile | null;
+  personas: PersonaProfile[];
+  selectedPersonaId: string;
+  selectedPersona: PersonaProfile | null;
   userAlias: string;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
@@ -297,17 +302,16 @@ const props = defineProps<{
 
 defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
-  (e: "update:selectedAgentId", value: string): void;
+  (e: "update:selectedPersonaId", value: string): void;
   (e: "update:userAlias", value: string): void;
   (e: "toggleTheme"): void;
   (e: "refreshModels"): void;
-  (e: "refreshToolsStatus"): void;
   (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;
   (e: "saveApiConfig"): void;
-  (e: "addAgent"): void;
-  (e: "removeSelectedAgent"): void;
+  (e: "addPersona"): void;
+  (e: "removeSelectedPersona"): void;
   (e: "openCurrentHistory"): void;
   (e: "refreshImageCacheStats"): void;
   (e: "clearImageCache"): void;

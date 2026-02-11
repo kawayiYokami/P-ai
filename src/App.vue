@@ -34,12 +34,11 @@
         :tool-api-config="toolApiConfig"
         :base-url-reference="baseUrlReference"
         :refreshing-models="refreshingModels"
-        :checking-tools-status="checkingToolsStatus"
         :model-options="selectedModelOptions"
         :tool-statuses="toolStatuses"
-        :agents="agents"
-        :selected-agent-id="selectedAgentId"
-        :selected-agent="selectedAgent"
+        :personas="personas"
+        :selected-persona-id="selectedPersonaId"
+        :selected-persona="selectedPersona"
         :user-alias="userAlias"
         :text-capable-api-configs="textCapableApiConfigs"
         :image-capable-api-configs="imageCapableApiConfigs"
@@ -51,16 +50,15 @@
         :hotkey-test-recording-ms="hotkeyTestRecordingMs"
         :hotkey-test-audio-ready="!!hotkeyTestAudio"
         @update:config-tab="configTab = $event"
-        @update:selected-agent-id="selectedAgentId = $event"
+        @update:selected-persona-id="selectedPersonaId = $event"
         @update:user-alias="userAlias = $event"
         @toggle-theme="toggleTheme"
         @refresh-models="refreshModels"
-        @refresh-tools-status="refreshToolsStatus"
         @save-api-config="saveConfig"
         @add-api-config="addApiConfig"
         @remove-selected-api-config="removeSelectedApiConfig"
-        @add-agent="addAgent"
-        @remove-selected-agent="removeSelectedAgent"
+        @add-persona="addPersona"
+        @remove-selected-persona="removeSelectedPersona"
         @open-current-history="openCurrentHistory"
         @open-memory-viewer="openMemoryViewer"
         @refresh-image-cache-stats="refreshImageCacheStats"
@@ -73,7 +71,7 @@
       <ChatView
         v-else-if="viewMode === 'chat'"
         :user-alias="userAlias"
-        :agent-name="selectedAgent?.name || '助理'"
+        :persona-name="selectedPersona?.name || '助理'"
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
@@ -194,12 +192,11 @@ import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
 import ArchivesView from "./views/ArchivesView.vue";
 import type {
-  AgentProfile,
+  PersonaProfile,
   ApiConfigItem,
   AppConfig,
   ArchiveSummary,
   ChatMessage,
-  ChatSettings,
   ChatSnapshot,
   ChatTurn,
   ImageTextCacheStats,
@@ -220,10 +217,10 @@ const config = reactive<AppConfig>({
   visionApiConfigId: undefined,
   apiConfigs: [],
 });
-const configTab = ref<"hotkey" | "api" | "tools" | "agent" | "chatSettings">("hotkey");
+const configTab = ref<"hotkey" | "api" | "tools" | "persona" | "chatSettings">("hotkey");
 const currentTheme = ref<"light" | "forest">("light");
-const agents = ref<AgentProfile[]>([]);
-const selectedAgentId = ref("default-agent");
+const personas = ref<PersonaProfile[]>([]);
+const selectedPersonaId = ref("default-agent");
 const userAlias = ref("用户");
 const chatInput = ref("");
 const latestUserText = ref("");
@@ -259,11 +256,11 @@ const memoryDialog = ref<HTMLDialogElement | null>(null);
 const memoryImportInput = ref<HTMLInputElement | null>(null);
 const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
-const agentsAutosaveReady = ref(false);
+const personasAutosaveReady = ref(false);
 const chatSettingsAutosaveReady = ref(false);
 const suppressAutosave = ref(false);
 let configAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-let agentsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let personasAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let mediaStream: MediaStream | null = null;
@@ -323,7 +320,7 @@ const pagedMemories = computed(() => {
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
-    return `与 ${selectedAgent.value?.name || "助理"} 的对话`;
+    return `与 ${selectedPersona.value?.name || "助理"} 的对话`;
   }
   if (viewMode.value === "archives") {
     return "Easy Call AI - 归档窗口";
@@ -351,7 +348,7 @@ const speechRecognitionSupported = computed(() => {
   };
   return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
 });
-const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
+const selectedPersona = computed(() => personas.value.find((p) => p.id === selectedPersonaId.value) ?? null);
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
   if (!id) return [];
@@ -626,12 +623,12 @@ async function saveConfig() {
   }
 }
 
-async function loadAgents() {
+async function loadPersonas() {
   suppressAutosave.value = true;
   try {
-    const list = await invoke<AgentProfile[]>("load_agents");
-    agents.value = list;
-    if (!agents.value.some((a) => a.id === selectedAgentId.value)) selectedAgentId.value = agents.value[0]?.id ?? "default-agent";
+    const list = await invoke<PersonaProfile[]>("load_agents");
+    personas.value = list;
+    if (!personas.value.some((p) => p.id === selectedPersonaId.value)) selectedPersonaId.value = personas.value[0]?.id ?? "default-agent";
   } finally {
     suppressAutosave.value = false;
   }
@@ -640,9 +637,9 @@ async function loadAgents() {
 async function loadChatSettings() {
   suppressAutosave.value = true;
   try {
-    const settings = await invoke<ChatSettings>("load_chat_settings");
-    if (agents.value.some((a) => a.id === settings.selectedAgentId)) {
-      selectedAgentId.value = settings.selectedAgentId;
+    const settings = await invoke<{ selectedAgentId: string; userAlias: string }>("load_chat_settings");
+    if (personas.value.some((p) => p.id === settings.selectedAgentId)) {
+      selectedPersonaId.value = settings.selectedAgentId;
     }
     userAlias.value = settings.userAlias?.trim() || "用户";
   } finally {
@@ -650,13 +647,13 @@ async function loadChatSettings() {
   }
 }
 
-async function saveAgents() {
+async function savePersonas() {
   suppressAutosave.value = true;
   try {
-    agents.value = await invoke<AgentProfile[]>("save_agents", { input: { agents: agents.value } });
-    status.value = "Agents saved.";
+    personas.value = await invoke<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
+    status.value = "人格已保存。";
   } catch (e) {
-    status.value = `Save agents failed: ${String(e)}`;
+    status.value = `Save personas failed: ${String(e)}`;
   } finally {
     suppressAutosave.value = false;
   }
@@ -666,7 +663,7 @@ async function saveChatPreferences() {
   saving.value = true;
   status.value = "Saving chat settings...";
   try {
-    await invoke("save_chat_settings", { input: { selectedAgentId: selectedAgentId.value, userAlias: userAlias.value } });
+    await invoke("save_chat_settings", { input: { selectedAgentId: selectedPersonaId.value, userAlias: userAlias.value } });
     status.value = "Chat settings saved.";
   } catch (e) {
     status.value = `Save chat settings failed: ${String(e)}`;
@@ -703,12 +700,12 @@ function scheduleConfigAutosave() {
   return;
 }
 
-function scheduleAgentsAutosave() {
+function schedulePersonasAutosave() {
   if (suppressAutosave.value) return;
-  if (!agentsAutosaveReady.value) return;
-  if (agentsAutosaveTimer) clearTimeout(agentsAutosaveTimer);
-  agentsAutosaveTimer = setTimeout(() => {
-    void saveAgents();
+  if (!personasAutosaveReady.value) return;
+  if (personasAutosaveTimer) clearTimeout(personasAutosaveTimer);
+  personasAutosaveTimer = setTimeout(() => {
+    void savePersonas();
   }, 350);
 }
 
@@ -736,18 +733,18 @@ function removeSelectedApiConfig() {
   normalizeApiBindingsLocal();
 }
 
-function addAgent() {
-  const id = `agent-${Date.now()}`;
+function addPersona() {
+  const id = `persona-${Date.now()}`;
   const now = new Date().toISOString();
-  agents.value.push({ id, name: `Agent ${agents.value.length + 1}`, systemPrompt: "", createdAt: now, updatedAt: now });
-  selectedAgentId.value = id;
+  personas.value.push({ id, name: `人格 ${personas.value.length + 1}`, systemPrompt: "", createdAt: now, updatedAt: now });
+  selectedPersonaId.value = id;
 }
 
-function removeSelectedAgent() {
-  if (agents.value.length <= 1) return;
-  const idx = agents.value.findIndex((a) => a.id === selectedAgentId.value);
-  if (idx >= 0) agents.value.splice(idx, 1);
-  selectedAgentId.value = agents.value[0].id;
+function removeSelectedPersona() {
+  if (personas.value.length <= 1) return;
+  const idx = personas.value.findIndex((p) => p.id === selectedPersonaId.value);
+  if (idx >= 0) personas.value.splice(idx, 1);
+  selectedPersonaId.value = personas.value[0].id;
 }
 
 async function refreshModels() {
@@ -809,9 +806,9 @@ async function clearImageCache() {
 }
 
 async function refreshChatSnapshot() {
-  if (!activeChatApiConfigId.value || !selectedAgentId.value) return;
+  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
   try {
-    const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value } });
+    const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
     latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
@@ -820,10 +817,10 @@ async function refreshChatSnapshot() {
   }
 }
 async function loadAllMessages() {
-  if (!activeChatApiConfigId.value || !selectedAgentId.value) return;
+  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
   try {
     const msgs = await invoke<ChatMessage[]>("get_active_conversation_messages", {
-      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value },
+      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
     allMessages.value = msgs;
   } catch (e) {
@@ -998,7 +995,7 @@ async function sendChat() {
     const result = await invoke<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
       input: {
         apiConfigId: activeChatApiConfigId.value,
-        agentId: selectedAgentId.value,
+        agentId: selectedPersonaId.value,
         payload: { text, images: sentImages, model: sentModel },
       },
       onDelta: deltaChannel,
@@ -1041,7 +1038,7 @@ function stopChat() {
 
 async function openCurrentHistory() {
   try {
-    currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedAgentId.value } });
+    currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     historyDialog.value?.showModal();
   } catch (e) {
     status.value = `Load history failed: ${String(e)}`;
@@ -1508,7 +1505,7 @@ onMounted(async () => {
   window.addEventListener("keyup", keyupHandler);
   const refreshAll = async () => {
     await loadConfig();
-    await loadAgents();
+    await loadPersonas();
     await loadChatSettings();
     if (viewMode.value === "config") {
       await refreshImageCacheStats();
@@ -1525,7 +1522,7 @@ onMounted(async () => {
 
   await refreshAll();
   configAutosaveReady.value = true;
-  agentsAutosaveReady.value = true;
+  personasAutosaveReady.value = true;
   chatSettingsAutosaveReady.value = true;
   if (viewMode.value === "chat") {
     try {
@@ -1536,11 +1533,11 @@ onMounted(async () => {
   }
   await listen("easy-call:refresh", async () => {
     configAutosaveReady.value = false;
-    agentsAutosaveReady.value = false;
+    personasAutosaveReady.value = false;
     chatSettingsAutosaveReady.value = false;
     await refreshAll();
     configAutosaveReady.value = true;
-    agentsAutosaveReady.value = true;
+    personasAutosaveReady.value = true;
     chatSettingsAutosaveReady.value = true;
   });
 
@@ -1603,19 +1600,19 @@ watch(
 );
 
 watch(
-  () => agents.value.map((a) => ({
-    id: a.id,
-    name: a.name,
-    systemPrompt: a.systemPrompt,
-    createdAt: a.createdAt,
-    updatedAt: a.updatedAt,
+  () => personas.value.map((p) => ({
+    id: p.id,
+    name: p.name,
+    systemPrompt: p.systemPrompt,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
   })),
-  () => scheduleAgentsAutosave(),
+  () => schedulePersonasAutosave(),
   { deep: true },
 );
 
 watch(
-  () => ({ selectedAgentId: selectedAgentId.value, userAlias: userAlias.value }),
+  () => ({ selectedPersonaId: selectedPersonaId.value, userAlias: userAlias.value }),
   () => scheduleChatSettingsAutosave(),
 );
 
@@ -1675,3 +1672,4 @@ watch(
   },
 );
 </script>
+
