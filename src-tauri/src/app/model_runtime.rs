@@ -1223,12 +1223,15 @@ async fn call_model_openai_with_tools(
                         "running",
                         &format!("正在调用工具：{}", tool_call.function.name),
                     );
+                    let tool_args = match &tool_call.function.arguments {
+                        // Some providers return arguments as JSON string payload.
+                        // Passing `to_string()` here would double-encode into "\"{...}\"".
+                        Value::String(raw) => raw.clone(),
+                        other => other.to_string(),
+                    };
                     let tool_result = agent
                         .tool_server_handle
-                        .call_tool(
-                            &tool_call.function.name,
-                            &tool_call.function.arguments.to_string(),
-                        )
+                        .call_tool(&tool_call.function.name, &tool_args)
                         .await
                         .map_err(|err| {
                             send_tool_status_event(
