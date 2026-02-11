@@ -605,65 +605,74 @@ async fn send_chat_message(
     if !selected_api.enable_image {
         let images = effective_payload.images.clone().unwrap_or_default();
         if !images.is_empty() {
-            let vision_api = resolve_vision_api_config(&app_config)?;
-            let vision_resolved = resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
-            if !is_openai_style_request_format(&vision_resolved.request_format) {
-                return Err(format!(
-                    "Vision request format '{}' is not implemented in image conversion router yet.",
-                    vision_resolved.request_format
-                ));
-            }
+            let vision_api = resolve_vision_api_config(&app_config).ok();
+            if let Some(vision_api) = vision_api {
+                let vision_resolved =
+                    resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
+                if !is_openai_style_request_format(&vision_resolved.request_format) {
+                    return Err(format!(
+                        "Vision request format '{}' is not implemented in image conversion router yet.",
+                        vision_resolved.request_format
+                    ));
+                }
 
-            let mut converted_texts = Vec::<String>::new();
-            for (idx, image) in images.iter().enumerate() {
-                let hash = compute_image_hash_hex(image)?;
-                let cached = {
+                let mut converted_texts = Vec::<String>::new();
+                for (idx, image) in images.iter().enumerate() {
+                    let hash = compute_image_hash_hex(image)?;
+                    let cached = {
+                        let guard = state
+                            .state_lock
+                            .lock()
+                            .map_err(|_| "Failed to lock state mutex".to_string())?;
+                        let data = read_app_data(&state.data_path)?;
+                        drop(guard);
+                        find_image_text_cache(&data, &hash, &vision_api.id)
+                    };
+
+                    if let Some(text) = cached {
+                        let mapped = format!("[图片{}]\n{}", idx + 1, text);
+                        converted_texts.push(mapped);
+                        continue;
+                    }
+
+                    let converted =
+                        describe_image_with_vision_api(&vision_resolved, &vision_api, image)
+                            .await?;
+                    let converted = converted.trim().to_string();
+                    if converted.is_empty() {
+                        continue;
+                    }
+                    let mapped = format!("[图片{}]\n{}", idx + 1, converted);
+                    converted_texts.push(mapped);
+
                     let guard = state
                         .state_lock
                         .lock()
                         .map_err(|_| "Failed to lock state mutex".to_string())?;
-                    let data = read_app_data(&state.data_path)?;
+                    let mut data = read_app_data(&state.data_path)?;
+                    upsert_image_text_cache(&mut data, &hash, &vision_api.id, &converted);
+                    write_app_data(&state.data_path, &data)?;
                     drop(guard);
-                    find_image_text_cache(&data, &hash, &vision_api.id)
-                };
-
-                if let Some(text) = cached {
-                    let mapped = format!("[图片{}]\n{}", idx + 1, text);
-                    converted_texts.push(mapped);
-                    continue;
                 }
 
-                let converted = describe_image_with_vision_api(&vision_resolved, &vision_api, image)
-                    .await?;
-                let converted = converted.trim().to_string();
-                if converted.is_empty() {
-                    continue;
+                if !converted_texts.is_empty() {
+                    let converted_all = converted_texts.join("\n\n");
+                    let merged_text = effective_payload
+                        .text
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .map(|text| format!("{text}\n\n{converted_all}"))
+                        .unwrap_or(converted_all);
+                    effective_payload.text = Some(merged_text);
                 }
-                let mapped = format!("[图片{}]\n{}", idx + 1, converted);
-                converted_texts.push(mapped);
-
-                let guard = state
-                    .state_lock
-                    .lock()
-                    .map_err(|_| "Failed to lock state mutex".to_string())?;
-                let mut data = read_app_data(&state.data_path)?;
-                upsert_image_text_cache(&mut data, &hash, &vision_api.id, &converted);
-                write_app_data(&state.data_path, &data)?;
-                drop(guard);
+                effective_payload.images = None;
+            } else {
+                eprintln!(
+                    "[CHAT] Image input filtered out because current chat API does not support image and no vision fallback is configured."
+                );
+                effective_payload.images = None;
             }
-
-            if !converted_texts.is_empty() {
-                let converted_all = converted_texts.join("\n\n");
-                let merged_text = effective_payload
-                    .text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .map(|text| format!("{text}\n\n{converted_all}"))
-                    .unwrap_or(converted_all);
-                effective_payload.text = Some(merged_text);
-            }
-            effective_payload.images = None;
         }
     }
 

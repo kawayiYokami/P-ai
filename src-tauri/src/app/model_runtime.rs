@@ -98,6 +98,14 @@ fn clean_text(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn is_image_unsupported_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("unknown variant `image_url`")
+        || lower.contains("expected `text`")
+        || lower.contains("does not support image")
+        || lower.contains("image input")
+}
+
 fn truncate_by_chars(input: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
@@ -992,7 +1000,24 @@ async fn call_model_openai_style(
     }
 
     // 回退到 rig（支持多模态）
-    call_model_openai_rig_style(api_config, model_name, prepared).await
+    let original = prepared.clone();
+    let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
+    match rig_result {
+        Ok(text) => Ok(text),
+        Err(err)
+            if !original.latest_images.is_empty() && is_image_unsupported_error(&err) =>
+        {
+            eprintln!(
+                "[CHAT] Model rejected image input, fallback to text-only request. error={}",
+                err
+            );
+            let mut fallback = original;
+            fallback.latest_images.clear();
+            fallback.latest_audios.clear();
+            call_model_openai_stream_text(api_config, model_name, &fallback, on_delta).await
+        }
+        Err(err) => Err(err),
+    }
 }
 
 async fn describe_image_with_vision_api(
