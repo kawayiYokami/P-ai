@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
+    "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "jsx": "preserve",
     "sourceMap": true,
