@@ -1,9 +1,21 @@
 
 <template>
   <div class="window-shell text-sm bg-base-200">
-    <div class="navbar min-h-10 h-10 px-2 relative cursor-move select-none" :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'" @mousedown.left.prevent="startDrag">
+    <div class="navbar min-h-10 h-10 px-2 relative z-20 overflow-visible cursor-move select-none" :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'" @mousedown.left.prevent="startDrag">
       <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
         <span class="font-semibold text-sm">{{ titleText }}</span>
+        <template v-if="viewMode === 'chat'">
+          <div class="tooltip tooltip-bottom" data-tip="点击强制归档当前对话">
+            <button
+              class="btn btn-ghost btn-xs ml-2"
+              :disabled="forcingArchive || chatting"
+              @mousedown.stop
+              @click.stop="forceArchiveNow"
+            >
+              {{ chatUsagePercent }}%
+            </button>
+          </div>
+        </template>
       </div>
       <div class="flex-none flex gap-1 ml-auto" @mousedown.stop>
         <template v-if="viewMode === 'chat'">
@@ -35,6 +47,7 @@
         :base-url-reference="baseUrlReference"
         :refreshing-models="refreshingModels"
         :model-options="selectedModelOptions"
+        :model-refresh-error="modelRefreshError"
         :tool-statuses="toolStatuses"
         :personas="personas"
         :selected-persona-id="selectedPersonaId"
@@ -68,36 +81,48 @@
         @play-hotkey-record-test="playHotkeyRecordTest"
       />
 
-      <ChatView
-        v-else-if="viewMode === 'chat'"
-        :user-alias="userAlias"
-        :persona-name="selectedPersona?.name || '助理'"
-        :latest-user-text="latestUserText"
-        :latest-user-images="latestUserImages"
-        :latest-assistant-text="latestAssistantText"
-        :latest-reasoning-standard-text="latestReasoningStandardText"
-        :latest-reasoning-inline-text="latestReasoningInlineText"
-        :tool-status-text="toolStatusText"
-        :tool-status-state="toolStatusState"
-        :chat-error-text="chatErrorText"
-        :clipboard-images="clipboardImages"
-        :chat-input="chatInput"
-        :chat-input-placeholder="chatInputPlaceholder"
-        :can-record="speechRecognitionSupported"
-        :recording="recording"
-        :recording-ms="recordingMs"
-        :record-hotkey="config.recordHotkey"
-        :chatting="chatting"
-        :turns="visibleTurns"
-        :has-more-turns="hasMoreTurns"
-        @update:chat-input="chatInput = $event"
-        @remove-clipboard-image="removeClipboardImage"
-        @start-recording="startRecording"
-        @stop-recording="stopRecording(false)"
-        @send-chat="sendChat"
-        @stop-chat="stopChat"
-        @load-more-turns="loadMoreTurns"
-      />
+      <div v-else-if="viewMode === 'chat'" class="relative flex-1">
+        <ChatView
+          :user-alias="userAlias"
+          :persona-name="selectedPersona?.name || '助理'"
+          :latest-user-text="latestUserText"
+          :latest-user-images="latestUserImages"
+          :latest-assistant-text="latestAssistantText"
+          :latest-reasoning-standard-text="latestReasoningStandardText"
+          :latest-reasoning-inline-text="latestReasoningInlineText"
+          :tool-status-text="toolStatusText"
+          :tool-status-state="toolStatusState"
+          :chat-error-text="chatErrorText"
+          :clipboard-images="clipboardImages"
+          :chat-input="chatInput"
+          :chat-input-placeholder="chatInputPlaceholder"
+          :can-record="speechRecognitionSupported"
+          :recording="recording"
+          :recording-ms="recordingMs"
+          :record-hotkey="config.recordHotkey"
+          :chatting="chatting"
+          :frozen="forcingArchive"
+          :turns="visibleTurns"
+          :has-more-turns="hasMoreTurns"
+          @update:chat-input="chatInput = $event"
+          @remove-clipboard-image="removeClipboardImage"
+          @start-recording="startRecording"
+          @stop-recording="stopRecording(false)"
+          @send-chat="sendChat"
+          @stop-chat="stopChat"
+          @load-more-turns="loadMoreTurns"
+        />
+        <div
+          v-if="forcingArchive"
+          class="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px]"
+        >
+          <div class="rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm flex flex-col items-center gap-1">
+            <span class="loading loading-spinner loading-sm"></span>
+            <div class="text-sm">正在归档优化上下文...</div>
+            <div class="text-xs opacity-70">期间将暂时锁定输入</div>
+          </div>
+        </div>
+      </div>
 
       <ArchivesView
         v-else
@@ -249,7 +274,9 @@ const status = ref("Ready.");
 const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
+const forcingArchive = ref(false);
 const refreshingModels = ref(false);
+const modelRefreshError = ref("");
 const checkingToolsStatus = ref(false);
 const toolStatuses = ref<ToolLoadStatus[]>([]);
 const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
@@ -441,6 +468,14 @@ const visibleTurns = computed(() =>
 );
 
 const hasMoreTurns = computed(() => visibleTurnCount.value < allTurns.value.length);
+const chatContextUsageRatio = computed(() => {
+  const api = activeChatApiConfig.value;
+  if (!api) return 0;
+  const maxTokens = Math.max(16000, Math.min(200000, Number(api.contextWindowTokens ?? 128000)));
+  const used = estimateConversationTokens(allMessages.value);
+  return used / Math.max(1, maxTokens);
+});
+const chatUsagePercent = computed(() => Math.min(100, Math.max(0, Math.round(chatContextUsageRatio.value * 100))));
 
 function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
   return {
@@ -471,6 +506,30 @@ function defaultApiTools() {
     { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], values: {} },
     { id: "memory-save", command: "builtin", args: ["memory-save"], values: {} },
   ];
+}
+
+function estimateTextTokens(text: string): number {
+  let zh = 0;
+  let other = 0;
+  for (const ch of text || "") {
+    if (/\s/.test(ch)) continue;
+    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(ch)) zh += 1;
+    else other += 1;
+  }
+  return zh * 0.6 + other * 0.3;
+}
+
+function estimateConversationTokens(messages: ChatMessage[]): number {
+  let total = 0;
+  for (const m of messages) {
+    total += 12;
+    for (const p of m.parts || []) {
+      if (p.type === "text") total += estimateTextTokens((p as { text?: string }).text || "");
+      else if (p.type === "image") total += 280;
+      else if (p.type === "audio") total += 320;
+    }
+  }
+  return Math.ceil(total);
 }
 
 function buildConfigSnapshotJson(): string {
@@ -801,13 +860,16 @@ function removeSelectedPersona() {
 async function refreshModels() {
   if (!selectedApiConfig.value) return;
   refreshingModels.value = true;
+  modelRefreshError.value = "";
   try {
     const models = await invoke<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
     apiModelOptions.value[selectedApiConfig.value.id] = models;
     if (models.length) selectedApiConfig.value.model = models[0];
     status.value = `Model list refreshed (${models.length}).`;
   } catch (e) {
-    status.value = `Refresh models failed: ${String(e)}`;
+    const err = String(e);
+    modelRefreshError.value = err;
+    status.value = `Refresh models failed: ${err}`;
   } finally {
     refreshingModels.value = false;
   }
@@ -867,6 +929,31 @@ async function refreshChatSnapshot() {
     status.value = `Load chat snapshot failed: ${String(e)}`;
   }
 }
+
+async function forceArchiveNow() {
+  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
+  if (chatting.value || forcingArchive.value) return;
+  forcingArchive.value = true;
+  try {
+    const result = await invoke<ForceArchiveResult>("force_archive_current", {
+      input: {
+        apiConfigId: activeChatApiConfigId.value,
+        agentId: selectedPersonaId.value,
+      },
+    });
+    status.value = result.archived
+      ? `已强制归档，新增记忆 ${result.mergedMemories} 条。`
+      : result.summary;
+    await refreshChatSnapshot();
+    await loadAllMessages();
+    visibleTurnCount.value = 1;
+  } catch (e) {
+    status.value = `强制归档失败: ${String(e)}`;
+  } finally {
+    forcingArchive.value = false;
+  }
+}
+
 async function loadAllMessages() {
   if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
   try {
@@ -906,6 +993,12 @@ type MemoryExportPayload = {
 type ExportMemoriesFileResult = {
   path: string;
   count: number;
+};
+type ForceArchiveResult = {
+  archived: boolean;
+  archiveId?: string | null;
+  summary: string;
+  mergedMemories: number;
 };
 type ImportMemoriesResult = {
   importedCount: number;
@@ -994,6 +1087,7 @@ function enqueueFinalAssistantText(gen: number, finalText: string) {
 }
 
 async function sendChat() {
+  if (chatting.value || forcingArchive.value) return;
   const text = chatInput.value.trim();
   if (!text && clipboardImages.value.length === 0) {
     return;
@@ -1205,7 +1299,7 @@ async function selectArchive(archiveId: string) {
 
 function onPaste(event: ClipboardEvent) {
   if (viewMode.value !== "chat") return;
-  if (chatting.value) return;
+  if (chatting.value || forcingArchive.value) return;
   const items = event.clipboardData?.items;
   if (!items) return;
   const apiConfig = activeChatApiConfig.value;
@@ -1407,7 +1501,7 @@ function matchesRecordHotkey(event: KeyboardEvent): boolean {
 }
 
 async function startRecording() {
-  if (recording.value || chatting.value) return;
+  if (recording.value || chatting.value || forcingArchive.value) return;
   const w = window as typeof window & {
     SpeechRecognition?: new () => SpeechRecognitionLike;
     webkitSpeechRecognition?: new () => SpeechRecognitionLike;
@@ -1700,6 +1794,13 @@ watch(
   }),
   () => {
     void saveConversationApiSettings();
+  },
+);
+
+watch(
+  () => config.selectedApiConfigId,
+  () => {
+    modelRefreshError.value = "";
   },
 );
 

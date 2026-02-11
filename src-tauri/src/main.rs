@@ -652,6 +652,7 @@ fn main() {
             get_archive_messages,
             open_external_url,
             send_chat_message,
+            force_archive_current,
             refresh_models,
             check_tools_status,
             get_image_text_cache_stats,

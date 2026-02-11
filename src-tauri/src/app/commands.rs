@@ -641,6 +641,15 @@ fn merge_memories_into_app_data(data: &mut AppData, drafts: &[ArchiveMemoryDraft
     merged
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForceArchiveResult {
+    archived: bool,
+    archive_id: Option<String>,
+    summary: String,
+    merged_memories: usize,
+}
+
 async fn summarize_archived_conversation_with_model(
     resolved_api: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -705,6 +714,87 @@ async fn summarize_archived_conversation_with_model(
     }
     let memories = parsed.memories.into_iter().take(7).collect::<Vec<_>>();
     Ok((summary, memories))
+}
+
+#[tauri::command]
+async fn force_archive_current(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<ForceArchiveResult, String> {
+    let (selected_api, resolved_api, source, agent, user_alias, memories) = {
+        let guard = state
+            .state_lock
+            .lock()
+            .map_err(|_| "Failed to lock state mutex".to_string())?;
+        let app_config = read_config(&state.config_path)?;
+        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        let mut data = read_app_data(&state.data_path)?;
+        ensure_default_agent(&mut data);
+        let agent = data
+            .agents
+            .iter()
+            .find(|a| a.id == input.agent_id)
+            .cloned()
+            .ok_or_else(|| "Selected agent not found.".to_string())?;
+        let user_alias = data.user_alias.clone();
+        let memories = data.memories.clone();
+        let source = data
+            .conversations
+            .iter()
+            .find(|c| {
+                c.status == "active"
+                    && c.api_config_id == selected_api.id
+                    && c.agent_id == input.agent_id
+            })
+            .cloned()
+            .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
+        drop(guard);
+        (selected_api, resolved_api, source, agent, user_alias, memories)
+    };
+
+    if source.messages.is_empty() {
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            summary: "当前对话为空，无需归档。".to_string(),
+            merged_memories: 0,
+        });
+    }
+
+    let (summary, summary_memories) = summarize_archived_conversation_with_model(
+        &resolved_api,
+        &selected_api,
+        &agent,
+        &user_alias,
+        &source,
+        &memories,
+    )
+    .await?;
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+    ensure_default_agent(&mut data);
+    let archive_id =
+        archive_conversation_now(&mut data, &source.id, "manual_force_archive", &summary);
+    if archive_id.is_none() {
+        drop(guard);
+        return Err("活动对话已变化，请重试强制归档。".to_string());
+    }
+    let merged_memories = merge_memories_into_app_data(&mut data, &summary_memories);
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+
+    Ok(ForceArchiveResult {
+        archived: true,
+        archive_id,
+        summary,
+        merged_memories,
+    })
 }
 
 #[tauri::command]

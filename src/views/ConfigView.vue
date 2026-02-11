@@ -117,7 +117,10 @@
           <input v-model="selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
         </label>
         <label class="form-control">
-          <div class="label py-1"><span class="label-text text-sm font-medium">模型</span></div>
+          <div class="label py-1">
+            <span class="label-text text-sm font-medium">模型</span>
+            <span class="label-text-alt text-[11px] text-error min-h-4">{{ modelRefreshError || " " }}</span>
+          </div>
           <div class="flex gap-1">
             <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
             <div class="dropdown dropdown-end">
@@ -322,6 +325,7 @@ const props = defineProps<{
   baseUrlReference: string;
   refreshingModels: boolean;
   modelOptions: string[];
+  modelRefreshError: string;
   toolStatuses: ToolLoadStatus[];
   personas: PersonaProfile[];
   selectedPersonaId: string;

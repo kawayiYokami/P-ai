@@ -128,7 +128,7 @@
         <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
           <ImageIcon class="h-3.5 w-3.5" />
           <span class="text-[11px]">图片{{ idx + 1 }}</span>
-          <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting" @click="$emit('removeClipboardImage', idx)">
+          <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting || frozen" @click="$emit('removeClipboardImage', idx)">
             <X class="h-3 w-3" />
           </button>
         </div>
@@ -137,7 +137,7 @@
         <button
           class="btn btn-sm btn-circle shrink-0"
           :class="recording ? 'btn-error' : 'btn-ghost bg-base-100'"
-          :disabled="!canRecord || chatting"
+          :disabled="!canRecord || chatting || frozen"
           :title="recording ? `录音中 ${Math.max(1, Math.round(recordingMs / 1000))}s` : `按住${recordHotkey}或按钮录音`"
           @mousedown.prevent="$emit('startRecording')"
           @mouseup.prevent="$emit('stopRecording')"
@@ -150,12 +150,12 @@
         <textarea
           v-model="localChatInput"
           class="flex-1 textarea textarea-sm resize-none border-none bg-transparent focus:outline-none"
-          :disabled="chatting"
+          :disabled="chatting || frozen"
           :rows="Math.max(1, Math.min(10, Math.round(((localChatInput.match(/\n/g) || []).length + 1) * 1.5)))"
           :placeholder="chatInputPlaceholder"
-          @keydown.enter.exact.prevent="!chatting && $emit('sendChat')"
+          @keydown.enter.exact.prevent="!chatting && !frozen && $emit('sendChat')"
         ></textarea>
-        <button class="btn btn-sm btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
+        <button class="btn btn-sm btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
           <Square v-if="chatting" class="h-3 w-3 fill-current" />
           <ArrowUp v-else class="h-3.5 w-3.5" />
         </button>
@@ -191,6 +191,7 @@ const props = defineProps<{
   recordingMs: number;
   recordHotkey: string;
   chatting: boolean;
+  frozen: boolean;
   turns: ChatTurn[];
   hasMoreTurns: boolean;
 }>();
