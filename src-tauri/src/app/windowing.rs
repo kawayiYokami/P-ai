@@ -1,5 +1,29 @@
 use std::str::FromStr;
 
+const MAIN_TRAY_ID: &str = "easy-call-tray";
+
+fn sync_tray_icon_from_avatar_path(app: &AppHandle, avatar_path: Option<&str>) -> Result<(), String> {
+    let tray = app
+        .tray_by_id(MAIN_TRAY_ID)
+        .ok_or_else(|| "Tray icon not found".to_string())?;
+
+    let image = avatar_path
+        .and_then(|p| {
+            let bytes = fs::read(p).ok()?;
+            let dyn_img = image::load_from_memory(&bytes).ok()?;
+            let resized = dyn_img
+                .resize_to_fill(32, 32, image::imageops::FilterType::Lanczos3)
+                .to_rgba8();
+            let (w, h) = resized.dimensions();
+            Some(tauri::image::Image::new_owned(resized.into_raw(), w, h))
+        })
+        .or_else(|| app.default_window_icon().cloned());
+
+    tray
+        .set_icon(image)
+        .map_err(|err| format!("Set tray icon failed: {err}"))
+}
+
 fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
@@ -117,7 +141,7 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
     let menu = Menu::with_items(app, &[&config, &chat, &archives, &quit])
         .map_err(|err| format!("Create tray menu failed: {err}"))?;
 
-    let mut tray = TrayIconBuilder::new().menu(&menu);
+    let mut tray = TrayIconBuilder::with_id(MAIN_TRAY_ID).menu(&menu);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }

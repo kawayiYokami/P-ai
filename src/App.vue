@@ -46,7 +46,6 @@
     >
       <ConfigView
         v-if="viewMode === 'config'"
-        class="h-full min-h-0"
         :config="config"
         :config-tab="configTab"
         :ui-language="config.uiLanguage"
@@ -919,6 +918,7 @@ async function loadPersonas() {
     }
     syncUserAliasFromPersona();
     await preloadPersonaAvatars();
+    await syncTrayIcon(selectedPersonaId.value);
   } finally {
     suppressAutosave.value = false;
   }
@@ -940,8 +940,21 @@ async function loadChatSettings() {
     } else {
       selectedResponseStyleId.value = "concise";
     }
+    await syncTrayIcon(selectedPersonaId.value);
   } finally {
     suppressAutosave.value = false;
+  }
+}
+
+async function syncTrayIcon(agentId?: string) {
+  try {
+    await invoke("sync_tray_icon", {
+      input: {
+        agentId: agentId ?? null,
+      },
+    });
+  } catch (e) {
+    console.warn("[TRAY] sync icon failed:", e);
   }
 }
 
@@ -1089,6 +1102,9 @@ async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase
       personas.value[idx].updatedAt = new Date().toISOString();
     }
     await ensureAvatarCached(result.path, result.updatedAt);
+    if (input.agentId === selectedPersonaId.value) {
+      await syncTrayIcon(input.agentId);
+    }
     status.value = t("status.avatarSaved");
   } catch (e) {
     const err = String(e);
@@ -1108,6 +1124,9 @@ async function clearAgentAvatar(input: { agentId: string }) {
       personas.value[idx].avatarPath = undefined;
       personas.value[idx].avatarUpdatedAt = undefined;
       personas.value[idx].updatedAt = new Date().toISOString();
+    }
+    if (input.agentId === selectedPersonaId.value) {
+      await syncTrayIcon(input.agentId);
     }
     status.value = t("status.avatarCleared");
   } catch (e) {
@@ -1476,7 +1495,8 @@ async function sendChat() {
     latestUserImages.value = sentImages;
     enqueueFinalAssistantText(gen, result.assistantText);
     chatErrorText.value = "";
-    if (toolStatusState.value === "running") {
+    const currentToolState = toolStatusState.value as "running" | "done" | "failed" | "";
+    if (currentToolState === "running") {
       toolStatusState.value = "done";
       toolStatusText.value = t("status.toolCallDone");
     }
@@ -2273,6 +2293,14 @@ watch(
 );
 
 watch(
+  () => selectedPersonaId.value,
+  (id) => {
+    if (!id) return;
+    void syncTrayIcon(id);
+  },
+);
+
+watch(
   () => ({
     chatApiConfigId: config.chatApiConfigId,
     visionApiConfigId: config.visionApiConfigId,
@@ -2305,8 +2333,8 @@ watch(
     if (tab !== "tools") return;
     if (!id) return;
     if (!enabled) {
-      toolStatuses.value = (toolApiConfig.value?.tools ?? []).map((t) => ({
-        id: t.id,
+      toolStatuses.value = (toolApiConfig.value?.tools ?? []).map((tool) => ({
+        id: tool.id,
         status: "disabled",
         detail: t("config.tools.disabledHint"),
       }));

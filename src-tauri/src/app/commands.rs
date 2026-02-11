@@ -156,6 +156,13 @@ struct AvatarDataPathInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SyncTrayIconInput {
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AvatarMeta {
     path: String,
     updated_at: String,
@@ -307,6 +314,36 @@ fn read_avatar_data_url(
     Ok(AvatarDataUrlOutput {
         data_url: format!("data:image/webp;base64,{base64}"),
     })
+}
+
+#[tauri::command]
+fn sync_tray_icon(
+    input: SyncTrayIconInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+    let changed = ensure_default_agent(&mut data);
+    if changed {
+        write_app_data(&state.data_path, &data)?;
+    }
+    let target_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(data.selected_agent_id.as_str());
+    let avatar_path = data
+        .agents
+        .iter()
+        .find(|a| a.id == target_agent_id)
+        .and_then(|a| a.avatar_path.clone());
+    drop(guard);
+    sync_tray_icon_from_avatar_path(&app, avatar_path.as_deref())
 }
 
 #[tauri::command]

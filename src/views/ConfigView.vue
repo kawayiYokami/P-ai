@@ -349,6 +349,7 @@
           <button class="btn btn-xs" :disabled="!avatarEditorTargetId || avatarSaving" @click="openAvatarPickerForEditor">{{ t("config.persona.uploadAvatar") }}</button>
           <button class="btn btn-xs btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">{{ t("config.persona.clearAvatar") }}</button>
         </div>
+        <div class="mt-2 text-[11px] opacity-60">{{ t("config.persona.pasteImageHint") }}</div>
         <div v-if="avatarError" class="mt-2 text-xs text-error break-all">{{ avatarError }}</div>
       </div>
       <div class="modal-action mt-2">
@@ -380,7 +381,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../types/app";
 import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
@@ -598,6 +599,7 @@ function openAvatarPicker(target: AvatarTarget) {
 function openAvatarEditorForSelected() {
   if (!props.selectedPersona) return;
   avatarEditorTargetId.value = props.selectedPersona.id;
+  cropTarget = { agentId: props.selectedPersona.id };
   avatarEditorDialog.value?.showModal();
 }
 
@@ -608,6 +610,11 @@ function closeAvatarEditor() {
 function openAvatarPickerForEditor() {
   if (!avatarEditorTargetId.value) return;
   openAvatarPicker({ agentId: avatarEditorTargetId.value });
+}
+
+function ensureEditorCropTarget() {
+  if (cropTarget || !avatarEditorTargetId.value) return;
+  cropTarget = { agentId: avatarEditorTargetId.value };
 }
 
 function clearAvatarFromEditor() {
@@ -686,7 +693,13 @@ function closeCropDialog() {
 async function onAvatarFilePicked(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !cropTarget) return;
+  if (!file) return;
+  void processAvatarFile(file);
+}
+
+async function processAvatarFile(file: File) {
+  ensureEditorCropTarget();
+  if (!cropTarget) return;
   localCropError.value = "";
   try {
     const dataUrl = await readFileAsDataUrl(file);
@@ -711,6 +724,29 @@ async function onAvatarFilePicked(event: Event) {
     localCropError.value = t("config.persona.avatarReadFailed", { err: String(e) });
   }
 }
+
+function handleAvatarPaste(event: ClipboardEvent) {
+  if (!avatarEditorDialog.value?.open) return;
+  const items = event.clipboardData?.items;
+  if (!items || items.length === 0) return;
+  const imageItem = Array.from(items).find((item) => item.type.startsWith("image/"));
+  if (!imageItem) {
+    localCropError.value = t("config.persona.pasteNoImage");
+    return;
+  }
+  const file = imageItem.getAsFile();
+  if (!file) {
+    localCropError.value = t("config.persona.pasteReadFailed");
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  void processAvatarFile(file);
+}
+
+onMounted(() => {
+  window.addEventListener("paste", handleAvatarPaste);
+});
 
 function confirmCrop() {
   if (!cropTarget) {
@@ -742,6 +778,7 @@ function confirmCrop() {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener("paste", handleAvatarPaste);
   stopHotkeyCapture();
   destroyCropper();
 });

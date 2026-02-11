@@ -838,6 +838,23 @@ fn main() {
             let app_handle = app.handle().clone();
             register_default_hotkey(&app_handle)?;
             build_tray(&app_handle)?;
+            let app_state = app_handle.state::<AppState>();
+            let guard = app_state
+                .state_lock
+                .lock()
+                .map_err(|_| "Failed to lock state mutex".to_string())?;
+            let mut data = read_app_data(&app_state.data_path).unwrap_or_default();
+            let changed = ensure_default_agent(&mut data);
+            if changed {
+                let _ = write_app_data(&app_state.data_path, &data);
+            }
+            let avatar_path = data
+                .agents
+                .iter()
+                .find(|a| a.id == data.selected_agent_id)
+                .and_then(|a| a.avatar_path.clone());
+            drop(guard);
+            let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
             hide_on_close(&app_handle);
             Ok(())
         })
@@ -851,6 +868,7 @@ fn main() {
             save_agent_avatar,
             clear_agent_avatar,
             read_avatar_data_url,
+            sync_tray_icon,
             save_conversation_api_settings,
             get_chat_snapshot,
             get_active_conversation_messages,
