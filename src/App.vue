@@ -36,9 +36,17 @@
       </div>
     </div>
 
-    <div class="window-content" :class="viewMode === 'chat' ? 'flex flex-col min-h-0 overflow-hidden' : 'p-3 overflow-auto'">
+    <div
+      class="window-content"
+      :class="viewMode === 'chat'
+        ? 'flex flex-col min-h-0 overflow-hidden'
+        : viewMode === 'config'
+          ? 'p-3 min-h-0 overflow-hidden'
+          : 'p-3 overflow-auto'"
+    >
       <ConfigView
         v-if="viewMode === 'config'"
+        class="h-full min-h-0"
         :config="config"
         :config-tab="configTab"
         :ui-language="config.uiLanguage"

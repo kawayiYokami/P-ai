@@ -1,12 +1,14 @@
 <template>
-  <div class="grid gap-2">
-    <div class="tabs tabs-boxed tabs-sm">
+  <div class="h-full min-h-0 flex flex-col gap-2">
+    <div class="tabs tabs-boxed tabs-sm shrink-0">
       <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">{{ t("config.tabs.hotkey") }}</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">{{ t("config.tabs.api") }}</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">{{ t("config.tabs.tools") }}</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">{{ t("config.tabs.persona") }}</a>
       <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
     </div>
+    <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+      <div class="grid gap-2">
 
     <template v-if="configTab === 'hotkey'">
       <label class="form-control">
@@ -321,6 +323,8 @@
         <div class="mt-1 opacity-60">{{ t("config.chatSettings.cacheHint") }}</div>
       </div>
     </template>
+      </div>
+    </div>
   </div>
 
   <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="onAvatarFilePicked" />
