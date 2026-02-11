@@ -50,13 +50,29 @@ export type MessagePart =
   | { type: "image"; mime: string; bytesBase64: string }
   | { type: "audio"; mime: string; bytesBase64: string };
 
+export type ChatRole = "user" | "assistant" | "tool" | "system";
+
+export type ToolCallFunction = {
+  name: string;
+  arguments?: string;
+};
+
+export type ToolCallItem = {
+  function?: ToolCallFunction;
+};
+
+export type ToolCallMessage = {
+  role: "assistant" | "tool";
+  tool_calls?: ToolCallItem[];
+};
+
 export type ChatMessage = {
   id: string;
-  role: string;
+  role: ChatRole;
   createdAt?: string;
   parts: MessagePart[];
   extraTextBlocks?: string[];
-  toolCall?: Array<Record<string, unknown>>;
+  toolCall?: ToolCallMessage[];
 };
 
 export type ChatSnapshot = {

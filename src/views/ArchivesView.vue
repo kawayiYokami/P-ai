@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ArchiveSummary, ChatMessage, MessagePart } from "../types/app";
+import type { ArchiveSummary, ChatMessage, ChatRole, MessagePart } from "../types/app";
 
 const props = defineProps<{
   archives: ArchiveSummary[];
@@ -88,7 +88,7 @@ function messageText(msg: ChatMessage): string {
     .trim();
 }
 
-function roleLabel(role: string): string {
+function roleLabel(role: ChatRole): string {
   if (role === "user") return t("archives.roleUser");
   if (role === "assistant") return t("archives.roleAssistant");
   if (role === "tool") return t("archives.roleTool");
@@ -106,13 +106,10 @@ function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string 
   const entries = Array.isArray(msg.toolCall) ? msg.toolCall : [];
   return entries
     .map((item) => {
-      const role = typeof item.role === "string" ? item.role : "";
-      if (role !== "assistant") return null;
-      const calls = Array.isArray(item.tool_calls) ? item.tool_calls : [];
-      const first = calls[0] as Record<string, unknown> | undefined;
-      const fn = (first?.function ?? {}) as Record<string, unknown>;
-      const name = typeof fn.name === "string" ? fn.name : "unknown";
-      const args = typeof fn.arguments === "string" ? fn.arguments : "";
+      if (item.role !== "assistant") return null;
+      const first = item.tool_calls?.[0];
+      const name = first?.function?.name || "unknown";
+      const args = first?.function?.arguments || "";
       return {
         name,
         content: args ? t("archives.toolArgs", { value: args }) : t("archives.toolNoArgs"),
