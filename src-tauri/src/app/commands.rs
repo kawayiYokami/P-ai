@@ -269,6 +269,213 @@ fn list_memories(state: State<'_, AppState>) -> Result<Vec<MemoryEntry>, String>
     Ok(memories)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryExportPayload {
+    version: u32,
+    exported_at: String,
+    memories: Vec<MemoryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportMemoriesInput {
+    memories: Vec<MemoryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportMemoriesResult {
+    imported_count: usize,
+    created_count: usize,
+    merged_count: usize,
+    total_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportMemoriesFileResult {
+    path: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportMemoriesToPathInput {
+    path: String,
+}
+
+fn memory_content_key(content: &str) -> String {
+    clean_text(content.trim()).to_lowercase()
+}
+
+#[tauri::command]
+fn export_memories(state: State<'_, AppState>) -> Result<MemoryExportPayload, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let mut memories = data.memories;
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+    Ok(MemoryExportPayload {
+        version: 1,
+        exported_at: now_iso(),
+        memories,
+    })
+}
+
+#[tauri::command]
+fn export_memories_to_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportMemoriesFileResult, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+    let mut memories = data.memories;
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let payload = MemoryExportPayload {
+        version: 1,
+        exported_at: now_iso(),
+        memories,
+    };
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .blocking_save_file();
+    let file_path = selected
+        .and_then(|fp| fp.as_path().map(ToOwned::to_owned))
+        .ok_or_else(|| "Export cancelled".to_string())?;
+    let body = serde_json::to_string_pretty(&payload)
+        .map_err(|err| format!("Serialize export payload failed: {err}"))?;
+    fs::write(&file_path, body).map_err(|err| format!("Write export file failed: {err}"))?;
+
+    Ok(ExportMemoriesFileResult {
+        path: file_path.to_string_lossy().to_string(),
+        count: payload.memories.len(),
+    })
+}
+
+#[tauri::command]
+fn export_memories_to_path(
+    input: ExportMemoriesToPathInput,
+    state: State<'_, AppState>,
+) -> Result<ExportMemoriesFileResult, String> {
+    let target = PathBuf::from(input.path.trim());
+    if input.path.trim().is_empty() {
+        return Err("Export path is empty".to_string());
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| "Export path has no parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|err| format!("Create export dir failed: {err}"))?;
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+    let mut memories = data.memories;
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let payload = MemoryExportPayload {
+        version: 1,
+        exported_at: now_iso(),
+        memories,
+    };
+    let body = serde_json::to_string_pretty(&payload)
+        .map_err(|err| format!("Serialize export payload failed: {err}"))?;
+    fs::write(&target, body).map_err(|err| format!("Write export file failed: {err}"))?;
+
+    Ok(ExportMemoriesFileResult {
+        path: target.to_string_lossy().to_string(),
+        count: payload.memories.len(),
+    })
+}
+
+#[tauri::command]
+fn import_memories(
+    input: ImportMemoriesInput,
+    state: State<'_, AppState>,
+) -> Result<ImportMemoriesResult, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+
+    let now = now_iso();
+    let mut created_count = 0usize;
+    let mut merged_count = 0usize;
+    let mut imported_count = 0usize;
+
+    let mut key_index = std::collections::HashMap::<String, usize>::new();
+    for (idx, m) in data.memories.iter().enumerate() {
+        let key = memory_content_key(&m.content);
+        if !key.is_empty() {
+            key_index.insert(key, idx);
+        }
+    }
+
+    for incoming in input.memories {
+        let content = clean_text(incoming.content.trim());
+        if content.is_empty() {
+            continue;
+        }
+        let keywords = normalize_memory_keywords(&incoming.keywords);
+        if keywords.is_empty() {
+            continue;
+        }
+
+        imported_count += 1;
+        let key = memory_content_key(&content);
+        if let Some(idx) = key_index.get(&key).copied() {
+            let existing = &mut data.memories[idx];
+            for kw in keywords {
+                if !existing.keywords.iter().any(|x| x == &kw) {
+                    existing.keywords.push(kw);
+                }
+            }
+            existing.updated_at = now.clone();
+            merged_count += 1;
+            continue;
+        }
+
+        let id = if incoming.id.trim().is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            incoming.id
+        };
+        data.memories.push(MemoryEntry {
+            id,
+            content: content.clone(),
+            keywords,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        });
+        key_index.insert(key, data.memories.len() - 1);
+        created_count += 1;
+    }
+
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+
+    Ok(ImportMemoriesResult {
+        imported_count,
+        created_count,
+        merged_count,
+        total_count: data.memories.len(),
+    })
+}
+
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let trimmed = url.trim();

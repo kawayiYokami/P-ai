@@ -134,6 +134,13 @@
       <dialog ref="memoryDialog" class="modal">
         <div class="modal-box max-w-xl">
           <h3 class="font-semibold text-sm mb-2">记忆列表</h3>
+          <input
+            ref="memoryImportInput"
+            type="file"
+            accept=".json,application/json"
+            class="hidden"
+            @change="handleMemoryImportFile"
+          />
           <div v-if="memoryList.length === 0" class="text-xs opacity-70">暂无记忆</div>
           <div v-else class="space-y-2">
             <div class="max-h-96 overflow-auto space-y-2">
@@ -165,7 +172,11 @@
               </div>
             </div>
           </div>
-          <div class="modal-action"><button class="btn btn-sm" @click="closeMemoryViewer">关闭</button></div>
+          <div class="modal-action">
+            <button class="btn btn-sm btn-ghost" @click="exportMemories">导出</button>
+            <button class="btn btn-sm btn-ghost" @click="triggerMemoryImport">导入</button>
+            <button class="btn btn-sm" @click="closeMemoryViewer">关闭</button>
+          </div>
         </div>
       </dialog>
 
@@ -177,6 +188,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowR
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
+import { save } from "@tauri-apps/plugin-dialog";
 import { Pin, X } from "lucide-vue-next";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
@@ -244,6 +256,7 @@ const imageCacheStatsLoading = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const memoryDialog = ref<HTMLDialogElement | null>(null);
+const memoryImportInput = ref<HTMLInputElement | null>(null);
 const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
 const agentsAutosaveReady = ref(false);
@@ -837,6 +850,21 @@ type MemoryEntry = {
   createdAt: string;
   updatedAt: string;
 };
+type MemoryExportPayload = {
+  version: number;
+  exportedAt: string;
+  memories: MemoryEntry[];
+};
+type ExportMemoriesFileResult = {
+  path: string;
+  count: number;
+};
+type ImportMemoriesResult = {
+  importedCount: number;
+  createdCount: number;
+  mergedCount: number;
+  totalCount: number;
+};
 const STREAM_FLUSH_INTERVAL_MS = 33;
 const STREAM_DRAIN_TARGET_MS = 1000;
 let streamPendingText = "";
@@ -1036,6 +1064,61 @@ async function openMemoryViewer() {
 
 function closeMemoryViewer() {
   memoryDialog.value?.close();
+}
+
+async function exportMemories() {
+  try {
+    const path = await save({
+      defaultPath: `easy-call-ai-memories-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) {
+      status.value = "导出已取消。";
+      return;
+    }
+    const result = await invoke<ExportMemoriesFileResult>("export_memories_to_path", {
+      input: { path },
+    });
+    status.value = `记忆已导出（${result.count} 条）：${result.path}`;
+  } catch (e) {
+    status.value = `导出记忆失败: ${String(e)}`;
+  }
+}
+
+function triggerMemoryImport() {
+  if (memoryImportInput.value) {
+    memoryImportInput.value.value = "";
+    memoryImportInput.value.click();
+  }
+}
+
+async function handleMemoryImportFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const raw = await file.text();
+    const parsed = JSON.parse(raw) as unknown;
+    const memories = Array.isArray(parsed)
+      ? parsed
+      : (parsed && typeof parsed === "object" && Array.isArray((parsed as { memories?: unknown }).memories))
+        ? (parsed as { memories: unknown[] }).memories
+        : [];
+    if (!Array.isArray(memories)) {
+      throw new Error("invalid memories payload");
+    }
+
+    const result = await invoke<ImportMemoriesResult>("import_memories", {
+      input: { memories },
+    });
+    memoryList.value = await invoke<MemoryEntry[]>("list_memories");
+    memoryPage.value = 1;
+    status.value = `导入完成：新增 ${result.createdCount}，合并 ${result.mergedCount}，总计 ${result.totalCount}。`;
+  } catch (e) {
+    status.value = `导入记忆失败: ${String(e)}`;
+  } finally {
+    input.value = "";
+  }
 }
 
 async function loadArchives() {
