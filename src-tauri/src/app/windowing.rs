@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
@@ -37,11 +39,69 @@ fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
     show_window(app, label)
 }
 
+fn normalize_hotkey_for_parser(raw: &str) -> String {
+    let mut text = raw.trim().to_string();
+    if text.is_empty() {
+        return "Alt+Backquote".to_string();
+    }
+    text = text.replace('·', "`");
+    text = text.replace('＋', "+");
+    text
+}
+
+fn parse_hotkey(raw: &str) -> Result<Shortcut, String> {
+    let normalized = normalize_hotkey_for_parser(raw);
+    Shortcut::from_str(&normalized)
+        .or_else(|_| Shortcut::from_str("Alt+Backquote"))
+        .map_err(|err| format!("Parse hotkey failed: {err}"))
+}
+
 fn register_default_hotkey(app: &AppHandle) -> Result<(), String> {
-    let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Backquote);
-    app.global_shortcut()
+    let state = app.state::<AppState>();
+    let config = read_config(&state.config_path).unwrap_or_default();
+    let shortcut = parse_hotkey(&config.hotkey)?;
+
+    let manager = app.global_shortcut();
+    let _ = manager.unregister_all();
+    manager
         .register(shortcut)
         .map_err(|err| format!("Register hotkey failed: {err}"))
+}
+
+fn register_hotkey_from_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    let shortcut = parse_hotkey(&config.hotkey)?;
+    let manager = app.global_shortcut();
+    let _ = manager.unregister_all();
+    manager
+        .register(shortcut)
+        .map_err(|err| format!("Register hotkey failed: {err}"))
+}
+
+fn default_hotkey_label() -> String {
+    "Alt+·".to_string()
+}
+
+fn normalize_hotkey_label(value: &str) -> String {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return default_hotkey_label();
+    }
+    let normalized = raw.replace('＋', "+").replace('`', "·");
+    let upper = normalized.to_uppercase();
+    if upper.contains("BACKQUOTE") {
+        return normalized
+            .replace("Backquote", "·")
+            .replace("BACKQUOTE", "·")
+            .replace("backquote", "·");
+    }
+    normalized
+}
+
+fn ensure_hotkey_config_normalized(config: &mut AppConfig) {
+    config.hotkey = normalize_hotkey_label(&config.hotkey);
+    if config.hotkey.trim().is_empty() {
+        config.hotkey = default_hotkey_label();
+    }
 }
 
 fn build_tray(app: &AppHandle) -> Result<(), String> {

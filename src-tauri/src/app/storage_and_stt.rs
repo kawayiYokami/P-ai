@@ -48,6 +48,7 @@ fn normalize_app_config(config: &mut AppConfig) {
         *config = AppConfig::default();
         return;
     }
+    ensure_hotkey_config_normalized(config);
 
     normalize_api_tools(config);
 

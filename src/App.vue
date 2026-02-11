@@ -90,6 +90,7 @@
         @start-hotkey-record-test="startHotkeyRecordTest"
         @stop-hotkey-record-test="stopHotkeyRecordTest"
         @play-hotkey-record-test="playHotkeyRecordTest"
+        @capture-hotkey="captureHotkey"
         @save-agent-avatar="saveAgentAvatar"
         @clear-agent-avatar="clearAgentAvatar"
       />
@@ -379,7 +380,7 @@ let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
 let recordHotkeyPressed = false;
 let recordHotkeyStartTimer: ReturnType<typeof setTimeout> | null = null;
 let suppressRecordHotkeyUntil = 0;
-let blockRecordHotkeyUntilRelease = true;
+let blockRecordHotkeyUntilRelease = false;
 let conflictHintShown = false;
 const RECORD_HOTKEY_START_DELAY_MS = 180;
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
@@ -870,6 +871,16 @@ async function saveConfig() {
   } finally {
     suppressAutosave.value = false;
     saving.value = false;
+  }
+}
+
+async function captureHotkey(value: string) {
+  const hotkey = String(value || "").trim();
+  if (!hotkey) return;
+  config.hotkey = hotkey;
+  await saveConfig();
+  if (!status.value.startsWith("Save failed")) {
+    status.value = `呼唤热键已更新为 ${hotkey}`;
   }
 }
 
@@ -1860,11 +1871,10 @@ function matchesRecordHotkey(event: KeyboardEvent): boolean {
 }
 
 function hasRecordHotkeyConflict(): boolean {
-  const hotkey = (config.hotkey || "").toUpperCase();
-  if (config.recordHotkey === "Alt") return hotkey.includes("ALT");
-  if (config.recordHotkey === "Ctrl") return hotkey.includes("CTRL");
-  if (config.recordHotkey === "Shift") return hotkey.includes("SHIFT");
-  return false;
+  const hotkey = (config.hotkey || "").trim().toUpperCase();
+  const recordHotkey = (config.recordHotkey || "").trim().toUpperCase();
+  if (!hotkey || !recordHotkey) return false;
+  return hotkey === recordHotkey;
 }
 
 function clearRecordHotkeyStartTimer() {

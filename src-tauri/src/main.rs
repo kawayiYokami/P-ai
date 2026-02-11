@@ -31,7 +31,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Position, State,
 };
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
