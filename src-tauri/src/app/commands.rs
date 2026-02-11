@@ -660,6 +660,13 @@ async fn summarize_archived_conversation_with_model(
         .map(|xml| format!("\n\n[MEMORY BOARD]\n{xml}"))
         .unwrap_or_default();
 
+    let summary_tool_rules = if selected_api.enable_tools && tool_enabled(selected_api, "memory-save")
+    {
+        "工具规则：仅允许 memory-save，最多 3 次；达到上限后必须立刻输出 summary，不得继续工具调用。"
+    } else {
+        "工具规则：当前模型或配置不支持工具调用，禁止调用任何工具。"
+    };
+
     let instruction = format!(
         "你要做归档总结。输出严格 JSON，不要 markdown，不要代码块。\n\
          JSON schema: {{\"summary\":\"string\",\"memories\":[{{\"content\":\"string\",\"keywords\":[\"string\"]}}]}}\n\
@@ -667,9 +674,11 @@ async fn summarize_archived_conversation_with_model(
          1) summary 必填，简洁说明这轮对话的目标、结论、待办。\n\
          2) memories 最多 7 条；非必要不生成；仅保留对用户长期有价值的信息。\n\
          3) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。\n\
-         4) 你是 {assistant_name}，用户称谓是 {user_name}。",
+         4) 你是 {assistant_name}，用户称谓是 {user_name}。\n\
+         5) {tool_rules}",
         assistant_name = agent.name,
-        user_name = user_alias
+        user_name = user_alias,
+        tool_rules = summary_tool_rules
     );
 
     let prepared = PreparedPrompt {
@@ -953,14 +962,33 @@ async fn send_chat_message(
                     .iter_mut()
                     .find(|c| c.id == source.id && c.status == "active")
                 {
-                    let mut fallback_messages = keep_recent_turns(&source.messages, 3);
+                    let fallback_messages = keep_recent_turns(&source.messages, 3);
                     conv.messages = fallback_messages.clone();
                     let mut tmp = conv.clone();
                     tmp.messages = fallback_messages.clone();
                     let usage_after = compute_context_usage_ratio(&tmp, selected_api.context_window_tokens);
                     if usage_after >= 0.82 {
-                        fallback_messages.clear();
+                        let now = now_iso();
+                        conv.id = Uuid::new_v4().to_string();
+                        conv.title = format!("Chat {}", &now.chars().take(16).collect::<String>());
+                        conv.created_at = now.clone();
+                        conv.updated_at = now;
                         conv.messages.clear();
+                        conv.last_user_at = None;
+                        conv.last_assistant_at = None;
+                        conv.last_context_usage_ratio = 0.0;
+                        write_app_data(&state.data_path, &data)?;
+                        drop(guard);
+                        if pending_archive_forced {
+                            let _ = on_delta.send(AssistantDeltaEvent {
+                                delta: "".to_string(),
+                                kind: Some("tool_status".to_string()),
+                                tool_name: Some("archive".to_string()),
+                                tool_status: Some("failed".to_string()),
+                                message: Some("归档失败且回退仍超限，已开启新对话。".to_string()),
+                            });
+                        }
+                        return Err("归档失败且上下文仍超限，已自动开启新对话，请重新发送消息。".to_string());
                     }
                     conv.last_user_at = conv
                         .messages
