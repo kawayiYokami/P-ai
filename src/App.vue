@@ -435,6 +435,7 @@ function parseAssistantStoredText(rawText: string): {
 }
 
 const allTurns = computed<ChatTurn[]>(() => {
+  const startedAt = perfNow();
   const msgs = allMessages.value;
   const turns: ChatTurn[] = [];
   for (let i = 0; i < msgs.length; i++) {
@@ -465,6 +466,10 @@ const allTurns = computed<ChatTurn[]>(() => {
         });
       }
     }
+  }
+  if (PERF_DEBUG) {
+    const cost = Math.round((perfNow() - startedAt) * 10) / 10;
+    console.log(`[PERF] buildAllTurns messages=${msgs.length} turns=${turns.length} cost=${cost}ms`);
   }
   return turns;
 });
@@ -934,6 +939,7 @@ async function clearImageCache() {
 
 async function refreshChatSnapshot() {
   if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
+  const startedAt = perfNow();
   try {
     const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
@@ -941,6 +947,8 @@ async function refreshChatSnapshot() {
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
   } catch (e) {
     status.value = `Load chat snapshot failed: ${String(e)}`;
+  } finally {
+    perfLog("refreshChatSnapshot", startedAt);
   }
 }
 
@@ -970,13 +978,17 @@ async function forceArchiveNow() {
 
 async function loadAllMessages() {
   if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
+  const startedAt = perfNow();
   try {
     const msgs = await invoke<ChatMessage[]>("get_active_conversation_messages", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
+    if (PERF_DEBUG) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
     allMessages.value = msgs;
   } catch (e) {
     status.value = `Load messages failed: ${String(e)}`;
+  } finally {
+    perfLog("loadAllMessages", startedAt);
   }
 }
 
@@ -1026,6 +1038,19 @@ let streamPendingText = "";
 let streamDrainDeadline = 0;
 let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
 let reasoningStartedAtMs = 0;
+let windowBootstrapped = false;
+let suppressChatReloadWatch = false;
+const PERF_DEBUG = true;
+
+function perfNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function perfLog(label: string, startedAt: number) {
+  if (!PERF_DEBUG) return;
+  const cost = Math.round((perfNow() - startedAt) * 10) / 10;
+  console.log(`[PERF] ${label}: ${cost}ms`);
+}
 
 function readDeltaMessage(message: unknown): string {
   if (typeof message === "string") return message;
@@ -1683,22 +1708,44 @@ onMounted(async () => {
   window.addEventListener("keydown", keydownHandler);
   window.addEventListener("keyup", keyupHandler);
   const refreshAll = async () => {
-    await loadConfig();
-    await loadPersonas();
-    await loadChatSettings();
-    if (viewMode.value === "config") {
-      await refreshImageCacheStats();
-    }
-    if (viewMode.value === "chat") {
-      await refreshChatSnapshot();
-      await loadAllMessages();
-      visibleTurnCount.value = 1;
-    } else if (viewMode.value === "archives") {
-      await loadArchives();
+    suppressChatReloadWatch = true;
+    const startedAt = perfNow();
+    try {
+      const tLoadConfig = perfNow();
+      await loadConfig();
+      perfLog("refreshAll/loadConfig", tLoadConfig);
+      const tLoadPersonas = perfNow();
+      await loadPersonas();
+      perfLog("refreshAll/loadPersonas", tLoadPersonas);
+      const tLoadChatSettings = perfNow();
+      await loadChatSettings();
+      perfLog("refreshAll/loadChatSettings", tLoadChatSettings);
+      if (viewMode.value === "config") {
+        const tRefreshCache = perfNow();
+        await refreshImageCacheStats();
+        perfLog("refreshAll/refreshImageCacheStats", tRefreshCache);
+      }
+      if (viewMode.value === "chat") {
+        const tSnapshot = perfNow();
+        await refreshChatSnapshot();
+        perfLog("refreshAll/refreshChatSnapshotStep", tSnapshot);
+        const tMessages = perfNow();
+        await loadAllMessages();
+        perfLog("refreshAll/loadAllMessagesStep", tMessages);
+        visibleTurnCount.value = 1;
+      } else if (viewMode.value === "archives") {
+        const tArchives = perfNow();
+        await loadArchives();
+        perfLog("refreshAll/loadArchives", tArchives);
+      }
+    } finally {
+      suppressChatReloadWatch = false;
+      perfLog("refreshAll/total", startedAt);
     }
   };
 
   await refreshAll();
+  windowBootstrapped = true;
   configAutosaveReady.value = true;
   personasAutosaveReady.value = true;
   chatSettingsAutosaveReady.value = true;
@@ -1715,13 +1762,23 @@ onMounted(async () => {
     blockRecordHotkeyUntilRelease = true;
     recordHotkeyPressed = false;
     clearRecordHotkeyStartTimer();
-    configAutosaveReady.value = false;
-    personasAutosaveReady.value = false;
-    chatSettingsAutosaveReady.value = false;
-    await refreshAll();
-    configAutosaveReady.value = true;
-    personasAutosaveReady.value = true;
-    chatSettingsAutosaveReady.value = true;
+    if (!windowBootstrapped) {
+      configAutosaveReady.value = false;
+      personasAutosaveReady.value = false;
+      chatSettingsAutosaveReady.value = false;
+      await refreshAll();
+      windowBootstrapped = true;
+      configAutosaveReady.value = true;
+      personasAutosaveReady.value = true;
+      chatSettingsAutosaveReady.value = true;
+      return;
+    }
+    // 唤起窗口时走轻量同步，避免每次都重跑全量加载。
+    if (viewMode.value === "chat") {
+      await refreshChatSnapshot();
+    } else if (viewMode.value === "archives") {
+      await loadArchives();
+    }
   });
 
 });
@@ -1860,6 +1917,7 @@ watch(
   () => activeChatApiConfigId.value,
   async (_newId, oldId) => {
     if (_newId === oldId) return;
+    if (suppressChatReloadWatch) return;
     if (viewMode.value !== "chat") return;
     await refreshChatSnapshot();
     await loadAllMessages();

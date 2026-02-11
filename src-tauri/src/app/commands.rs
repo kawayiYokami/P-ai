@@ -36,8 +36,10 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
-    ensure_default_agent(&mut data);
-    write_app_data(&state.data_path, &data)?;
+    let changed = ensure_default_agent(&mut data);
+    if changed {
+        write_app_data(&state.data_path, &data)?;
+    }
     drop(guard);
     Ok(data.agents)
 }
@@ -72,8 +74,10 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
-    ensure_default_agent(&mut data);
-    write_app_data(&state.data_path, &data)?;
+    let changed = ensure_default_agent(&mut data);
+    if changed {
+        write_app_data(&state.data_path, &data)?;
+    }
     drop(guard);
 
     Ok(ChatSettings {
@@ -147,11 +151,12 @@ fn get_chat_snapshot(
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
-    ensure_default_agent(&mut data);
+    let defaults_changed = ensure_default_agent(&mut data);
     if !data.agents.iter().any(|a| a.id == input.agent_id) {
         return Err("Selected agent not found.".to_string());
     }
 
+    let before_len = data.conversations.len();
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
     let conversation = &data.conversations[idx];
 
@@ -168,7 +173,9 @@ fn get_chat_snapshot(
         .find(|m| m.role == "assistant")
         .cloned();
 
-    write_app_data(&state.data_path, &data)?;
+    if defaults_changed || data.conversations.len() != before_len {
+        write_app_data(&state.data_path, &data)?;
+    }
     drop(guard);
 
     Ok(ChatSnapshot {
@@ -194,12 +201,15 @@ fn get_active_conversation_messages(
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
-    ensure_default_agent(&mut data);
+    let defaults_changed = ensure_default_agent(&mut data);
 
+    let before_len = data.conversations.len();
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
     let messages = data.conversations[idx].messages.clone();
 
-    write_app_data(&state.data_path, &data)?;
+    if defaults_changed || data.conversations.len() != before_len {
+        write_app_data(&state.data_path, &data)?;
+    }
     drop(guard);
     Ok(messages)
 }
@@ -1159,27 +1169,26 @@ async fn send_chat_message(
             })
             .map(|a| a.summary.clone());
 
-        let latest_user_text = if let Some(xml) = &memory_board_xml {
-            if effective_user_text.trim().is_empty() {
-                xml.clone()
-            } else {
-                format!("{effective_user_text}\n\n{xml}")
-            }
-        } else {
+        let mut extra_text_blocks = Vec::<String>::new();
+        if let Some(xml) = &memory_board_xml {
+            extra_text_blocks.push(xml.clone());
+        }
+        let latest_user_text = if extra_text_blocks.is_empty() {
             effective_user_text.clone()
+        } else if effective_user_text.trim().is_empty() {
+            extra_text_blocks.join("\n\n")
+        } else {
+            format!("{effective_user_text}\n\n{}", extra_text_blocks.join("\n\n"))
         };
 
         let now = now_iso();
-        let mut user_parts_for_storage = user_parts;
-        if let Some(xml) = &memory_board_xml {
-            user_parts_for_storage.push(MessagePart::Text { text: xml.clone() });
-        }
 
         let user_message = ChatMessage {
             id: Uuid::new_v4().to_string(),
             role: "user".to_string(),
             created_at: now.clone(),
-            parts: user_parts_for_storage,
+            parts: user_parts,
+            extra_text_blocks,
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
@@ -1265,6 +1274,7 @@ async fn send_chat_message(
                 parts: vec![MessagePart::Text {
                     text: assistant_text_for_storage.clone(),
                 }],
+                extra_text_blocks: Vec::new(),
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,

@@ -388,6 +388,8 @@ struct ChatMessage {
     role: String,
     created_at: String,
     parts: Vec<MessagePart>,
+    #[serde(default)]
+    extra_text_blocks: Vec<String>,
     provider_meta: Option<Value>,
     tool_call: Option<Vec<Value>>,
     mcp_call: Option<Vec<Value>>,
@@ -555,29 +557,36 @@ fn default_agent() -> AgentProfile {
   }
 }
 
-fn ensure_default_agent(data: &mut AppData) {
+fn ensure_default_agent(data: &mut AppData) -> bool {
+    let mut changed = false;
     let old_prompt = "You are a concise and helpful assistant.";
     for agent in &mut data.agents {
         if agent.id == "default-agent" {
             if agent.name == "Default Agent" {
                 agent.name = "助理".to_string();
+                changed = true;
             }
             if agent.system_prompt == old_prompt {
                 agent.system_prompt = "你是一个耐心、友善的助理。请用短信聊天的口吻与用户交流，优先自然、简短、有人味的表达。除非用户明确要求，否则不要使用结构化输出（如分点、表格、章节）和过度正式语气。面对截图相关问题时，先结合用户上下文给出直接可执行的建议，再补充必要说明。".to_string();
+                changed = true;
             }
         }
     }
     if data.agents.is_empty() {
         data.agents.push(default_agent());
+        changed = true;
     }
     if data.selected_agent_id.trim().is_empty()
         || !data.agents.iter().any(|a| a.id == data.selected_agent_id)
     {
         data.selected_agent_id = default_selected_agent_id();
+        changed = true;
     }
     if data.user_alias.trim().is_empty() {
         data.user_alias = default_user_alias();
+        changed = true;
     }
+    changed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1034,6 +1043,7 @@ mod tests {
             parts: vec![MessagePart::Text {
                 text: text.to_string(),
             }],
+            extra_text_blocks: Vec::new(),
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
