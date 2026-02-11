@@ -30,6 +30,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, Position, State,
 };
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
@@ -588,6 +589,7 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -617,6 +619,10 @@ fn main() {
             get_active_conversation_messages,
             list_archives,
             list_memories,
+            export_memories,
+            export_memories_to_file,
+            export_memories_to_path,
+            import_memories,
             get_archive_messages,
             open_external_url,
             send_chat_message,
