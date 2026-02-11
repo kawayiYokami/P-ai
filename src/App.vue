@@ -268,6 +268,7 @@ import { Pin, X } from "lucide-vue-next";
 import { invokeTauri } from "./services/tauri-api";
 import { useRecordHotkey } from "./composables/use-record-hotkey";
 import { useSpeechRecording } from "./composables/use-speech-recording";
+import { formatI18nError } from "./utils/error";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
 import ArchivesView from "./views/ArchivesView.vue";
@@ -289,6 +290,7 @@ import { normalizeLocale, type SupportedLocale } from "./i18n";
 let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
 const { t, locale } = useI18n();
+const tr = (key: string, params?: Record<string, unknown>) => (params ? t(key, params) : t(key));
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
@@ -376,6 +378,10 @@ const promptPreviewLatestImages = ref(0);
 const promptPreviewLatestAudios = ref(0);
 const promptPreviewMode = ref<"full" | "system">("full");
 
+function setStatusError(key: string, error: unknown) {
+  status.value = formatI18nError(tr, key, error);
+}
+
 const sortedMemories = computed(() =>
   [...memoryList.value].sort((a, b) => {
     const ta = Date.parse(a.updatedAt || a.createdAt || "");
@@ -422,7 +428,7 @@ const {
   stopRecording,
   cleanup: cleanupSpeechRecording,
 } = useSpeechRecording({
-  t: (key, params) => (params ? t(key, params) : t(key)),
+  t: tr,
   canStart: () => !chatting.value && !forcingArchive.value,
   getLanguage: () => normalizeLocale(config.uiLanguage),
   getMaxRecordSeconds: () => config.maxRecordSeconds,
@@ -841,7 +847,7 @@ async function loadConfig() {
     lastSavedConfigJson.value = buildConfigSnapshotJson();
     status.value = t("status.configLoaded");
   } catch (e) {
-    status.value = t("status.loadConfigFailed", { err: String(e) });
+    setStatusError("status.loadConfigFailed", e);
   } finally {
     suppressAutosave.value = false;
     loading.value = false;
@@ -954,7 +960,7 @@ async function savePersonas() {
     syncUserAliasFromPersona();
     status.value = t("status.personaSaved");
   } catch (e) {
-    status.value = t("status.savePersonasFailed", { err: String(e) });
+    setStatusError("status.savePersonasFailed", e);
   } finally {
     suppressAutosave.value = false;
   }
@@ -977,7 +983,7 @@ async function saveChatPreferences() {
     selectedPersonaId.value = targetAgentId;
     status.value = t("status.chatSettingsSaved");
   } catch (e) {
-    status.value = t("status.saveChatSettingsFailed", { err: String(e) });
+    setStatusError("status.saveChatSettingsFailed", e);
   } finally {
     saving.value = false;
   }
@@ -1002,7 +1008,7 @@ async function saveConversationApiSettings() {
     console.info("[CONFIG] save_conversation_api_settings success");
   } catch (e) {
     console.error("[CONFIG] save_conversation_api_settings failed:", e);
-    status.value = t("status.saveConversationApiFailed", { err: String(e) });
+    setStatusError("status.saveConversationApiFailed", e);
   }
 }
 
@@ -1168,7 +1174,7 @@ async function refreshImageCacheStats() {
   try {
     imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("get_image_text_cache_stats");
   } catch (e) {
-    status.value = t("status.loadImageCacheStatsFailed", { err: String(e) });
+    setStatusError("status.loadImageCacheStatsFailed", e);
   } finally {
     imageCacheStatsLoading.value = false;
   }
@@ -1180,7 +1186,7 @@ async function clearImageCache() {
     imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("clear_image_text_cache");
     status.value = t("status.imageCacheCleared");
   } catch (e) {
-    status.value = t("status.clearImageCacheFailed", { err: String(e) });
+    setStatusError("status.clearImageCacheFailed", e);
   } finally {
     imageCacheStatsLoading.value = false;
   }
@@ -1195,7 +1201,7 @@ async function refreshChatSnapshot() {
     latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
   } catch (e) {
-    status.value = t("status.loadChatSnapshotFailed", { err: String(e) });
+    setStatusError("status.loadChatSnapshotFailed", e);
   } finally {
     perfLog("refreshChatSnapshot", startedAt);
   }
@@ -1219,7 +1225,7 @@ async function forceArchiveNow() {
     await loadAllMessages();
     visibleTurnCount.value = 1;
   } catch (e) {
-    status.value = t("status.forceArchiveFailed", { err: String(e) });
+    setStatusError("status.forceArchiveFailed", e);
   } finally {
     forcingArchive.value = false;
   }
@@ -1235,7 +1241,7 @@ async function loadAllMessages() {
     if (PERF_DEBUG) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
     allMessages.value = msgs;
   } catch (e) {
-    status.value = t("status.loadMessagesFailed", { err: String(e) });
+    setStatusError("status.loadMessagesFailed", e);
   } finally {
     perfLog("loadAllMessages", startedAt);
   }
@@ -1496,7 +1502,7 @@ async function sendChat() {
     latestAssistantText.value = "";
     latestReasoningStandardText.value = "";
     latestReasoningInlineText.value = "";
-    chatErrorText.value = t("status.requestFailed", { err: String(e) });
+    chatErrorText.value = formatI18nError(tr, "status.requestFailed", e);
     if (!toolStatusText.value) {
       toolStatusState.value = "failed";
       toolStatusText.value = t("status.toolCallFailed");
@@ -1527,7 +1533,7 @@ async function openCurrentHistory() {
     currentHistory.value = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     historyDialog.value?.showModal();
   } catch (e) {
-    status.value = t("status.loadHistoryFailed", { err: String(e) });
+    setStatusError("status.loadHistoryFailed", e);
   }
 }
 
@@ -1541,7 +1547,7 @@ async function openMemoryViewer() {
     memoryPage.value = 1;
     memoryDialog.value?.showModal();
   } catch (e) {
-    status.value = t("status.loadMemoriesFailed", { err: String(e) });
+    setStatusError("status.loadMemoriesFailed", e);
   }
 }
 
@@ -1570,7 +1576,7 @@ async function openPromptPreview() {
     promptPreviewLatestImages.value = Number(preview.latestImages || 0);
     promptPreviewLatestAudios.value = Number(preview.latestAudios || 0);
   } catch (e) {
-    promptPreviewText.value = t("status.loadRequestPreviewFailed", { err: String(e) });
+    promptPreviewText.value = formatI18nError(tr, "status.loadRequestPreviewFailed", e);
   } finally {
     promptPreviewLoading.value = false;
   }
@@ -1594,7 +1600,7 @@ async function openSystemPromptPreview() {
     });
     promptPreviewText.value = preview.systemPrompt || "";
   } catch (e) {
-    promptPreviewText.value = t("status.loadSystemPromptFailed", { err: String(e) });
+    promptPreviewText.value = formatI18nError(tr, "status.loadSystemPromptFailed", e);
   } finally {
     promptPreviewLoading.value = false;
   }
@@ -1619,7 +1625,7 @@ async function exportMemories() {
     });
     status.value = t("status.memoriesExported", { count: result.count, path: result.path });
   } catch (e) {
-    status.value = t("status.exportMemoriesFailed", { err: String(e) });
+    setStatusError("status.exportMemoriesFailed", e);
   }
 }
 
@@ -1657,7 +1663,7 @@ async function handleMemoryImportFile(event: Event) {
       total: result.totalCount,
     });
   } catch (e) {
-    status.value = t("status.importMemoriesFailed", { err: String(e) });
+    setStatusError("status.importMemoriesFailed", e);
   } finally {
     input.value = "";
   }
@@ -1676,7 +1682,7 @@ async function loadArchives() {
       : archives.value[0].archiveId;
     await selectArchive(targetId);
   } catch (e) {
-    status.value = t("status.loadArchivesFailed", { err: String(e) });
+    setStatusError("status.loadArchivesFailed", e);
   }
 }
 
@@ -1696,7 +1702,7 @@ async function deleteArchive(archiveId: string) {
     }
     await loadArchives();
   } catch (e) {
-    status.value = t("status.deleteArchiveFailed", { err: String(e) });
+    setStatusError("status.deleteArchiveFailed", e);
   }
 }
 
@@ -1714,7 +1720,7 @@ async function exportArchive(payload: { format: "markdown" | "json" }) {
     });
     status.value = t("status.archiveExported", { format: result.format, path: result.path });
   } catch (e) {
-    status.value = t("status.exportArchiveFailed", { err: String(e) });
+    setStatusError("status.exportArchiveFailed", e);
   }
 }
 
@@ -1744,7 +1750,7 @@ function onPaste(event: ClipboardEvent) {
         if (base64) clipboardImages.value.push({ mime: item.type, bytesBase64: base64 });
       };
       reader.onerror = () => {
-        status.value = t("status.pasteImageReadFailed", { err: String(reader.error || "unknown") });
+        setStatusError("status.pasteImageReadFailed", reader.error || "unknown");
       };
       reader.readAsDataURL(file);
       event.preventDefault();
@@ -1823,7 +1829,7 @@ async function startHotkeyRecordTest() {
     hotkeyTestRecording.value = false;
     clearHotkeyTestTimers();
     stopHotkeyTestStream();
-    status.value = t("status.recordTestFailed", { err: String(e) });
+    setStatusError("status.recordTestFailed", e);
   }
 }
 
