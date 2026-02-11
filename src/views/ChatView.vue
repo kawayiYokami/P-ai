@@ -128,7 +128,7 @@
         <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
           <ImageIcon class="h-3.5 w-3.5" />
           <span class="text-[11px]">图片{{ idx + 1 }}</span>
-          <button class="btn btn-ghost btn-xs btn-square" @click="$emit('removeClipboardImage', idx)">
+          <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting" @click="$emit('removeClipboardImage', idx)">
             <X class="h-3 w-3" />
           </button>
         </div>
@@ -150,6 +150,7 @@
         <textarea
           v-model="localChatInput"
           class="flex-1 textarea textarea-sm resize-none border-none bg-transparent focus:outline-none"
+          :disabled="chatting"
           :rows="Math.max(1, Math.min(10, Math.round(((localChatInput.match(/\n/g) || []).length + 1) * 1.5)))"
           :placeholder="chatInputPlaceholder"
           @keydown.enter.exact.prevent="!chatting && $emit('sendChat')"

@@ -1205,6 +1205,7 @@ async function selectArchive(archiveId: string) {
 
 function onPaste(event: ClipboardEvent) {
   if (viewMode.value !== "chat") return;
+  if (chatting.value) return;
   const items = event.clipboardData?.items;
   if (!items) return;
   const apiConfig = activeChatApiConfig.value;

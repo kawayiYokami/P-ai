@@ -1024,4 +1024,85 @@ mod tests {
             "{\"query\":\"rust\"}".to_string()
         );
     }
+
+    fn test_text_message(role: &str, text: &str, created_at: &str) -> ChatMessage {
+        ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: role.to_string(),
+            created_at: created_at.to_string(),
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+            }],
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        }
+    }
+
+    fn test_active_conversation_with_messages(
+        messages: Vec<ChatMessage>,
+        last_user_at: Option<String>,
+    ) -> Conversation {
+        let now = now_iso();
+        Conversation {
+            id: Uuid::new_v4().to_string(),
+            title: "t".to_string(),
+            api_config_id: "api".to_string(),
+            agent_id: "agent".to_string(),
+            created_at: now.clone(),
+            updated_at: now,
+            last_user_at,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            status: "active".to_string(),
+            messages,
+        }
+    }
+
+    #[test]
+    fn archive_decision_should_force_when_usage_reaches_82pct() {
+        let now = now_iso();
+        let huge = "中".repeat(2000);
+        let conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", &huge, &now)],
+            Some(now),
+        );
+        let d = decide_archive_before_user_message(&conv, 1000);
+        assert!(d.should_archive);
+        assert!(d.forced);
+        assert!(d.usage_ratio >= 0.82);
+    }
+
+    #[test]
+    fn archive_decision_should_archive_after_30m_and_30pct() {
+        let now = now_utc();
+        let old = (now - time::Duration::minutes(31))
+            .format(&Rfc3339)
+            .expect("format old time");
+        let text = "中".repeat(600);
+        let conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", &text, &old)],
+            Some(old),
+        );
+        let d = decide_archive_before_user_message(&conv, 1000);
+        assert!(d.should_archive);
+        assert!(!d.forced);
+        assert!(d.usage_ratio >= 0.30);
+    }
+
+    #[test]
+    fn archive_decision_should_not_archive_when_usage_below_30pct() {
+        let now = now_utc();
+        let old = (now - time::Duration::minutes(31))
+            .format(&Rfc3339)
+            .expect("format old time");
+        let conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", "hello", &old)],
+            Some(old),
+        );
+        let d = decide_archive_before_user_message(&conv, 1000);
+        assert!(!d.should_archive);
+        assert!(!d.forced);
+        assert!(d.usage_ratio < 0.30);
+    }
 }
