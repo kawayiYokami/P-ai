@@ -260,11 +260,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Pin, X } from "lucide-vue-next";
+import { invokeTauri } from "./services/tauri-api";
+import { useRecordHotkey } from "./composables/use-record-hotkey";
+import { useSpeechRecording } from "./composables/use-speech-recording";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
 import ArchivesView from "./views/ArchivesView.vue";
@@ -318,8 +321,6 @@ const toolStatusState = ref<"running" | "done" | "failed" | "">("");
 const chatErrorText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
-const recording = ref(false);
-const recordingMs = ref(0);
 
 const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleTurnCount = ref(1);
@@ -355,32 +356,6 @@ const suppressAutosave = ref(false);
 let configAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let personasAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-let mediaRecorder: MediaRecorder | null = null;
-let mediaStream: MediaStream | null = null;
-let recordingAudioContext: AudioContext | null = null;
-let recordingAnalyser: AnalyserNode | null = null;
-let recordingSourceNode: MediaStreamAudioSourceNode | null = null;
-let recordingLevelTimer: ReturnType<typeof setInterval> | null = null;
-let recordingPeakLevel = 0;
-let recordingLevelSupported = false;
-let recordingStartedAt = 0;
-let recordingTickTimer: ReturnType<typeof setInterval> | null = null;
-let recordingMaxTimer: ReturnType<typeof setTimeout> | null = null;
-let recordingDiscardCurrent = false;
-type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
-type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-let speechRecognizer: SpeechRecognitionLike | null = null;
-let recordingRecognizedText = "";
 const hotkeyTestRecording = ref(false);
 const hotkeyTestRecordingMs = ref(0);
 const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
@@ -389,14 +364,6 @@ let hotkeyTestStream: MediaStream | null = null;
 let hotkeyTestStartedAt = 0;
 let hotkeyTestTickTimer: ReturnType<typeof setInterval> | null = null;
 let hotkeyTestPlayer: HTMLAudioElement | null = null;
-let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
-let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
-let recordHotkeyPressed = false;
-let recordHotkeyStartTimer: ReturnType<typeof setTimeout> | null = null;
-let suppressRecordHotkeyUntil = 0;
-let blockRecordHotkeyUntilRelease = false;
-let conflictHintShown = false;
-const RECORD_HOTKEY_START_DELAY_MS = 180;
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
 const memoryList = ref<MemoryEntry[]>([]);
@@ -447,12 +414,34 @@ const hasVisionFallback = computed(() =>
   !!config.visionApiConfigId
   && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
 );
-const speechRecognitionSupported = computed(() => {
-  const w = window as typeof window & {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+const {
+  supported: speechRecognitionSupported,
+  recording,
+  recordingMs,
+  startRecording,
+  stopRecording,
+  cleanup: cleanupSpeechRecording,
+} = useSpeechRecording({
+  t: (key, params) => (params ? t(key, params) : t(key)),
+  canStart: () => !chatting.value && !forcingArchive.value,
+  getLanguage: () => normalizeLocale(config.uiLanguage),
+  getMaxRecordSeconds: () => config.maxRecordSeconds,
+  appendRecognizedText: (text) => {
+    chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
+  },
+  setStatus: (text) => {
+    status.value = text;
+  },
+});
+const recordHotkey = useRecordHotkey({
+  isActive: () => viewMode.value === "chat",
+  getSummonHotkey: () => config.hotkey,
+  getRecordHotkey: () => config.recordHotkey,
+  onConflict: () => {
+    status.value = t("config.hotkey.conflict");
+  },
+  onStartRecording: () => startRecording(),
+  onStopRecording: (discard) => stopRecording(discard),
 });
 const userPersona = computed(
   () => personas.value.find((p) => p.isBuiltInUser || p.id === "user-persona") ?? null,
@@ -810,7 +799,7 @@ async function ensureAvatarCached(path?: string, updatedAt?: string) {
   const key = avatarCacheKey(path, updatedAt);
   if (!key || avatarDataUrlCache.value[key]) return;
   try {
-    const result = await invoke<{ dataUrl: string }>("read_avatar_data_url", {
+    const result = await invokeTauri<{ dataUrl: string }>("read_avatar_data_url", {
       input: { path },
     });
     avatarDataUrlCache.value = {
@@ -836,7 +825,7 @@ async function loadConfig() {
   loading.value = true;
   status.value = t("status.loadingConfig");
   try {
-    const cfg = await invoke<AppConfig>("load_config");
+    const cfg = await invokeTauri<AppConfig>("load_config");
     config.hotkey = cfg.hotkey;
     config.uiLanguage = normalizeLocale(cfg.uiLanguage);
     locale.value = config.uiLanguage;
@@ -865,7 +854,7 @@ async function saveConfig() {
   status.value = t("status.savingConfig");
   try {
     console.info("[CONFIG] save_config invoked");
-    const saved = await invoke<AppConfig>("save_config", { config: buildConfigPayload() });
+    const saved = await invokeTauri<AppConfig>("save_config", { config: buildConfigPayload() });
     config.hotkey = saved.hotkey;
     config.uiLanguage = normalizeLocale(saved.uiLanguage);
     locale.value = config.uiLanguage;
@@ -908,7 +897,7 @@ async function captureHotkey(value: string) {
 async function loadPersonas() {
   suppressAutosave.value = true;
   try {
-    const list = await invoke<PersonaProfile[]>("load_agents");
+    const list = await invokeTauri<PersonaProfile[]>("load_agents");
     personas.value = list;
     if (!assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)) {
       selectedPersonaId.value = assistantPersonas.value[0]?.id ?? "default-agent";
@@ -927,7 +916,7 @@ async function loadPersonas() {
 async function loadChatSettings() {
   suppressAutosave.value = true;
   try {
-    const settings = await invoke<{ selectedAgentId: string; userAlias: string; responseStyleId: string }>("load_chat_settings");
+    const settings = await invokeTauri<{ selectedAgentId: string; userAlias: string; responseStyleId: string }>("load_chat_settings");
     if (assistantPersonas.value.some((p) => p.id === settings.selectedAgentId)) {
       selectedPersonaId.value = settings.selectedAgentId;
     }
@@ -948,7 +937,7 @@ async function loadChatSettings() {
 
 async function syncTrayIcon(agentId?: string) {
   try {
-    await invoke("sync_tray_icon", {
+    await invokeTauri("sync_tray_icon", {
       input: {
         agentId: agentId ?? null,
       },
@@ -961,7 +950,7 @@ async function syncTrayIcon(agentId?: string) {
 async function savePersonas() {
   suppressAutosave.value = true;
   try {
-    personas.value = await invoke<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
+    personas.value = await invokeTauri<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
     syncUserAliasFromPersona();
     status.value = t("status.personaSaved");
   } catch (e) {
@@ -978,7 +967,7 @@ async function saveChatPreferences() {
     const targetAgentId = assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)
       ? selectedPersonaId.value
       : assistantPersonas.value[0]?.id || "default-agent";
-    await invoke("save_chat_settings", {
+    await invokeTauri("save_chat_settings", {
       input: {
         selectedAgentId: targetAgentId,
         userAlias: userAlias.value,
@@ -998,7 +987,7 @@ async function saveConversationApiSettings() {
   if (suppressAutosave.value) return;
   try {
     console.info("[CONFIG] save_conversation_api_settings invoked");
-    const saved = await invoke<{
+    const saved = await invokeTauri<{
       chatApiConfigId: string;
       visionApiConfigId?: string;
     }>("save_conversation_api_settings", {
@@ -1088,7 +1077,7 @@ async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase
   avatarSaving.value = true;
   avatarError.value = "";
   try {
-    const result = await invoke<{ path: string; updatedAt: string }>("save_agent_avatar", {
+    const result = await invokeTauri<{ path: string; updatedAt: string }>("save_agent_avatar", {
       input: {
         agentId: input.agentId,
         mime: input.mime,
@@ -1118,7 +1107,7 @@ async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase
 async function clearAgentAvatar(input: { agentId: string }) {
   avatarError.value = "";
   try {
-    await invoke("clear_agent_avatar", { input: { agentId: input.agentId } });
+    await invokeTauri("clear_agent_avatar", { input: { agentId: input.agentId } });
     const idx = personas.value.findIndex((p) => p.id === input.agentId);
     if (idx >= 0) {
       personas.value[idx].avatarPath = undefined;
@@ -1141,7 +1130,7 @@ async function refreshModels() {
   refreshingModels.value = true;
   modelRefreshError.value = "";
   try {
-    const models = await invoke<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
+    const models = await invokeTauri<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
     apiModelOptions.value[selectedApiConfig.value.id] = models;
     if (models.length) selectedApiConfig.value.model = models[0];
     status.value = t("status.modelListRefreshed", { count: models.length });
@@ -1158,7 +1147,7 @@ async function refreshToolsStatus() {
   if (!toolApiConfig.value) return;
   checkingToolsStatus.value = true;
   try {
-    toolStatuses.value = await invoke<ToolLoadStatus[]>("check_tools_status", {
+    toolStatuses.value = await invokeTauri<ToolLoadStatus[]>("check_tools_status", {
       input: { apiConfigId: toolApiConfig.value.id },
     });
   } catch (e) {
@@ -1177,7 +1166,7 @@ async function refreshToolsStatus() {
 async function refreshImageCacheStats() {
   imageCacheStatsLoading.value = true;
   try {
-    imageCacheStats.value = await invoke<ImageTextCacheStats>("get_image_text_cache_stats");
+    imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("get_image_text_cache_stats");
   } catch (e) {
     status.value = t("status.loadImageCacheStatsFailed", { err: String(e) });
   } finally {
@@ -1188,7 +1177,7 @@ async function refreshImageCacheStats() {
 async function clearImageCache() {
   imageCacheStatsLoading.value = true;
   try {
-    imageCacheStats.value = await invoke<ImageTextCacheStats>("clear_image_text_cache");
+    imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("clear_image_text_cache");
     status.value = t("status.imageCacheCleared");
   } catch (e) {
     status.value = t("status.clearImageCacheFailed", { err: String(e) });
@@ -1201,7 +1190,7 @@ async function refreshChatSnapshot() {
   if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
   const startedAt = perfNow();
   try {
-    const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
+    const snap = await invokeTauri<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
     latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
@@ -1217,7 +1206,7 @@ async function forceArchiveNow() {
   if (chatting.value || forcingArchive.value) return;
   forcingArchive.value = true;
   try {
-    const result = await invoke<ForceArchiveResult>("force_archive_current", {
+    const result = await invokeTauri<ForceArchiveResult>("force_archive_current", {
       input: {
         apiConfigId: activeChatApiConfigId.value,
         agentId: selectedPersonaId.value,
@@ -1240,7 +1229,7 @@ async function loadAllMessages() {
   if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
   const startedAt = perfNow();
   try {
-    const msgs = await invoke<ChatMessage[]>("get_active_conversation_messages", {
+    const msgs = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
     if (PERF_DEBUG) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
@@ -1482,7 +1471,7 @@ async function sendChat() {
   };
   chatting.value = true;
   try {
-    const result = await invoke<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
+    const result = await invokeTauri<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>("send_chat_message", {
       input: {
         apiConfigId: activeChatApiConfigId.value,
         agentId: selectedPersonaId.value,
@@ -1535,7 +1524,7 @@ function stopChat() {
 
 async function openCurrentHistory() {
   try {
-    currentHistory.value = await invoke<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
+    currentHistory.value = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
     historyDialog.value?.showModal();
   } catch (e) {
     status.value = t("status.loadHistoryFailed", { err: String(e) });
@@ -1548,7 +1537,7 @@ function closeHistory() {
 
 async function openMemoryViewer() {
   try {
-    memoryList.value = await invoke<MemoryEntry[]>("list_memories");
+    memoryList.value = await invokeTauri<MemoryEntry[]>("list_memories");
     memoryPage.value = 1;
     memoryDialog.value?.showModal();
   } catch (e) {
@@ -1573,7 +1562,7 @@ async function openPromptPreview() {
     await savePersonas();
     await saveChatPreferences();
     await saveConversationApiSettings();
-    const preview = await invoke<PromptPreviewResult>("get_prompt_preview", {
+    const preview = await invokeTauri<PromptPreviewResult>("get_prompt_preview", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
     promptPreviewText.value = preview.requestBodyJson || "";
@@ -1600,7 +1589,7 @@ async function openSystemPromptPreview() {
     await savePersonas();
     await saveChatPreferences();
     await saveConversationApiSettings();
-    const preview = await invoke<SystemPromptPreviewResult>("get_system_prompt_preview", {
+    const preview = await invokeTauri<SystemPromptPreviewResult>("get_system_prompt_preview", {
       input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
     });
     promptPreviewText.value = preview.systemPrompt || "";
@@ -1625,7 +1614,7 @@ async function exportMemories() {
       status.value = t("status.exportCancelled");
       return;
     }
-    const result = await invoke<ExportMemoriesFileResult>("export_memories_to_path", {
+    const result = await invokeTauri<ExportMemoriesFileResult>("export_memories_to_path", {
       input: { path },
     });
     status.value = t("status.memoriesExported", { count: result.count, path: result.path });
@@ -1657,10 +1646,10 @@ async function handleMemoryImportFile(event: Event) {
       throw new Error("invalid memories payload");
     }
 
-    const result = await invoke<ImportMemoriesResult>("import_memories", {
+    const result = await invokeTauri<ImportMemoriesResult>("import_memories", {
       input: { memories },
     });
-    memoryList.value = await invoke<MemoryEntry[]>("list_memories");
+    memoryList.value = await invokeTauri<MemoryEntry[]>("list_memories");
     memoryPage.value = 1;
     status.value = t("status.importMemoriesDone", {
       created: result.createdCount,
@@ -1676,7 +1665,7 @@ async function handleMemoryImportFile(event: Event) {
 
 async function loadArchives() {
   try {
-    archives.value = await invoke<ArchiveSummary[]>("list_archives");
+    archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
     if (archives.value.length === 0) {
       selectedArchiveId.value = "";
       archiveMessages.value = [];
@@ -1693,13 +1682,13 @@ async function loadArchives() {
 
 async function selectArchive(archiveId: string) {
   selectedArchiveId.value = archiveId;
-  archiveMessages.value = await invoke<ChatMessage[]>("get_archive_messages", { archiveId });
+  archiveMessages.value = await invokeTauri<ChatMessage[]>("get_archive_messages", { archiveId });
 }
 
 async function deleteArchive(archiveId: string) {
   if (!archiveId) return;
   try {
-    await invoke("delete_archive", { archiveId });
+    await invokeTauri("delete_archive", { archiveId });
     status.value = t("status.archiveDeleted");
     if (selectedArchiveId.value === archiveId) {
       selectedArchiveId.value = "";
@@ -1717,7 +1706,7 @@ async function exportArchive(payload: { format: "markdown" | "json" }) {
     return;
   }
   try {
-    const result = await invoke<ExportArchiveFileResult>("export_archive_to_file", {
+    const result = await invokeTauri<ExportArchiveFileResult>("export_archive_to_file", {
       input: {
         archiveId: selectedArchiveId.value,
         format: payload.format,
@@ -1753,6 +1742,9 @@ function onPaste(event: ClipboardEvent) {
         const result = String(reader.result || "");
         const base64 = result.includes(",") ? result.split(",")[1] : "";
         if (base64) clipboardImages.value.push({ mime: item.type, bytesBase64: base64 });
+      };
+      reader.onerror = () => {
+        status.value = t("status.pasteImageReadFailed", { err: String(reader.error || "unknown") });
       };
       reader.readAsDataURL(file);
       event.preventDefault();
@@ -1860,164 +1852,6 @@ function playHotkeyRecordTest() {
   });
 }
 
-function clearRecordingTimers() {
-  if (recordingTickTimer) {
-    clearInterval(recordingTickTimer);
-    recordingTickTimer = null;
-  }
-  if (recordingMaxTimer) {
-    clearTimeout(recordingMaxTimer);
-    recordingMaxTimer = null;
-  }
-  if (recordingLevelTimer) {
-    clearInterval(recordingLevelTimer);
-    recordingLevelTimer = null;
-  }
-}
-
-function stopRecordingLevelMonitor() {
-  recordingLevelSupported = false;
-  if (recordingSourceNode) {
-    try {
-      recordingSourceNode.disconnect();
-    } catch {
-      // ignore
-    }
-    recordingSourceNode = null;
-  }
-  if (recordingAnalyser) {
-    try {
-      recordingAnalyser.disconnect();
-    } catch {
-      // ignore
-    }
-    recordingAnalyser = null;
-  }
-  if (recordingAudioContext) {
-    void recordingAudioContext.close().catch(() => {});
-    recordingAudioContext = null;
-  }
-}
-
-function startRecordingLevelMonitor(stream: MediaStream) {
-  stopRecordingLevelMonitor();
-  recordingLevelSupported = false;
-  recordingPeakLevel = 0;
-  const Ctx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx) return;
-  recordingAudioContext = new Ctx();
-  recordingSourceNode = recordingAudioContext.createMediaStreamSource(stream);
-  recordingAnalyser = recordingAudioContext.createAnalyser();
-  recordingLevelSupported = true;
-  recordingAnalyser.fftSize = 1024;
-  recordingSourceNode.connect(recordingAnalyser);
-  const data = new Float32Array(recordingAnalyser.fftSize);
-  recordingLevelTimer = setInterval(() => {
-    if (!recordingAnalyser) return;
-    recordingAnalyser.getFloatTimeDomainData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 1) {
-      const v = data[i];
-      sum += v * v;
-    }
-    const rms = Math.sqrt(sum / data.length);
-    recordingPeakLevel = Math.max(recordingPeakLevel, rms);
-  }, 100);
-}
-
-function matchesRecordHotkey(event: KeyboardEvent): boolean {
-  if (config.recordHotkey === "Alt") return event.key === "Alt";
-  if (config.recordHotkey === "Ctrl") return event.key === "Control";
-  if (config.recordHotkey === "Shift") return event.key === "Shift";
-  return false;
-}
-
-function hasRecordHotkeyConflict(): boolean {
-  const hotkey = (config.hotkey || "").trim().toUpperCase();
-  const recordHotkey = (config.recordHotkey || "").trim().toUpperCase();
-  if (!hotkey || !recordHotkey) return false;
-  return hotkey === recordHotkey;
-}
-
-function clearRecordHotkeyStartTimer() {
-  if (recordHotkeyStartTimer) {
-    clearTimeout(recordHotkeyStartTimer);
-    recordHotkeyStartTimer = null;
-  }
-}
-
-async function startRecording() {
-  if (recording.value || chatting.value || forcingArchive.value) return;
-  const w = window as typeof window & {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
-  if (!SR) {
-    status.value = t("status.speechUnsupported");
-    return;
-  }
-  try {
-    recordingDiscardCurrent = false;
-    recordingRecognizedText = "";
-    const recognizer = new SR();
-    speechRecognizer = recognizer;
-    recognizer.lang = normalizeLocale(config.uiLanguage);
-    recognizer.interimResults = true;
-    recognizer.continuous = true;
-    recognizer.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const item = event.results[i];
-        const transcript = (item?.[0]?.transcript || "").trim();
-        if (item?.isFinal && transcript) {
-          recordingRecognizedText += `${transcript}\n`;
-        }
-      }
-    };
-    recognizer.onerror = (event) => {
-      status.value = t("status.speechFailed", { err: event?.error || "unknown" });
-    };
-    recognizer.onend = () => {
-      recording.value = false;
-      clearRecordingTimers();
-      if (recordingDiscardCurrent) {
-        speechRecognizer = null;
-        return;
-      }
-      const text = recordingRecognizedText.trim();
-      if (text) {
-        chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
-        status.value = t("status.recordTranscribed");
-      } else {
-        status.value = t("status.noSpeechText");
-      }
-      speechRecognizer = null;
-      recordingRecognizedText = "";
-    };
-    recognizer.start();
-    recordingStartedAt = Date.now();
-    recording.value = true;
-    recordingMs.value = 0;
-    recordingTickTimer = setInterval(() => {
-      recordingMs.value = Math.max(0, Date.now() - recordingStartedAt);
-    }, 100);
-    recordingMaxTimer = setTimeout(() => {
-      void stopRecording(false);
-      status.value = t("status.recordAutoStopped", { seconds: config.maxRecordSeconds });
-    }, config.maxRecordSeconds * 1000);
-  } catch (e) {
-    recording.value = false;
-    clearRecordingTimers();
-    status.value = t("status.recordStartFailed", { err: String(e) });
-  }
-}
-
-async function stopRecording(discard: boolean) {
-  if (!recording.value) return;
-  recordingDiscardCurrent = discard;
-  speechRecognizer?.stop();
-}
-
 async function closeWindow() {
   if (!appWindow) return;
   await appWindow.hide();
@@ -2064,46 +1898,7 @@ onMounted(async () => {
   });
 
   window.addEventListener("paste", onPaste);
-  keydownHandler = (event: KeyboardEvent) => {
-    if (viewMode.value !== "chat") return;
-    if (!matchesRecordHotkey(event)) return;
-    if (hasRecordHotkeyConflict()) {
-      if (!conflictHintShown) {
-        status.value = t("config.hotkey.conflict");
-        conflictHintShown = true;
-      }
-      return;
-    }
-    conflictHintShown = false;
-    if (event.repeat) return;
-    if (Date.now() < suppressRecordHotkeyUntil) return;
-    if (blockRecordHotkeyUntilRelease) return;
-    event.preventDefault();
-    recordHotkeyPressed = true;
-    clearRecordHotkeyStartTimer();
-    recordHotkeyStartTimer = setTimeout(() => {
-      if (!recordHotkeyPressed) return;
-      if (Date.now() < suppressRecordHotkeyUntil) return;
-      void startRecording();
-    }, RECORD_HOTKEY_START_DELAY_MS);
-  };
-  keyupHandler = (event: KeyboardEvent) => {
-    if (viewMode.value !== "chat") return;
-    if (!matchesRecordHotkey(event)) return;
-    if (hasRecordHotkeyConflict()) return;
-    if (blockRecordHotkeyUntilRelease) {
-      blockRecordHotkeyUntilRelease = false;
-      recordHotkeyPressed = false;
-      clearRecordHotkeyStartTimer();
-      return;
-    }
-    event.preventDefault();
-    recordHotkeyPressed = false;
-    clearRecordHotkeyStartTimer();
-    void stopRecording(false);
-  };
-  window.addEventListener("keydown", keydownHandler);
-  window.addEventListener("keyup", keyupHandler);
+  recordHotkey.mount();
   const refreshAll = async () => {
     suppressChatReloadWatch = true;
     const startedAt = perfNow();
@@ -2155,10 +1950,7 @@ onMounted(async () => {
   }
   await listen("easy-call:refresh", async () => {
     // Window was just summoned; suppress record-hotkey briefly to avoid combo-key conflict.
-    suppressRecordHotkeyUntil = Date.now() + RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS;
-    blockRecordHotkeyUntilRelease = true;
-    recordHotkeyPressed = false;
-    clearRecordHotkeyStartTimer();
+    recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
     if (!windowBootstrapped) {
       configAutosaveReady.value = false;
       personasAutosaveReady.value = false;
@@ -2182,19 +1974,16 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearStreamBuffer();
-  clearRecordHotkeyStartTimer();
   void stopRecording(true);
-  speechRecognizer?.stop();
-  speechRecognizer = null;
+  cleanupSpeechRecording();
+  recordHotkey.unmount();
   void stopHotkeyRecordTest();
   if (hotkeyTestPlayer) {
     hotkeyTestPlayer.pause();
     hotkeyTestPlayer.currentTime = 0;
     hotkeyTestPlayer = null;
   }
-  stopRecordingLevelMonitor();
-  if (keydownHandler) window.removeEventListener("keydown", keydownHandler);
-  if (keyupHandler) window.removeEventListener("keyup", keyupHandler);
+  window.removeEventListener("paste", onPaste);
 });
 
 watch(
@@ -2364,3 +2153,4 @@ watch(
   },
 );
 </script>
+

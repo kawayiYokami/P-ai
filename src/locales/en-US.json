@@ -199,6 +199,8 @@
     "selectArchiveFirst": "Please select an archive first.",
     "archiveExported": "Archive exported ({format}): {path}",
     "exportArchiveFailed": "Export archive failed: {err}",
+    "pasteImageReadFailed": "Read pasted image failed: {err}",
+    "openLinkFailed": "Open link failed: {err}",
     "recordUnsupported": "Recording is not supported in this environment.",
     "recordTestDone": "Record test complete ({seconds}s).",
     "recordTestFailed": "Record test failed: {err}",

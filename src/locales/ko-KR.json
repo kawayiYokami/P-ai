@@ -199,6 +199,8 @@
     "selectArchiveFirst": "먼저 아카이브를 선택하세요.",
     "archiveExported": "아카이브 내보내기 완료({format}): {path}",
     "exportArchiveFailed": "아카이브 내보내기 실패: {err}",
+    "pasteImageReadFailed": "붙여넣은 이미지 읽기 실패: {err}",
+    "openLinkFailed": "링크 열기 실패: {err}",
     "recordUnsupported": "현재 환경에서 녹음을 지원하지 않습니다.",
     "recordTestDone": "녹음 테스트 완료({seconds}s).",
     "recordTestFailed": "녹음 테스트 실패: {err}",

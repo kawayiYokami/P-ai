@@ -199,6 +199,8 @@
     "selectArchiveFirst": "先にアーカイブを選択してください。",
     "archiveExported": "アーカイブをエクスポートしました（{format}）：{path}",
     "exportArchiveFailed": "アーカイブのエクスポート失敗: {err}",
+    "pasteImageReadFailed": "貼り付け画像の読み込みに失敗: {err}",
+    "openLinkFailed": "リンクを開けませんでした: {err}",
     "recordUnsupported": "この環境では録音をサポートしていません。",
     "recordTestDone": "録音テスト完了（{seconds}s）。",
     "recordTestFailed": "録音テスト失敗: {err}",

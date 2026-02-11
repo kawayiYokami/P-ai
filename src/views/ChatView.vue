@@ -151,6 +151,12 @@
 
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
       <div
+        v-if="linkOpenErrorText"
+        class="alert alert-warning mb-2 py-2 px-3 text-xs whitespace-pre-wrap break-all max-h-24 overflow-auto"
+      >
+        <span>{{ linkOpenErrorText }}</span>
+      </div>
+      <div
         v-if="chatErrorText"
         class="alert alert-error mb-2 py-2 px-3 text-xs whitespace-pre-wrap break-all max-h-28 overflow-auto"
       >
@@ -205,7 +211,7 @@ import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } f
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
-import { invoke } from "@tauri-apps/api/core";
+import { invokeTauri } from "../services/tauri-api";
 import type { ChatTurn } from "../types/app";
 
 const props = defineProps<{
@@ -254,6 +260,7 @@ const scrollContainer = ref<HTMLElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
 const autoFollowOutput = ref(true);
 const playingAudioId = ref("");
+const linkOpenErrorText = ref("");
 let activeAudio: HTMLAudioElement | null = null;
 let followScrollRaf = 0;
 let resizeInputRaf = 0;
@@ -454,9 +461,10 @@ async function handleAssistantLinkClick(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
   try {
-    await invoke("open_external_url", { url: href });
-  } catch {
-    // ignore
+    await invokeTauri("open_external_url", { url: href });
+    linkOpenErrorText.value = "";
+  } catch (error) {
+    linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
   }
 }
 

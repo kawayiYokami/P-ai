@@ -199,6 +199,8 @@
     "selectArchiveFirst": "请先选择一个归档。",
     "archiveExported": "归档已导出（{format}）：{path}",
     "exportArchiveFailed": "导出归档失败: {err}",
+    "pasteImageReadFailed": "读取粘贴图片失败: {err}",
+    "openLinkFailed": "打开链接失败: {err}",
     "recordUnsupported": "当前环境不支持录音。",
     "recordTestDone": "录音测试完成（{seconds}s）。",
     "recordTestFailed": "录音测试失败: {err}",
