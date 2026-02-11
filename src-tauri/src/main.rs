@@ -402,7 +402,11 @@ struct Conversation {
     agent_id: String,
     created_at: String,
     updated_at: String,
+    #[serde(default)]
+    last_user_at: Option<String>,
     last_assistant_at: Option<String>,
+    #[serde(default)]
+    last_context_usage_ratio: f64,
     status: String,
     messages: Vec<ChatMessage>,
 }
@@ -413,6 +417,8 @@ struct ConversationArchive {
     archive_id: String,
     archived_at: String,
     reason: String,
+    #[serde(default)]
+    summary: String,
     source_conversation: Conversation,
 }
 

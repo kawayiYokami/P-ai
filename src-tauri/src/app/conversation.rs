@@ -17,7 +17,9 @@ fn ensure_active_conversation_index(
         agent_id: agent_id.to_string(),
         created_at: now.clone(),
         updated_at: now,
+        last_user_at: None,
         last_assistant_at: None,
+        last_context_usage_ratio: 0.0,
         status: "active".to_string(),
         messages: Vec::new(),
     };
@@ -26,37 +28,159 @@ fn ensure_active_conversation_index(
     data.conversations.len() - 1
 }
 
-fn archive_if_idle(data: &mut AppData, api_config_id: &str, agent_id: &str) -> bool {
-    let Some((idx, _)) = data.conversations.iter().enumerate().find(|(_, c)| {
-        c.status == "active" && c.api_config_id == api_config_id && c.agent_id == agent_id
-    }) else {
-        return false;
-    };
+#[derive(Debug, Clone)]
+struct ArchiveDecision {
+    should_archive: bool,
+    forced: bool,
+    reason: String,
+    usage_ratio: f64,
+}
 
-    let Some(last_assistant_at) = data.conversations[idx]
-        .last_assistant_at
-        .as_deref()
-        .and_then(parse_iso)
-    else {
-        return false;
+fn estimated_tokens_for_text(text: &str) -> f64 {
+    let mut zh_chars = 0usize;
+    let mut other_chars = 0usize;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            continue;
+        }
+        if ('\u{4e00}'..='\u{9fff}').contains(&ch)
+            || ('\u{3400}'..='\u{4dbf}').contains(&ch)
+            || ('\u{f900}'..='\u{faff}').contains(&ch)
+        {
+            zh_chars += 1;
+        } else {
+            other_chars += 1;
+        }
+    }
+    zh_chars as f64 * 0.6 + other_chars as f64 * 0.3
+}
+
+fn estimated_tokens_for_message(message: &ChatMessage) -> f64 {
+    let mut tokens = 12.0;
+    for part in &message.parts {
+        match part {
+            MessagePart::Text { text } => {
+                tokens += estimated_tokens_for_text(text);
+            }
+            MessagePart::Image { .. } => {
+                tokens += 280.0;
+            }
+            MessagePart::Audio { .. } => {
+                tokens += 320.0;
+            }
+        }
+    }
+    tokens
+}
+
+fn estimate_conversation_tokens(conversation: &Conversation) -> u32 {
+    let mut sum = 0.0f64;
+    for msg in &conversation.messages {
+        sum += estimated_tokens_for_message(msg);
+    }
+    sum.ceil().max(0.0) as u32
+}
+
+fn compute_context_usage_ratio(conversation: &Conversation, context_window_tokens: u32) -> f64 {
+    let max_tokens = context_window_tokens.max(1) as f64;
+    (estimate_conversation_tokens(conversation) as f64 / max_tokens).max(0.0)
+}
+
+fn decide_archive_before_user_message(
+    conversation: &Conversation,
+    context_window_tokens: u32,
+) -> ArchiveDecision {
+    let usage_ratio = compute_context_usage_ratio(conversation, context_window_tokens);
+    if usage_ratio >= 0.82 {
+        return ArchiveDecision {
+            should_archive: true,
+            forced: true,
+            reason: "force_context_usage_82".to_string(),
+            usage_ratio,
+        };
+    }
+
+    let Some(last_user_at) = conversation.last_user_at.as_deref().and_then(parse_iso) else {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "no_last_user_timestamp".to_string(),
+            usage_ratio,
+        };
     };
 
     let now = now_utc();
-    if now.unix_timestamp() - last_assistant_at.unix_timestamp() < ARCHIVE_IDLE_SECONDS {
-        return false;
+    let idle_seconds = now.unix_timestamp() - last_user_at.unix_timestamp();
+    if idle_seconds < ARCHIVE_IDLE_SECONDS {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "idle_not_reached_30m".to_string(),
+            usage_ratio,
+        };
     }
 
+    if usage_ratio >= 0.30 {
+        return ArchiveDecision {
+            should_archive: true,
+            forced: false,
+            reason: "idle_30m_and_usage_30pct".to_string(),
+            usage_ratio,
+        };
+    }
+
+    ArchiveDecision {
+        should_archive: false,
+        forced: false,
+        reason: "usage_below_30pct".to_string(),
+        usage_ratio,
+    }
+}
+
+fn archive_conversation_now(
+    data: &mut AppData,
+    conversation_id: &str,
+    reason: &str,
+    summary: &str,
+) -> Option<String> {
+    let idx = data
+        .conversations
+        .iter()
+        .position(|c| c.id == conversation_id && c.status == "active")?;
     let mut source = data.conversations.remove(idx);
     source.status = "archived".to_string();
     source.updated_at = now_iso();
+    let archive_id = Uuid::new_v4().to_string();
     data.archived_conversations.push(ConversationArchive {
-        archive_id: Uuid::new_v4().to_string(),
+        archive_id: archive_id.clone(),
         archived_at: now_iso(),
-        reason: "idle_timeout_30m".to_string(),
+        reason: reason.to_string(),
+        summary: summary.to_string(),
         source_conversation: source,
     });
+    Some(archive_id)
+}
 
-    true
+fn keep_recent_turns(messages: &[ChatMessage], turn_count: usize) -> Vec<ChatMessage> {
+    let mut turns: Vec<Vec<ChatMessage>> = Vec::new();
+    let mut i = 0usize;
+    while i < messages.len() {
+        if messages[i].role != "user" {
+            i += 1;
+            continue;
+        }
+        let mut turn = vec![messages[i].clone()];
+        if i + 1 < messages.len() && messages[i + 1].role == "assistant" {
+            turn.push(messages[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
+        }
+        turns.push(turn);
+    }
+
+    let start = turns.len().saturating_sub(turn_count);
+    turns[start..].iter().flat_map(|t| t.clone()).collect::<Vec<_>>()
 }
 
 fn compress_image_to_webp(bytes: &[u8]) -> Result<Vec<u8>, String> {

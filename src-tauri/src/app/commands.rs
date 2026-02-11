@@ -152,7 +152,6 @@ fn get_chat_snapshot(
         return Err("Selected agent not found.".to_string());
     }
 
-    archive_if_idle(&mut data, &api_config.id, &input.agent_id);
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
     let conversation = &data.conversations[idx];
 
@@ -197,7 +196,6 @@ fn get_active_conversation_messages(
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
 
-    archive_if_idle(&mut data, &api_config.id, &input.agent_id);
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
     let messages = data.conversations[idx].messages.clone();
 
@@ -570,6 +568,136 @@ fn build_memory_board_xml(
     Some(out)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ArchiveMemoryDraft {
+    content: String,
+    keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ArchiveSummaryDraft {
+    summary: String,
+    #[serde(default)]
+    memories: Vec<ArchiveMemoryDraft>,
+}
+
+fn parse_archive_summary_draft(raw: &str) -> Option<ArchiveSummaryDraft> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(parsed) = serde_json::from_str::<ArchiveSummaryDraft>(trimmed) {
+        return Some(parsed);
+    }
+    let start = trimmed.find('{')?;
+    let end = trimmed.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str::<ArchiveSummaryDraft>(&trimmed[start..=end]).ok()
+}
+
+fn merge_memories_into_app_data(data: &mut AppData, drafts: &[ArchiveMemoryDraft]) -> usize {
+    let now = now_iso();
+    let mut merged = 0usize;
+    for d in drafts {
+        let content = clean_text(d.content.trim());
+        if content.is_empty() {
+            continue;
+        }
+        let keywords = normalize_memory_keywords(&d.keywords);
+        if keywords.is_empty() {
+            continue;
+        }
+        if memory_contains_sensitive(&content, &keywords) {
+            continue;
+        }
+        let mut merged_existing = false;
+        for existing in &mut data.memories {
+            if memory_content_key(&existing.content) == memory_content_key(&content) {
+                for kw in &keywords {
+                    if !existing.keywords.iter().any(|x| x == kw) {
+                        existing.keywords.push(kw.clone());
+                    }
+                }
+                existing.updated_at = now.clone();
+                merged_existing = true;
+                merged += 1;
+                break;
+            }
+        }
+        if merged_existing {
+            continue;
+        }
+        data.memories.push(MemoryEntry {
+            id: Uuid::new_v4().to_string(),
+            content,
+            keywords,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        });
+        merged += 1;
+    }
+    merged
+}
+
+async fn summarize_archived_conversation_with_model(
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    user_alias: &str,
+    source_conversation: &Conversation,
+    memories: &[MemoryEntry],
+) -> Result<(String, Vec<ArchiveMemoryDraft>), String> {
+    let mut transcript = String::new();
+    for msg in &source_conversation.messages {
+        transcript.push_str(&render_message_for_context(msg));
+        transcript.push('\n');
+    }
+    let search_text = conversation_search_text(source_conversation);
+    let memory_board_xml = build_memory_board_xml(memories, &search_text, "");
+    let extra_memory = memory_board_xml
+        .map(|xml| format!("\n\n[MEMORY BOARD]\n{xml}"))
+        .unwrap_or_default();
+
+    let instruction = format!(
+        "你要做归档总结。输出严格 JSON，不要 markdown，不要代码块。\n\
+         JSON schema: {{\"summary\":\"string\",\"memories\":[{{\"content\":\"string\",\"keywords\":[\"string\"]}}]}}\n\
+         规则:\n\
+         1) summary 必填，简洁说明这轮对话的目标、结论、待办。\n\
+         2) memories 最多 7 条；非必要不生成；仅保留对用户长期有价值的信息。\n\
+         3) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。\n\
+         4) 你是 {assistant_name}，用户称谓是 {user_name}。",
+        assistant_name = agent.name,
+        user_name = user_alias
+    );
+
+    let prepared = PreparedPrompt {
+        preamble: format!("[ARCHIVE TASK]\n{instruction}"),
+        latest_user_text: format!(
+            "[CONVERSATION]\n{}\n{}",
+            transcript.trim(),
+            extra_memory.trim()
+        ),
+        latest_images: Vec::new(),
+        latest_audios: Vec::new(),
+    };
+
+    let reply = call_model_openai_rig_style(resolved_api, &selected_api.model, prepared).await?;
+    let parsed = parse_archive_summary_draft(&reply.assistant_text).ok_or_else(|| {
+        format!(
+            "Parse archive summary JSON failed. raw={}",
+            reply.assistant_text.chars().take(240).collect::<String>()
+        )
+    })?;
+    let summary = clean_text(parsed.summary.trim());
+    if summary.is_empty() {
+        return Err("Archive summary is empty".to_string());
+    }
+    let memories = parsed.memories.into_iter().take(7).collect::<Vec<_>>();
+    Ok((summary, memories))
+}
+
 #[tauri::command]
 async fn send_chat_message(
     input: SendChatRequest,
@@ -705,7 +833,178 @@ async fn send_chat_message(
         })
         .collect::<Vec<_>>();
 
-    let (model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
+    let mut archived_before_send = false;
+    let mut pending_archive_source: Option<Conversation> = None;
+    let mut pending_archive_reason = String::new();
+    let mut pending_archive_forced = false;
+
+    {
+        let guard = state
+            .state_lock
+            .lock()
+            .map_err(|_| "Failed to lock state mutex".to_string())?;
+        let mut data = read_app_data(&state.data_path)?;
+        ensure_default_agent(&mut data);
+        let _agent = data
+            .agents
+            .iter()
+            .find(|a| a.id == input.agent_id)
+            .cloned()
+            .ok_or_else(|| "Selected agent not found.".to_string())?;
+
+        if let Some(conversation) = data.conversations.iter_mut().find(|c| {
+            c.status == "active" && c.api_config_id == selected_api.id && c.agent_id == input.agent_id
+        }) {
+            let decision =
+                decide_archive_before_user_message(conversation, selected_api.context_window_tokens);
+            conversation.last_context_usage_ratio = decision.usage_ratio;
+            eprintln!(
+                "[ARCHIVE] check before user message: should_archive={}, forced={}, reason={}, usage_ratio={:.4}",
+                decision.should_archive, decision.forced, decision.reason, decision.usage_ratio
+            );
+            if decision.should_archive {
+                pending_archive_source = Some(conversation.clone());
+                pending_archive_reason = decision.reason.clone();
+                pending_archive_forced = decision.forced;
+            }
+        }
+        write_app_data(&state.data_path, &data)?;
+        drop(guard);
+    }
+
+    if let Some(source) = pending_archive_source {
+        if pending_archive_forced {
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: "".to_string(),
+                kind: Some("tool_status".to_string()),
+                tool_name: Some("archive".to_string()),
+                tool_status: Some("running".to_string()),
+                message: Some("正在归档优化上下文...".to_string()),
+            });
+        }
+
+        let (summary_result, summary_memories) = {
+            let guard = state
+                .state_lock
+                .lock()
+                .map_err(|_| "Failed to lock state mutex".to_string())?;
+            let mut data = read_app_data(&state.data_path)?;
+            ensure_default_agent(&mut data);
+            let agent = data
+                .agents
+                .iter()
+                .find(|a| a.id == input.agent_id)
+                .cloned()
+                .ok_or_else(|| "Selected agent not found.".to_string())?;
+            let user_alias = data.user_alias.clone();
+            let memories = data.memories.clone();
+            drop(guard);
+
+            match summarize_archived_conversation_with_model(
+                &resolved_api,
+                &selected_api,
+                &agent,
+                &user_alias,
+                &source,
+                &memories,
+            )
+            .await
+            {
+                Ok((summary, drafts)) => (Ok(summary), drafts),
+                Err(err) => (Err(err), Vec::new()),
+            }
+        };
+
+        let guard = state
+            .state_lock
+            .lock()
+            .map_err(|_| "Failed to lock state mutex".to_string())?;
+        let mut data = read_app_data(&state.data_path)?;
+        ensure_default_agent(&mut data);
+
+        match summary_result {
+            Ok(summary) => {
+                if archive_conversation_now(
+                    &mut data,
+                    &source.id,
+                    &pending_archive_reason,
+                    &summary,
+                )
+                .is_some()
+                {
+                    let memory_merged = merge_memories_into_app_data(&mut data, &summary_memories);
+                    eprintln!(
+                        "[ARCHIVE] archived ok. conversation_id={}, reason={}, summary_len={}, merged_memories={}",
+                        source.id,
+                        pending_archive_reason,
+                        summary.chars().count(),
+                        memory_merged
+                    );
+                    archived_before_send = true;
+                }
+            }
+            Err(err) => {
+                eprintln!(
+                    "[ARCHIVE] summary failed, fallback to recent turns. conversation_id={}, err={}",
+                    source.id, err
+                );
+                if let Some(conv) = data
+                    .conversations
+                    .iter_mut()
+                    .find(|c| c.id == source.id && c.status == "active")
+                {
+                    let mut fallback_messages = keep_recent_turns(&source.messages, 3);
+                    conv.messages = fallback_messages.clone();
+                    let mut tmp = conv.clone();
+                    tmp.messages = fallback_messages.clone();
+                    let usage_after = compute_context_usage_ratio(&tmp, selected_api.context_window_tokens);
+                    if usage_after >= 0.82 {
+                        fallback_messages.clear();
+                        conv.messages.clear();
+                    }
+                    conv.last_user_at = conv
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == "user")
+                        .map(|m| m.created_at.clone());
+                    conv.last_assistant_at = conv
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == "assistant")
+                        .map(|m| m.created_at.clone());
+                    conv.updated_at = now_iso();
+                    conv.last_context_usage_ratio = if conv.messages.is_empty() {
+                        0.0
+                    } else {
+                        compute_context_usage_ratio(conv, selected_api.context_window_tokens)
+                    };
+                }
+            }
+        }
+
+        write_app_data(&state.data_path, &data)?;
+        drop(guard);
+
+        if pending_archive_forced {
+            let status = if archived_before_send { "done" } else { "failed" };
+            let message = if archived_before_send {
+                "归档完成，已优化上下文。"
+            } else {
+                "归档失败，已自动回退为最近三轮或新对话。"
+            };
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: "".to_string(),
+                kind: Some("tool_status".to_string()),
+                tool_name: Some("archive".to_string()),
+                tool_status: Some(status.to_string()),
+                message: Some(message.to_string()),
+            });
+        }
+    }
+
+    let (model_name, prepared_prompt, conversation_id, latest_user_text) = {
         let guard = state
             .state_lock
             .lock()
@@ -720,7 +1019,6 @@ async fn send_chat_message(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        let archived_before_send = archive_if_idle(&mut data, &selected_api.id, &input.agent_id);
         let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &input.agent_id);
 
         // 聊天记录保留用户原始多模态内容；模型请求使用 effective_payload（可能已做图转文）。
@@ -732,6 +1030,16 @@ async fn send_chat_message(
         let search_text = conversation_search_text(&conversation_before);
         let memory_board_xml =
             build_memory_board_xml(&data.memories, &search_text, &effective_user_text);
+        let last_archive_summary = data
+            .archived_conversations
+            .iter()
+            .rev()
+            .find(|a| {
+                a.source_conversation.api_config_id == selected_api.id
+                    && a.source_conversation.agent_id == input.agent_id
+                    && !a.summary.trim().is_empty()
+            })
+            .map(|a| a.summary.clone());
 
         let latest_user_text = if let Some(xml) = &memory_board_xml {
             if effective_user_text.trim().is_empty() {
@@ -761,9 +1069,19 @@ async fn send_chat_message(
 
         data.conversations[idx].messages.push(user_message);
         data.conversations[idx].updated_at = now;
+        data.conversations[idx].last_user_at = Some(now_iso());
+        data.conversations[idx].last_context_usage_ratio =
+            compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
 
         let conversation = data.conversations[idx].clone();
         let mut prepared = build_prompt(&conversation, &agent, &data.user_alias, &now_iso());
+        if let Some(summary) = last_archive_summary {
+            prepared.preamble.push_str(
+                "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",
+            );
+            prepared.preamble.push_str(summary.trim());
+            prepared.preamble.push('\n');
+        }
         prepared.latest_user_text = latest_user_text.clone();
         prepared.latest_images = effective_images.clone();
         prepared.latest_audios = effective_audios.clone();
@@ -786,7 +1104,6 @@ async fn send_chat_message(
             prepared,
             conversation_id,
             latest_user_text,
-            archived_before_send,
         )
     };
 
@@ -836,6 +1153,8 @@ async fn send_chat_message(
             });
             conversation.updated_at = now.clone();
             conversation.last_assistant_at = Some(now);
+            conversation.last_context_usage_ratio =
+                compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
             write_app_data(&state.data_path, &data)?;
         }
         drop(guard);
