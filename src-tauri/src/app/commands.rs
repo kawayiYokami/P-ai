@@ -11,7 +11,11 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<AppConfig, String> {
+fn save_config(
+    config: AppConfig,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AppConfig, String> {
     if config.api_configs.is_empty() {
         return Err("At least one API config must be configured.".to_string());
     }
@@ -24,6 +28,7 @@ fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<AppConfi
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     write_config(&state.config_path, &config)?;
+    register_hotkey_from_config(&app, &config)?;
     drop(guard);
     Ok(config)
 }

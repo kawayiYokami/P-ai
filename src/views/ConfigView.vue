@@ -11,7 +11,22 @@
     <template v-if="configTab === 'hotkey'">
       <label class="form-control">
         <div class="label py-1"><span class="label-text text-xs">呼唤热键</span></div>
-        <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+·" />
+        <div class="flex items-center gap-2">
+          <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
+          <button
+            class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200"
+            :class="{ 'btn-primary': hotkeyCapturing }"
+            @click="toggleHotkeyCapture"
+          >
+            {{ hotkeyCapturing ? "按键中..." : "录制热键" }}
+          </button>
+        </div>
+        <div class="label py-1">
+          <span class="label-text-alt text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
+        </div>
+        <div v-if="hotkeyRecordConflict" class="text-xs text-error mt-1">
+          呼唤热键与录音键冲突，键盘录音触发将被禁用，请改用录音按钮或调整按键。
+        </div>
       </label>
       <div class="grid grid-cols-3 gap-2">
         <label class="form-control col-span-1">
@@ -149,7 +164,7 @@
           <input v-model.number="selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-xs" />
           <div class="mt-1 flex justify-between text-[10px] opacity-60">
             <span>16K</span>
-            <span>128K</span>
+            <span>100K</span>
             <span>200K</span>
           </div>
         </label>
@@ -285,9 +300,9 @@
         </div>
       </div>
       <div class="flex gap-1">
-        <button class="btn btn-sm" @click="$emit('openCurrentHistory')">查看当前未归档记录</button>
-        <button class="btn btn-sm" @click="$emit('openPromptPreview')">预览请求体</button>
-        <button class="btn btn-sm" @click="$emit('openSystemPromptPreview')">系统提示词</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openCurrentHistory')">查看当前未归档记录</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openPromptPreview')">预览请求体</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openSystemPromptPreview')">系统提示词</button>
       </div>
       <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
         <div class="flex items-center justify-between">
@@ -420,6 +435,7 @@ const emit = defineEmits<{
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
+  (e: "captureHotkey", value: string): void;
   (e: "saveAgentAvatar", value: { agentId: string; mime: string; bytesBase64: string }): void;
   (e: "clearAgentAvatar", value: { agentId: string }): void;
 }>();
@@ -434,6 +450,107 @@ const localCropError = ref("");
 const avatarEditorTargetId = ref("");
 let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
+const hotkeyCapturing = ref(false);
+const hotkeyCaptureHint = ref("点击“录制热键”，然后按下组合键（如 Alt+·）。Esc 取消。");
+let hotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
+const hotkeyRecordConflict = computed(() => {
+  const hotkey = String(props.config.hotkey || "").trim().toUpperCase();
+  const recordHotkey = String(props.config.recordHotkey || "").trim().toUpperCase();
+  if (!hotkey || !recordHotkey) return false;
+  return hotkey === recordHotkey;
+});
+
+function isModifierKey(code: string): boolean {
+  return code === "AltLeft"
+    || code === "AltRight"
+    || code === "ControlLeft"
+    || code === "ControlRight"
+    || code === "ShiftLeft"
+    || code === "ShiftRight"
+    || code === "MetaLeft"
+    || code === "MetaRight";
+}
+
+function mainKeyFromEvent(event: KeyboardEvent): string {
+  const code = event.code || "";
+  if (code === "Backquote") return "·";
+  if (code.startsWith("Key") && code.length === 4) return code.slice(3).toUpperCase();
+  if (code.startsWith("Digit") && code.length === 6) return code.slice(5);
+  if (/^F\\d{1,2}$/.test(code)) return code;
+  if (code === "Minus") return "-";
+  if (code === "Equal") return "=";
+  if (code === "BracketLeft") return "[";
+  if (code === "BracketRight") return "]";
+  if (code === "Backslash") return "\\";
+  if (code === "Semicolon") return ";";
+  if (code === "Quote") return "'";
+  if (code === "Comma") return ",";
+  if (code === "Period") return ".";
+  if (code === "Slash") return "/";
+  if (code === "Space") return "Space";
+  const key = event.key || "";
+  if (key.length === 1) return key.toUpperCase();
+  return key;
+}
+
+function stopHotkeyCapture() {
+  hotkeyCapturing.value = false;
+  if (hotkeyCaptureHandler) {
+    window.removeEventListener("keydown", hotkeyCaptureHandler, true);
+    hotkeyCaptureHandler = null;
+  }
+}
+
+function startHotkeyCapture() {
+  if (hotkeyCapturing.value) return;
+  hotkeyCapturing.value = true;
+  hotkeyCaptureHint.value = "请按下组合键...";
+  hotkeyCaptureHandler = (event: KeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      hotkeyCaptureHint.value = "已取消录制。";
+      stopHotkeyCapture();
+      return;
+    }
+
+    const modifiers: string[] = [];
+    if (event.ctrlKey) modifiers.push("Ctrl");
+    if (event.altKey) modifiers.push("Alt");
+    if (event.shiftKey) modifiers.push("Shift");
+    if (event.metaKey) modifiers.push("Meta");
+
+    if (isModifierKey(event.code)) {
+      hotkeyCaptureHint.value = "请再按一个非修饰键。";
+      return;
+    }
+    if (modifiers.length === 0) {
+      hotkeyCaptureHint.value = "全局热键至少需要一个修饰键（Ctrl/Alt/Shift/Meta）。";
+      return;
+    }
+
+    const main = mainKeyFromEvent(event).trim();
+    if (!main) {
+      hotkeyCaptureHint.value = "未识别到按键，请重试。";
+      return;
+    }
+    const combo = `${modifiers.join("+")}+${main}`;
+    emit("captureHotkey", combo);
+    hotkeyCaptureHint.value = `已捕获：${combo}`;
+    stopHotkeyCapture();
+  };
+  window.addEventListener("keydown", hotkeyCaptureHandler, true);
+}
+
+function toggleHotkeyCapture() {
+  if (hotkeyCapturing.value) {
+    hotkeyCaptureHint.value = "已取消录制。";
+    stopHotkeyCapture();
+    return;
+  }
+  startHotkeyCapture();
+}
 
 function toolStatusById(id: string): ToolLoadStatus | undefined {
   return props.toolStatuses.find((s) => s.id === id);
@@ -612,6 +729,7 @@ function confirmCrop() {
 }
 
 onBeforeUnmount(() => {
+  stopHotkeyCapture();
   destroyCropper();
 });
 </script>
