@@ -37,7 +37,7 @@ async fn send_chat_message(
 
     if !matches!(
         resolved_api.request_format.trim(),
-        "openai" | "deepseek/kimi" | "gemini"
+        "openai" | "deepseek/kimi" | "gemini" | "anthropic"
     ) {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",
@@ -60,7 +60,7 @@ async fn send_chat_message(
                     resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
                 if !matches!(
                     vision_resolved.request_format.trim(),
-                    "openai" | "deepseek/kimi" | "gemini"
+                    "openai" | "deepseek/kimi" | "gemini" | "anthropic"
                 ) {
                     return Err(format!(
                         "Vision request format '{}' is not implemented in image conversion router yet.",
@@ -655,6 +655,60 @@ async fn fetch_models_gemini_native(input: &RefreshModelsInput) -> Result<Vec<St
     Ok(models)
 }
 
+async fn fetch_models_anthropic(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
+    let base = input.base_url.trim().trim_end_matches('/');
+    let url = format!("{base}/v1/models");
+    let api_key = input.api_key.trim();
+
+    if api_key.contains('\r') || api_key.contains('\n') {
+        return Err("API key contains newline characters. Please paste a single-line token.".to_string());
+    }
+    if matches!(api_key, "..." | "***" | "•••" | "···") {
+        return Err("API key is still a placeholder ('...' / '***'). Please paste the real token.".to_string());
+    }
+
+    let api_key_header = HeaderValue::from_str(api_key)
+        .map_err(|err| format!("Build x-api-key header failed: {err}"))?;
+    let anthropic_version = HeaderValue::from_static("2023-06-01");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+
+    let resp = client
+        .get(&url)
+        .header("x-api-key", api_key_header)
+        .header("anthropic-version", anthropic_version)
+        .send()
+        .await
+        .map_err(|err| format!("Fetch Anthropic model list failed ({url}): {err}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let raw = resp.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(600).collect::<String>();
+        return Err(format!(
+            "Fetch Anthropic model list failed: {url} -> {status} | {snippet}"
+        ));
+    }
+
+    let body = resp
+        .json::<AnthropicModelListResponse>()
+        .await
+        .map_err(|err| format!("Parse Anthropic model list failed ({url}): {err}"))?;
+
+    let mut models = body
+        .data
+        .into_iter()
+        .map(|item| item.id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    Ok(models)
+}
+
 #[tauri::command]
 async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String> {
     if input.api_key.trim().is_empty() {
@@ -667,6 +721,7 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
     match input.request_format.trim() {
         "openai" | "deepseek/kimi" => fetch_models_openai(&input).await,
         "gemini" => fetch_models_gemini_native(&input).await,
+        "anthropic" => fetch_models_anthropic(&input).await,
         "openai_tts" => Err(
             "Request format 'openai_tts' is for audio transcriptions and does not support model list refresh."
                 .to_string(),
@@ -791,13 +846,6 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     };
 
     let api_config = resolve_api_config(&app_config, None)?;
-    if !is_openai_style_request_format(&api_config.request_format) {
-        return Err(format!(
-            "Request format '{}' is not implemented in probe router yet.",
-            api_config.request_format
-        ));
-    }
-
     let prepared = PreparedPrompt {
         preamble: format!("[TIME]\nCurrent UTC time: {}", now_iso()),
         history_messages: Vec::new(),
@@ -807,7 +855,21 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         latest_audios: Vec::new(),
     };
 
-    let reply = call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?;
+    let reply = match api_config.request_format.trim() {
+        "openai" | "deepseek/kimi" => {
+            call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?
+        }
+        "gemini" => call_model_gemini_rig_style(&api_config, &api_config.model, prepared).await?,
+        "anthropic" => {
+            call_model_anthropic_rig_style(&api_config, &api_config.model, prepared).await?
+        }
+        other => {
+            return Err(format!(
+                "Request format '{}' is not implemented in probe router yet.",
+                other
+            ))
+        }
+    };
     Ok(reply.assistant_text)
 }
 

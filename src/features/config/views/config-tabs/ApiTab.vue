@@ -30,6 +30,7 @@
         <option value="openai">OpenAI Compatible</option>
         <option value="gemini">Google Gemini</option>
         <option value="deepseek/kimi">DeepSeek/Kimi</option>
+        <option value="anthropic">Anthropic</option>
       </select>
     </label>
     <label class="form-control">
@@ -155,7 +156,7 @@ import { invokeTauri } from "../../../../services/tauri-api";
 type ProviderPreset = {
   id: string;
   name: string;
-  urls: Partial<Record<"openai" | "gemini" | "deepseek/kimi", string>>;
+  urls: Partial<Record<"openai" | "gemini" | "deepseek/kimi" | "anthropic", string>>;
   docsUrl: string;
   hasFreeQuota?: boolean;
 };
@@ -185,6 +186,7 @@ const selectedProviderId = ref("openai-official");
 
 const providerPresets: ProviderPreset[] = [
   { id: "openai-official", name: "OpenAI", urls: { openai: "https://api.openai.com/v1" }, docsUrl: "https://platform.openai.com/docs/overview" },
+  { id: "anthropic-official", name: "Anthropic", urls: { anthropic: "https://api.anthropic.com" }, docsUrl: "https://docs.anthropic.com/en/api/overview" },
   { id: "google-gemini", name: "Google Gemini", urls: { gemini: "https://generativelanguage.googleapis.com" }, docsUrl: "https://ai.google.dev/gemini-api/docs", hasFreeQuota: true },
   { id: "deepseek", name: "DeepSeek", urls: { openai: "https://api.deepseek.com/v1", "deepseek/kimi": "https://api.deepseek.com/v1" }, docsUrl: "https://api-docs.deepseek.com/" },
   { id: "moonshot-kimi", name: "Moonshot/Kimi", urls: { openai: "https://api.moonshot.cn/v1", "deepseek/kimi": "https://api.moonshot.cn/v1" }, docsUrl: "https://platform.moonshot.cn/docs/api-reference" },
@@ -199,7 +201,7 @@ const providerPresets: ProviderPreset[] = [
   { id: "ollama-local", name: "Ollama (Local)", urls: { openai: "http://localhost:11434/v1", "deepseek/kimi": "http://localhost:11434/v1" }, docsUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md" },
 ];
 
-const currentProtocol = computed(() => (props.selectedApiConfig?.requestFormat?.trim() || "openai") as "openai" | "gemini" | "deepseek/kimi");
+const currentProtocol = computed(() => (props.selectedApiConfig?.requestFormat?.trim() || "openai") as "openai" | "gemini" | "deepseek/kimi" | "anthropic");
 const DEEPSEEK_KIMI_PROVIDER_IDS = new Set<string>([
   "deepseek",
   "moonshot-kimi",
@@ -222,7 +224,7 @@ const filteredProviderPresets = computed(() => {
 const selectedProvider = computed(() => providerPresets.find((p) => p.id === selectedProviderId.value) ?? providerPresets[0]);
 const generatedBaseUrl = computed(() => {
   const urls = selectedProvider.value.urls;
-  return urls[currentProtocol.value] || urls.openai || urls.gemini || urls["deepseek/kimi"] || "";
+  return urls[currentProtocol.value] || urls.openai || urls.gemini || urls["deepseek/kimi"] || urls.anthropic || "";
 });
 
 watch(

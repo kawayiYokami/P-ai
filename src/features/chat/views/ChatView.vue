@@ -528,7 +528,7 @@ watch(
 
 <style scoped>
 .assistant-markdown :deep(p) {
-  margin: 0 0 0.4rem;
+  margin: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -575,5 +575,9 @@ watch(
   display: inline-block;
 }
 
-</style>
+:deep(.chat-bubble) {
+  min-width: 0;
+  min-height: 0;
+}
 
+</style>

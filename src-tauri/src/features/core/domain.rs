@@ -393,6 +393,17 @@ struct GeminiNativeModelListResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct AnthropicModelListItem {
+    id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AnthropicModelListResponse {
+    #[serde(default)]
+    data: Vec<AnthropicModelListItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct OpenAIStreamChunk {
     choices: Vec<OpenAIStreamChoice>,
 }

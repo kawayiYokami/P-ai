@@ -440,6 +440,7 @@ const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
+  if (format === "anthropic") return "https://api.anthropic.com";
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {
