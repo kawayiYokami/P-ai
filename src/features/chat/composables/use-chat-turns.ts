@@ -32,10 +32,12 @@ export function useChatTurns(options: UseChatTurnsOptions) {
         let assistantReasoningStandard = "";
         let assistantReasoningInline = "";
         if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
-          const parsed = parseAssistantStoredText(renderMessage(msgs[i + 1]));
+          const assistantMsg = msgs[i + 1];
+          const parsed = parseAssistantStoredText(renderMessage(assistantMsg));
+          const providerMeta = assistantMsg.providerMeta || {};
           assistantText = parsed.assistantText;
-          assistantReasoningStandard = parsed.reasoningStandard;
-          assistantReasoningInline = parsed.reasoningInline;
+          assistantReasoningStandard = parsed.reasoningStandard || String(providerMeta.reasoningStandard || "");
+          assistantReasoningInline = parsed.reasoningInline || String(providerMeta.reasoningInline || "");
           i++;
         }
         if (
@@ -89,4 +91,3 @@ export function useChatTurns(options: UseChatTurnsOptions) {
     chatUsagePercent,
   };
 }
-

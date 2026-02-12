@@ -459,11 +459,19 @@ async fn send_chat_message(
     let reasoning_inline = model_reply.reasoning_inline;
     let tool_history_events = model_reply.tool_history_events;
 
-    let mut assistant_text_for_storage = assistant_text.clone();
-    if !reasoning_standard.trim().is_empty() {
-        assistant_text_for_storage.push_str("\n\n[标准思考]\n");
-        assistant_text_for_storage.push_str(reasoning_standard.trim());
-    }
+    let assistant_text_for_storage = assistant_text.clone();
+    let provider_meta = {
+        let standard = reasoning_standard.trim();
+        let inline = reasoning_inline.trim();
+        if standard.is_empty() && inline.is_empty() {
+            None
+        } else {
+            Some(serde_json::json!({
+                "reasoningStandard": standard,
+                "reasoningInline": inline
+            }))
+        }
+    };
 
     {
         let guard = state
@@ -486,7 +494,7 @@ async fn send_chat_message(
                     text: assistant_text_for_storage.clone(),
                 }],
                 extra_text_blocks: Vec::new(),
-                provider_meta: None,
+                provider_meta: provider_meta.clone(),
                 tool_call: if tool_history_events.is_empty() {
                     None
                 } else {

@@ -73,6 +73,11 @@ export type ChatMessage = {
   createdAt?: string;
   parts: MessagePart[];
   extraTextBlocks?: string[];
+  providerMeta?: {
+    reasoningStandard?: string;
+    reasoningInline?: string;
+    [key: string]: unknown;
+  };
   toolCall?: ToolCallMessage[];
 };
 
