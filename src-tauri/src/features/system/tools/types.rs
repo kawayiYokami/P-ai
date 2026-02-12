@@ -25,14 +25,6 @@ impl DesktopToolError {
         }
     }
 
-    fn target_not_found(message: impl Into<String>) -> Self {
-        Self {
-            code: DesktopToolErrorCode::TargetNotFound,
-            message: message.into(),
-            details: None,
-        }
-    }
-
     fn internal_error(message: impl Into<String>) -> Self {
         Self {
             code: DesktopToolErrorCode::InternalError,
