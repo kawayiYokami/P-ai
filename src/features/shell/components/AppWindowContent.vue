@@ -19,6 +19,7 @@
       :base-url-reference="baseUrlReference"
       :refreshing-models="refreshingModels"
       :model-options="selectedModelOptions"
+      :model-refresh-ok="modelRefreshOk"
       :model-refresh-error="modelRefreshError"
       :tool-statuses="toolStatuses"
       :personas="personas"
@@ -124,7 +125,7 @@
       @export-archive="exportArchive"
       @delete-archive="deleteArchive"
     />
-    <dialog :ref="setHistoryDialogRef" class="modal">
+    <dialog :ref="historyDialogVNodeRef" class="modal">
       <HistoryDialog
         :title="t('chat.currentHistoryTitle')"
         :close-text="t('common.close')"
@@ -134,7 +135,7 @@
         @close="closeHistory"
       />
     </dialog>
-    <dialog :ref="setMemoryDialogRef" class="modal">
+    <dialog :ref="memoryDialogVNodeRef" class="modal">
       <MemoryDialog
         :import-input-ref="memoryImportInput"
         :title="t('memory.title')"
@@ -157,7 +158,7 @@
         @import-file="handleMemoryImportFile"
       />
     </dialog>
-    <dialog :ref="setPromptPreviewDialogRef" class="modal">
+    <dialog :ref="promptPreviewDialogVNodeRef" class="modal">
       <PromptPreviewDialog
         :mode="promptPreviewMode"
         :loading="promptPreviewLoading"
@@ -184,34 +185,49 @@ import ArchivesView from "../../archive/views/ArchivesView.vue";
 import HistoryDialog from "../../chat/components/dialogs/HistoryDialog.vue";
 import MemoryDialog from "../../memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
+import type { VNodeRef } from "vue";
+import type {
+  ApiConfigItem,
+  AppConfig,
+  ArchiveSummary,
+  ChatMessage,
+  ChatTurn,
+  ImageTextCacheStats,
+  PersonaProfile,
+  ResponseStyleOption,
+  ToolLoadStatus,
+} from "../../../types/app";
 
-defineProps<{
+type MemoryItem = { id: string; content: string; keywords: string[] };
+
+const props = defineProps<{
   t: (key: string, params?: Record<string, unknown>) => string;
   viewMode: "chat" | "archives" | "config";
-  config: Record<string, unknown>;
+  config: AppConfig;
   configTab: "hotkey" | "api" | "tools" | "persona" | "chatSettings";
-  localeOptions: Array<{ value: string; label: string }>;
-  currentTheme: string;
-  selectedApiConfig: unknown;
-  toolApiConfig: unknown;
+  localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
+  currentTheme: "light" | "forest";
+  selectedApiConfig: ApiConfigItem | null;
+  toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
   selectedModelOptions: string[];
+  modelRefreshOk: boolean;
   modelRefreshError: string;
-  toolStatuses: unknown[];
-  personas: unknown[];
-  assistantPersonas: unknown[];
-  userPersona: unknown;
+  toolStatuses: ToolLoadStatus[];
+  personas: PersonaProfile[];
+  assistantPersonas: PersonaProfile[];
+  userPersona: PersonaProfile | null;
   personaEditorId: string;
   selectedPersonaId: string;
-  selectedPersonaEditor: unknown;
+  selectedPersonaEditor: PersonaProfile | null;
   selectedPersonaEditorAvatarUrl: string;
   userPersonaAvatarUrl: string;
-  responseStyleOptions: unknown[];
+  responseStyleOptions: ResponseStyleOption[];
   selectedResponseStyleId: string;
-  textCapableApiConfigs: unknown[];
-  imageCapableApiConfigs: unknown[];
-  imageCacheStats: unknown;
+  textCapableApiConfigs: ApiConfigItem[];
+  imageCapableApiConfigs: ApiConfigItem[];
+  imageCacheStats: ImageTextCacheStats;
   imageCacheStatsLoading: boolean;
   avatarSaving: boolean;
   avatarError: string;
@@ -241,20 +257,20 @@ defineProps<{
   recordHotkey: string;
   chatting: boolean;
   forcingArchive: boolean;
-  visibleTurns: unknown[];
+  visibleTurns: ChatTurn[];
   hasMoreTurns: boolean;
-  archives: unknown[];
+  archives: ArchiveSummary[];
   selectedArchiveId: string;
-  archiveMessages: unknown[];
-  renderMessage: (message: unknown) => string;
-  currentHistory: unknown[];
-  messageText: (message: unknown) => string;
-  extractMessageImages: (message: unknown) => Array<{ mime: string; bytesBase64: string }>;
-  memoryImportInput: unknown;
-  memoryList: unknown[];
+  archiveMessages: ChatMessage[];
+  renderMessage: (message: ChatMessage) => string;
+  currentHistory: ChatMessage[];
+  messageText: (message: ChatMessage) => string;
+  extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
+  memoryImportInput: HTMLInputElement | null;
+  memoryList: MemoryItem[];
   memoryPage: number;
   memoryPageCount: number;
-  pagedMemories: unknown[];
+  pagedMemories: MemoryItem[];
   promptPreviewMode: "full" | "system";
   promptPreviewLoading: boolean;
   promptPreviewText: string;
@@ -297,7 +313,7 @@ defineProps<{
   loadMoreTurns: () => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
-  exportArchive: (format: "markdown" | "json") => void;
+  exportArchive: (payload: { format: "markdown" | "json" }) => void;
   deleteArchive: (id: string) => void;
   closeHistory: () => void;
   closeMemoryViewer: () => void;
@@ -308,4 +324,16 @@ defineProps<{
   handleMemoryImportFile: (event: Event) => void;
   closePromptPreview: () => void;
 }>();
+
+const historyDialogVNodeRef: VNodeRef = (el) => {
+  props.setHistoryDialogRef((el as Element | null) ?? null);
+};
+
+const memoryDialogVNodeRef: VNodeRef = (el) => {
+  props.setMemoryDialogRef((el as Element | null) ?? null);
+};
+
+const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
+  props.setPromptPreviewDialogRef((el as Element | null) ?? null);
+};
 </script>

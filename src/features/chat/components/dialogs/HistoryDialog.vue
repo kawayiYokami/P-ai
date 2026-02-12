@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import type { ChatMessage } from "../../types/app";
+import type { ChatMessage } from "../../../../types/app";
 
 defineProps<{
   title: string;

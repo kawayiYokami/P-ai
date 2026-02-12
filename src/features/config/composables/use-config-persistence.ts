@@ -10,7 +10,7 @@ type UseConfigPersistenceOptions = {
   setStatus: (text: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   config: AppConfig;
-  locale: Ref<SupportedLocale>;
+  locale: { value: string };
   normalizeLocale: (value: string) => SupportedLocale;
   suppressAutosave: Ref<boolean>;
   loading: Ref<boolean>;
@@ -224,4 +224,3 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     saveConversationApiSettings,
   };
 }
-

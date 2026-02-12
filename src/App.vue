@@ -30,6 +30,7 @@
       :base-url-reference="baseUrlReference"
       :refreshing-models="refreshingModels"
       :selected-model-options="selectedModelOptions"
+      :model-refresh-ok="selectedModelRefreshOk"
       :model-refresh-error="modelRefreshError"
       :tool-statuses="toolStatuses"
       :personas="personas"
@@ -177,6 +178,7 @@ import {
   removeBinaryPlaceholders,
   renderMessage,
 } from "./utils/chat-message";
+import { formatI18nError } from "./utils/error";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import type {
@@ -237,6 +239,7 @@ const chatting = ref(false);
 const forcingArchive = ref(false);
 const refreshingModels = ref(false);
 const modelRefreshError = ref("");
+const modelRefreshOkFlags = ref<Record<string, boolean>>({});
 const checkingToolsStatus = ref(false);
 const toolStatuses = ref<ToolLoadStatus[]>([]);
 const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
@@ -426,10 +429,15 @@ const selectedModelOptions = computed(() => {
   if (!id) return [];
   return apiModelOptions.value[id] ?? [];
 });
+const selectedModelRefreshOk = computed(() => {
+  const id = config.selectedApiConfigId;
+  if (!id) return false;
+  return !!modelRefreshOkFlags.value[id];
+});
 const responseStyleOptions = responseStylesJson as ResponseStyleOption[];
 const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
-  if (format === "gemini") return "https://generativelanguage.googleapis.com/v1beta/openai";
+  if (format === "gemini") return "https://generativelanguage.googleapis.com";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
   return "https://api.openai.com/v1";
 });
@@ -491,6 +499,7 @@ const {
   refreshingModels,
   modelRefreshError,
   apiModelOptions,
+  modelRefreshOkFlags,
   toolApiConfig,
   checkingToolsStatus,
   toolStatuses,

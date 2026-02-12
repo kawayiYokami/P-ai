@@ -34,6 +34,7 @@
           :base-url-reference="baseUrlReference"
           :refreshing-models="refreshingModels"
           :model-options="modelOptions"
+          :model-refresh-ok="modelRefreshOk"
           :model-refresh-error="modelRefreshError"
           :config-dirty="configDirty"
           :saving-config="savingConfig"
@@ -167,6 +168,7 @@ const props = defineProps<{
   baseUrlReference: string;
   refreshingModels: boolean;
   modelOptions: string[];
+  modelRefreshOk: boolean;
   modelRefreshError: string;
   toolStatuses: ToolLoadStatus[];
   personas: PersonaProfile[];
@@ -432,4 +434,3 @@ onBeforeUnmount(() => {
   destroyCropper();
 });
 </script>
-
