@@ -186,7 +186,7 @@
       </dialog>
 
       <dialog ref="memoryDialog" class="modal">
-        <div class="modal-box max-w-xl">
+        <div class="modal-box w-[92vw] max-w-none flex min-h-0 flex-col overflow-hidden">
           <h3 class="font-semibold text-sm mb-2">{{ t("memory.title") }}</h3>
           <input
             ref="memoryImportInput"
@@ -195,9 +195,9 @@
             class="hidden"
             @change="handleMemoryImportFile"
           />
-          <div v-if="memoryList.length === 0" class="text-xs opacity-70">{{ t("memory.empty") }}</div>
-          <div v-else class="space-y-2">
-            <div class="max-h-96 overflow-auto space-y-2">
+          <div v-if="memoryList.length === 0" class="flex-1 min-h-0 text-xs opacity-70">{{ t("memory.empty") }}</div>
+          <div v-else class="flex flex-1 min-h-0 flex-col space-y-2">
+            <div class="min-h-0 flex-1 overflow-auto space-y-2 pr-1">
               <div
                 v-for="memory in pagedMemories"
                 :key="memory.id"
@@ -218,7 +218,7 @@
                 </div>
               </div>
             </div>
-            <div class="flex items-center justify-between border-t border-base-300 pt-2">
+            <div class="shrink-0 flex items-center justify-between border-t border-base-300 pt-2">
               <span class="text-xs opacity-70">{{ t("memory.page", { page: memoryPage, total: memoryPageCount }) }}</span>
               <div class="join">
                 <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">{{ t("memory.prevPage") }}</button>
@@ -226,7 +226,7 @@
               </div>
             </div>
           </div>
-          <div class="modal-action">
+          <div class="modal-action mt-2 shrink-0">
             <button class="btn btn-sm btn-ghost" @click="exportMemories">{{ t("memory.export") }}</button>
             <button class="btn btn-sm btn-ghost" @click="triggerMemoryImport">{{ t("memory.import") }}</button>
             <button class="btn btn-sm" @click="closeMemoryViewer">{{ t("common.close") }}</button>
