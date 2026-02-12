@@ -1207,6 +1207,7 @@ fn import_memories(
     }
 
     write_app_data(&state.data_path, &data)?;
+    invalidate_memory_matcher_cache();
     drop(guard);
 
     Ok(ImportMemoriesResult {
@@ -1234,73 +1235,6 @@ fn xml_escape(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
-}
-
-fn conversation_search_text(conversation: &Conversation) -> String {
-    let mut lines = Vec::<String>::new();
-    for msg in &conversation.messages {
-        for part in &msg.parts {
-            if let MessagePart::Text { text } = part {
-                if !text.trim().is_empty() {
-                    lines.push(text.to_lowercase());
-                }
-            }
-        }
-    }
-    lines.join("\n")
-}
-
-fn build_memory_board_xml(
-    memories: &[MemoryEntry],
-    search_text: &str,
-    latest_user_text: &str,
-) -> Option<String> {
-    let mut hits = Vec::<(&MemoryEntry, Vec<String>)>::new();
-    let mut corpus = String::new();
-    corpus.push_str(search_text);
-    if !latest_user_text.trim().is_empty() {
-        corpus.push('\n');
-        corpus.push_str(&latest_user_text.to_lowercase());
-    }
-
-    for memory in memories {
-        let mut matched = Vec::<String>::new();
-        for kw in &memory.keywords {
-            let k = kw.trim().to_lowercase();
-            if k.len() < 2 {
-                continue;
-            }
-            if corpus.contains(&k) {
-                matched.push(k);
-            }
-        }
-        if !matched.is_empty() {
-            hits.push((memory, matched));
-        }
-        if hits.len() >= 4 {
-            break;
-        }
-    }
-
-    if hits.is_empty() {
-        return None;
-    }
-
-    let mut out = String::new();
-    out.push_str("<memory_board>\n");
-    out.push_str("  <note>这是记忆提示板，请按需参考，不要编造未命中的记忆。</note>\n");
-    out.push_str("  <memories>\n");
-    for (memory, _matched) in hits {
-        out.push_str("    <memory>\n");
-        out.push_str(&format!(
-            "      <content>{}</content>\n",
-            xml_escape(&memory.content)
-        ));
-        out.push_str("    </memory>\n");
-    }
-    out.push_str("  </memories>\n");
-    out.push_str("</memory_board>");
-    Some(out)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1523,6 +1457,9 @@ async fn force_archive_current(
         return Err("活动对话已变化，请重试强制归档。".to_string());
     }
     let merged_memories = merge_memories_into_app_data(&mut data, &summary_memories);
+    if merged_memories > 0 {
+        invalidate_memory_matcher_cache();
+    }
     write_app_data(&state.data_path, &data)?;
     drop(guard);
 
@@ -1769,6 +1706,9 @@ async fn send_chat_message(
                 .is_some()
                 {
                     let memory_merged = merge_memories_into_app_data(&mut data, &summary_memories);
+                    if memory_merged > 0 {
+                        invalidate_memory_matcher_cache();
+                    }
                     eprintln!(
                         "[ARCHIVE] archived ok. conversation_id={}, reason={}, summary_len={}, merged_memories={}",
                         source.id,

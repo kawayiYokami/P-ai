@@ -996,6 +996,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "easy-call-ai"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "base64 0.22.1",
  "directories",
  "futures-util",
