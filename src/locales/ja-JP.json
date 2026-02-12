@@ -80,7 +80,17 @@
       "noChatApi": "対話APIが未設定です",
       "maxIterations": "ツール最大呼び出し回数",
       "disabledHint": "現在の対話AIではツール呼び出しが無効です。",
-      "viewMemory": "表示"
+      "viewMemory": "表示",
+      "desktopScreenshotTitle": "デスクトップスクリーンショット",
+      "desktopScreenshotDesc": "ワンクリックでデスクトップ全体を1回撮影します。",
+      "desktopWaitTitle": "待機ツール",
+      "desktopWaitDesc": "設定したミリ秒だけ1回待機します。",
+      "runOnce": "1回実行",
+      "lastResult": "直近結果",
+      "descFetch": "Webページを取得し本文を抽出します。",
+      "descBingSearch": "Web検索を実行し候補を返します。",
+      "descMemorySave": "重要情報を長期記憶に保存します。",
+      "descGeneric": "汎用ツール機能。"
     },
     "persona": {
       "title": "人格",

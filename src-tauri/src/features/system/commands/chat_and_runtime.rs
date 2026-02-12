@@ -675,10 +675,20 @@ fn check_tools_status(
 
     let mut statuses = Vec::new();
     for tool in selected.tools {
+        if !tool.enabled {
+            statuses.push(ToolLoadStatus {
+                id: tool.id,
+                status: "disabled".to_string(),
+                detail: "该工具开关已关闭。".to_string(),
+            });
+            continue;
+        }
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
             "bing-search" => ("loaded".to_string(), "内置 Bing 爬虫搜索可用".to_string()),
             "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
+            "desktop-screenshot" => ("loaded".to_string(), "桌面截图工具可用".to_string()),
+            "desktop-wait" => ("loaded".to_string(), "桌面等待工具可用".to_string()),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

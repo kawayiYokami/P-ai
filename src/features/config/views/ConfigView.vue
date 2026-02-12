@@ -49,6 +49,7 @@
           :config="config"
           :tool-api-config="toolApiConfig"
           :tool-statuses="toolStatuses"
+          @tool-switch-changed="$emit('toolSwitchChanged')"
           @open-memory-viewer="$emit('openMemoryViewer')"
         />
 
@@ -202,6 +203,7 @@ const emit = defineEmits<{
   (e: "update:responseStyleId", value: string): void;
   (e: "toggleTheme"): void;
   (e: "refreshModels"): void;
+  (e: "toolSwitchChanged"): void;
   (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;

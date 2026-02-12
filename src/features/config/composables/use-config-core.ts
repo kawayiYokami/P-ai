@@ -8,17 +8,51 @@ type UseConfigCoreOptions = {
 };
 
 export function useConfigCore(options: UseConfigCoreOptions) {
+  const BUILTIN_TOOL_DEFAULTS = [
+    {
+      id: "fetch",
+      command: "npx",
+      args: ["-y", "@iflow-mcp/fetch"],
+      enabled: true,
+      values: {},
+    },
+    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
+    { id: "memory-save", command: "builtin", args: ["memory-save"], enabled: true, values: {} },
+    { id: "desktop-screenshot", command: "builtin", args: ["desktop-screenshot"], enabled: false, values: {} },
+    { id: "desktop-wait", command: "builtin", args: ["desktop-wait"], enabled: false, values: {} },
+  ] as const;
+
   function defaultApiTools() {
-    return [
-      {
-        id: "fetch",
-        command: "npx",
-        args: ["-y", "@iflow-mcp/fetch"],
-        values: {},
-      },
-      { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], values: {} },
-      { id: "memory-save", command: "builtin", args: ["memory-save"], values: {} },
-    ];
+    return BUILTIN_TOOL_DEFAULTS.map((tool) => ({
+      id: tool.id,
+      command: tool.command,
+      args: [...tool.args],
+      enabled: tool.enabled,
+      values: { ...(tool.values as Record<string, unknown>) },
+    }));
+  }
+
+  function normalizeApiToolBindings(api: ApiConfigItem) {
+    const defaults = defaultApiTools();
+    const current = Array.isArray(api.tools) ? api.tools : [];
+    api.tools = defaults.map((tool) => {
+      const found = current.find((item) => item.id === tool.id);
+      return {
+        id: tool.id,
+        command: found?.command || tool.command,
+        args: Array.isArray(found?.args) ? found!.args : tool.args,
+        enabled: typeof found?.enabled === "boolean" ? found.enabled : tool.enabled,
+        values: found?.values ?? tool.values,
+      };
+    });
+
+    if (!api.enableImage) {
+      for (const tool of api.tools) {
+        if (tool.id === "desktop-screenshot" || tool.id === "desktop-wait") {
+          tool.enabled = false;
+        }
+      }
+    }
   }
 
   function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
@@ -49,6 +83,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         16000,
         Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))),
       );
+      normalizeApiToolBindings(api);
     }
     if (!["Alt", "Ctrl", "Shift"].includes(options.config.recordHotkey)) {
       options.config.recordHotkey = "Alt";
@@ -102,6 +137,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           id: t.id,
           command: t.command,
           args: Array.isArray(t.args) ? t.args : [],
+          enabled: typeof t.enabled === "boolean" ? t.enabled : true,
           values: t.values ?? {},
         })),
         baseUrl: a.baseUrl,
@@ -132,7 +168,13 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableImage: a.enableImage,
         enableAudio: a.enableAudio,
         enableTools: a.enableTools,
-        tools: a.tools,
+        tools: (a.tools || []).map((t) => ({
+          id: t.id,
+          command: t.command,
+          args: Array.isArray(t.args) ? t.args : [],
+          enabled: typeof t.enabled === "boolean" ? t.enabled : true,
+          values: t.values ?? {},
+        })),
         baseUrl: a.baseUrl,
         apiKey: a.apiKey,
         model: a.model,
@@ -150,5 +192,4 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     buildConfigSnapshotJson,
   };
 }
-
 

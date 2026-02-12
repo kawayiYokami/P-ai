@@ -80,7 +80,21 @@
       "noChatApi": "未配置对话AI",
       "maxIterations": "工具最大调用轮次",
       "disabledHint": "当前对话AI未启用工具调用。",
-      "viewMemory": "查看"
+      "toolEnabled": "启用",
+      "imageCapabilityRequired": "当前模型未开启图片能力，截图/等待不可启用。",
+      "viewMemory": "查看",
+      "desktopScreenshotTitle": "桌面截图工具",
+      "desktopScreenshotDesc": "默认全桌面截图，点击后立即执行一次。",
+      "desktopWaitTitle": "等待工具",
+      "desktopWaitDesc": "按设定毫秒数等待一次。",
+      "runOnce": "一键调用",
+      "lastResult": "最近结果",
+      "descFetch": "抓取网页内容并提取正文。",
+      "descBingSearch": "执行网络搜索并返回候选结果。",
+      "descMemorySave": "把关键信息写入长期记忆。",
+      "descDesktopScreenshot": "捕获当前整个桌面的图像内容。",
+      "descDesktopWait": "按毫秒等待，用于操作节奏控制。",
+      "descGeneric": "通用工具能力。"
     },
     "persona": {
       "title": "人格",

@@ -2,6 +2,7 @@ export type ApiToolItem = {
   id: string;
   command: string;
   args: string[];
+  enabled: boolean;
   values: Record<string, unknown>;
 };
 

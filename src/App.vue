@@ -105,6 +105,7 @@
       :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
       :toggle-theme="toggleTheme"
       :refresh-models="refreshModels"
+      :on-tools-changed="handleToolsChanged"
       :save-config="saveConfig"
       :add-api-config="addApiConfig"
       :remove-selected-api-config="removeSelectedApiConfig"
@@ -449,6 +450,7 @@ const chatInputPlaceholder = computed(() => {
   if (hints.length === 0) return t("chat.placeholder");
   return t("chat.placeholder");
 });
+let toolSwitchAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 const {
   defaultApiTools,
   createApiConfig,
@@ -676,6 +678,18 @@ const chatFlow = useChatFlow({
 
 function clearStreamBuffer() {
   chatFlow.clearStreamBuffer();
+}
+
+function handleToolsChanged() {
+  if (toolSwitchAutosaveTimer) {
+    clearTimeout(toolSwitchAutosaveTimer);
+  }
+  toolSwitchAutosaveTimer = setTimeout(async () => {
+    await saveConfig();
+    if (configTab.value === "tools") {
+      await refreshToolsStatus();
+    }
+  }, 250);
 }
 const { openCurrentHistory, openPromptPreview, openSystemPromptPreview } = useChatDialogActions({
   activeChatApiConfigId,

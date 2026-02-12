@@ -50,6 +50,7 @@
       @update:response-style-id="updateSelectedResponseStyleId"
       @toggle-theme="toggleTheme"
       @refresh-models="refreshModels"
+      @tool-switch-changed="onToolsChanged"
       @save-api-config="saveConfig"
       @add-api-config="addApiConfig"
       @remove-selected-api-config="removeSelectedApiConfig"
@@ -288,6 +289,7 @@ const props = defineProps<{
   toggleTheme: () => void;
   refreshModels: () => void;
   saveConfig: () => void;
+  onToolsChanged: () => void;
   addApiConfig: () => void;
   removeSelectedApiConfig: () => void;
   addPersona: () => void;

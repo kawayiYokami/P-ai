@@ -137,7 +137,13 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   );
 
   watch(
-    () => [options.configTab.value, options.activeChatApiConfigId.value, options.toolApiConfig.value?.enableTools],
+    () => [
+      options.configTab.value,
+      options.activeChatApiConfigId.value,
+      options.toolApiConfig.value?.enableTools,
+      options.toolApiConfig.value?.enableImage,
+      (options.toolApiConfig.value?.tools ?? []).map((tool) => `${tool.id}:${tool.enabled ? 1 : 0}`).join("|"),
+    ],
     async ([tab, id, enabled]) => {
       if (tab !== "tools") return;
       if (!id) return;

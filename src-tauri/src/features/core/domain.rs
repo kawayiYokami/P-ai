@@ -98,6 +98,8 @@ struct ApiToolConfig {
     id: String,
     command: String,
     args: Vec<String>,
+    #[serde(default = "default_true")]
+    enabled: bool,
     #[serde(default)]
     values: Value,
 }
@@ -112,18 +114,35 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             id: "fetch".to_string(),
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "@iflow-mcp/fetch".to_string()],
+            enabled: true,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
             id: "bing-search".to_string(),
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "bing-cn-mcp".to_string()],
+            enabled: true,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
             id: "memory-save".to_string(),
             command: "builtin".to_string(),
             args: vec!["memory-save".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "desktop-screenshot".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["desktop-screenshot".to_string()],
+            enabled: false,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "desktop-wait".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["desktop-wait".to_string()],
+            enabled: false,
             values: serde_json::json!({}),
         },
     ]

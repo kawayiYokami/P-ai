@@ -80,7 +80,21 @@
       "noChatApi": "Chat API is not configured",
       "maxIterations": "Max tool iterations",
       "disabledHint": "Tools are disabled for current chat API.",
-      "viewMemory": "View"
+      "toolEnabled": "Enabled",
+      "imageCapabilityRequired": "Image capability is required to enable screenshot/wait.",
+      "viewMemory": "View",
+      "desktopScreenshotTitle": "Desktop Screenshot Tool",
+      "desktopScreenshotDesc": "Capture the full desktop once with one click.",
+      "desktopWaitTitle": "Wait Tool",
+      "desktopWaitDesc": "Wait once for the configured milliseconds.",
+      "runOnce": "Run Once",
+      "lastResult": "Last Result",
+      "descFetch": "Fetch webpage content and extract readable text.",
+      "descBingSearch": "Run web search and return candidate results.",
+      "descMemorySave": "Save key facts into long-term memory.",
+      "descDesktopScreenshot": "Capture the current full desktop image.",
+      "descDesktopWait": "Pause by milliseconds to control action pacing.",
+      "descGeneric": "General tool capability."
     },
     "persona": {
       "title": "Persona",
