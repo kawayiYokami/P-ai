@@ -166,6 +166,7 @@ fn archive_conversation_now(
         summary: summary.to_string(),
         source_conversation: source,
     });
+    clear_screenshot_artifact_cache();
     Some(archive_id)
 }
 

@@ -152,6 +152,64 @@ async fn call_model_gemini_rig_style(
     })
 }
 
+async fn call_model_anthropic_rig_style(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    let mut content_items: Vec<UserContent> = Vec::new();
+    if !prepared.latest_user_text.trim().is_empty() {
+        content_items.push(UserContent::text(prepared.latest_user_text));
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        content_items.push(UserContent::text(prepared.latest_user_system_text));
+    }
+
+    for (mime, bytes) in prepared.latest_images {
+        content_items.push(UserContent::image_base64(
+            bytes,
+            image_media_type_from_mime(&mime),
+            Some(ImageDetail::Auto),
+        ));
+    }
+
+    for (mime, bytes) in prepared.latest_audios {
+        content_items.push(UserContent::audio(bytes, audio_media_type_from_mime(&mime)));
+    }
+
+    let prompt_content = OneOrMany::many(content_items)
+        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+
+    let mut client_builder: anthropic::ClientBuilder =
+        anthropic::Client::builder().api_key(&api_config.api_key);
+    if !api_config.base_url.is_empty() {
+        client_builder = client_builder.base_url(&api_config.base_url);
+    }
+    let client = client_builder
+        .build()
+        .map_err(|err| format!("Failed to create Anthropic client via rig: {err}"))?;
+
+    let agent = client
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
+        .build();
+    let prompt_message = RigMessage::User {
+        content: prompt_content,
+    };
+
+    let assistant_text = agent
+        .prompt(prompt_message)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(ModelReply {
+        assistant_text,
+        reasoning_standard: String::new(),
+        reasoning_inline: String::new(),
+        tool_history_events: Vec::new(),
+    })
+}
+
 fn debug_value_snippet(value: &Value, max_chars: usize) -> String {
     let raw = serde_json::to_string(value).unwrap_or_else(|_| "<invalid json>".to_string());
     if raw.chars().count() <= max_chars {
@@ -569,11 +627,37 @@ async fn builtin_desktop_screenshot(webp_quality: Option<f32>) -> Result<Value, 
         monitor_id: None,
         region: None,
         save_path: None,
-        webp_quality: webp_quality.unwrap_or(default_webp_quality()),
+        webp_quality: normalize_webp_quality(webp_quality),
     })
     .await
     .map_err(|err| to_tool_err_string(&err))?;
-    serde_json::to_value(res).map_err(|err| format!("serialize desktop screenshot result failed: {err}"))
+    let mut value =
+        serde_json::to_value(&res).map_err(|err| format!("serialize desktop screenshot result failed: {err}"))?;
+    if let Some(obj) = value.as_object_mut() {
+        let image_mime = res.image_mime.clone();
+        let image_base64 = res.image_base64.clone();
+        obj.insert(
+            "response".to_string(),
+            serde_json::json!({
+                "ok": true,
+                "width": res.width,
+                "height": res.height,
+                "imageMime": image_mime.clone(),
+                "elapsedMs": res.elapsed_ms
+            }),
+        );
+        obj.insert(
+            "parts".to_string(),
+            serde_json::json!([
+                {
+                    "type": "image",
+                    "data": image_base64,
+                    "mimeType": image_mime
+                }
+            ]),
+        );
+    }
+    Ok(value)
 }
 
 async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {

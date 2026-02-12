@@ -80,6 +80,13 @@ fn default_webp_quality() -> f32 {
     75.0
 }
 
+fn normalize_webp_quality(value: Option<f32>) -> f32 {
+    match value {
+        Some(v) if v.is_finite() => v.clamp(1.0, 100.0),
+        _ => default_webp_quality(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScreenshotResponse {

@@ -12,6 +12,7 @@ use directories::ProjectDirs;
 use futures_util::StreamExt;
 use image::ImageFormat;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use rmcp::{ServiceExt, schemars};
 use rig::{
     completion::{
         message::{AudioMediaType, ImageDetail, ImageMediaType, UserContent},
@@ -19,7 +20,7 @@ use rig::{
     },
     message::{AssistantContent, ToolResultContent},
     prelude::CompletionClient,
-    providers::{gemini, openai},
+    providers::{anthropic, gemini, openai},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::{Tool, ToolDyn},
     OneOrMany,
@@ -58,6 +59,13 @@ include!("features/memory/matcher.rs");
 include!("features/system/commands.rs");
 
 fn main() {
+    if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
+        if let Err(err) = run_desktop_screenshot_mcp_server() {
+            eprintln!("{err}");
+        }
+        return;
+    }
+
     let state = match AppState::new() {
         Ok(state) => state,
         Err(err) => {
