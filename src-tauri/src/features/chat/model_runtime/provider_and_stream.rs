@@ -171,7 +171,6 @@ async fn openai_stream_request_with_sink<F>(
 where
     F: FnMut(&str, &str),
 {
-    eprintln!("[STREAM-DEBUG] openai_stream_request called, url={}", url);
     let resp = client
         .post(url)
         .json(&body)
@@ -220,10 +219,6 @@ where
             }
 
             let Ok(parsed) = serde_json::from_str::<OpenAIStreamChunk>(data) else {
-                eprintln!(
-                    "[STREAM-DEBUG] SSE parse failed: {}",
-                    &data[..data.len().min(200)]
-                );
                 continue;
             };
             if parsed.choices.is_empty() {
@@ -1076,13 +1071,10 @@ async fn call_model_openai_style(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
 ) -> Result<ModelReply, String> {
-    eprintln!(
-        "[STREAM-DEBUG] call_model_openai_style: format={}, enable_tools={}, images={}, audios={}",
-        selected_api.request_format,
-        selected_api.enable_tools,
-        prepared.latest_images.len(),
-        prepared.latest_audios.len()
-    );
+    if selected_api.request_format.trim() == "gemini" {
+        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
+    }
+
     // 优先使用工具调用（如果启用）
     if selected_api.enable_tools
         && is_openai_style_request_format(&selected_api.request_format)

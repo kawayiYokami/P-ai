@@ -365,6 +365,17 @@ struct OpenAIModelListResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct GeminiNativeModelListItem {
+    name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiNativeModelListResponse {
+    #[serde(default)]
+    models: Vec<GeminiNativeModelListItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct OpenAIStreamChunk {
     choices: Vec<OpenAIStreamChoice>,
 }

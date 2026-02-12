@@ -19,7 +19,7 @@ use rig::{
     },
     message::{AssistantContent, ToolResultContent},
     prelude::CompletionClient,
-    providers::openai,
+    providers::{gemini, openai},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::{Tool, ToolDyn},
     OneOrMany,

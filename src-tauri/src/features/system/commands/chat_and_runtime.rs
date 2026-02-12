@@ -17,7 +17,10 @@ async fn send_chat_message(
         (app_config, selected_api, resolved_api)
     };
 
-    if !is_openai_style_request_format(&resolved_api.request_format) {
+    if !matches!(
+        resolved_api.request_format.trim(),
+        "openai" | "deepseek/kimi" | "gemini"
+    ) {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",
             resolved_api.request_format
@@ -37,7 +40,10 @@ async fn send_chat_message(
             if let Some(vision_api) = vision_api {
                 let vision_resolved =
                     resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
-                if !is_openai_style_request_format(&vision_resolved.request_format) {
+                if !matches!(
+                    vision_resolved.request_format.trim(),
+                    "openai" | "deepseek/kimi" | "gemini"
+                ) {
                     return Err(format!(
                         "Vision request format '{}' is not implemented in image conversion router yet.",
                         vision_resolved.request_format
@@ -558,6 +564,65 @@ async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, 
     Ok(models)
 }
 
+async fn fetch_models_gemini_native(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
+    let base = input.base_url.trim().trim_end_matches('/');
+    let has_version_path = base.contains("/v1beta") || base.contains("/v1/");
+    let base_with_version = if has_version_path {
+        base.to_string()
+    } else {
+        format!("{base}/v1beta")
+    };
+    let url = format!("{}/models", base_with_version.trim_end_matches('/'));
+    let api_key = input.api_key.trim();
+
+    if api_key.contains('\r') || api_key.contains('\n') {
+        return Err("API key contains newline characters. Please paste a single-line token.".to_string());
+    }
+    if matches!(api_key, "..." | "***" | "•••" | "···") {
+        return Err("API key is still a placeholder ('...' / '***'). Please paste the real token.".to_string());
+    }
+
+    let api_key_header = HeaderValue::from_str(api_key)
+        .map_err(|err| format!("Build x-goog-api-key header failed: {err}"))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+
+    let resp = client
+        .get(&url)
+        .header("x-goog-api-key", api_key_header)
+        .send()
+        .await
+        .map_err(|err| format!("Fetch Gemini model list failed ({url}): {err}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let raw = resp.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(600).collect::<String>();
+        return Err(format!(
+            "Fetch Gemini model list failed: {url} -> {status} | {snippet}"
+        ));
+    }
+
+    let body = resp
+        .json::<GeminiNativeModelListResponse>()
+        .await
+        .map_err(|err| format!("Parse Gemini model list failed ({url}): {err}"))?;
+
+    let mut models = body
+        .models
+        .into_iter()
+        .map(|item| item.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .map(|name| name.trim_start_matches("models/").to_string())
+        .collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    Ok(models)
+}
+
 #[tauri::command]
 async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String> {
     if input.api_key.trim().is_empty() {
@@ -569,6 +634,7 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
 
     match input.request_format.trim() {
         "openai" | "deepseek/kimi" => fetch_models_openai(&input).await,
+        "gemini" => fetch_models_gemini_native(&input).await,
         "openai_tts" => Err(
             "Request format 'openai_tts' is for audio transcriptions and does not support model list refresh."
                 .to_string(),

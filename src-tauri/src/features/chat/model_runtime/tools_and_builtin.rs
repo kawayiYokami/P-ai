@@ -56,7 +56,94 @@ async fn call_model_openai_rig_style(
     let assistant_text = agent
         .prompt(prompt_message)
         .await
-        .map_err(|err| format!("rig prompt failed: {err}"))?;
+        .map_err(|err| err.to_string())?;
+    Ok(ModelReply {
+        assistant_text,
+        reasoning_standard: String::new(),
+        reasoning_inline: String::new(),
+        tool_history_events: Vec::new(),
+    })
+}
+
+fn normalize_gemini_rig_base_url(raw: &str) -> String {
+    let mut base = raw.trim().trim_end_matches('/').to_string();
+    for suffix in ["/v1beta/openai", "/v1beta", "/openai"] {
+        if base.ends_with(suffix) {
+            base = base.trim_end_matches(suffix).trim_end_matches('/').to_string();
+            break;
+        }
+    }
+    base
+}
+
+async fn call_model_gemini_rig_style(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
+    let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
+    if !normalized_base.is_empty() {
+        client_builder = client_builder.base_url(&normalized_base);
+    }
+    let client = client_builder
+        .build()
+        .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
+
+    let gemini_safety_settings = serde_json::json!({
+        "safetySettings": [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE"
+            }
+        ]
+    });
+
+    let agent = client
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
+        .additional_params(gemini_safety_settings)
+        .build();
+
+    let mut prompt_text = String::new();
+    if !prepared.latest_user_text.trim().is_empty() {
+        prompt_text.push_str(prepared.latest_user_text.trim());
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        if !prompt_text.is_empty() {
+            prompt_text.push_str("\n\n");
+        }
+        prompt_text.push_str(prepared.latest_user_system_text.trim());
+    }
+    if !prepared.latest_images.is_empty() {
+        if !prompt_text.is_empty() {
+            prompt_text.push_str("\n\n");
+        }
+        prompt_text.push_str(&format!("[images:{}]", prepared.latest_images.len()));
+    }
+    if !prepared.latest_audios.is_empty() {
+        if !prompt_text.is_empty() {
+            prompt_text.push_str("\n\n");
+        }
+        prompt_text.push_str(&format!("[audios:{}]", prepared.latest_audios.len()));
+    }
+    if prompt_text.trim().is_empty() {
+        return Err("Request payload is empty. Provide text, image, or audio.".to_string());
+    }
+
+    let assistant_text = agent
+        .prompt(prompt_text.clone())
+        .await
+        .map_err(|err| err.to_string())?;
     Ok(ModelReply {
         assistant_text,
         reasoning_standard: String::new(),
