@@ -289,12 +289,119 @@ fn memory_contains_sensitive(content: &str, keywords: &[String]) -> bool {
     danger_tokens.iter().any(|token| full.contains(token))
 }
 
+#[derive(Debug, Clone)]
+struct MemorySaveDraft {
+    content: String,
+    keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MemorySaveUpsertItemResult {
+    saved: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keywords: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+fn parse_memory_save_draft(content: &str, keywords_raw: Vec<String>) -> Result<MemorySaveDraft, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err("memory_save.content is required".to_string());
+    }
+    let keywords = normalize_memory_keywords(&keywords_raw);
+    if keywords.is_empty() {
+        return Err("memory_save.keywords must contain at least one valid keyword".to_string());
+    }
+    Ok(MemorySaveDraft {
+        content: content.to_string(),
+        keywords,
+    })
+}
+
+fn upsert_memories(
+    app_state: &AppState,
+    drafts: &[MemorySaveDraft],
+) -> Result<(Vec<MemorySaveUpsertItemResult>, usize), String> {
+    let guard = app_state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&app_state.data_path)?;
+    let now = now_iso();
+    let mut results = Vec::<MemorySaveUpsertItemResult>::new();
+    let mut changed = 0usize;
+
+    for draft in drafts {
+        if memory_contains_sensitive(&draft.content, &draft.keywords) {
+            eprintln!(
+                "[TOOL-DEBUG] memory-save rejected sensitive content. keywords={}",
+                draft.keywords.join(",")
+            );
+            results.push(MemorySaveUpsertItemResult {
+                saved: false,
+                id: None,
+                keywords: None,
+                updated_at: None,
+                reason: Some("sensitive_rejected".to_string()),
+            });
+            continue;
+        }
+
+        let memory_id = if let Some(existing) = data
+            .memories
+            .iter_mut()
+            .find(|m| m.content.trim() == draft.content)
+        {
+            existing.keywords = draft.keywords.clone();
+            existing.updated_at = now.clone();
+            existing.id.clone()
+        } else {
+            data.memories.push(MemoryEntry {
+                id: Uuid::new_v4().to_string(),
+                content: draft.content.clone(),
+                keywords: draft.keywords.clone(),
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            });
+            data.memories
+                .last()
+                .map(|m| m.id.clone())
+                .unwrap_or_else(|| "created".to_string())
+        };
+        changed += 1;
+        results.push(MemorySaveUpsertItemResult {
+            saved: true,
+            id: Some(memory_id.clone()),
+            keywords: Some(draft.keywords.clone()),
+            updated_at: Some(now.clone()),
+            reason: None,
+        });
+        eprintln!(
+            "[TOOL-DEBUG] memory-save saved. id={}, keywords={}, content_len={}",
+            memory_id,
+            draft.keywords.join(","),
+            draft.content.chars().count()
+        );
+    }
+
+    if changed > 0 {
+        write_app_data(&app_state.data_path, &data)?;
+        invalidate_memory_matcher_cache();
+    }
+    let total_memories = data.memories.len();
+    drop(guard);
+    Ok((results, total_memories))
+}
+
 fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, String> {
     let content = args
         .get("content")
         .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
         .ok_or_else(|| "memory_save.content is required".to_string())?;
     let keywords_raw = args
         .get("keywords")
@@ -304,64 +411,64 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
         .filter_map(Value::as_str)
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let keywords = normalize_memory_keywords(&keywords_raw);
-    if keywords.is_empty() {
-        return Err("memory_save.keywords must contain at least one valid keyword".to_string());
-    }
-    if memory_contains_sensitive(content, &keywords) {
-        eprintln!(
-            "[TOOL-DEBUG] memory-save rejected sensitive content. keywords={}",
-            keywords.join(",")
-        );
-        return Ok(serde_json::json!({
-          "saved": false,
-          "reason": "sensitive_rejected"
-        }));
-    }
-
-    let guard = app_state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let mut data = read_app_data(&app_state.data_path)?;
-    let now = now_iso();
-    let memory_id = if let Some(existing) = data
-        .memories
-        .iter_mut()
-        .find(|m| m.content.trim() == content)
-    {
-        existing.keywords = keywords.clone();
-        existing.updated_at = now.clone();
-        existing.id.clone()
-    } else {
-        data.memories.push(MemoryEntry {
-            id: Uuid::new_v4().to_string(),
-            content: content.to_string(),
-            keywords: keywords.clone(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        });
-        data.memories
-            .last()
-            .map(|m| m.id.clone())
-            .unwrap_or_else(|| "created".to_string())
-    };
-    write_app_data(&app_state.data_path, &data)?;
-    drop(guard);
-
-    eprintln!(
-        "[TOOL-DEBUG] memory-save saved. id={}, keywords={}, content_len={}, total_memories={}",
-        memory_id,
-        keywords.join(","),
-        content.chars().count(),
-        data.memories.len()
-    );
-
+    let draft = parse_memory_save_draft(content, keywords_raw)?;
+    let (results, total_memories) = upsert_memories(app_state, &[draft])?;
+    let first = results
+        .into_iter()
+        .next()
+        .ok_or_else(|| "memory_save failed to produce result".to_string())?;
     Ok(serde_json::json!({
-      "saved": true,
-      "id": memory_id,
-      "keywords": keywords,
-      "updatedAt": now
+      "saved": first.saved,
+      "id": first.id,
+      "keywords": first.keywords,
+      "updatedAt": first.updated_at,
+      "reason": first.reason,
+      "totalMemories": total_memories
+    }))
+}
+
+fn builtin_memory_save_batch(app_state: &AppState, args: Value) -> Result<Value, String> {
+    const MAX_BATCH_ITEMS: usize = 7;
+    let memories = args
+        .get("memories")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "memory_save_batch.memories is required".to_string())?;
+    if memories.is_empty() {
+        return Err("memory_save_batch.memories must not be empty".to_string());
+    }
+
+    let mut drafts = Vec::<MemorySaveDraft>::new();
+    let mut truncated = false;
+    for item in memories {
+        if drafts.len() >= MAX_BATCH_ITEMS {
+            truncated = true;
+            break;
+        }
+        let content = item
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "memory_save_batch.memories[].content is required".to_string())?;
+        let keywords = item
+            .get("keywords")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "memory_save_batch.memories[].keywords is required".to_string())?
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        drafts.push(parse_memory_save_draft(content, keywords)?);
+    }
+
+    let (items, total_memories) = upsert_memories(app_state, &drafts)?;
+    let accepted = items.iter().filter(|it| it.saved).count();
+    let rejected = items.len().saturating_sub(accepted);
+    Ok(serde_json::json!({
+      "saved": accepted > 0,
+      "accepted": accepted,
+      "rejected": rejected,
+      "truncated": truncated,
+      "items": items,
+      "totalMemories": total_memories
     }))
 }
 
@@ -383,6 +490,17 @@ struct BingSearchToolArgs {
 struct MemorySaveToolArgs {
     content: String,
     keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct MemorySaveBatchItemArgs {
+    content: String,
+    keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct MemorySaveBatchToolArgs {
+    memories: Vec<MemorySaveBatchItemArgs>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -521,6 +639,65 @@ impl Tool for BuiltinMemorySaveTool {
             ),
             Err(err) => {
                 eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=memory-save err={err}")
+            }
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinMemorySaveBatchTool {
+    app_state: AppState,
+}
+
+impl Tool for BuiltinMemorySaveBatchTool {
+    const NAME: &'static str = "memory_save_batch";
+    type Error = ToolInvokeError;
+    type Args = MemorySaveBatchToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "memory_save_batch".to_string(),
+            description: "批量保存与用户相关、长期有价值的记忆（单次最多 7 条）。禁止保存敏感信息。".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "memories": {
+                  "type": "array",
+                  "maxItems": 7,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "content": { "type": "string" },
+                      "keywords": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["content", "keywords"]
+                  }
+                }
+              },
+              "required": ["memories"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::json!({
+            "memories": args.memories,
+        });
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=memory-save-batch args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let result =
+            builtin_memory_save_batch(&self.app_state, args_json).map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=memory-save-batch result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => {
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=memory-save-batch err={err}")
             }
         }
         result
@@ -974,6 +1151,31 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
                 }
             }
         }));
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "memory_save_batch",
+                "description": "批量保存与用户相关、长期有价值的记忆（单次最多 7 条）。禁止保存敏感信息。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "memories": {
+                            "type": "array",
+                            "maxItems": 7,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "content": { "type": "string" },
+                                    "keywords": { "type": "array", "items": { "type": "string" } }
+                                },
+                                "required": ["content", "keywords"]
+                            }
+                        }
+                    },
+                    "required": ["memories"]
+                }
+            }
+        }));
     }
     tools
 }
@@ -998,6 +1200,11 @@ async fn execute_builtin_tool_call(
         "memory_save" | "memory-save" if tool_enabled(selected_api, "memory-save") => {
             let state = app_state.ok_or_else(|| "memory_save requires app state".to_string())?;
             builtin_memory_save(state, args_json.clone())
+        }
+        "memory_save_batch" | "memory-save-batch" if tool_enabled(selected_api, "memory-save") => {
+            let state =
+                app_state.ok_or_else(|| "memory_save_batch requires app state".to_string())?;
+            builtin_memory_save_batch(state, args_json.clone())
         }
         _ => Err(format!("Unsupported or disabled tool: {tool_name}")),
     }
@@ -1260,6 +1467,10 @@ async fn call_model_openai_with_tools(
             .ok_or_else(|| "memory_save requires app state".to_string())?
             .clone();
         tools.push(Box::new(BuiltinMemorySaveTool { app_state: state }));
+        let state = app_state
+            .ok_or_else(|| "memory_save_batch requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemorySaveBatchTool { app_state: state }));
     }
 
     let agent = client
