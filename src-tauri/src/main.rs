@@ -99,6 +99,7 @@ fn main() {
             drop(guard);
             let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
             hide_on_close(&app_handle);
+            let _ = show_window(&app_handle, "main");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
