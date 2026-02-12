@@ -6,3 +6,6 @@ include!("commands/archive_and_memory.rs");
 
 // ==================== 对话与运行时命令 ====================
 include!("commands/chat_and_runtime.rs");
+
+// ==================== 桌面工具命令 ====================
+include!("commands/desktop_tools.rs");

@@ -29,6 +29,12 @@ webbrowser = "1.0"
 futures-util = "0.3"
 sha2 = "0.10"
 aho-corasick = "1.1"
+xcap = "0.8"
+windows-capture = "1.5.0"
+enigo = "0.6"
+arboard = "3"
+webp = "0.3"
+captis = "0.6"
 
 [features]
 default = ["custom-protocol"]

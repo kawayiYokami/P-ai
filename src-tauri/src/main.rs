@@ -50,6 +50,7 @@ include!("features/chat/model_runtime.rs");
 
 // ==================== 系统窗口与命令 ====================
 include!("features/system/windowing.rs");
+include!("features/system/tools.rs");
 
 // ==================== 记忆匹配 ====================
 include!("features/memory/matcher.rs");
@@ -134,7 +135,9 @@ fn main() {
             check_tools_status,
             get_image_text_cache_stats,
             clear_image_text_cache,
-            send_debug_probe
+            send_debug_probe,
+            desktop_screenshot,
+            desktop_wait
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
