@@ -21,6 +21,7 @@ type UseConfigRuntimeOptions = {
   refreshingModels: Ref<boolean>;
   modelRefreshError: Ref<string>;
   apiModelOptions: Ref<Record<string, string[]>>;
+  modelRefreshOkFlags: Ref<Record<string, boolean>>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
   checkingToolsStatus: Ref<boolean>;
   toolStatuses: Ref<ToolLoadStatus[]>;
@@ -96,6 +97,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
 
   async function refreshModels() {
     if (!options.selectedApiConfig.value) return;
+    const apiId = options.selectedApiConfig.value.id;
     options.refreshingModels.value = true;
     options.modelRefreshError.value = "";
     try {
@@ -106,12 +108,14 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
           requestFormat: options.selectedApiConfig.value.requestFormat,
         },
       });
-      options.apiModelOptions.value[options.selectedApiConfig.value.id] = models;
-      if (models.length) options.selectedApiConfig.value.model = models[0];
-      options.setStatus(options.t("status.modelListRefreshed", { count: models.length }));
+      const normalizedModels = models.map((m) => m.trim()).filter(Boolean);
+      options.apiModelOptions.value[apiId] = normalizedModels;
+      options.modelRefreshOkFlags.value[apiId] = true;
+      options.setStatus(options.t("status.modelListRefreshed", { count: normalizedModels.length }));
     } catch (e) {
       const err = String(e);
       options.modelRefreshError.value = err;
+      options.modelRefreshOkFlags.value[apiId] = false;
       options.setStatus(options.t("status.refreshModelsFailed", { err }));
     } finally {
       options.refreshingModels.value = false;
@@ -171,5 +175,3 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
     clearImageCache,
   };
 }
-
-

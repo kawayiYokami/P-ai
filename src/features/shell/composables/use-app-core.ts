@@ -9,7 +9,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 type UseAppCoreOptions = {
   t: TrFn;
   config: AppConfig;
-  locale: Ref<SupportedLocale>;
+  locale: { value: string };
   status: Ref<string>;
   perfDebug: boolean;
 };
