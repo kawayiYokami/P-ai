@@ -803,17 +803,20 @@ struct ConversationApiSettings {
     vision_api_config_id: Option<String>,
 }
 
-include!("app/storage_and_stt.rs");
+// ==================== 配置与存储 ====================
+include!("features/config/storage_and_stt.rs");
 
-include!("app/conversation.rs");
+// ==================== 对话核心 ====================
+include!("features/chat/conversation.rs");
+include!("features/chat/model_runtime.rs");
 
-include!("app/model_runtime.rs");
+// ==================== 系统窗口与命令 ====================
+include!("features/system/windowing.rs");
 
-include!("app/windowing.rs");
+// ==================== 记忆匹配 ====================
+include!("features/memory/matcher.rs");
 
-include!("app/memory_matcher.rs");
-
-include!("app/commands.rs");
+include!("features/system/commands.rs");
 
 fn main() {
     let state = match AppState::new() {
