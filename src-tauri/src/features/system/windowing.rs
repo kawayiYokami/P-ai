@@ -54,7 +54,10 @@ fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let visible = window
         .is_visible()
         .map_err(|err| format!("Check window visibility failed: {err}"))?;
-    if visible {
+    let focused = window
+        .is_focused()
+        .map_err(|err| format!("Check window focus failed: {err}"))?;
+    if visible && focused {
         window
             .hide()
             .map_err(|err| format!("Hide window failed: {err}"))?;
