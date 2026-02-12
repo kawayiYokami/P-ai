@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ArchiveSummary, ChatMessage, ChatRole, MessagePart } from "../types/app";
+import type { ArchiveSummary, ChatMessage, ChatRole, MessagePart } from "../../../types/app";
 
 const props = defineProps<{
   archives: ArchiveSummary[];

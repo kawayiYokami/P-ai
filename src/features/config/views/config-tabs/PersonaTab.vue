@@ -60,7 +60,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import { Plus, Trash2 } from "lucide-vue-next";
-import type { PersonaProfile } from "../../types/app";
+import type { PersonaProfile } from "../../../../types/app";
 
 defineProps<{
   personas: PersonaProfile[];
@@ -87,4 +87,5 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 </script>
+
 

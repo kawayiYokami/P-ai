@@ -100,7 +100,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import { ChevronsUpDown, Plus, RefreshCw, Trash2 } from "lucide-vue-next";
-import type { ApiConfigItem, AppConfig } from "../../types/app";
+import type { ApiConfigItem, AppConfig } from "../../../../types/app";
 
 defineProps<{
   config: AppConfig;
@@ -122,4 +122,5 @@ defineEmits<{
 
 const { t } = useI18n();
 </script>
+
 

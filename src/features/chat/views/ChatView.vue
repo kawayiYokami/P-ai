@@ -211,8 +211,8 @@ import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } f
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
-import { invokeTauri } from "../services/tauri-api";
-import type { ChatTurn } from "../types/app";
+import { invokeTauri } from "../../../services/tauri-api";
+import type { ChatTurn } from "../../../types/app";
 
 const props = defineProps<{
   userAlias: string;
@@ -576,3 +576,4 @@ watch(
 }
 
 </style>
+

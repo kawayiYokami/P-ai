@@ -1,296 +1,202 @@
 
 <template>
   <div class="window-shell text-sm bg-base-200">
-    <div class="navbar min-h-10 h-10 px-2 relative z-20 overflow-visible cursor-move select-none" :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'" @mousedown.left.prevent="startDrag">
-      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
-        <span class="font-semibold text-sm">{{ titleText }}</span>
-        <template v-if="viewMode === 'chat'">
-          <div class="tooltip tooltip-bottom" :data-tip="t('chat.forceArchiveTip')">
-            <button
-              class="btn btn-ghost btn-xs ml-2"
-              :disabled="forcingArchive || chatting"
-              @mousedown.stop
-              @click.stop="forceArchiveNow"
-            >
-              {{ chatUsagePercent }}%
-            </button>
-          </div>
-        </template>
-      </div>
-      <div class="flex-none flex gap-1 ml-auto" @mousedown.stop>
-        <template v-if="viewMode === 'chat'">
-          <button
-            class="btn btn-ghost btn-xs"
-            :class="{ 'btn-active': alwaysOnTop }"
-            :title="alwaysOnTop ? t('chat.alwaysOnTopOff') : t('chat.alwaysOnTopOn')"
-            @click.stop="toggleAlwaysOnTop"
-            :disabled="!windowReady"
-          >
-            <Pin class="h-3.5 w-3.5" />
-          </button>
-          <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
-        </template>
-        <template v-else>
-          <button class="btn btn-ghost btn-xs hover:bg-error/20" title="Close" @click.stop="closeWindow" :disabled="!windowReady"><X class="h-3.5 w-3.5" /></button>
-        </template>
-      </div>
-    </div>
+    <AppWindowHeader
+      :view-mode="viewMode"
+      :title-text="titleText"
+      :chat-usage-percent="chatUsagePercent"
+      :forcing-archive="forcingArchive"
+      :chatting="chatting"
+      :always-on-top="alwaysOnTop"
+      :window-ready="windowReady"
+      :force-archive-tip="t('chat.forceArchiveTip')"
+      :always-on-top-on-title="t('chat.alwaysOnTopOn')"
+      :always-on-top-off-title="t('chat.alwaysOnTopOff')"
+      @start-drag="startDrag"
+      @force-archive="forceArchiveNow"
+      @toggle-always-on-top="toggleAlwaysOnTop"
+      @close-window="closeWindow"
+    />
 
-    <div
-      class="window-content"
-      :class="viewMode === 'chat'
-        ? 'flex flex-col min-h-0 overflow-hidden'
-        : viewMode === 'config'
-          ? 'p-3 min-h-0 overflow-hidden'
-          : 'p-3 overflow-auto'"
-    >
-      <ConfigView
-        v-if="viewMode === 'config'"
-        :config="config"
-        :config-tab="configTab"
-        :ui-language="config.uiLanguage"
-        :locale-options="localeOptions"
-        :current-theme="currentTheme"
-        :selected-api-config="selectedApiConfig"
-        :tool-api-config="toolApiConfig"
-        :base-url-reference="baseUrlReference"
-        :refreshing-models="refreshingModels"
-        :model-options="selectedModelOptions"
-        :model-refresh-error="modelRefreshError"
-        :tool-statuses="toolStatuses"
-        :personas="personas"
-        :assistant-personas="assistantPersonas"
-        :user-persona="userPersona"
-        :persona-editor-id="personaEditorId"
-        :selected-persona-id="selectedPersonaId"
-        :selected-persona="selectedPersonaEditor"
-        :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
-        :user-persona-avatar-url="userPersonaAvatarUrl"
-        :response-style-options="responseStyleOptions"
-        :response-style-id="selectedResponseStyleId"
-        :text-capable-api-configs="textCapableApiConfigs"
-        :image-capable-api-configs="imageCapableApiConfigs"
-        :cache-stats="imageCacheStats"
-        :cache-stats-loading="imageCacheStatsLoading"
-        :avatar-saving="avatarSaving"
-        :avatar-error="avatarError"
-        :config-dirty="configDirty"
-        :saving-config="saving"
-        :hotkey-test-recording="hotkeyTestRecording"
-        :hotkey-test-recording-ms="hotkeyTestRecordingMs"
-        :hotkey-test-audio-ready="!!hotkeyTestAudio"
-        @update:config-tab="configTab = $event"
-        @update:ui-language="setUiLanguage($event)"
-        @update:persona-editor-id="personaEditorId = $event"
-        @update:selected-persona-id="selectedPersonaId = $event"
-        @update:response-style-id="selectedResponseStyleId = $event"
-        @toggle-theme="toggleTheme"
-        @refresh-models="refreshModels"
-        @save-api-config="saveConfig"
-        @add-api-config="addApiConfig"
-        @remove-selected-api-config="removeSelectedApiConfig"
-        @add-persona="addPersona"
-        @remove-selected-persona="removeSelectedPersona"
-        @open-current-history="openCurrentHistory"
-        @open-prompt-preview="openPromptPreview"
-        @open-system-prompt-preview="openSystemPromptPreview"
-        @open-memory-viewer="openMemoryViewer"
-        @refresh-image-cache-stats="refreshImageCacheStats"
-        @clear-image-cache="clearImageCache"
-        @start-hotkey-record-test="startHotkeyRecordTest"
-        @stop-hotkey-record-test="stopHotkeyRecordTest"
-        @play-hotkey-record-test="playHotkeyRecordTest"
-        @capture-hotkey="captureHotkey"
-        @save-agent-avatar="saveAgentAvatar"
-        @clear-agent-avatar="clearAgentAvatar"
-      />
-
-      <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
-        <ChatView
-          :user-alias="userAlias"
-          :persona-name="selectedPersona?.name || t('archives.roleAssistant')"
-          :user-avatar-url="userAvatarUrl"
-          :assistant-avatar-url="selectedPersonaAvatarUrl"
-          :latest-user-text="latestUserText"
-          :latest-user-images="latestUserImages"
-          :latest-assistant-text="latestAssistantText"
-          :latest-reasoning-standard-text="latestReasoningStandardText"
-          :latest-reasoning-inline-text="latestReasoningInlineText"
-          :tool-status-text="toolStatusText"
-          :tool-status-state="toolStatusState"
-          :chat-error-text="chatErrorText"
-          :clipboard-images="clipboardImages"
-          :chat-input="chatInput"
-          :chat-input-placeholder="chatInputPlaceholder"
-          :can-record="speechRecognitionSupported"
-          :recording="recording"
-          :recording-ms="recordingMs"
-          :record-hotkey="config.recordHotkey"
-          :chatting="chatting"
-          :frozen="forcingArchive"
-          :turns="visibleTurns"
-          :has-more-turns="hasMoreTurns"
-          @update:chat-input="chatInput = $event"
-          @remove-clipboard-image="removeClipboardImage"
-          @start-recording="startRecording"
-          @stop-recording="stopRecording(false)"
-          @send-chat="handleSendChat"
-          @stop-chat="handleStopChat"
-          @load-more-turns="loadMoreTurns"
-        />
-        <div
-          v-if="forcingArchive"
-          class="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px]"
-        >
-          <div class="rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm flex flex-col items-center gap-1">
-            <span class="loading loading-spinner loading-sm"></span>
-            <div class="text-sm">{{ t("chat.archiving") }}</div>
-            <div class="text-xs opacity-70">{{ t("chat.archivingLock") }}</div>
-          </div>
-        </div>
-      </div>
-
-      <ArchivesView
-        v-else
-        :archives="archives"
-        :selected-archive-id="selectedArchiveId"
-        :archive-messages="archiveMessages"
-        :render-message="renderMessage"
-        @load-archives="loadArchives"
-        @select-archive="selectArchive"
-        @export-archive="exportArchive"
-        @delete-archive="deleteArchive"
-      />
-
-      <dialog ref="historyDialog" class="modal">
-        <div class="modal-box max-w-xl">
-          <h3 class="font-semibold text-sm mb-2">{{ t("chat.currentHistoryTitle") }}</h3>
-          <div class="max-h-96 overflow-auto space-y-2">
-            <div v-for="m in currentHistory" :key="m.id" class="text-xs border border-base-300 rounded p-2">
-              <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
-              <div v-if="messageText(m)" class="whitespace-pre-wrap">{{ messageText(m) }}</div>
-              <div v-if="extractMessageImages(m).length > 0" class="mt-2 grid gap-1">
-                <img
-                  v-for="(img, idx) in extractMessageImages(m)"
-                  :key="`${img.mime}-${idx}`"
-                  :src="`data:${img.mime};base64,${img.bytesBase64}`"
-                  loading="lazy"
-                  decoding="async"
-                  class="rounded max-h-32 object-contain bg-base-100/40"
-                />
-              </div>
-            </div>
-          </div>
-          <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">{{ t("common.close") }}</button></div>
-        </div>
-      </dialog>
-
-      <dialog ref="memoryDialog" class="modal">
-        <div class="modal-box w-[92vw] max-w-none flex min-h-0 flex-col overflow-hidden">
-          <h3 class="font-semibold text-sm mb-2">{{ t("memory.title") }}</h3>
-          <input
-            ref="memoryImportInput"
-            type="file"
-            accept=".json,application/json"
-            class="hidden"
-            @change="handleMemoryImportFile"
-          />
-          <div v-if="memoryList.length === 0" class="flex-1 min-h-0 text-xs opacity-70">{{ t("memory.empty") }}</div>
-          <div v-else class="flex flex-1 min-h-0 flex-col space-y-2">
-            <div class="min-h-0 flex-1 overflow-auto space-y-2 pr-1">
-              <div
-                v-for="memory in pagedMemories"
-                :key="memory.id"
-                class="card card-compact bg-base-100 border border-base-300 shadow-md"
-              >
-                <div class="card-body text-xs p-3">
-                  <div class="whitespace-pre-wrap break-words">{{ memory.content }}</div>
-                  <div class="mt-2 flex flex-wrap items-center gap-1">
-                    <span
-                      v-for="(kw, kwIdx) in memory.keywords"
-                      :key="`${memory.id}-kw-${kwIdx}`"
-                      class="badge badge-sm badge-ghost"
-                    >
-                      {{ kw }}
-                    </span>
-                    <span v-if="memory.keywords.length === 0" class="text-[11px] opacity-60">-</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="shrink-0 flex items-center justify-between border-t border-base-300 pt-2">
-              <span class="text-xs opacity-70">{{ t("memory.page", { page: memoryPage, total: memoryPageCount }) }}</span>
-              <div class="join">
-                <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">{{ t("memory.prevPage") }}</button>
-                <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">{{ t("memory.nextPage") }}</button>
-              </div>
-            </div>
-          </div>
-          <div class="modal-action mt-2 shrink-0">
-            <button class="btn btn-sm btn-ghost" @click="exportMemories">{{ t("memory.export") }}</button>
-            <button class="btn btn-sm btn-ghost" @click="triggerMemoryImport">{{ t("memory.import") }}</button>
-            <button class="btn btn-sm" @click="closeMemoryViewer">{{ t("common.close") }}</button>
-          </div>
-        </div>
-      </dialog>
-
-      <dialog ref="promptPreviewDialog" class="modal">
-        <div class="modal-box max-w-2xl">
-          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? t("prompt.systemPreview") : t("prompt.requestPreview") }}</h3>
-          <div v-if="promptPreviewLoading" class="text-xs opacity-70">{{ t("common.loading") }}</div>
-          <div v-else class="grid gap-2">
-            <div v-if="promptPreviewMode === 'full'" class="text-[11px] opacity-70">
-              {{ t("prompt.latestInputLength") }}: {{ promptPreviewLatestUserText.length }} |
-              {{ t("prompt.images") }}: {{ promptPreviewLatestImages }} |
-              {{ t("prompt.audios") }}: {{ promptPreviewLatestAudios }}
-            </div>
-            <textarea
-              class="textarea textarea-bordered textarea-sm w-full h-80 font-mono text-xs"
-              readonly
-              :value="promptPreviewText"
-            ></textarea>
-          </div>
-          <div class="modal-action"><button class="btn btn-sm" @click="closePromptPreview">{{ t("common.close") }}</button></div>
-        </div>
-      </dialog>
-
-    </div>
+    <AppWindowContent
+      :t="tr"
+      :view-mode="viewMode"
+      :config="config"
+      :config-tab="configTab"
+      :locale-options="localeOptions"
+      :current-theme="currentTheme"
+      :selected-api-config="selectedApiConfig"
+      :tool-api-config="toolApiConfig"
+      :base-url-reference="baseUrlReference"
+      :refreshing-models="refreshingModels"
+      :selected-model-options="selectedModelOptions"
+      :model-refresh-error="modelRefreshError"
+      :tool-statuses="toolStatuses"
+      :personas="personas"
+      :assistant-personas="assistantPersonas"
+      :user-persona="userPersona"
+      :persona-editor-id="personaEditorId"
+      :selected-persona-id="selectedPersonaId"
+      :selected-persona-editor="selectedPersonaEditor"
+      :selected-persona-editor-avatar-url="selectedPersonaEditorAvatarUrl"
+      :user-persona-avatar-url="userPersonaAvatarUrl"
+      :response-style-options="responseStyleOptions"
+      :selected-response-style-id="selectedResponseStyleId"
+      :text-capable-api-configs="textCapableApiConfigs"
+      :image-capable-api-configs="imageCapableApiConfigs"
+      :image-cache-stats="imageCacheStats"
+      :image-cache-stats-loading="imageCacheStatsLoading"
+      :avatar-saving="avatarSaving"
+      :avatar-error="avatarError"
+      :config-dirty="configDirty"
+      :saving="saving"
+      :hotkey-test-recording="hotkeyTestRecording"
+      :hotkey-test-recording-ms="hotkeyTestRecordingMs"
+      :hotkey-test-audio="hotkeyTestAudio"
+      :user-alias="userAlias"
+      :selected-persona-name="selectedPersona?.name || t('archives.roleAssistant')"
+      :user-avatar-url="userAvatarUrl"
+      :selected-persona-avatar-url="selectedPersonaAvatarUrl"
+      :latest-user-text="latestUserText"
+      :latest-user-images="latestUserImages"
+      :latest-assistant-text="latestAssistantText"
+      :latest-reasoning-standard-text="latestReasoningStandardText"
+      :latest-reasoning-inline-text="latestReasoningInlineText"
+      :tool-status-text="toolStatusText"
+      :tool-status-state="toolStatusState"
+      :chat-error-text="chatErrorText"
+      :clipboard-images="clipboardImages"
+      :chat-input="chatInput"
+      :chat-input-placeholder="chatInputPlaceholder"
+      :speech-recognition-supported="speechRecognitionSupported"
+      :recording="recording"
+      :recording-ms="recordingMs"
+      :record-hotkey="config.recordHotkey"
+      :chatting="chatting"
+      :forcing-archive="forcingArchive"
+      :visible-turns="visibleTurns"
+      :has-more-turns="hasMoreTurns"
+      :archives="archives"
+      :selected-archive-id="selectedArchiveId"
+      :archive-messages="archiveMessages"
+      :render-message="renderMessage"
+      :current-history="currentHistory"
+      :message-text="messageText"
+      :extract-message-images="extractMessageImages"
+      :memory-import-input="memoryImportInput"
+      :memory-list="memoryList"
+      :memory-page="memoryPage"
+      :memory-page-count="memoryPageCount"
+      :paged-memories="pagedMemories"
+      :prompt-preview-mode="promptPreviewMode"
+      :prompt-preview-loading="promptPreviewLoading"
+      :prompt-preview-text="promptPreviewText"
+      :prompt-preview-latest-user-text="promptPreviewLatestUserText"
+      :prompt-preview-latest-images="promptPreviewLatestImages"
+      :prompt-preview-latest-audios="promptPreviewLatestAudios"
+      :set-history-dialog-ref="setHistoryDialogRef"
+      :set-memory-dialog-ref="setMemoryDialogRef"
+      :set-prompt-preview-dialog-ref="setPromptPreviewDialogRef"
+      :update-config-tab="(value) => { configTab = value; }"
+      :set-ui-language="setUiLanguage"
+      :update-persona-editor-id="(value) => { personaEditorId = value; }"
+      :update-selected-persona-id="(value) => { selectedPersonaId = value; }"
+      :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
+      :toggle-theme="toggleTheme"
+      :refresh-models="refreshModels"
+      :save-config="saveConfig"
+      :add-api-config="addApiConfig"
+      :remove-selected-api-config="removeSelectedApiConfig"
+      :add-persona="addPersona"
+      :remove-selected-persona="removeSelectedPersona"
+      :open-current-history="openCurrentHistory"
+      :open-prompt-preview="openPromptPreview"
+      :open-system-prompt-preview="openSystemPromptPreview"
+      :open-memory-viewer="openMemoryViewer"
+      :refresh-image-cache-stats="refreshImageCacheStats"
+      :clear-image-cache="clearImageCache"
+      :start-hotkey-record-test="startHotkeyRecordTest"
+      :stop-hotkey-record-test="stopHotkeyRecordTest"
+      :play-hotkey-record-test="playHotkeyRecordTest"
+      :capture-hotkey="captureHotkey"
+      :save-agent-avatar="saveAgentAvatar"
+      :clear-agent-avatar="clearAgentAvatar"
+      :update-chat-input="(value) => { chatInput = value; }"
+      :remove-clipboard-image="removeClipboardImage"
+      :start-recording="startRecording"
+      :stop-recording="() => stopRecording(false)"
+      :send-chat="chatFlow.sendChat"
+      :stop-chat="chatFlow.stopChat"
+      :load-more-turns="loadMoreTurns"
+      :load-archives="loadArchives"
+      :select-archive="selectArchive"
+      :export-archive="exportArchive"
+      :delete-archive="deleteArchive"
+      :close-history="closeHistory"
+      :close-memory-viewer="closeMemoryViewer"
+      :prev-memory-page="() => { memoryPage--; }"
+      :next-memory-page="() => { memoryPage++; }"
+      :export-memories="exportMemories"
+      :trigger-memory-import="triggerMemoryImport"
+      :handle-memory-import-file="handleMemoryImportFile"
+      :close-prompt-preview="closePromptPreview"
+    />
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, reactive, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
-import { save } from "@tauri-apps/plugin-dialog";
-import { Pin, X } from "lucide-vue-next";
 import { invokeTauri } from "./services/tauri-api";
-import { useRecordHotkey } from "./composables/use-record-hotkey";
-import { useSpeechRecording } from "./composables/use-speech-recording";
-import { useChatFlow } from "./composables/use-chat-flow";
-import { formatI18nError } from "./utils/error";
-import ConfigView from "./views/ConfigView.vue";
-import ChatView from "./views/ChatView.vue";
-import ArchivesView from "./views/ArchivesView.vue";
+import { useAppBootstrap } from "./features/shell/composables/use-app-bootstrap";
+import { useAppCore } from "./features/shell/composables/use-app-core";
+import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle";
+import { useAppTheme } from "./features/shell/composables/use-app-theme";
+import { useViewRefresh } from "./features/shell/composables/use-view-refresh";
+import { useWindowShell } from "./features/shell/composables/use-window-shell";
+import { useConfigAutosave } from "./features/config/composables/use-config-autosave";
+import { useConfigCore } from "./features/config/composables/use-config-core";
+import { useConfigEditors } from "./features/config/composables/use-config-editors";
+import { useConfigPersistence } from "./features/config/composables/use-config-persistence";
+import { useConfigRuntime } from "./features/config/composables/use-config-runtime";
+import { useArchivesView } from "./features/chat/composables/use-archives-view";
+import { useAvatarCache } from "./features/chat/composables/use-avatar-cache";
+import { useChatDialogActions } from "./features/chat/composables/use-chat-dialog-actions";
+import { useChatRuntime } from "./features/chat/composables/use-chat-runtime";
+import { useChatTurns } from "./features/chat/composables/use-chat-turns";
+import { useChatMedia } from "./features/chat/composables/use-chat-media";
+import { useHistoryViewer } from "./features/chat/composables/use-history-viewer";
+import { usePromptPreview } from "./features/chat/composables/use-prompt-preview";
+import { useMemoryViewer } from "./features/memory/composables/use-memory-viewer";
+import { useAppWatchers } from "./features/shell/composables/use-app-watchers";
+import { useRecordHotkey } from "./features/chat/composables/use-record-hotkey";
+import { useSpeechRecording } from "./features/chat/composables/use-speech-recording";
+import { useChatFlow } from "./features/chat/composables/use-chat-flow";
+import {
+  extractMessageImages,
+  messageText,
+  removeBinaryPlaceholders,
+  renderMessage,
+} from "./utils/chat-message";
+import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
+import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import type {
   PersonaProfile,
   ApiConfigItem,
   AppConfig,
-  ArchiveSummary,
   ChatMessage,
-  ChatSnapshot,
-  ChatTurn,
   ImageTextCacheStats,
   ResponseStyleOption,
   ToolLoadStatus,
 } from "./types/app";
 import responseStylesJson from "./constants/response-styles.json";
-import { normalizeLocale, type SupportedLocale } from "./i18n";
+import { normalizeLocale } from "./i18n";
 
-let appWindow: WebviewWindow | null = null;
 const viewMode = ref<"chat" | "archives" | "config">("config");
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => (params ? t(key, params) : t(key));
+const { windowReady, alwaysOnTop, initWindow, syncAlwaysOnTop, closeWindow, startDrag, toggleAlwaysOnTop } =
+  useWindowShell();
+const { currentTheme, applyTheme, restoreThemeFromStorage, toggleTheme } = useAppTheme();
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
@@ -305,13 +211,11 @@ const config = reactive<AppConfig>({
   apiConfigs: [],
 });
 const configTab = ref<"hotkey" | "api" | "tools" | "persona" | "chatSettings">("hotkey");
-const currentTheme = ref<"light" | "forest">("light");
 const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
 const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
-const avatarDataUrlCache = ref<Record<string, string>>({});
 const chatInput = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
@@ -321,17 +225,11 @@ const latestReasoningInlineText = ref("");
 const toolStatusText = ref("");
 const toolStatusState = ref<"running" | "done" | "failed" | "">("");
 const chatErrorText = ref("");
-const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 
 const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleTurnCount = ref(1);
 
-const archives = ref<ArchiveSummary[]>([]);
-const archiveMessages = ref<ChatMessage[]>([]);
-const selectedArchiveId = ref("");
-
-const windowReady = ref(false);
 const status = ref("Ready.");
 const loading = ref(false);
 const saving = ref(false);
@@ -346,55 +244,80 @@ const imageCacheStatsLoading = ref(false);
 const avatarSaving = ref(false);
 const avatarError = ref("");
 const apiModelOptions = ref<Record<string, string[]>>({});
-const historyDialog = ref<HTMLDialogElement | null>(null);
-const memoryDialog = ref<HTMLDialogElement | null>(null);
-const promptPreviewDialog = ref<HTMLDialogElement | null>(null);
-const memoryImportInput = ref<HTMLInputElement | null>(null);
-const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
 const personasAutosaveReady = ref(false);
 const chatSettingsAutosaveReady = ref(false);
 const suppressAutosave = ref(false);
-let configAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-let personasAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-let chatSettingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-const hotkeyTestRecording = ref(false);
-const hotkeyTestRecordingMs = ref(0);
-const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
-let hotkeyTestRecorder: MediaRecorder | null = null;
-let hotkeyTestStream: MediaStream | null = null;
-let hotkeyTestStartedAt = 0;
-let hotkeyTestTickTimer: ReturnType<typeof setInterval> | null = null;
-let hotkeyTestPlayer: HTMLAudioElement | null = null;
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
-const memoryList = ref<MemoryEntry[]>([]);
-const memoryPage = ref(1);
-const MEMORY_PAGE_SIZE = 5;
-const promptPreviewLoading = ref(false);
-const promptPreviewText = ref("");
-const promptPreviewLatestUserText = ref("");
-const promptPreviewLatestImages = ref(0);
-const promptPreviewLatestAudios = ref(0);
-const promptPreviewMode = ref<"full" | "system">("full");
+const PERF_DEBUG = true;
+const { perfNow, perfLog, setStatus, setStatusError, localeOptions, applyUiLanguage } = useAppCore({
+  t: tr,
+  config,
+  locale,
+  status,
+  perfDebug: PERF_DEBUG,
+});
 
-function setStatusError(key: string, error: unknown) {
-  status.value = formatI18nError(tr, key, error);
-}
+const {
+  historyDialog,
+  currentHistory,
+  openCurrentHistory: openCurrentHistoryDialog,
+  closeHistory,
+} = useHistoryViewer({
+  setStatusError,
+});
 
-const sortedMemories = computed(() =>
-  [...memoryList.value].sort((a, b) => {
-    const ta = Date.parse(a.updatedAt || a.createdAt || "");
-    const tb = Date.parse(b.updatedAt || b.createdAt || "");
-    if (Number.isFinite(ta) && Number.isFinite(tb)) return tb - ta;
-    return (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "");
-  }),
-);
-const memoryPageCount = computed(() => Math.max(1, Math.ceil(sortedMemories.value.length / MEMORY_PAGE_SIZE)));
-const pagedMemories = computed(() => {
-  const page = Math.max(1, Math.min(memoryPage.value, memoryPageCount.value));
-  const start = (page - 1) * MEMORY_PAGE_SIZE;
-  return sortedMemories.value.slice(start, start + MEMORY_PAGE_SIZE);
+const {
+  promptPreviewDialog,
+  promptPreviewLoading,
+  promptPreviewText,
+  promptPreviewLatestUserText,
+  promptPreviewLatestImages,
+  promptPreviewLatestAudios,
+  promptPreviewMode,
+  openPromptPreview: openPromptPreviewDialog,
+  openSystemPromptPreview: openSystemPromptPreviewDialog,
+  closePromptPreview,
+} = usePromptPreview({
+  t: tr,
+  beforePreview: async () => {
+    await savePersonas();
+    await saveChatPreferences();
+    await saveConversationApiSettings();
+  },
+});
+
+const {
+  archives,
+  archiveMessages,
+  selectedArchiveId,
+  loadArchives,
+  selectArchive,
+  deleteArchive,
+  exportArchive,
+} = useArchivesView({
+  t: tr,
+  setStatus,
+  setStatusError,
+});
+
+const {
+  memoryDialog,
+  memoryImportInput,
+  memoryList,
+  memoryPage,
+  memoryPageCount,
+  pagedMemories,
+  openMemoryViewer,
+  closeMemoryViewer,
+  exportMemories,
+  triggerMemoryImport,
+  handleMemoryImportFile,
+} = useMemoryViewer({
+  t: tr,
+  setStatus,
+  setStatusError,
 });
 
 const titleText = computed(() => {
@@ -439,6 +362,30 @@ const {
     status.value = text;
   },
 });
+const chatMedia = useChatMedia({
+  t: tr,
+  setStatus: (text) => {
+    status.value = text;
+  },
+  setStatusError,
+  viewMode,
+  chatting,
+  forcingArchive,
+  isRecording: () => recording.value,
+  activeChatApiConfig,
+  hasVisionFallback,
+  chatInput,
+  clipboardImages,
+});
+const hotkeyTestRecording = chatMedia.hotkeyTestRecording;
+const hotkeyTestRecordingMs = chatMedia.hotkeyTestRecordingMs;
+const hotkeyTestAudio = chatMedia.hotkeyTestAudio;
+const onPaste = chatMedia.onPaste;
+const removeClipboardImage = chatMedia.removeClipboardImage;
+const startHotkeyRecordTest = chatMedia.startHotkeyRecordTest;
+const stopHotkeyRecordTest = chatMedia.stopHotkeyRecordTest;
+const playHotkeyRecordTest = chatMedia.playHotkeyRecordTest;
+const cleanupChatMedia = chatMedia.cleanupChatMedia;
 const recordHotkey = useRecordHotkey({
   isActive: () => viewMode.value === "chat",
   getSummonHotkey: () => config.hotkey,
@@ -494,294 +441,28 @@ const chatInputPlaceholder = computed(() => {
   if (hints.length === 0) return t("chat.placeholder");
   return t("chat.placeholder");
 });
+const {
+  defaultApiTools,
+  createApiConfig,
+  normalizeApiBindingsLocal,
+  buildConfigPayload,
+  buildConfigSnapshotJson,
+} = useConfigCore({
+  config,
+  textCapableApiConfigs,
+});
+const { resolveAvatarUrl, ensureAvatarCached, preloadPersonaAvatars } = useAvatarCache({
+  personas,
+});
 const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
-
-function parseAssistantStoredText(rawText: string): {
-  assistantText: string;
-  reasoningStandard: string;
-  reasoningInline: string;
-} {
-  const raw = rawText || "";
-  const standardMarker = "[标准思考]";
-  const standardIdx = raw.indexOf(standardMarker);
-
-  if (standardIdx < 0) {
-    return {
-      assistantText: raw.trim(),
-      reasoningStandard: "",
-      reasoningInline: "",
-    };
-  }
-
-  const reasoningStandard = raw.slice(standardIdx + standardMarker.length).trim();
-
-  return {
-    assistantText: raw.slice(0, standardIdx).trim(),
-    reasoningStandard,
-    reasoningInline: "",
-  };
-}
-
-const allTurns = computed<ChatTurn[]>(() => {
-  const startedAt = perfNow();
-  const msgs = allMessages.value;
-  const turns: ChatTurn[] = [];
-  for (let i = 0; i < msgs.length; i++) {
-    const msg = msgs[i];
-    if (msg.role === "user") {
-      const userText = removeBinaryPlaceholders(renderMessage(msg));
-      const userImages = extractMessageImages(msg);
-      const userAudios = extractMessageAudios(msg);
-      let assistantText = "";
-      let assistantReasoningStandard = "";
-      let assistantReasoningInline = "";
-      if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
-        const parsed = parseAssistantStoredText(renderMessage(msgs[i + 1]));
-        assistantText = parsed.assistantText;
-        assistantReasoningStandard = parsed.reasoningStandard;
-        assistantReasoningInline = parsed.reasoningInline;
-        i++;
-      }
-      if (userText || userImages.length > 0 || userAudios.length > 0 || assistantText.trim() || assistantReasoningStandard.trim() || assistantReasoningInline.trim()) {
-        turns.push({
-          id: msg.id,
-          userText,
-          userImages,
-          userAudios,
-          assistantText,
-          assistantReasoningStandard,
-          assistantReasoningInline,
-        });
-      }
-    }
-  }
-  if (PERF_DEBUG) {
-    const cost = Math.round((perfNow() - startedAt) * 10) / 10;
-    console.log(`[PERF] buildAllTurns messages=${msgs.length} turns=${turns.length} cost=${cost}ms`);
-  }
-  return turns;
+const responseStyleIds = computed(() => responseStyleOptions.map((item) => item.id));
+const { visibleTurns, hasMoreTurns, chatContextUsageRatio, chatUsagePercent } = useChatTurns({
+  allMessages,
+  visibleTurnCount,
+  activeChatApiConfig,
+  perfDebug: PERF_DEBUG,
+  perfNow,
 });
-
-const visibleTurns = computed(() =>
-  allTurns.value.slice(Math.max(0, allTurns.value.length - visibleTurnCount.value))
-);
-
-const hasMoreTurns = computed(() => visibleTurnCount.value < allTurns.value.length);
-const chatContextUsageRatio = computed(() => {
-  const api = activeChatApiConfig.value;
-  if (!api) return 0;
-  const maxTokens = Math.max(16000, Math.min(200000, Number(api.contextWindowTokens ?? 128000)));
-  const used = estimateConversationTokens(allMessages.value);
-  return used / Math.max(1, maxTokens);
-});
-const chatUsagePercent = computed(() => Math.min(100, Math.max(0, Math.round(chatContextUsageRatio.value * 100))));
-
-function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
-  return {
-    id: `api-config-${seed}`,
-    name: `API Config ${config.apiConfigs.length + 1}`,
-    requestFormat: "openai",
-    enableText: true,
-    enableImage: false,
-    enableAudio: false,
-    enableTools: true,
-    tools: defaultApiTools(),
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "",
-    model: "gpt-4o-mini",
-    temperature: 1,
-    contextWindowTokens: 128000,
-  };
-}
-
-function defaultApiTools() {
-  return [
-    {
-      id: "fetch",
-      command: "npx",
-      args: ["-y", "@iflow-mcp/fetch"],
-      values: {},
-    },
-    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], values: {} },
-    { id: "memory-save", command: "builtin", args: ["memory-save"], values: {} },
-  ];
-}
-
-function estimateTextTokens(text: string): number {
-  let zh = 0;
-  let other = 0;
-  for (const ch of text || "") {
-    if (/\s/.test(ch)) continue;
-    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(ch)) zh += 1;
-    else other += 1;
-  }
-  return zh * 0.6 + other * 0.3;
-}
-
-function estimateConversationTokens(messages: ChatMessage[]): number {
-  let total = 0;
-  for (const m of messages) {
-    total += 12;
-    for (const p of m.parts || []) {
-      if (p.type === "text") total += estimateTextTokens((p as { text?: string }).text || "");
-      else if (p.type === "image") total += 280;
-      else if (p.type === "audio") total += 320;
-    }
-  }
-  return Math.ceil(total);
-}
-
-function buildConfigSnapshotJson(): string {
-  return JSON.stringify({
-    hotkey: config.hotkey,
-    uiLanguage: config.uiLanguage,
-    recordHotkey: config.recordHotkey,
-    minRecordSeconds: config.minRecordSeconds,
-    maxRecordSeconds: config.maxRecordSeconds,
-    toolMaxIterations: config.toolMaxIterations,
-    selectedApiConfigId: config.selectedApiConfigId,
-    chatApiConfigId: config.chatApiConfigId,
-    visionApiConfigId: config.visionApiConfigId,
-    apiConfigs: config.apiConfigs.map((a) => ({
-      id: a.id,
-      name: a.name,
-      requestFormat: a.requestFormat,
-      enableText: a.enableText,
-      enableImage: a.enableImage,
-      enableAudio: a.enableAudio,
-      enableTools: a.enableTools,
-      tools: a.tools,
-      baseUrl: a.baseUrl,
-      apiKey: a.apiKey,
-      model: a.model,
-      temperature: a.temperature,
-      contextWindowTokens: a.contextWindowTokens,
-    })),
-  });
-}
-
-function buildConfigPayload(): AppConfig {
-  return {
-    hotkey: config.hotkey,
-    uiLanguage: config.uiLanguage,
-    recordHotkey: config.recordHotkey,
-    minRecordSeconds: config.minRecordSeconds,
-    maxRecordSeconds: config.maxRecordSeconds,
-    toolMaxIterations: config.toolMaxIterations,
-    selectedApiConfigId: config.selectedApiConfigId,
-    chatApiConfigId: config.chatApiConfigId,
-    ...(config.visionApiConfigId ? { visionApiConfigId: config.visionApiConfigId } : {}),
-    apiConfigs: config.apiConfigs.map((a) => ({
-      id: a.id,
-      name: a.name,
-      requestFormat: a.requestFormat,
-      enableText: !!a.enableText,
-      enableImage: !!a.enableImage,
-      enableAudio: !!a.enableAudio,
-      enableTools: !!a.enableTools,
-      tools: (a.tools || []).map((t) => ({
-        id: t.id,
-        command: t.command,
-        args: Array.isArray(t.args) ? t.args : [],
-        values: t.values ?? {},
-      })),
-      baseUrl: a.baseUrl,
-      apiKey: a.apiKey,
-      model: a.model,
-      temperature: Number(a.temperature ?? 1),
-      contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
-    })),
-  };
-}
-
-function normalizeApiBindingsLocal() {
-  if (!config.apiConfigs.length) return;
-  config.uiLanguage = normalizeLocale(config.uiLanguage);
-  for (const api of config.apiConfigs) {
-    api.enableAudio = false;
-    api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
-    api.contextWindowTokens = Math.max(16000, Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))));
-  }
-  if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
-    config.recordHotkey = "Alt";
-  }
-  config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(config.minRecordSeconds) || 1)));
-  config.maxRecordSeconds = Math.max(config.minRecordSeconds, Math.round(Number(config.maxRecordSeconds) || 60));
-  config.toolMaxIterations = Math.max(1, Math.min(100, Math.round(Number(config.toolMaxIterations) || 10)));
-  if (!config.apiConfigs.some((a) => a.id === config.selectedApiConfigId)) {
-    config.selectedApiConfigId = config.apiConfigs[0].id;
-  }
-  if (!config.apiConfigs.some((a) => a.id === config.chatApiConfigId && a.enableText)) {
-    config.chatApiConfigId = textCapableApiConfigs.value[0]?.id ?? config.apiConfigs[0].id;
-  }
-  if (
-    config.visionApiConfigId
-    && !config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage)
-  ) {
-    config.visionApiConfigId = undefined;
-  }
-}
-
-function renderMessage(msg: ChatMessage): string {
-  const merged = msg.parts.map((p) => {
-    if (p.type === "text") return p.text;
-    if (p.type === "image") return "[image]";
-    return "[audio]";
-  }).join("\n");
-  return stripHiddenExtraBlocks(merged);
-}
-
-function stripHiddenExtraBlocks(text: string): string {
-  return (text || "")
-    .replace(/<memory_board>[\s\S]*?<\/memory_board>/g, "")
-    .replace(/\[MEMORY BOARD\][\s\S]*$/g, "")
-    .trim();
-}
-
-function messageText(msg: ChatMessage): string {
-  const visible = msg.parts
-    .filter((p) => p.type === "text")
-    .map((p) => p.text)
-    .join("\n");
-  return stripHiddenExtraBlocks(visible);
-}
-
-function removeBinaryPlaceholders(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "[image]" && line !== "[audio]")
-    .join("\n")
-    .trim();
-}
-
-function extractMessageImages(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
-  if (!msg) return [];
-  return msg.parts
-    .filter((p) => p.type === "image")
-    .map((p) => {
-      const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
-      return {
-        mime: anyPart.mime || "image/webp",
-        bytesBase64: anyPart.bytesBase64 || anyPart.bytes_base64 || "",
-      };
-    })
-    .filter((p) => !!p.bytesBase64);
-}
-
-function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
-  if (!msg) return [];
-  return msg.parts
-    .filter((p) => p.type === "audio")
-    .map((p) => {
-      const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
-      return {
-        mime: anyPart.mime || "audio/webm",
-        bytesBase64: anyPart.bytesBase64 || anyPart.bytes_base64 || "",
-      };
-    })
-    .filter((p) => !!p.bytesBase64);
-}
 
 function syncUserAliasFromPersona() {
   const next = (userPersona.value?.name || "").trim() || t("archives.roleUser");
@@ -790,537 +471,164 @@ function syncUserAliasFromPersona() {
   }
 }
 
-function avatarCacheKey(path?: string, updatedAt?: string): string {
-  if (!path) return "";
-  return `${path}|${updatedAt || ""}`;
-}
+const {
+  syncTrayIcon,
+  saveAgentAvatar,
+  clearAgentAvatar,
+  refreshModels,
+  refreshToolsStatus,
+  refreshImageCacheStats,
+  clearImageCache,
+} = useConfigRuntime({
+  t: tr,
+  setStatus,
+  setStatusError,
+  personas,
+  selectedPersonaId,
+  avatarSaving,
+  avatarError,
+  selectedApiConfig,
+  refreshingModels,
+  modelRefreshError,
+  apiModelOptions,
+  toolApiConfig,
+  checkingToolsStatus,
+  toolStatuses,
+  imageCacheStats,
+  imageCacheStatsLoading,
+  ensureAvatarCached,
+});
+const configPersistence = useConfigPersistence({
+  t: tr,
+  setStatus,
+  setStatusError,
+  config,
+  locale,
+  normalizeLocale,
+  suppressAutosave,
+  loading,
+  saving,
+  personas,
+  assistantPersonas,
+  selectedPersonaId,
+  personaEditorId,
+  userAlias,
+  selectedResponseStyleId,
+  responseStyleIds,
+  createApiConfig,
+  normalizeApiBindingsLocal,
+  buildConfigPayload,
+  buildConfigSnapshotJson,
+  lastSavedConfigJson,
+  syncUserAliasFromPersona,
+  preloadPersonaAvatars,
+  syncTrayIcon,
+});
+const {
+  loadConfig,
+  saveConfig,
+  captureHotkey,
+  loadPersonas,
+  loadChatSettings,
+  savePersonas,
+  saveChatPreferences,
+  saveConversationApiSettings,
+} = configPersistence;
+const chatRuntime = useChatRuntime({
+  t: tr,
+  setStatus,
+  setStatusError,
+  activeChatApiConfigId,
+  selectedPersonaId,
+  chatting,
+  forcingArchive,
+  latestUserText,
+  latestUserImages,
+  latestAssistantText,
+  allMessages,
+  visibleTurnCount,
+  perfNow,
+  perfLog,
+  perfDebug: PERF_DEBUG,
+});
+const {
+  refreshChatSnapshot,
+  forceArchiveNow,
+  loadAllMessages,
+  loadMoreTurns,
+} = chatRuntime;
 
-function resolveAvatarUrl(path?: string, updatedAt?: string): string {
-  const key = avatarCacheKey(path, updatedAt);
-  if (!key) return "";
-  return avatarDataUrlCache.value[key] || "";
-}
+const {
+  scheduleConfigAutosave,
+  schedulePersonasAutosave,
+  scheduleChatSettingsAutosave,
+  disposeAutosaveTimers,
+} = useConfigAutosave({
+  suppressAutosave,
+  personasAutosaveReady,
+  chatSettingsAutosaveReady,
+  savePersonas,
+  saveChatPreferences,
+});
 
-async function ensureAvatarCached(path?: string, updatedAt?: string) {
-  const key = avatarCacheKey(path, updatedAt);
-  if (!key || avatarDataUrlCache.value[key]) return;
-  try {
-    const result = await invokeTauri<{ dataUrl: string }>("read_avatar_data_url", {
-      input: { path },
-    });
-    avatarDataUrlCache.value = {
-      ...avatarDataUrlCache.value,
-      [key]: result.dataUrl || "",
-    };
-  } catch {
-    // ignore avatar load failures, fallback to initial avatar.
-  }
-}
+const {
+  addApiConfig,
+  removeSelectedApiConfig,
+  addPersona,
+  removeSelectedPersona,
+} = useConfigEditors({
+  t: tr,
+  config,
+  personas,
+  assistantPersonas,
+  selectedPersonaId,
+  personaEditorId,
+  selectedPersonaEditor,
+  createApiConfig,
+  normalizeApiBindingsLocal,
+});
 
-async function preloadPersonaAvatars() {
-  const tasks: Promise<void>[] = [];
-  for (const p of personas.value) {
-    if (!p.avatarPath) continue;
-    tasks.push(ensureAvatarCached(p.avatarPath, p.avatarUpdatedAt));
-  }
-  await Promise.all(tasks);
-}
-
-async function loadConfig() {
-  suppressAutosave.value = true;
-  loading.value = true;
-  status.value = t("status.loadingConfig");
-  try {
-    const cfg = await invokeTauri<AppConfig>("load_config");
-    config.hotkey = cfg.hotkey;
-    config.uiLanguage = normalizeLocale(cfg.uiLanguage);
-    locale.value = config.uiLanguage;
-    config.recordHotkey = cfg.recordHotkey || "Alt";
-    config.minRecordSeconds = Math.max(1, Math.min(30, Number(cfg.minRecordSeconds || 1)));
-    config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
-    config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
-    config.selectedApiConfigId = cfg.selectedApiConfigId;
-    config.chatApiConfigId = cfg.chatApiConfigId;
-    config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
-    config.apiConfigs.splice(0, config.apiConfigs.length, ...(cfg.apiConfigs.length ? cfg.apiConfigs : [createApiConfig("default")]));
-    normalizeApiBindingsLocal();
-    lastSavedConfigJson.value = buildConfigSnapshotJson();
-    status.value = t("status.configLoaded");
-  } catch (e) {
-    setStatusError("status.loadConfigFailed", e);
-  } finally {
-    suppressAutosave.value = false;
-    loading.value = false;
-  }
-}
-
-async function saveConfig() {
-  suppressAutosave.value = true;
-  saving.value = true;
-  status.value = t("status.savingConfig");
-  try {
-    console.info("[CONFIG] save_config invoked");
-    const saved = await invokeTauri<AppConfig>("save_config", { config: buildConfigPayload() });
-    config.hotkey = saved.hotkey;
-    config.uiLanguage = normalizeLocale(saved.uiLanguage);
-    locale.value = config.uiLanguage;
-    config.recordHotkey = saved.recordHotkey || "Alt";
-    config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
-    config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
-    config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
-    config.selectedApiConfigId = saved.selectedApiConfigId;
-    config.chatApiConfigId = saved.chatApiConfigId;
-    config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
-    config.apiConfigs.splice(0, config.apiConfigs.length, ...saved.apiConfigs);
-    normalizeApiBindingsLocal();
-    lastSavedConfigJson.value = buildConfigSnapshotJson();
-    console.info("[CONFIG] save_config success");
-    status.value = t("status.configSaved");
-  } catch (e) {
-    const err = String(e);
-    console.error("[CONFIG] save_config failed:", e);
-    if (err.includes("404")) {
-      status.value = t("status.saveConfigBackend404");
-    } else {
-      status.value = t("status.saveConfigFailed", { err });
-    }
-  } finally {
-    suppressAutosave.value = false;
-    saving.value = false;
-  }
-}
-
-async function captureHotkey(value: string) {
-  const hotkey = String(value || "").trim();
-  if (!hotkey) return;
-  config.hotkey = hotkey;
-  await saveConfig();
-  if (!status.value.startsWith("Save failed")) {
-    status.value = t("status.hotkeyUpdated", { hotkey });
-  }
-}
-
-async function loadPersonas() {
-  suppressAutosave.value = true;
-  try {
-    const list = await invokeTauri<PersonaProfile[]>("load_agents");
-    personas.value = list;
-    if (!assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)) {
-      selectedPersonaId.value = assistantPersonas.value[0]?.id ?? "default-agent";
-    }
-    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
-      personaEditorId.value = selectedPersonaId.value;
-    }
-    syncUserAliasFromPersona();
-    await preloadPersonaAvatars();
-    await syncTrayIcon(selectedPersonaId.value);
-  } finally {
-    suppressAutosave.value = false;
-  }
-}
-
-async function loadChatSettings() {
-  suppressAutosave.value = true;
-  try {
-    const settings = await invokeTauri<{ selectedAgentId: string; userAlias: string; responseStyleId: string }>("load_chat_settings");
-    if (assistantPersonas.value.some((p) => p.id === settings.selectedAgentId)) {
-      selectedPersonaId.value = settings.selectedAgentId;
-    }
-    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
-      personaEditorId.value = selectedPersonaId.value;
-    }
-    userAlias.value = settings.userAlias?.trim() || t("archives.roleUser");
-    if (responseStyleOptions.some((s) => s.id === settings.responseStyleId)) {
-      selectedResponseStyleId.value = settings.responseStyleId;
-    } else {
-      selectedResponseStyleId.value = "concise";
-    }
-    await syncTrayIcon(selectedPersonaId.value);
-  } finally {
-    suppressAutosave.value = false;
-  }
-}
-
-async function syncTrayIcon(agentId?: string) {
-  try {
-    await invokeTauri("sync_tray_icon", {
-      input: {
-        agentId: agentId ?? null,
-      },
-    });
-  } catch (e) {
-    console.warn("[TRAY] sync icon failed:", e);
-  }
-}
-
-async function savePersonas() {
-  suppressAutosave.value = true;
-  try {
-    personas.value = await invokeTauri<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
-    syncUserAliasFromPersona();
-    status.value = t("status.personaSaved");
-  } catch (e) {
-    setStatusError("status.savePersonasFailed", e);
-  } finally {
-    suppressAutosave.value = false;
-  }
-}
-
-async function saveChatPreferences() {
-  saving.value = true;
-  status.value = t("status.savingChatSettings");
-  try {
-    const targetAgentId = assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)
-      ? selectedPersonaId.value
-      : assistantPersonas.value[0]?.id || "default-agent";
-    await invokeTauri("save_chat_settings", {
-      input: {
-        selectedAgentId: targetAgentId,
-        userAlias: userAlias.value,
-        responseStyleId: selectedResponseStyleId.value,
-      },
-    });
-    selectedPersonaId.value = targetAgentId;
-    status.value = t("status.chatSettingsSaved");
-  } catch (e) {
-    setStatusError("status.saveChatSettingsFailed", e);
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function saveConversationApiSettings() {
-  if (suppressAutosave.value) return;
-  try {
-    console.info("[CONFIG] save_conversation_api_settings invoked");
-    const saved = await invokeTauri<{
-      chatApiConfigId: string;
-      visionApiConfigId?: string;
-    }>("save_conversation_api_settings", {
-      input: {
-        chatApiConfigId: config.chatApiConfigId,
-        visionApiConfigId: config.visionApiConfigId || null,
-      },
-    });
-    config.chatApiConfigId = saved.chatApiConfigId;
-    config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
-    lastSavedConfigJson.value = buildConfigSnapshotJson();
-    console.info("[CONFIG] save_conversation_api_settings success");
-  } catch (e) {
-    console.error("[CONFIG] save_conversation_api_settings failed:", e);
-    setStatusError("status.saveConversationApiFailed", e);
-  }
-}
-
-function scheduleConfigAutosave() {
-  // API 配置改为手动保存，保留函数占位避免大范围改动。
-  return;
-}
-
-function schedulePersonasAutosave() {
-  if (suppressAutosave.value) return;
-  if (!personasAutosaveReady.value) return;
-  if (personasAutosaveTimer) clearTimeout(personasAutosaveTimer);
-  personasAutosaveTimer = setTimeout(() => {
-    void savePersonas();
-  }, 350);
-}
-
-function scheduleChatSettingsAutosave() {
-  if (suppressAutosave.value) return;
-  if (!chatSettingsAutosaveReady.value) return;
-  if (chatSettingsAutosaveTimer) clearTimeout(chatSettingsAutosaveTimer);
-  chatSettingsAutosaveTimer = setTimeout(() => {
-    void saveChatPreferences();
-  }, 350);
-}
-
-function addApiConfig() {
-  const c = createApiConfig();
-  config.apiConfigs.push(c);
-  config.selectedApiConfigId = c.id;
-  normalizeApiBindingsLocal();
-}
-
-function removeSelectedApiConfig() {
-  if (config.apiConfigs.length <= 1) return;
-  const idx = config.apiConfigs.findIndex((a) => a.id === config.selectedApiConfigId);
-  if (idx >= 0) config.apiConfigs.splice(idx, 1);
-  config.selectedApiConfigId = config.apiConfigs[0].id;
-  normalizeApiBindingsLocal();
-}
-
-function addPersona() {
-  const id = `persona-${Date.now()}`;
-  const now = new Date().toISOString();
-  personas.value.push({
-    id,
-    name: `${t("config.persona.title")} ${assistantPersonas.value.length + 1}`,
-    systemPrompt: t("config.persona.assistantPlaceholder"),
-    createdAt: now,
-    updatedAt: now,
-    avatarPath: undefined,
-    avatarUpdatedAt: undefined,
-    isBuiltInUser: false,
-  });
-  selectedPersonaId.value = id;
-  personaEditorId.value = id;
-}
-
-function removeSelectedPersona() {
-  if (assistantPersonas.value.length <= 1) return;
-  const target = selectedPersonaEditor.value;
-  if (!target || target.isBuiltInUser) return;
-  const idx = personas.value.findIndex((p) => p.id === target.id);
-  if (idx >= 0) personas.value.splice(idx, 1);
-  if (selectedPersonaId.value === target.id) {
-    selectedPersonaId.value = assistantPersonas.value[0]?.id || "default-agent";
-  }
-  personaEditorId.value = assistantPersonas.value[0]?.id || "default-agent";
-}
-
-async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase64: string }) {
-  avatarSaving.value = true;
-  avatarError.value = "";
-  try {
-    const result = await invokeTauri<{ path: string; updatedAt: string }>("save_agent_avatar", {
-      input: {
-        agentId: input.agentId,
-        mime: input.mime,
-        bytesBase64: input.bytesBase64,
-      },
-    });
-    const idx = personas.value.findIndex((p) => p.id === input.agentId);
-    if (idx >= 0) {
-      personas.value[idx].avatarPath = result.path;
-      personas.value[idx].avatarUpdatedAt = result.updatedAt;
-      personas.value[idx].updatedAt = new Date().toISOString();
-    }
-    await ensureAvatarCached(result.path, result.updatedAt);
-    if (input.agentId === selectedPersonaId.value) {
-      await syncTrayIcon(input.agentId);
-    }
-    status.value = t("status.avatarSaved");
-  } catch (e) {
-    const err = String(e);
-    avatarError.value = err;
-    status.value = t("status.avatarSaveFailed", { err });
-  } finally {
-    avatarSaving.value = false;
-  }
-}
-
-async function clearAgentAvatar(input: { agentId: string }) {
-  avatarError.value = "";
-  try {
-    await invokeTauri("clear_agent_avatar", { input: { agentId: input.agentId } });
-    const idx = personas.value.findIndex((p) => p.id === input.agentId);
-    if (idx >= 0) {
-      personas.value[idx].avatarPath = undefined;
-      personas.value[idx].avatarUpdatedAt = undefined;
-      personas.value[idx].updatedAt = new Date().toISOString();
-    }
-    if (input.agentId === selectedPersonaId.value) {
-      await syncTrayIcon(input.agentId);
-    }
-    status.value = t("status.avatarCleared");
-  } catch (e) {
-    const err = String(e);
-    avatarError.value = err;
-    status.value = t("status.avatarClearFailed", { err });
-  }
-}
-
-async function refreshModels() {
-  if (!selectedApiConfig.value) return;
-  refreshingModels.value = true;
-  modelRefreshError.value = "";
-  try {
-    const models = await invokeTauri<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
-    apiModelOptions.value[selectedApiConfig.value.id] = models;
-    if (models.length) selectedApiConfig.value.model = models[0];
-    status.value = t("status.modelListRefreshed", { count: models.length });
-  } catch (e) {
-    const err = String(e);
-    modelRefreshError.value = err;
-    status.value = t("status.refreshModelsFailed", { err });
-  } finally {
-    refreshingModels.value = false;
-  }
-}
-
-async function refreshToolsStatus() {
-  if (!toolApiConfig.value) return;
-  checkingToolsStatus.value = true;
-  try {
-    toolStatuses.value = await invokeTauri<ToolLoadStatus[]>("check_tools_status", {
-      input: { apiConfigId: toolApiConfig.value.id },
-    });
-  } catch (e) {
-    toolStatuses.value = [
-      {
-        id: "tools",
-        status: "failed",
-        detail: String(e),
-      },
-    ];
-  } finally {
-    checkingToolsStatus.value = false;
-  }
-}
-
-async function refreshImageCacheStats() {
-  imageCacheStatsLoading.value = true;
-  try {
-    imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("get_image_text_cache_stats");
-  } catch (e) {
-    setStatusError("status.loadImageCacheStatsFailed", e);
-  } finally {
-    imageCacheStatsLoading.value = false;
-  }
-}
-
-async function clearImageCache() {
-  imageCacheStatsLoading.value = true;
-  try {
-    imageCacheStats.value = await invokeTauri<ImageTextCacheStats>("clear_image_text_cache");
-    status.value = t("status.imageCacheCleared");
-  } catch (e) {
-    setStatusError("status.clearImageCacheFailed", e);
-  } finally {
-    imageCacheStatsLoading.value = false;
-  }
-}
-
-async function refreshChatSnapshot() {
-  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
-  const startedAt = perfNow();
-  try {
-    const snap = await invokeTauri<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
-    latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
-    latestUserImages.value = extractMessageImages(snap.latestUser);
-    latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
-  } catch (e) {
-    setStatusError("status.loadChatSnapshotFailed", e);
-  } finally {
-    perfLog("refreshChatSnapshot", startedAt);
-  }
-}
-
-async function forceArchiveNow() {
-  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
-  if (chatting.value || forcingArchive.value) return;
-  forcingArchive.value = true;
-  try {
-    const result = await invokeTauri<ForceArchiveResult>("force_archive_current", {
-      input: {
-        apiConfigId: activeChatApiConfigId.value,
-        agentId: selectedPersonaId.value,
-      },
-    });
-    status.value = result.archived
-      ? t("status.forceArchiveDone", { count: result.mergedMemories })
-      : result.summary;
-    await refreshChatSnapshot();
-    await loadAllMessages();
+const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal } = useViewRefresh({
+  viewMode,
+  recordHotkeySuppressAfterPopup: recordHotkey.suppressAfterPopup,
+  recordHotkeySuppressMs: RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS,
+  configAutosaveReady,
+  personasAutosaveReady,
+  chatSettingsAutosaveReady,
+  loadConfig,
+  loadPersonas,
+  loadChatSettings,
+  refreshImageCacheStats,
+  refreshChatSnapshot,
+  loadAllMessages,
+  loadArchives,
+  resetVisibleTurnCount: () => {
     visibleTurnCount.value = 1;
-  } catch (e) {
-    setStatusError("status.forceArchiveFailed", e);
-  } finally {
-    forcingArchive.value = false;
-  }
-}
+  },
+  perfNow,
+  perfLog,
+});
 
-async function loadAllMessages() {
-  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
-  const startedAt = perfNow();
-  try {
-    const msgs = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", {
-      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
-    });
-    if (PERF_DEBUG) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
-    allMessages.value = msgs;
-  } catch (e) {
-    setStatusError("status.loadMessagesFailed", e);
-  } finally {
-    perfLog("loadAllMessages", startedAt);
-  }
-}
-
-function loadMoreTurns() {
-  visibleTurnCount.value++;
-}
-
-type MemoryEntry = {
-  id: string;
-  content: string;
-  keywords: string[];
-  createdAt: string;
-  updatedAt: string;
-};
-type MemoryExportPayload = {
-  version: number;
-  exportedAt: string;
-  memories: MemoryEntry[];
-};
-type ExportMemoriesFileResult = {
-  path: string;
-  count: number;
-};
-type ExportArchiveFileResult = {
-  path: string;
-  archiveId: string;
-  format: "json" | "markdown";
-};
-type ForceArchiveResult = {
-  archived: boolean;
-  archiveId?: string | null;
-  summary: string;
-  mergedMemories: number;
-};
-type ImportMemoriesResult = {
-  importedCount: number;
-  createdCount: number;
-  mergedCount: number;
-  totalCount: number;
-};
-type PromptPreviewResult = {
-  preamble: string;
-  latestUserText: string;
-  latestImages: number;
-  latestAudios: number;
-  requestBodyJson: string;
-};
-type SystemPromptPreviewResult = {
-  systemPrompt: string;
-};
-let windowBootstrapped = false;
-let suppressChatReloadWatch = false;
-const PERF_DEBUG = true;
-
-function perfNow(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-function perfLog(label: string, startedAt: number) {
-  if (!PERF_DEBUG) return;
-  const cost = Math.round((perfNow() - startedAt) * 10) / 10;
-  console.log(`[PERF] ${label}: ${cost}ms`);
-}
-
-const localeOptions = computed<Array<{ value: SupportedLocale; label: string }>>(() => [
-  { value: "zh-CN", label: t("config.language.zhCN") },
-  { value: "en-US", label: t("config.language.enUS") },
-  { value: "ja-JP", label: t("config.language.jaJP") },
-  { value: "ko-KR", label: t("config.language.koKR") },
-]);
+const appBootstrap = useAppBootstrap({
+  setViewMode: (mode) => {
+    viewMode.value = mode;
+  },
+  initWindowMode: () => initWindow(),
+  onThemeChanged: (theme) => {
+    if (theme === "light" || theme === "forest") {
+      applyTheme(theme);
+    }
+  },
+  onLocaleChanged: (payload) => {
+    const lang = normalizeLocale(payload);
+    config.uiLanguage = lang;
+    locale.value = lang;
+  },
+  onRefreshSignal: handleWindowRefreshSignal,
+});
 
 function setUiLanguage(value: string) {
-  const lang = normalizeLocale(value);
-  if (config.uiLanguage === lang && locale.value === lang) return;
-  config.uiLanguage = lang;
-  locale.value = lang;
-  emit("easy-call:locale-changed", lang);
+  if (!applyUiLanguage(value)) return;
   void saveConfig();
 }
 
@@ -1357,648 +665,80 @@ const chatFlow = useChatFlow({
   onReloadMessages: () => loadAllMessages(),
 });
 
-function handleSendChat() {
-  return chatFlow.sendChat();
-}
-
-function handleStopChat() {
-  chatFlow.stopChat();
-}
-
 function clearStreamBuffer() {
   chatFlow.clearStreamBuffer();
 }
-
-
-async function openCurrentHistory() {
-  try {
-    currentHistory.value = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", { input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value } });
-    historyDialog.value?.showModal();
-  } catch (e) {
-    setStatusError("status.loadHistoryFailed", e);
-  }
-}
-
-function closeHistory() {
-  historyDialog.value?.close();
-}
-
-async function openMemoryViewer() {
-  try {
-    memoryList.value = await invokeTauri<MemoryEntry[]>("list_memories");
-    memoryPage.value = 1;
-    memoryDialog.value?.showModal();
-  } catch (e) {
-    setStatusError("status.loadMemoriesFailed", e);
-  }
-}
-
-function closeMemoryViewer() {
-  memoryDialog.value?.close();
-}
-
-async function openPromptPreview() {
-  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
-  promptPreviewMode.value = "full";
-  promptPreviewLoading.value = true;
-  promptPreviewText.value = "";
-  promptPreviewLatestUserText.value = "";
-  promptPreviewLatestImages.value = 0;
-  promptPreviewLatestAudios.value = 0;
-  promptPreviewDialog.value?.showModal();
-  try {
-    await savePersonas();
-    await saveChatPreferences();
-    await saveConversationApiSettings();
-    const preview = await invokeTauri<PromptPreviewResult>("get_prompt_preview", {
-      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
-    });
-    promptPreviewText.value = preview.requestBodyJson || "";
-    promptPreviewLatestUserText.value = preview.latestUserText || "";
-    promptPreviewLatestImages.value = Number(preview.latestImages || 0);
-    promptPreviewLatestAudios.value = Number(preview.latestAudios || 0);
-  } catch (e) {
-    promptPreviewText.value = formatI18nError(tr, "status.loadRequestPreviewFailed", e);
-  } finally {
-    promptPreviewLoading.value = false;
-  }
-}
-
-async function openSystemPromptPreview() {
-  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
-  promptPreviewMode.value = "system";
-  promptPreviewLoading.value = true;
-  promptPreviewText.value = "";
-  promptPreviewLatestUserText.value = "";
-  promptPreviewLatestImages.value = 0;
-  promptPreviewLatestAudios.value = 0;
-  promptPreviewDialog.value?.showModal();
-  try {
-    await savePersonas();
-    await saveChatPreferences();
-    await saveConversationApiSettings();
-    const preview = await invokeTauri<SystemPromptPreviewResult>("get_system_prompt_preview", {
-      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
-    });
-    promptPreviewText.value = preview.systemPrompt || "";
-  } catch (e) {
-    promptPreviewText.value = formatI18nError(tr, "status.loadSystemPromptFailed", e);
-  } finally {
-    promptPreviewLoading.value = false;
-  }
-}
-
-function closePromptPreview() {
-  promptPreviewDialog.value?.close();
-}
-
-async function exportMemories() {
-  try {
-    const path = await save({
-      defaultPath: `easy-call-ai-memories-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    if (!path) {
-      status.value = t("status.exportCancelled");
-      return;
-    }
-    const result = await invokeTauri<ExportMemoriesFileResult>("export_memories_to_path", {
-      input: { path },
-    });
-    status.value = t("status.memoriesExported", { count: result.count, path: result.path });
-  } catch (e) {
-    setStatusError("status.exportMemoriesFailed", e);
-  }
-}
-
-function triggerMemoryImport() {
-  if (memoryImportInput.value) {
-    memoryImportInput.value.value = "";
-    memoryImportInput.value.click();
-  }
-}
-
-async function handleMemoryImportFile(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-  try {
-    const raw = await file.text();
-    const parsed = JSON.parse(raw) as unknown;
-    const memories = Array.isArray(parsed)
-      ? parsed
-      : (parsed && typeof parsed === "object" && Array.isArray((parsed as { memories?: unknown }).memories))
-        ? (parsed as { memories: unknown[] }).memories
-        : [];
-    if (!Array.isArray(memories)) {
-      throw new Error("invalid memories payload");
-    }
-
-    const result = await invokeTauri<ImportMemoriesResult>("import_memories", {
-      input: { memories },
-    });
-    memoryList.value = await invokeTauri<MemoryEntry[]>("list_memories");
-    memoryPage.value = 1;
-    status.value = t("status.importMemoriesDone", {
-      created: result.createdCount,
-      merged: result.mergedCount,
-      total: result.totalCount,
-    });
-  } catch (e) {
-    setStatusError("status.importMemoriesFailed", e);
-  } finally {
-    input.value = "";
-  }
-}
-
-async function loadArchives() {
-  try {
-    archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
-    if (archives.value.length === 0) {
-      selectedArchiveId.value = "";
-      archiveMessages.value = [];
-      return;
-    }
-    const targetId = archives.value.some((a) => a.archiveId === selectedArchiveId.value)
-      ? selectedArchiveId.value
-      : archives.value[0].archiveId;
-    await selectArchive(targetId);
-  } catch (e) {
-    setStatusError("status.loadArchivesFailed", e);
-  }
-}
-
-async function selectArchive(archiveId: string) {
-  selectedArchiveId.value = archiveId;
-  archiveMessages.value = await invokeTauri<ChatMessage[]>("get_archive_messages", { archiveId });
-}
-
-async function deleteArchive(archiveId: string) {
-  if (!archiveId) return;
-  try {
-    await invokeTauri("delete_archive", { archiveId });
-    status.value = t("status.archiveDeleted");
-    if (selectedArchiveId.value === archiveId) {
-      selectedArchiveId.value = "";
-      archiveMessages.value = [];
-    }
-    await loadArchives();
-  } catch (e) {
-    setStatusError("status.deleteArchiveFailed", e);
-  }
-}
-
-async function exportArchive(payload: { format: "markdown" | "json" }) {
-  if (!selectedArchiveId.value) {
-    status.value = t("status.selectArchiveFirst");
-    return;
-  }
-  try {
-    const result = await invokeTauri<ExportArchiveFileResult>("export_archive_to_file", {
-      input: {
-        archiveId: selectedArchiveId.value,
-        format: payload.format,
-      },
-    });
-    status.value = t("status.archiveExported", { format: result.format, path: result.path });
-  } catch (e) {
-    setStatusError("status.exportArchiveFailed", e);
-  }
-}
-
-function onPaste(event: ClipboardEvent) {
-  if (viewMode.value !== "chat") return;
-  if (chatting.value || forcingArchive.value) return;
-  const items = event.clipboardData?.items;
-  if (!items) return;
-  const apiConfig = activeChatApiConfig.value;
-  if (!apiConfig) return;
-
-  const text = event.clipboardData?.getData("text/plain");
-  if (text && !chatInput.value.trim() && apiConfig.enableText) chatInput.value = text;
-
-  for (const item of Array.from(items)) {
-    if (item.type.startsWith("image/")) {
-      if (!apiConfig.enableImage && !hasVisionFallback.value) {
-        event.preventDefault();
-        return;
-      }
-      const file = item.getAsFile();
-      if (!file) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const base64 = result.includes(",") ? result.split(",")[1] : "";
-        if (base64) clipboardImages.value.push({ mime: item.type, bytesBase64: base64 });
-      };
-      reader.onerror = () => {
-        setStatusError("status.pasteImageReadFailed", reader.error || "unknown");
-      };
-      reader.readAsDataURL(file);
-      event.preventDefault();
-    }
-  }
-}
-
-function removeClipboardImage(index: number) {
-  if (index < 0 || index >= clipboardImages.value.length) return;
-  clipboardImages.value.splice(index, 1);
-}
-
-async function readBlobAsDataUrl(blob: Blob): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-function clearHotkeyTestTimers() {
-  if (hotkeyTestTickTimer) {
-    clearInterval(hotkeyTestTickTimer);
-    hotkeyTestTickTimer = null;
-  }
-}
-
-function stopHotkeyTestStream() {
-  if (hotkeyTestStream) {
-    for (const track of hotkeyTestStream.getTracks()) track.stop();
-    hotkeyTestStream = null;
-  }
-}
-
-async function startHotkeyRecordTest() {
-  if (hotkeyTestRecording.value) return;
-  if (recording.value) return;
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    status.value = t("status.recordUnsupported");
-    return;
-  }
-  try {
-    hotkeyTestStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    hotkeyTestRecorder = new MediaRecorder(hotkeyTestStream);
-    const chunks: BlobPart[] = [];
-    hotkeyTestRecorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data && event.data.size > 0) chunks.push(event.data);
-    };
-    hotkeyTestRecorder.onstop = async () => {
-      const durationMs = Math.max(0, Date.now() - hotkeyTestStartedAt);
-      hotkeyTestRecording.value = false;
-      clearHotkeyTestTimers();
-      stopHotkeyTestStream();
-      if (chunks.length === 0) return;
-      const blob = new Blob(chunks, { type: hotkeyTestRecorder?.mimeType || "audio/webm" });
-      const dataUrl = await readBlobAsDataUrl(blob);
-      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
-      if (!base64) return;
-      hotkeyTestAudio.value = {
-        mime: blob.type || "audio/webm",
-        bytesBase64: base64,
-        durationMs,
-      };
-      status.value = t("status.recordTestDone", { seconds: Math.max(1, Math.round(durationMs / 1000)) });
-    };
-    hotkeyTestRecorder.start();
-    hotkeyTestStartedAt = Date.now();
-    hotkeyTestRecording.value = true;
-    hotkeyTestRecordingMs.value = 0;
-    clearHotkeyTestTimers();
-    hotkeyTestTickTimer = setInterval(() => {
-      hotkeyTestRecordingMs.value = Math.max(0, Date.now() - hotkeyTestStartedAt);
-    }, 100);
-  } catch (e) {
-    hotkeyTestRecording.value = false;
-    clearHotkeyTestTimers();
-    stopHotkeyTestStream();
-    setStatusError("status.recordTestFailed", e);
-  }
-}
-
-async function stopHotkeyRecordTest() {
-  if (!hotkeyTestRecording.value) return;
-  if (hotkeyTestRecorder && hotkeyTestRecorder.state !== "inactive") {
-    hotkeyTestRecorder.stop();
-  } else {
-    hotkeyTestRecording.value = false;
-    clearHotkeyTestTimers();
-    stopHotkeyTestStream();
-  }
-}
-
-function playHotkeyRecordTest() {
-  if (!hotkeyTestAudio.value) return;
-  if (hotkeyTestPlayer) {
-    hotkeyTestPlayer.pause();
-    hotkeyTestPlayer.currentTime = 0;
-    hotkeyTestPlayer = null;
-  }
-  const src = `data:${hotkeyTestAudio.value.mime};base64,${hotkeyTestAudio.value.bytesBase64}`;
-  hotkeyTestPlayer = new Audio(src);
-  void hotkeyTestPlayer.play().catch(() => {
-    hotkeyTestPlayer = null;
-  });
-}
-
-async function closeWindow() {
-  if (!appWindow) return;
-  await appWindow.hide();
-}
-async function startDrag() {
-  if (!appWindow) return;
-  await appWindow.startDragging();
-}
-async function toggleAlwaysOnTop() {
-  if (!appWindow) return;
-  alwaysOnTop.value = !alwaysOnTop.value;
-  await appWindow.setAlwaysOnTop(alwaysOnTop.value);
-}
-
-function applyTheme(theme: "light" | "forest") {
-  currentTheme.value = theme;
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("theme", theme);
-}
-
-function toggleTheme() {
-  const next = currentTheme.value === "light" ? "forest" : "light";
-  applyTheme(next);
-  emit("easy-call:theme-changed", next);
-}
-
-onMounted(async () => {
-  appWindow = getCurrentWindow();
-  viewMode.value = appWindow.label === "chat" ? "chat" : appWindow.label === "archives" ? "archives" : "config";
-  windowReady.value = true;
-
-  // 从 localStorage 恢复主题
-  const savedTheme = localStorage.getItem("theme") as "light" | "forest" | null;
-  if (savedTheme) applyTheme(savedTheme);
-
-  // 监听其他窗口的主题变更
-  await listen<string>("easy-call:theme-changed", (event) => {
-    applyTheme(event.payload as "light" | "forest");
-  });
-  await listen<string>("easy-call:locale-changed", (event) => {
-    const lang = normalizeLocale(event.payload);
-    config.uiLanguage = lang;
-    locale.value = lang;
-  });
-
-  window.addEventListener("paste", onPaste);
-  recordHotkey.mount();
-  const refreshAll = async () => {
-    suppressChatReloadWatch = true;
-    const startedAt = perfNow();
-    try {
-      const tLoadConfig = perfNow();
-      await loadConfig();
-      perfLog("refreshAll/loadConfig", tLoadConfig);
-      const tLoadPersonas = perfNow();
-      await loadPersonas();
-      perfLog("refreshAll/loadPersonas", tLoadPersonas);
-      const tLoadChatSettings = perfNow();
-      await loadChatSettings();
-      perfLog("refreshAll/loadChatSettings", tLoadChatSettings);
-      if (viewMode.value === "config") {
-        const tRefreshCache = perfNow();
-        await refreshImageCacheStats();
-        perfLog("refreshAll/refreshImageCacheStats", tRefreshCache);
-      }
-      if (viewMode.value === "chat") {
-        const tSnapshot = perfNow();
-        await refreshChatSnapshot();
-        perfLog("refreshAll/refreshChatSnapshotStep", tSnapshot);
-        const tMessages = perfNow();
-        await loadAllMessages();
-        perfLog("refreshAll/loadAllMessagesStep", tMessages);
-        visibleTurnCount.value = 1;
-      } else if (viewMode.value === "archives") {
-        const tArchives = perfNow();
-        await loadArchives();
-        perfLog("refreshAll/loadArchives", tArchives);
-      }
-    } finally {
-      suppressChatReloadWatch = false;
-      perfLog("refreshAll/total", startedAt);
-    }
-  };
-
-  await refreshAll();
-  windowBootstrapped = true;
-  configAutosaveReady.value = true;
-  personasAutosaveReady.value = true;
-  chatSettingsAutosaveReady.value = true;
-  if (viewMode.value === "chat") {
-    try {
-      alwaysOnTop.value = await appWindow.isAlwaysOnTop();
-    } catch {
-      alwaysOnTop.value = false;
-    }
-  }
-  await listen("easy-call:refresh", async () => {
-    // Window was just summoned; suppress record-hotkey briefly to avoid combo-key conflict.
-    recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
-    if (!windowBootstrapped) {
-      configAutosaveReady.value = false;
-      personasAutosaveReady.value = false;
-      chatSettingsAutosaveReady.value = false;
-      await refreshAll();
-      windowBootstrapped = true;
-      configAutosaveReady.value = true;
-      personasAutosaveReady.value = true;
-      chatSettingsAutosaveReady.value = true;
-      return;
-    }
-    // 唤起窗口时走轻量同步，避免每次都重跑全量加载。
-    if (viewMode.value === "chat") {
-      await refreshChatSnapshot();
-    } else if (viewMode.value === "archives") {
-      await loadArchives();
-    }
-  });
-
+const { openCurrentHistory, openPromptPreview, openSystemPromptPreview } = useChatDialogActions({
+  activeChatApiConfigId,
+  selectedPersonaId,
+  openCurrentHistoryDialog,
+  openPromptPreviewDialog,
+  openSystemPromptPreviewDialog,
 });
 
-onBeforeUnmount(() => {
-  clearStreamBuffer();
-  void stopRecording(true);
-  cleanupSpeechRecording();
-  recordHotkey.unmount();
-  void stopHotkeyRecordTest();
-  if (hotkeyTestPlayer) {
-    hotkeyTestPlayer.pause();
-    hotkeyTestPlayer.currentTime = 0;
-    hotkeyTestPlayer = null;
-  }
-  window.removeEventListener("paste", onPaste);
+function setHistoryDialogRef(el: Element | null) {
+  historyDialog.value = (el as HTMLDialogElement | null) ?? null;
+}
+
+function setMemoryDialogRef(el: Element | null) {
+  memoryDialog.value = (el as HTMLDialogElement | null) ?? null;
+}
+
+function setPromptPreviewDialogRef(el: Element | null) {
+  promptPreviewDialog.value = (el as HTMLDialogElement | null) ?? null;
+}
+
+useAppLifecycle({
+  appBootstrapMount: appBootstrap.mount,
+  appBootstrapUnmount: appBootstrap.unmount,
+  restoreThemeFromStorage,
+  onPaste,
+  recordHotkeyMount: recordHotkey.mount,
+  recordHotkeyUnmount: recordHotkey.unmount,
+  refreshAllViewData,
+  configAutosaveReady,
+  personasAutosaveReady,
+  chatSettingsAutosaveReady,
+  viewMode,
+  syncAlwaysOnTop,
+  disposeAutosaveTimers,
+  clearStreamBuffer,
+  stopRecording,
+  cleanupSpeechRecording,
+  cleanupChatMedia,
 });
 
-watch(
-  () => ({
-    hotkey: config.hotkey,
-    recordHotkey: config.recordHotkey,
-    minRecordSeconds: config.minRecordSeconds,
-    maxRecordSeconds: config.maxRecordSeconds,
-    selectedApiConfigId: config.selectedApiConfigId,
-    chatApiConfigId: config.chatApiConfigId,
-    visionApiConfigId: config.visionApiConfigId,
-    apiConfigs: config.apiConfigs.map((a) => ({
-      id: a.id,
-      name: a.name,
-      requestFormat: a.requestFormat,
-      enableText: a.enableText,
-      enableImage: a.enableImage,
-      enableAudio: a.enableAudio,
-      enableTools: a.enableTools,
-      tools: a.tools,
-      baseUrl: a.baseUrl,
-      apiKey: a.apiKey,
-      model: a.model,
-      temperature: a.temperature,
-      contextWindowTokens: a.contextWindowTokens,
-    })),
-  }),
-  () => { /* 手动保存模式，不自动持久化 API 配置 */ },
-  { deep: true },
-);
-
-watch(
-  () => config.apiConfigs.map((a) => ({
-    id: a.id,
-    requestFormat: a.requestFormat,
-    enableText: a.enableText,
-    enableImage: a.enableImage,
-    enableAudio: a.enableAudio,
-    enableTools: a.enableTools,
-    temperature: a.temperature,
-    contextWindowTokens: a.contextWindowTokens,
-  })),
-  () => normalizeApiBindingsLocal(),
-  { deep: true },
-);
-
-watch(
-  () => personas.value.map((p) => ({
-    id: p.id,
-    name: p.name,
-    systemPrompt: p.systemPrompt,
-    createdAt: p.createdAt,
-    updatedAt: p.updatedAt,
-    avatarPath: p.avatarPath,
-    avatarUpdatedAt: p.avatarUpdatedAt,
-    isBuiltInUser: p.isBuiltInUser,
-  })),
-  () => schedulePersonasAutosave(),
-  { deep: true },
-);
-
-watch(
-  () => userPersona.value?.name,
-  () => {
-    syncUserAliasFromPersona();
-  },
-);
-
-watch(
-  () => assistantPersonas.value.map((p) => p.id).join("|"),
-  () => {
-    if (assistantPersonas.value.length === 0) return;
-    if (!assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)) {
-      selectedPersonaId.value = assistantPersonas.value[0].id;
-    }
-  },
-);
-
-watch(
-  () => personas.value.map((p) => p.id).join("|"),
-  () => {
-    if (personas.value.length === 0) return;
-    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
-      personaEditorId.value = selectedPersonaId.value;
-    }
-  },
-);
-
-watch(
-  () => ({
-    selectedPersonaId: selectedPersonaId.value,
-    userAlias: userAlias.value,
-    responseStyleId: selectedResponseStyleId.value,
-  }),
-  () => scheduleChatSettingsAutosave(),
-);
-
-watch(
-  () => selectedPersonaId.value,
-  (id) => {
-    if (!id) return;
-    void syncTrayIcon(id);
-  },
-);
-
-watch(
-  () => ({
-    chatApiConfigId: config.chatApiConfigId,
-    visionApiConfigId: config.visionApiConfigId,
-  }),
-  () => {
-    void saveConversationApiSettings();
-  },
-);
-
-watch(
-  () => config.selectedApiConfigId,
-  () => {
-    modelRefreshError.value = "";
-  },
-);
-
-watch(
-  () => selectedApiConfig.value?.enableTools,
-  (enabled) => {
-    if (!enabled || !selectedApiConfig.value) return;
-    if (selectedApiConfig.value.tools.length === 0) {
-      selectedApiConfig.value.tools = defaultApiTools();
-    }
-  },
-);
-
-watch(
-  () => [configTab.value, activeChatApiConfigId.value, toolApiConfig.value?.enableTools],
-  async ([tab, id, enabled]) => {
-    if (tab !== "tools") return;
-    if (!id) return;
-    if (!enabled) {
-      toolStatuses.value = (toolApiConfig.value?.tools ?? []).map((tool) => ({
-        id: tool.id,
-        status: "disabled",
-        detail: t("config.tools.disabledHint"),
-      }));
-      return;
-    }
-    await refreshToolsStatus();
-  },
-);
-
-watch(
-  () => configTab.value,
-  async (tab) => {
-    if (tab !== "chatSettings") return;
-    await refreshImageCacheStats();
-  },
-);
-
-watch(
-  () => activeChatApiConfigId.value,
-  async (_newId, oldId) => {
-    if (_newId === oldId) return;
-    if (suppressChatReloadWatch) return;
-    if (viewMode.value !== "chat") return;
-    await refreshChatSnapshot();
-    await loadAllMessages();
+useAppWatchers({
+  config,
+  configTab,
+  viewMode,
+  personas,
+  userPersona,
+  assistantPersonas,
+  selectedPersonaId,
+  personaEditorId,
+  userAlias,
+  selectedResponseStyleId,
+  selectedApiConfig,
+  toolApiConfig,
+  activeChatApiConfigId,
+  suppressChatReloadWatch,
+  modelRefreshError,
+  toolStatuses,
+  defaultApiTools,
+  t: tr,
+  schedulePersonasAutosave,
+  scheduleChatSettingsAutosave,
+  normalizeApiBindingsLocal,
+  syncUserAliasFromPersona,
+  syncTrayIcon,
+  saveConversationApiSettings,
+  refreshToolsStatus,
+  refreshImageCacheStats,
+  refreshChatSnapshot,
+  loadAllMessages,
+  resetVisibleTurnCount: () => {
     visibleTurnCount.value = 1;
   },
-);
+});
 </script>
-

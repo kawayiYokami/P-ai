@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { ref, type Ref } from "vue";
-import type { ChatMessage } from "../types/app";
+import type { ChatMessage } from "../../../types/app";
 
 export type AssistantDeltaEvent = {
   delta?: string;

@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, ToolLoadStatus } from "../../types/app";
+import type { ApiConfigItem, AppConfig, ToolLoadStatus } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
@@ -56,4 +56,5 @@ function statusBadgeClass(id: string): string {
   return "badge-outline";
 }
 </script>
+
 

@@ -78,7 +78,7 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Moon, Sun } from "lucide-vue-next";
-import type { AppConfig } from "../../types/app";
+import type { AppConfig } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
@@ -208,4 +208,5 @@ onBeforeUnmount(() => {
   stopHotkeyCapture();
 });
 </script>
+
 
