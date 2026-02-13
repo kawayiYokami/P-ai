@@ -12,9 +12,11 @@
       :force-archive-tip="t('chat.forceArchiveTip')"
       :always-on-top-on-title="t('chat.alwaysOnTopOn')"
       :always-on-top-off-title="t('chat.alwaysOnTopOff')"
+      :open-config-title="t('window.configTitle')"
       @start-drag="startDrag"
       @force-archive="forceArchiveNow"
       @toggle-always-on-top="toggleAlwaysOnTop"
+      @open-config="openConfigWindow"
       @close-window="closeWindow"
     />
 
@@ -45,6 +47,7 @@
       :selected-response-style-id="selectedResponseStyleId"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
+      :stt-capable-api-configs="sttCapableApiConfigs"
       :image-cache-stats="imageCacheStats"
       :image-cache-stats-loading="imageCacheStatsLoading"
       :avatar-saving="avatarSaving"
@@ -72,6 +75,7 @@
       :speech-recognition-supported="speechRecognitionSupported"
       :recording="recording"
       :recording-ms="recordingMs"
+      :transcribing="transcribing"
       :record-hotkey="config.recordHotkey"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
@@ -211,6 +215,8 @@ const config = reactive<AppConfig>({
   selectedApiConfigId: "",
   chatApiConfigId: "",
   visionApiConfigId: undefined,
+  sttApiConfigId: undefined,
+  sttAutoSend: false,
   apiConfigs: [],
 });
 const configTab = ref<"hotkey" | "api" | "tools" | "persona" | "chatSettings">("hotkey");
@@ -334,8 +340,13 @@ const titleText = computed(() => {
   return t("window.configTitle");
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
-const textCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableText));
+const textCapableApiConfigs = computed(() =>
+  config.apiConfigs.filter((a) => a.enableText && a.requestFormat !== "openai_tts"),
+);
 const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
+const sttCapableApiConfigs = computed(() =>
+  config.apiConfigs.filter((a) => a.requestFormat === "openai_tts"),
+);
 const activeChatApiConfigId = computed(
   () => config.chatApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
 );
@@ -347,10 +358,19 @@ const hasVisionFallback = computed(() =>
   !!config.visionApiConfigId
   && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
 );
+const activeSttApiConfig = computed(
+  () => sttCapableApiConfigs.value.find((a) => a.id === config.sttApiConfigId) ?? null,
+);
+const shouldUseRemoteStt = computed(() => {
+  const cfg = activeSttApiConfig.value;
+  if (!cfg) return false;
+  return !!cfg.model.trim() && !!cfg.baseUrl.trim() && !!cfg.apiKey.trim();
+});
 const {
   supported: speechRecognitionSupported,
   recording,
   recordingMs,
+  transcribing,
   startRecording,
   stopRecording,
   cleanup: cleanupSpeechRecording,
@@ -359,8 +379,29 @@ const {
   canStart: () => !chatting.value && !forcingArchive.value,
   getLanguage: () => normalizeLocale(config.uiLanguage),
   getMaxRecordSeconds: () => config.maxRecordSeconds,
+  shouldUseRemoteStt: () => shouldUseRemoteStt.value,
+  transcribeRemoteStt: async (audio) => {
+    const sttApiConfigId = activeSttApiConfig.value?.id;
+    if (!sttApiConfigId) throw new Error("No STT API selected.");
+    const out = await invokeTauri<{ text: string }>("stt_transcribe", {
+      input: {
+        sttApiConfigId,
+        mime: audio.mime,
+        bytesBase64: audio.bytesBase64,
+      },
+    });
+    return String(out.text || "").trim();
+  },
   appendRecognizedText: (text) => {
     chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
+  },
+  onTranscribed: ({ source }) => {
+    if (source !== "remote") return;
+    if (!config.sttAutoSend) return;
+    if (chatting.value || forcingArchive.value) return;
+    setTimeout(() => {
+      void chatFlow.sendChat();
+    }, 0);
   },
   setStatus: (text) => {
     status.value = text;
@@ -441,6 +482,7 @@ const baseUrlReference = computed(() => {
   if (format === "gemini") return "https://generativelanguage.googleapis.com";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
   if (format === "anthropic") return "https://api.anthropic.com";
+  if (format === "openai_tts") return "https://api.openai.com/v1";
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {
@@ -642,6 +684,10 @@ const appBootstrap = useAppBootstrap({
 function setUiLanguage(value: string) {
   if (!applyUiLanguage(value)) return;
   void saveConfig();
+}
+
+function openConfigWindow() {
+  void invokeTauri("show_main_window");
 }
 
 const chatFlow = useChatFlow({
