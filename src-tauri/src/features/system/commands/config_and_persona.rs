@@ -470,7 +470,7 @@ fn save_conversation_api_settings(
 
 #[tauri::command]
 fn get_chat_snapshot(
-    _input: SessionSelector,
+    input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ChatSnapshot, String> {
     let guard = state
@@ -479,12 +479,19 @@ fn get_chat_snapshot(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, None)
+    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    let requested_agent_id = input.agent_id.trim();
     let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        requested_agent_id.to_string()
+    } else if data
         .agents
         .iter()
         .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
@@ -530,7 +537,7 @@ fn get_chat_snapshot(
 
 #[tauri::command]
 fn get_active_conversation_messages(
-    _input: SessionSelector,
+    input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
     let guard = state
@@ -539,12 +546,19 @@ fn get_active_conversation_messages(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, None)
+    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    let requested_agent_id = input.agent_id.trim();
     let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        requested_agent_id.to_string()
+    } else if data
         .agents
         .iter()
         .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)

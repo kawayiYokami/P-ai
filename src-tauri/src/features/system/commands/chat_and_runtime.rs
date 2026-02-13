@@ -176,7 +176,9 @@ async fn send_chat_message(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        if let Some(idx) = latest_active_conversation_index(&data, &effective_agent_id) {
+        if let Some(idx) =
+            latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
+        {
             let conversation = data
                 .conversations
                 .get_mut(idx)

@@ -1,7 +1,13 @@
-fn latest_active_conversation_index(data: &AppData, agent_id: &str) -> Option<usize> {
+fn latest_active_conversation_index(
+    data: &AppData,
+    api_config_id: &str,
+    agent_id: &str,
+) -> Option<usize> {
     data.conversations
         .iter()
-        .rposition(|c| c.status == "active" && c.agent_id == agent_id)
+        .rposition(|c| {
+            c.status == "active" && c.agent_id == agent_id && c.api_config_id == api_config_id
+        })
 }
 
 fn ensure_active_conversation_index(
@@ -9,11 +15,7 @@ fn ensure_active_conversation_index(
     api_config_id: &str,
     agent_id: &str,
 ) -> usize {
-    if let Some(idx) = latest_active_conversation_index(data, agent_id) {
-        if data.conversations[idx].api_config_id != api_config_id {
-            data.conversations[idx].api_config_id = api_config_id.to_string();
-            data.conversations[idx].updated_at = now_iso();
-        }
+    if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
         return idx;
     }
 

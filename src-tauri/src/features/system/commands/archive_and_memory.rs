@@ -949,7 +949,7 @@ async fn summarize_archived_conversation_with_model(
 
 #[tauri::command]
 async fn force_archive_current(
-    _input: SessionSelector,
+    input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
     let (selected_api, resolved_api, source, agent, user_alias, memories) = {
@@ -958,12 +958,19 @@ async fn force_archive_current(
             .lock()
             .map_err(|_| "Failed to lock state mutex".to_string())?;
         let app_config = read_config(&state.config_path)?;
-        let selected_api = resolve_selected_api_config(&app_config, None)
+        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
+        let requested_agent_id = input.agent_id.trim();
         let effective_agent_id = if data
+            .agents
+            .iter()
+            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+        {
+            requested_agent_id.to_string()
+        } else if data
             .agents
             .iter()
             .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
@@ -984,7 +991,7 @@ async fn force_archive_current(
             .ok_or_else(|| "Selected agent not found.".to_string())?;
         let user_alias = data.user_alias.clone();
         let memories = data.memories.clone();
-        let source_idx = latest_active_conversation_index(&data, &effective_agent_id)
+        let source_idx = latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
             .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
         let source = data
             .conversations
