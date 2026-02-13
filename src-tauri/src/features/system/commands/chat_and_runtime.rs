@@ -400,7 +400,6 @@ async fn send_chat_message(
         let latest_user_text = effective_user_text.clone();
 
         let now = now_iso();
-        let time_context_block = build_time_context_block();
 
         let user_message = ChatMessage {
             id: Uuid::new_v4().to_string(),
@@ -414,7 +413,7 @@ async fn send_chat_message(
         };
 
         data.conversations[idx].messages.push(user_message);
-        data.conversations[idx].updated_at = now;
+        data.conversations[idx].updated_at = now.clone();
         data.conversations[idx].last_user_at = Some(now_iso());
         data.conversations[idx].last_context_usage_ratio =
             compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
@@ -441,8 +440,8 @@ async fn send_chat_message(
         if let Some(xml) = &memory_board_xml {
             block2_parts.push(xml.clone());
         }
-        block2_parts.push(time_context_block.clone());
         prepared.latest_user_text = latest_user_text.clone();
+        prepared.latest_user_time_text = format_message_time_text(&now);
         prepared.latest_user_system_text = block2_parts.join("\n\n");
         prepared.latest_images = effective_images.clone();
         prepared.latest_audios = effective_audios.clone();
@@ -1004,6 +1003,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         preamble: format!("[TIME]\nCurrent UTC time: {}", now_iso()),
         history_messages: Vec::new(),
         latest_user_text: api_config.fixed_test_prompt.clone(),
+        latest_user_time_text: String::new(),
         latest_user_system_text: String::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),

@@ -364,6 +364,7 @@ fn build_prompt(
                     history_messages.push(PreparedHistoryMessage {
                         role: "assistant".to_string(),
                         text,
+                        user_time_text: None,
                         tool_calls,
                         tool_call_id: None,
                         reasoning_content,
@@ -382,6 +383,7 @@ fn build_prompt(
                         history_messages.push(PreparedHistoryMessage {
                             role: "tool".to_string(),
                             text,
+                            user_time_text: None,
                             tool_calls: None,
                             tool_call_id,
                             reasoning_content: None,
@@ -399,8 +401,14 @@ fn build_prompt(
             continue;
         }
         history_messages.push(PreparedHistoryMessage {
-            role,
+            role: role.clone(),
             text,
+            user_time_text: if role == "user" {
+                let t = format_message_time_text(&message.created_at);
+                if t.is_empty() { None } else { Some(t) }
+            } else {
+                None
+            },
             tool_calls: None,
             tool_call_id: None,
             reasoning_content: None,
@@ -460,16 +468,19 @@ fn build_prompt(
         .cloned();
 
     let mut latest_user_text = String::new();
+    let mut latest_user_time_text = String::new();
     let mut latest_user_system_text = String::new();
     let mut latest_images = Vec::<(String, String)>::new();
     let mut latest_audios = Vec::<(String, String)>::new();
 
     if let Some(msg) = latest_user {
         let ChatMessage {
+            created_at,
             parts,
             extra_text_blocks,
             ..
         } = msg;
+        latest_user_time_text = format_message_time_text(&created_at);
         for part in parts {
             match part {
                 MessagePart::Text { text } => {
@@ -505,6 +516,7 @@ fn build_prompt(
         preamble,
         history_messages,
         latest_user_text,
+        latest_user_time_text,
         latest_user_system_text,
         latest_images,
         latest_audios,

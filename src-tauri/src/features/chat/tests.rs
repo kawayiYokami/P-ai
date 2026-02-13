@@ -77,6 +77,7 @@
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    user_time_text: None,
                     tool_calls: Some(vec![serde_json::json!({
                         "id": "call_1",
                         "type": "function",
@@ -88,14 +89,15 @@
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"results\":[{\"title\":\"Rust\"}]}".to_string(),
+                    user_time_text: None,
                     tool_calls: None,
                     tool_call_id: Some("call_1".to_string()),
                     reasoning_content: None,
                 },
             ],
             latest_user_text: "继续".to_string(),
-            latest_user_system_text: "<time_context><utc>2026-02-11T17:30:45Z</utc></time_context>"
-                .to_string(),
+            latest_user_time_text: "2026-02-11 17:30:45".to_string(),
+            latest_user_system_text: String::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -104,7 +106,7 @@
             &prepared,
             vec![
                 serde_json::json!({"type":"text","text":"继续"}),
-                serde_json::json!({"type":"text","text":prepared.latest_user_system_text}),
+                serde_json::json!({"type":"text","text":prepared.latest_user_time_text}),
             ],
         );
         let messages = preview

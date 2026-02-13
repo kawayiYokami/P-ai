@@ -15,6 +15,9 @@ async fn call_model_openai_rig_style(
     if !prepared.latest_user_text.trim().is_empty() {
         content_items.push(UserContent::text(prepared.latest_user_text));
     }
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        content_items.push(UserContent::text(prepared.latest_user_time_text));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         content_items.push(UserContent::text(prepared.latest_user_system_text));
     }
@@ -118,6 +121,12 @@ async fn call_model_gemini_rig_style(
     if !prepared.latest_user_text.trim().is_empty() {
         prompt_text.push_str(prepared.latest_user_text.trim());
     }
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        if !prompt_text.is_empty() {
+            prompt_text.push_str("\n\n");
+        }
+        prompt_text.push_str(prepared.latest_user_time_text.trim());
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         if !prompt_text.is_empty() {
             prompt_text.push_str("\n\n");
@@ -160,6 +169,9 @@ async fn call_model_anthropic_rig_style(
     let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
         content_items.push(UserContent::text(prepared.latest_user_text));
+    }
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        content_items.push(UserContent::text(prepared.latest_user_time_text));
     }
     if !prepared.latest_user_system_text.trim().is_empty() {
         content_items.push(UserContent::text(prepared.latest_user_system_text));

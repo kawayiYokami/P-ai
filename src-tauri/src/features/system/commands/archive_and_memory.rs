@@ -79,21 +79,22 @@ fn get_prompt_preview(
         prepared.preamble.push_str(summary.trim());
         prepared.preamble.push('\n');
     }
-    let time_block = build_time_context_block();
-    let mut block2_parts = Vec::<String>::new();
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        block2_parts.push(prepared.latest_user_system_text.clone());
-    }
-    block2_parts.push(time_block);
-    prepared.latest_user_system_text = block2_parts.join("\n\n");
     let mut user_content = vec![serde_json::json!({
         "type": "text",
         "text": prepared.latest_user_text,
     })];
-    user_content.push(serde_json::json!({
-        "type": "text",
-        "text": prepared.latest_user_system_text,
-    }));
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_time_text,
+        }));
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_system_text,
+        }));
+    }
     for (mime, bytes_base64) in &prepared.latest_images {
         user_content.push(serde_json::json!({
             "type": "image",
@@ -159,10 +160,23 @@ fn build_request_preview_value(
             }
             preview_messages.push(Value::Object(msg));
         } else {
-            preview_messages.push(serde_json::json!({
-                "role": hm.role,
-                "content": hm.text,
-            }));
+            if hm.role == "user" {
+                let mut content = vec![serde_json::json!(hm.text)];
+                if let Some(time_text) = &hm.user_time_text {
+                    if !time_text.trim().is_empty() {
+                        content.push(serde_json::json!(time_text));
+                    }
+                }
+                preview_messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": content,
+                }));
+            } else {
+                preview_messages.push(serde_json::json!({
+                    "role": hm.role,
+                    "content": hm.text,
+                }));
+            }
         }
     }
     preview_messages.push(serde_json::json!({
@@ -189,21 +203,6 @@ fn get_system_prompt_preview(
     Ok(SystemPromptPreview {
         system_prompt: preview.preamble,
     })
-}
-
-fn now_iso_seconds() -> String {
-    let dt = now_utc()
-        .replace_nanosecond(0)
-        .unwrap_or_else(|_| now_utc());
-    dt.format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
-}
-
-fn build_time_context_block() -> String {
-    format!(
-        "<time_context>\n  <utc>{}</utc>\n</time_context>",
-        now_iso_seconds()
-    )
 }
 
 fn archive_time_label(raw: &str) -> String {
@@ -927,6 +926,7 @@ async fn summarize_archived_conversation_with_model(
             transcript.trim(),
             extra_memory.trim()
         ),
+        latest_user_time_text: String::new(),
         latest_user_system_text: String::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),

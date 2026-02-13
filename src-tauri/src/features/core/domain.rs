@@ -655,6 +655,7 @@ struct ResolvedApiConfig {
 struct PreparedHistoryMessage {
     role: String,
     text: String,
+    user_time_text: Option<String>,
     tool_calls: Option<Vec<Value>>,
     tool_call_id: Option<String>,
     reasoning_content: Option<String>,
@@ -665,6 +666,7 @@ struct PreparedPrompt {
     preamble: String,
     history_messages: Vec<PreparedHistoryMessage>,
     latest_user_text: String,
+    latest_user_time_text: String,
     latest_user_system_text: String,
     latest_images: Vec<(String, String)>,
     latest_audios: Vec<(String, String)>,
@@ -702,6 +704,36 @@ fn now_iso() -> String {
 
 fn parse_iso(value: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339).ok()
+}
+
+fn format_message_time_text(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(dt) = parse_iso(trimmed) {
+        return format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            dt.year(),
+            dt.month() as u8,
+            dt.day(),
+            dt.hour(),
+            dt.minute(),
+            dt.second()
+        );
+    }
+    let mut normalized = trimmed.replace('T', " ");
+    if let Some((head, _)) = normalized.split_once('.') {
+        normalized = head.to_string();
+    }
+    if normalized.ends_with('Z') {
+        normalized.pop();
+    }
+    if normalized.chars().count() > 19 {
+        normalized.chars().take(19).collect::<String>()
+    } else {
+        normalized
+    }
 }
 
 fn default_agent() -> AgentProfile {

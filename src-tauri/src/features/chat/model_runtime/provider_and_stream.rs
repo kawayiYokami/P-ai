@@ -307,6 +307,12 @@ async fn call_model_openai_stream_text(
       "type": "text",
       "text": prepared.latest_user_text
     })];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+          "type": "text",
+          "text": prepared.latest_user_time_text
+        }));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         user_content.push(serde_json::json!({
           "type": "text",
@@ -344,6 +350,23 @@ async fn call_model_openai_stream_text(
                 msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
             }
             messages.push(Value::Object(msg));
+        } else if hm.role == "user" {
+            let mut content = vec![serde_json::json!({
+                "type": "text",
+                "text": hm.text.clone(),
+            })];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": time_text.clone(),
+                    }));
+                }
+            }
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": content,
+            }));
         } else {
             messages.push(serde_json::json!({
               "role": hm.role,
@@ -863,6 +886,12 @@ async fn call_model_deepseek_with_tools_http(
       "type": "text",
       "text": prepared.latest_user_text
     })];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        first_user_content.push(serde_json::json!({
+          "type": "text",
+          "text": prepared.latest_user_time_text
+        }));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         first_user_content.push(serde_json::json!({
           "type": "text",
@@ -897,6 +926,23 @@ async fn call_model_deepseek_with_tools_http(
                 msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
             }
             messages.push(Value::Object(msg));
+        } else if hm.role == "user" {
+            let mut content = vec![serde_json::json!({
+                "type": "text",
+                "text": hm.text.clone(),
+            })];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": time_text.clone(),
+                    }));
+                }
+            }
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": content,
+            }));
         } else {
             messages.push(serde_json::json!({
                 "role": hm.role,
@@ -1158,6 +1204,9 @@ async fn call_model_openai_with_tools(
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut prompt_blocks = vec![UserContent::text(prepared.latest_user_text.clone())];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        prompt_blocks.push(UserContent::text(prepared.latest_user_time_text.clone()));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
@@ -1169,8 +1218,15 @@ async fn call_model_openai_with_tools(
     let mut chat_history = Vec::<RigMessage>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
+            let mut user_blocks = vec![UserContent::text(hm.text.clone())];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    user_blocks.push(UserContent::text(time_text.clone()));
+                }
+            }
             chat_history.push(RigMessage::User {
-                content: OneOrMany::one(UserContent::text(hm.text.clone())),
+                content: OneOrMany::many(user_blocks)
+                    .map_err(|_| "Failed to build user history message".to_string())?,
             });
         } else if hm.role == "assistant" {
             chat_history.push(RigMessage::Assistant {
@@ -1556,6 +1612,9 @@ async fn call_model_gemini_with_tools(
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut prompt_blocks = vec![UserContent::text(prepared.latest_user_text.clone())];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        prompt_blocks.push(UserContent::text(prepared.latest_user_time_text.clone()));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
@@ -1567,8 +1626,15 @@ async fn call_model_gemini_with_tools(
     let mut chat_history = Vec::<RigMessage>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
+            let mut user_blocks = vec![UserContent::text(hm.text.clone())];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    user_blocks.push(UserContent::text(time_text.clone()));
+                }
+            }
             chat_history.push(RigMessage::User {
-                content: OneOrMany::one(UserContent::text(hm.text.clone())),
+                content: OneOrMany::many(user_blocks)
+                    .map_err(|_| "Failed to build user history message".to_string())?,
             });
         } else if hm.role == "assistant" {
             chat_history.push(RigMessage::Assistant {
@@ -1856,6 +1922,9 @@ async fn call_model_anthropic_with_tools(
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut prompt_blocks = vec![UserContent::text(prepared.latest_user_text.clone())];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        prompt_blocks.push(UserContent::text(prepared.latest_user_time_text.clone()));
+    }
     if !prepared.latest_user_system_text.trim().is_empty() {
         prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
@@ -1867,8 +1936,15 @@ async fn call_model_anthropic_with_tools(
     let mut chat_history = Vec::<RigMessage>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
+            let mut user_blocks = vec![UserContent::text(hm.text.clone())];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    user_blocks.push(UserContent::text(time_text.clone()));
+                }
+            }
             chat_history.push(RigMessage::User {
-                content: OneOrMany::one(UserContent::text(hm.text.clone())),
+                content: OneOrMany::many(user_blocks)
+                    .map_err(|_| "Failed to build user history message".to_string())?,
             });
         } else if hm.role == "assistant" {
             chat_history.push(RigMessage::Assistant {
@@ -2190,6 +2266,7 @@ async fn describe_image_with_vision_api(
         preamble: "[SYSTEM PROMPT]\n你是图像理解助手。请读取图片中的关键信息并输出简洁中文描述，保留有价值的文本、数字、UI元素与上下文。".to_string(),
         history_messages: Vec::new(),
         latest_user_text: "请识别这张图片并给出可用于后续对话的文本描述。".to_string(),
+        latest_user_time_text: String::new(),
         latest_user_system_text: String::new(),
         latest_images: vec![(
             if mime.is_empty() {
