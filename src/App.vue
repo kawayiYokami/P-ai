@@ -13,10 +13,15 @@
       :always-on-top-on-title="t('chat.alwaysOnTopOn')"
       :always-on-top-off-title="t('chat.alwaysOnTopOff')"
       :open-config-title="t('window.configTitle')"
+      :open-github-title="'打开 GitHub 仓库'"
+      :check-update-title="'检查更新'"
+      :checking-update="checkingUpdate"
       @start-drag="startDrag"
       @force-archive="forceArchiveNow"
       @toggle-always-on-top="toggleAlwaysOnTop"
       @open-config="openConfigWindow"
+      @check-update="manualCheckGithubUpdate"
+      @open-github="openGithubRepository"
       @close-window="closeWindow"
     />
 
@@ -147,6 +152,31 @@
       :handle-memory-import-file="handleMemoryImportFile"
       :close-prompt-preview="closePromptPreview"
     />
+
+    <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">
+          {{ updateDialogTitle }}
+        </h3>
+        <pre
+          class="mt-2 whitespace-pre-wrap text-sm"
+          :class="updateDialogKind === 'error' ? 'text-error' : 'text-base-content'"
+        >{{ updateDialogBody }}</pre>
+        <div class="modal-action">
+          <button
+            v-if="updateDialogReleaseUrl"
+            class="btn btn-sm"
+            @click="openUpdateRelease"
+          >
+            打开 Releases
+          </button>
+          <button class="btn btn-sm btn-primary" @click="closeUpdateDialog">知道了</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeUpdateDialog">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 <script setup lang="ts">
@@ -240,6 +270,12 @@ const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleTurnCount = ref(1);
 
 const status = ref("Ready.");
+const checkingUpdate = ref(false);
+const updateDialogOpen = ref(false);
+const updateDialogTitle = ref("检查更新");
+const updateDialogBody = ref("");
+const updateDialogKind = ref<"info" | "error">("info");
+const updateDialogReleaseUrl = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
@@ -690,6 +726,74 @@ function openConfigWindow() {
   void invokeTauri("show_main_window");
 }
 
+function openGithubRepository() {
+  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/Easy-call-ai" });
+}
+
+function closeUpdateDialog() {
+  updateDialogOpen.value = false;
+}
+
+function openUpdateDialog(text: string, kind: "info" | "error", releaseUrl?: string) {
+  updateDialogTitle.value = "检查更新";
+  updateDialogBody.value = text;
+  updateDialogKind.value = kind;
+  updateDialogReleaseUrl.value = releaseUrl || "";
+  updateDialogOpen.value = true;
+}
+
+function openUpdateRelease() {
+  const url = updateDialogReleaseUrl.value.trim();
+  if (!url) return;
+  void invokeTauri("open_external_url", { url });
+}
+
+async function autoCheckGithubUpdate() {
+  await checkGithubUpdate(true);
+}
+
+async function manualCheckGithubUpdate() {
+  await checkGithubUpdate(false);
+}
+
+async function checkGithubUpdate(silent: boolean) {
+  if (viewMode.value !== "config") return;
+  if (checkingUpdate.value) return;
+  checkingUpdate.value = true;
+  try {
+    status.value = "检查更新中...";
+    const result = await invokeTauri<{
+      currentVersion: string;
+      latestVersion: string;
+      hasUpdate: boolean;
+      releaseUrl: string;
+    }>("check_github_update");
+    if (!result?.hasUpdate) {
+      if (!silent) {
+        status.value = `当前已是最新版本 ${result.currentVersion}`;
+        openUpdateDialog(`当前已是最新版本 ${result.currentVersion}`, "info");
+      }
+      return;
+    }
+    status.value = `发现新版本 ${result.latestVersion}（当前 ${result.currentVersion}）`;
+    if (!silent) {
+      openUpdateDialog(
+        `发现新版本 ${result.latestVersion}\n当前版本 ${result.currentVersion}\n\n可前往 GitHub Releases 下载更新。`,
+        "info",
+        result.releaseUrl,
+      );
+    }
+  } catch (error) {
+    if (!silent) {
+      status.value = `检查更新失败: ${String(error)}`;
+      openUpdateDialog(`检查更新失败：${String(error)}`, "error");
+    }
+    console.warn("[UPDATE] check_github_update failed:", error);
+  } finally {
+    checkingUpdate.value = false;
+  }
+}
+
 const chatFlow = useChatFlow({
   chatting,
   forcingArchive,
@@ -771,6 +875,7 @@ useAppLifecycle({
   stopRecording,
   cleanupSpeechRecording,
   cleanupChatMedia,
+  afterMountedReady: autoCheckGithubUpdate,
 });
 
 useAppWatchers({

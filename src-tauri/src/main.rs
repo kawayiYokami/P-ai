@@ -124,6 +124,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             show_main_window,
+            check_github_update,
             load_config,
             save_config,
             load_agents,

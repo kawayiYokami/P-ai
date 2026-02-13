@@ -18,6 +18,7 @@ type UseAppLifecycleOptions = {
   stopRecording: (discard: boolean) => Promise<void>;
   cleanupSpeechRecording: () => void;
   cleanupChatMedia: () => Promise<void>;
+  afterMountedReady?: () => Promise<void> | void;
 };
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
@@ -33,6 +34,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     if (options.viewMode.value === "chat") {
       await options.syncAlwaysOnTop();
     }
+    await options.afterMountedReady?.();
   });
 
   onBeforeUnmount(() => {

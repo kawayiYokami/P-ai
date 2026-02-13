@@ -3,6 +3,96 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
     show_window(&app, "main")
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GithubUpdateInfo {
+    current_version: String,
+    latest_version: String,
+    has_update: bool,
+    release_url: String,
+}
+
+fn parse_version_parts(input: &str) -> Vec<u64> {
+    let cleaned = input
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split(['-', '+'])
+        .next()
+        .unwrap_or_default();
+    cleaned
+        .split('.')
+        .map(|part| part.trim().parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+fn is_newer_version(current: &str, latest: &str) -> bool {
+    let a = parse_version_parts(current);
+    let b = parse_version_parts(latest);
+    let max_len = a.len().max(b.len());
+    for idx in 0..max_len {
+        let av = *a.get(idx).unwrap_or(&0);
+        let bv = *b.get(idx).unwrap_or(&0);
+        if bv > av {
+            return true;
+        }
+        if bv < av {
+            return false;
+        }
+    }
+    false
+}
+
+#[tauri::command]
+async fn check_github_update() -> Result<GithubUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let api_url = "https://api.github.com/repos/kawayiYokami/Easy-call-ai/releases/latest";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|err| format!("Build update checker client failed: {err}"))?;
+    let response = client
+        .get(api_url)
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("easy-call-ai/{current_version}"),
+        )
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|err| format!("Request latest release failed: {err}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Update API returned {}",
+            response.status().as_u16()
+        ));
+    }
+    let payload = response
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("Parse update response failed: {err}"))?;
+    let latest_version = payload
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "GitHub release tag_name is empty".to_string())?
+        .to_string();
+    let release_url = payload
+        .get("html_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("https://github.com/kawayiYokami/Easy-call-ai/releases/latest")
+        .to_string();
+
+    Ok(GithubUpdateInfo {
+        current_version: current_version.clone(),
+        latest_version: latest_version.clone(),
+        has_update: is_newer_version(&current_version, &latest_version),
+        release_url,
+    })
+}
+
 #[tauri::command]
 fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     let guard = state

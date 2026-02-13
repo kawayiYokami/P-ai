@@ -15,6 +15,7 @@
     "core:window:allow-is-always-on-top",
     "core:window:allow-set-size",
     "global-shortcut:default",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "dialog:allow-message"
   ]
 }
