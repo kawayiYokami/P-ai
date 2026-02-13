@@ -4,6 +4,15 @@
     :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'"
     @mousedown.left.prevent="$emit('start-drag')"
   >
+    <div v-if="viewMode === 'chat'" class="flex-none" @mousedown.stop>
+      <button
+        class="btn btn-ghost btn-xs"
+        :title="openConfigTitle"
+        @click.stop="$emit('open-config')"
+      >
+        <Settings class="h-3.5 w-3.5" />
+      </button>
+    </div>
     <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
       <span class="font-semibold text-sm">{{ titleText }}</span>
       <template v-if="viewMode === 'chat'">
@@ -54,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { Pin, X } from "lucide-vue-next";
+import { Pin, Settings, X } from "lucide-vue-next";
 
 defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -67,12 +76,14 @@ defineProps<{
   forceArchiveTip: string;
   alwaysOnTopOnTitle: string;
   alwaysOnTopOffTitle: string;
+  openConfigTitle: string;
 }>();
 
 defineEmits<{
   (e: "start-drag"): void;
   (e: "force-archive"): void;
   (e: "toggle-always-on-top"): void;
+  (e: "open-config"): void;
   (e: "close-window"): void;
 }>();
 </script>

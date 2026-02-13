@@ -22,29 +22,36 @@
     </div>
     <div v-if="hotkeyRecordConflict" class="text-xs text-error mt-1">{{ t("config.hotkey.conflict") }}</div>
   </label>
-  <div class="grid grid-cols-3 gap-2">
-    <label class="form-control col-span-1">
+  <div class="grid grid-cols-1 gap-2">
+    <label class="form-control">
       <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordKey") }}</span></div>
-      <select v-model="config.recordHotkey" class="select select-bordered select-sm">
-        <option value="Alt">Alt</option>
-        <option value="Ctrl">Ctrl</option>
-        <option value="Shift">Shift</option>
-      </select>
+      <div class="flex items-center gap-1">
+        <input :value="config.recordHotkey" class="input input-bordered input-sm flex-1" readonly />
+        <button
+          class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 shrink-0"
+          :class="{ 'btn-primary': recordHotkeyCapturing }"
+          @click="toggleRecordHotkeyCapture"
+        >
+          {{ recordHotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
+        </button>
+      </div>
     </label>
-    <label class="form-control col-span-1">
-      <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
-      <input v-model.number="config.minRecordSeconds" type="number" min="1" max="30" class="input input-bordered input-sm" />
-    </label>
-    <label class="form-control col-span-1">
-      <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
-      <input v-model.number="config.maxRecordSeconds" type="number" min="1" max="600" class="input input-bordered input-sm" />
-    </label>
+    <div class="grid grid-cols-2 gap-2">
+      <label class="form-control min-w-0">
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
+        <input v-model.number="config.minRecordSeconds" type="number" min="1" max="30" class="input input-bordered input-sm w-full" />
+      </label>
+      <label class="form-control min-w-0">
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
+        <input v-model.number="config.maxRecordSeconds" type="number" min="1" max="600" class="input input-bordered input-sm w-full" />
+      </label>
+    </div>
   </div>
   <div class="form-control">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordTest") }}</span></div>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <button
-        class="btn btn-sm btn-ghost bg-base-100"
+        class="btn btn-sm btn-ghost bg-base-100 shrink-0"
         :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
         :title="hotkeyTestRecording ? t('config.hotkey.releaseToStop') : t('config.hotkey.holdToRecord')"
         @mousedown.prevent="$emit('startHotkeyRecordTest')"
@@ -56,7 +63,7 @@
         {{ hotkeyTestRecording ? t("chat.recording", { seconds: Math.max(1, Math.round(hotkeyTestRecordingMs / 1000)) }) : t("config.hotkey.holdRecordButton") }}
       </button>
       <button
-        class="btn btn-sm btn-ghost bg-base-100"
+        class="btn btn-sm btn-ghost bg-base-100 shrink-0"
         :disabled="!hotkeyTestAudioReady"
         @click="$emit('playHotkeyRecordTest')"
       >
@@ -104,6 +111,8 @@ const { t } = useI18n();
 const hotkeyCapturing = ref(false);
 const hotkeyCaptureHint = ref(t("config.hotkey.captureDefaultHint"));
 let hotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
+const recordHotkeyCapturing = ref(false);
+let recordHotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 
 const hotkeyRecordConflict = computed(() => {
   const hotkey = String(props.config.hotkey || "").trim().toUpperCase();
@@ -153,6 +162,14 @@ function stopHotkeyCapture() {
   }
 }
 
+function stopRecordHotkeyCapture() {
+  recordHotkeyCapturing.value = false;
+  if (recordHotkeyCaptureHandler) {
+    window.removeEventListener("keydown", recordHotkeyCaptureHandler, true);
+    recordHotkeyCaptureHandler = null;
+  }
+}
+
 function startHotkeyCapture() {
   if (hotkeyCapturing.value) return;
   hotkeyCapturing.value = true;
@@ -195,6 +212,40 @@ function startHotkeyCapture() {
   window.addEventListener("keydown", hotkeyCaptureHandler, true);
 }
 
+function startRecordHotkeyCapture() {
+  if (recordHotkeyCapturing.value) return;
+  recordHotkeyCapturing.value = true;
+  recordHotkeyCaptureHandler = (event: KeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      stopRecordHotkeyCapture();
+      return;
+    }
+
+    const modifiers: string[] = [];
+    if (event.ctrlKey) modifiers.push("Ctrl");
+    if (event.altKey) modifiers.push("Alt");
+    if (event.shiftKey) modifiers.push("Shift");
+    if (event.metaKey) modifiers.push("Meta");
+
+    if (isModifierKey(event.code)) {
+      const modifierOnly = modifiers[0];
+      if (modifiers.length === 1 && modifierOnly) {
+        props.config.recordHotkey = modifierOnly;
+        stopRecordHotkeyCapture();
+      }
+      return;
+    }
+
+    const main = mainKeyFromEvent(event).trim();
+    if (!main) return;
+    props.config.recordHotkey = modifiers.length > 0 ? `${modifiers.join("+")}+${main}` : main;
+    stopRecordHotkeyCapture();
+  };
+  window.addEventListener("keydown", recordHotkeyCaptureHandler, true);
+}
+
 function toggleHotkeyCapture() {
   if (hotkeyCapturing.value) {
     hotkeyCaptureHint.value = t("config.hotkey.captureCancelledHint");
@@ -204,9 +255,16 @@ function toggleHotkeyCapture() {
   startHotkeyCapture();
 }
 
+function toggleRecordHotkeyCapture() {
+  if (recordHotkeyCapturing.value) {
+    stopRecordHotkeyCapture();
+    return;
+  }
+  startRecordHotkeyCapture();
+}
+
 onBeforeUnmount(() => {
   stopHotkeyCapture();
+  stopRecordHotkeyCapture();
 });
 </script>
-
-
