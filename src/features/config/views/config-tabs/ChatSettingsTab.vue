@@ -13,6 +13,25 @@
     </select>
   </label>
   <label class="form-control">
+    <div class="label py-1"><span class="label-text text-xs">语音转写（STT）</span></div>
+    <div class="flex items-center gap-2">
+      <select :value="config.sttApiConfigId ?? ''" class="select select-bordered select-sm flex-1" @change="onSttSelectChange">
+        <option value="">本地（Web Speech）</option>
+        <option v-for="a in sttCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+      </select>
+      <label class="label cursor-pointer gap-1 py-0">
+        <span class="label-text text-xs">完成后发送</span>
+        <input
+          :checked="!!config.sttAutoSend"
+          type="checkbox"
+          class="toggle toggle-sm"
+          :disabled="!config.sttApiConfigId"
+          @change="onSttAutoSendChange"
+        />
+      </label>
+    </div>
+  </label>
+  <label class="form-control">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.assistantPersona") }}</span></div>
     <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
       <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
@@ -59,6 +78,7 @@ defineProps<{
   config: AppConfig;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
+  sttCapableApiConfigs: ApiConfigItem[];
   assistantPersonas: PersonaProfile[];
   selectedPersonaId: string;
   responseStyleOptions: ResponseStyleOption[];
@@ -78,6 +98,20 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+function onSttSelectChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value || undefined;
+  props.config.sttApiConfigId = value;
+  if (!value) {
+    props.config.sttAutoSend = false;
+  }
+}
+
+function onSttAutoSendChange(event: Event) {
+  if (!props.config.sttApiConfigId) {
+    props.config.sttAutoSend = false;
+    return;
+  }
+  props.config.sttAutoSend = (event.target as HTMLInputElement).checked;
+}
 </script>
-
-

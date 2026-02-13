@@ -34,6 +34,7 @@
       :response-style-id="selectedResponseStyleId"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
+      :stt-capable-api-configs="sttCapableApiConfigs"
       :cache-stats="imageCacheStats"
       :cache-stats-loading="imageCacheStatsLoading"
       :avatar-saving="avatarSaving"
@@ -90,6 +91,7 @@
         :can-record="speechRecognitionSupported"
         :recording="recording"
         :recording-ms="recordingMs"
+        :transcribing="transcribing"
         :record-hotkey="recordHotkey"
         :chatting="chatting"
         :frozen="forcingArchive"
@@ -228,6 +230,7 @@ const props = defineProps<{
   selectedResponseStyleId: string;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
+  sttCapableApiConfigs: ApiConfigItem[];
   imageCacheStats: ImageTextCacheStats;
   imageCacheStatsLoading: boolean;
   avatarSaving: boolean;
@@ -255,6 +258,7 @@ const props = defineProps<{
   speechRecognitionSupported: boolean;
   recording: boolean;
   recordingMs: number;
+  transcribing: boolean;
   recordHotkey: string;
   chatting: boolean;
   forcingArchive: boolean;

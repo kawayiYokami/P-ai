@@ -73,6 +73,7 @@
           :config="config"
           :text-capable-api-configs="textCapableApiConfigs"
           :image-capable-api-configs="imageCapableApiConfigs"
+          :stt-capable-api-configs="sttCapableApiConfigs"
           :assistant-personas="assistantPersonas"
           :selected-persona-id="selectedPersonaId"
           :response-style-options="responseStyleOptions"
@@ -184,6 +185,7 @@ const props = defineProps<{
   userPersonaAvatarUrl: string;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
+  sttCapableApiConfigs: ApiConfigItem[];
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
   avatarSaving: boolean;

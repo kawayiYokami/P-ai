@@ -85,9 +85,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       );
       normalizeApiToolBindings(api);
     }
-    if (!["Alt", "Ctrl", "Shift"].includes(options.config.recordHotkey)) {
-      options.config.recordHotkey = "Alt";
-    }
+    const recordHotkey = String(options.config.recordHotkey || "").trim();
+    options.config.recordHotkey = recordHotkey || "Alt";
     options.config.minRecordSeconds = Math.max(
       1,
       Math.min(30, Math.round(Number(options.config.minRecordSeconds) || 1)),
@@ -104,13 +103,26 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
     }
     if (!options.config.apiConfigs.some((a) => a.id === options.config.chatApiConfigId && a.enableText)) {
-      options.config.chatApiConfigId = options.textCapableApiConfigs.value[0]?.id ?? options.config.apiConfigs[0].id;
+      options.config.chatApiConfigId =
+        options.textCapableApiConfigs.value.find((a) => a.requestFormat !== "openai_tts")?.id
+        ?? options.textCapableApiConfigs.value[0]?.id
+        ?? options.config.apiConfigs[0].id;
     }
     if (
       options.config.visionApiConfigId &&
       !options.config.apiConfigs.some((a) => a.id === options.config.visionApiConfigId && a.enableImage)
     ) {
       options.config.visionApiConfigId = undefined;
+    }
+    options.config.sttAutoSend = !!options.config.sttAutoSend;
+    if (
+      options.config.sttApiConfigId &&
+      !options.config.apiConfigs.some((a) => a.id === options.config.sttApiConfigId && a.requestFormat === "openai_tts")
+    ) {
+      options.config.sttApiConfigId = undefined;
+    }
+    if (!options.config.sttApiConfigId) {
+      options.config.sttAutoSend = false;
     }
   }
 
@@ -125,6 +137,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
+      ...(options.config.sttApiConfigId ? { sttApiConfigId: options.config.sttApiConfigId } : {}),
+      ...(options.config.sttAutoSend ? { sttAutoSend: true } : {}),
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
@@ -160,6 +174,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
+      sttApiConfigId: options.config.sttApiConfigId,
+      sttAutoSend: !!options.config.sttAutoSend,
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
@@ -192,4 +208,3 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     buildConfigSnapshotJson,
   };
 }
-

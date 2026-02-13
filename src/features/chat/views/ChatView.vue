@@ -171,6 +171,10 @@
           </button>
         </div>
       </div>
+      <div v-if="transcribing" class="mb-1 text-[11px] opacity-80 flex items-center gap-1">
+        <span class="loading loading-spinner loading-xs"></span>
+        <span>语音转写中...</span>
+      </div>
       <div class="flex flex-row items-center gap-2">
         <button
           class="btn btn-xs btn-circle shrink-0"
@@ -233,6 +237,7 @@ const props = defineProps<{
   canRecord: boolean;
   recording: boolean;
   recordingMs: number;
+  transcribing: boolean;
   recordHotkey: string;
   chatting: boolean;
   frozen: boolean;

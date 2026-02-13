@@ -49,6 +49,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
       options.config.chatApiConfigId = cfg.chatApiConfigId;
       options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
+      options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
+      options.config.sttAutoSend = !!cfg.sttAutoSend;
       options.config.apiConfigs.splice(
         0,
         options.config.apiConfigs.length,
@@ -82,6 +84,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.chatApiConfigId = saved.chatApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
+      options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
+      options.config.sttAutoSend = !!saved.sttAutoSend;
       options.config.apiConfigs.splice(0, options.config.apiConfigs.length, ...saved.apiConfigs);
       options.normalizeApiBindingsLocal();
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
@@ -197,14 +201,20 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const saved = await invokeTauri<{
         chatApiConfigId: string;
         visionApiConfigId?: string;
+        sttApiConfigId?: string;
+        sttAutoSend?: boolean;
       }>("save_conversation_api_settings", {
         input: {
           chatApiConfigId: options.config.chatApiConfigId,
           visionApiConfigId: options.config.visionApiConfigId || null,
+          sttApiConfigId: options.config.sttApiConfigId || null,
+          sttAutoSend: !!options.config.sttAutoSend,
         },
       });
       options.config.chatApiConfigId = saved.chatApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
+      options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
+      options.config.sttAutoSend = !!saved.sttAutoSend;
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
       console.info("[CONFIG] save_conversation_api_settings success");
     } catch (e) {

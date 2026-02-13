@@ -32,6 +32,8 @@ export type AppConfig = {
   selectedApiConfigId: string;
   chatApiConfigId: string;
   visionApiConfigId?: string;
+  sttApiConfigId?: string;
+  sttAutoSend?: boolean;
   apiConfigs: ApiConfigItem[];
 };
 

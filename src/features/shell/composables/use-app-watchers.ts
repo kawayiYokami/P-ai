@@ -113,6 +113,8 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => ({
       chatApiConfigId: options.config.chatApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
+      sttApiConfigId: options.config.sttApiConfigId,
+      sttAutoSend: options.config.sttAutoSend,
     }),
     () => {
       void options.saveConversationApiSettings();
