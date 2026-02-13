@@ -194,10 +194,10 @@
           v-model="localChatInput"
           class="flex-1 textarea textarea-xs resize-none overflow-y-hidden"
           rows="1"
-          :disabled="chatting || frozen"
+          :disabled="frozen"
           :placeholder="chatInputPlaceholder"
           @input="scheduleResizeChatInput"
-          @keydown.enter.exact.prevent="!chatting && !frozen && $emit('sendChat')"
+          @keydown.enter.exact.prevent="!frozen && $emit('sendChat')"
         ></textarea>
         <button class="btn btn-xs btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
           <Square v-if="chatting" class="h-3 w-3 fill-current" />
@@ -502,9 +502,12 @@ watch(
 
 watch(
   () => props.chatting,
-  () => {
+  (isChatting, wasChatting) => {
     if (!autoFollowOutput.value) return;
     nextTick(() => scrollToBottom());
+    if (wasChatting && !isChatting && !props.frozen) {
+      nextTick(() => chatInputRef.value?.focus({ preventScroll: true }));
+    }
   },
 );
 
