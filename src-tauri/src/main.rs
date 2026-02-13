@@ -123,6 +123,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            show_main_window,
             load_config,
             save_config,
             load_agents,
@@ -149,6 +150,7 @@ fn main() {
             export_archive_to_file,
             open_external_url,
             send_chat_message,
+            stt_transcribe,
             force_archive_current,
             refresh_models,
             check_tools_status,

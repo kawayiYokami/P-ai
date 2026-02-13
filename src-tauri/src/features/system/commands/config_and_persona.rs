@@ -1,4 +1,9 @@
 #[tauri::command]
+fn show_main_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "main")
+}
+
+#[tauri::command]
 fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     let guard = state
         .state_lock
@@ -359,6 +364,8 @@ fn save_conversation_api_settings(
     let mut config = read_config(&state.config_path)?;
     config.chat_api_config_id = input.chat_api_config_id.clone();
     config.vision_api_config_id = input.vision_api_config_id.clone();
+    config.stt_api_config_id = input.stt_api_config_id.clone();
+    config.stt_auto_send = input.stt_auto_send;
     normalize_app_config(&mut config);
     write_config(&state.config_path, &config)?;
     drop(guard);
@@ -366,6 +373,8 @@ fn save_conversation_api_settings(
     Ok(ConversationApiSettings {
         chat_api_config_id: config.chat_api_config_id,
         vision_api_config_id: config.vision_api_config_id,
+        stt_api_config_id: config.stt_api_config_id,
+        stt_auto_send: config.stt_auto_send,
     })
 }
 
