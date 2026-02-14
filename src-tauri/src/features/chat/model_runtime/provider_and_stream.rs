@@ -1549,7 +1549,7 @@ async fn call_model_gemini_with_tools(
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
     if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
-        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
+        return call_model_gemini_rig_style(api_config, model_name, prepared, Some(on_delta)).await;
     }
 
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
@@ -2182,7 +2182,7 @@ async fn call_model_openai_style(
             )
             .await;
         }
-        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
+        return call_model_gemini_rig_style(api_config, model_name, prepared, Some(on_delta)).await;
     }
     if selected_api.request_format.is_anthropic() {
         if selected_api.enable_tools
@@ -2278,7 +2278,7 @@ async fn describe_image_with_vision_api(
             call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
         RequestFormat::Gemini => {
-            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?
+            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared, None).await?
         }
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(vision_resolved, &vision_api.model, prepared).await?

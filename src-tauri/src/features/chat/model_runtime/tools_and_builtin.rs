@@ -181,12 +181,14 @@ fn gemini_additional_params_for_model(
     let thinking_config =
         if is_v25 {
             Some(serde_json::json!({
+                "includeThoughts": true,
                 "thinkingBudget": api_config.gemini_thinking_budget.max(-1)
             }))
         } else if is_v3 {
             Some(serde_json::json!({
                 // rig current gemini parser expects thinkingBudget to exist;
                 // include both so Gemini 3 level control remains available.
+                "includeThoughts": true,
                 "thinkingLevel": effective_v3_level.as_str(),
                 "thinkingBudget": v3_budget_from_level
             }))
@@ -208,6 +210,7 @@ async fn call_model_gemini_rig_style(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
+    on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String> {
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
     let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
@@ -257,15 +260,72 @@ async fn call_model_gemini_rig_style(
     let prompt_content = OneOrMany::many(content_items)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
 
-    let assistant_text = agent
-        .prompt(RigMessage::User {
-            content: prompt_content,
-        })
+    let prompt_message = RigMessage::User {
+        content: prompt_content,
+    };
+
+    let mut stream = agent
+        .stream_completion(prompt_message, Vec::<RigMessage>::new())
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| format!("rig stream completion build failed: {err}"))?
+        .stream()
+        .await
+        .map_err(|err| format!("rig stream start failed: {err}"))?;
+
+    let mut assistant_text = String::new();
+    let mut reasoning_standard = String::new();
+    while let Some(chunk) = futures_util::StreamExt::next(&mut stream).await {
+        match chunk {
+            Ok(StreamedAssistantContent::Text(text)) => {
+                if let Some(ch) = on_delta {
+                    let _ = ch.send(AssistantDeltaEvent {
+                        delta: text.text.clone(),
+                        kind: None,
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                }
+                assistant_text.push_str(&text.text);
+            }
+            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
+                let merged = reasoning.reasoning.join("\n");
+                if !merged.is_empty() {
+                    if let Some(ch) = on_delta {
+                        let _ = ch.send(AssistantDeltaEvent {
+                            delta: merged.clone(),
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                    reasoning_standard.push_str(&merged);
+                }
+            }
+            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
+                if !reasoning.is_empty() {
+                    if let Some(ch) = on_delta {
+                        let _ = ch.send(AssistantDeltaEvent {
+                            delta: reasoning.clone(),
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                    reasoning_standard.push_str(&reasoning);
+                }
+            }
+            Ok(StreamedAssistantContent::Final(_))
+            | Ok(StreamedAssistantContent::ToolCall { .. })
+            | Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
+            Err(err) => return Err(format!("rig streaming failed: {err}")),
+        }
+    }
     Ok(ModelReply {
         assistant_text,
-        reasoning_standard: String::new(),
+        reasoning_standard,
         reasoning_inline: String::new(),
         tool_history_events: Vec::new(),
     })
