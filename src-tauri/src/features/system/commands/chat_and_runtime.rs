@@ -1071,7 +1071,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
             call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?
         }
         RequestFormat::Gemini => {
-            call_model_gemini_rig_style(&api_config, &api_config.model, prepared).await?
+            call_model_gemini_rig_style(&api_config, &api_config.model, prepared, None).await?
         }
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(&api_config, &api_config.model, prepared).await?
