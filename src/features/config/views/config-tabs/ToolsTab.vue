@@ -114,6 +114,7 @@ function statusDotClass(id: string): string {
   const status = toolStatusById(id)?.status;
   if (status === "loaded") return "bg-success";
   if (status === "failed" || status === "timeout") return "bg-error";
+  if (status === "unavailable") return "bg-warning";
   if (status === "disabled") return "bg-base-content/30";
   return "bg-base-content/20";
 }
@@ -131,9 +132,8 @@ function isImageBoundTool(id: string): boolean {
   return id === "desktop-screenshot" || id === "desktop-wait";
 }
 
-function toolSwitchDisabled(id: string): boolean {
-  if (!isImageBoundTool(id)) return false;
-  return !props.toolApiConfig?.enableImage;
+function toolSwitchDisabled(_id: string): boolean {
+  return false;
 }
 
 function isToolRunning(id: string): boolean {

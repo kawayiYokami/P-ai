@@ -40,14 +40,6 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 }
             }
         }
-        // Current constraint: screenshot/wait tools depend on image-capable model.
-        if !api.enable_image {
-            for tool in &mut api.tools {
-                if matches!(tool.id.as_str(), "desktop-screenshot" | "desktop-wait") {
-                    tool.enabled = false;
-                }
-            }
-        }
     }
 }
 

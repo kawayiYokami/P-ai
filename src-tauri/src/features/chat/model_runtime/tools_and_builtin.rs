@@ -252,6 +252,9 @@ fn send_tool_status_event(
 }
 
 fn tool_enabled(selected_api: &ApiConfig, id: &str) -> bool {
+    if matches!(id, "desktop-screenshot" | "desktop-wait") && !selected_api.enable_image {
+        return false;
+    }
     selected_api.enable_tools
         && selected_api
             .tools

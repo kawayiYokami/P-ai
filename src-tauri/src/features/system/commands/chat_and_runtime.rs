@@ -1012,6 +1012,14 @@ fn check_tools_status(
             });
             continue;
         }
+        if matches!(tool.id.as_str(), "desktop-screenshot" | "desktop-wait") && !selected.enable_image {
+            statuses.push(ToolLoadStatus {
+                id: tool.id,
+                status: "unavailable".to_string(),
+                detail: "已启用，但当前模型不支持图像，运行时将跳过。".to_string(),
+            });
+            continue;
+        }
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
             "bing-search" => ("loaded".to_string(), "内置 Bing 爬虫搜索可用".to_string()),

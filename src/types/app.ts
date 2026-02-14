@@ -124,7 +124,7 @@ export type ChatSettings = { selectedPersonaId: string; userAlias: string; respo
 
 export type ToolLoadStatus = {
   id: string;
-  status: "loaded" | "failed" | "timeout" | "disabled";
+  status: "loaded" | "failed" | "timeout" | "disabled" | "unavailable";
   detail: string;
 };
 

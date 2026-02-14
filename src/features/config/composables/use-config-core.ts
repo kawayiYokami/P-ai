@@ -46,13 +46,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       };
     });
 
-    if (!api.enableImage) {
-      for (const tool of api.tools) {
-        if (tool.id === "desktop-screenshot" || tool.id === "desktop-wait") {
-          tool.enabled = false;
-        }
-      }
-    }
   }
 
   function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
