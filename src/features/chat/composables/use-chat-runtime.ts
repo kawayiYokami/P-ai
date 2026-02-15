@@ -1,7 +1,6 @@
 import type { Ref, ShallowRef } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessage, ChatSnapshot } from "../../../types/app";
-import { extractMessageImages, removeBinaryPlaceholders, renderMessage } from "../../../utils/chat-message";
+import type { ChatMessage } from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -20,9 +19,6 @@ type UseChatRuntimeOptions = {
   selectedPersonaId: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
-  latestUserText: Ref<string>;
-  latestUserImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
-  latestAssistantText: Ref<string>;
   allMessages: ShallowRef<ChatMessage[]>;
   visibleTurnCount: Ref<number>;
   perfNow: () => number;
@@ -31,28 +27,6 @@ type UseChatRuntimeOptions = {
 };
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
-  async function refreshChatSnapshot() {
-    if (!options.activeChatApiConfigId.value || !options.selectedPersonaId.value) return;
-    // Avoid clobbering in-flight streaming text with stale snapshot content.
-    if (options.chatting.value) return;
-    const startedAt = options.perfNow();
-    try {
-      const snap = await invokeTauri<ChatSnapshot>("get_chat_snapshot", {
-        input: {
-          apiConfigId: options.activeChatApiConfigId.value,
-          agentId: options.selectedPersonaId.value,
-        },
-      });
-      options.latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
-      options.latestUserImages.value = extractMessageImages(snap.latestUser);
-      options.latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
-    } catch (e) {
-      options.setStatusError("status.loadChatSnapshotFailed", e);
-    } finally {
-      options.perfLog("refreshChatSnapshot", startedAt);
-    }
-  }
-
   async function forceArchiveNow() {
     if (!options.activeChatApiConfigId.value || !options.selectedPersonaId.value) return;
     if (options.chatting.value || options.forcingArchive.value) return;
@@ -67,7 +41,6 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       options.setStatus(
         result.archived ? options.t("status.forceArchiveDone", { count: result.mergedMemories }) : result.summary,
       );
-      await refreshChatSnapshot();
       await loadAllMessages();
       options.visibleTurnCount.value = 1;
     } catch (e) {
@@ -96,12 +69,16 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     }
   }
 
+  async function refreshConversationHistory() {
+    await loadAllMessages();
+  }
+
   function loadMoreTurns() {
     options.visibleTurnCount.value++;
   }
 
   return {
-    refreshChatSnapshot,
+    refreshConversationHistory,
     forceArchiveNow,
     loadAllMessages,
     loadMoreTurns,

@@ -138,6 +138,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     clearStreamBuffer();
     const deltaChannel = new Channel<AssistantDeltaEvent>();
     deltaChannel.onmessage = (event) => {
+      if (gen !== chatGeneration) return;
       const parsed = readAssistantEvent(event);
       if (parsed.kind === "tool_status") {
         options.toolStatusText.value = parsed.message || "";

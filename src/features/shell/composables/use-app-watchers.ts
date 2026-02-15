@@ -30,8 +30,7 @@ type UseAppWatchersOptions = {
   saveConversationApiSettings: () => Promise<void>;
   refreshToolsStatus: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
-  refreshChatSnapshot: () => Promise<void>;
-  loadAllMessages: () => Promise<void>;
+  refreshConversationHistory: () => Promise<void>;
   resetVisibleTurnCount: () => void;
 };
 
@@ -175,8 +174,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       if (newId === oldId) return;
       if (options.suppressChatReloadWatch.value) return;
       if (options.viewMode.value !== "chat") return;
-      await options.refreshChatSnapshot();
-      await options.loadAllMessages();
+      await options.refreshConversationHistory();
       options.resetVisibleTurnCount();
     },
   );

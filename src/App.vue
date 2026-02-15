@@ -642,9 +642,6 @@ const chatRuntime = useChatRuntime({
   selectedPersonaId,
   chatting,
   forcingArchive,
-  latestUserText,
-  latestUserImages,
-  latestAssistantText,
   allMessages,
   visibleTurnCount,
   perfNow,
@@ -652,7 +649,7 @@ const chatRuntime = useChatRuntime({
   perfDebug: PERF_DEBUG,
 });
 const {
-  refreshChatSnapshot,
+  refreshConversationHistory,
   forceArchiveNow,
   loadAllMessages,
   loadMoreTurns,
@@ -699,8 +696,7 @@ const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal }
   loadPersonas,
   loadChatSettings,
   refreshImageCacheStats,
-  refreshChatSnapshot,
-  loadAllMessages,
+  refreshConversationHistory,
   loadArchives,
   resetVisibleTurnCount: () => {
     visibleTurnCount.value = 1;
@@ -931,8 +927,7 @@ useAppWatchers({
   saveConversationApiSettings,
   refreshToolsStatus,
   refreshImageCacheStats,
-  refreshChatSnapshot,
-  loadAllMessages,
+  refreshConversationHistory,
   resetVisibleTurnCount: () => {
     visibleTurnCount.value = 1;
   },

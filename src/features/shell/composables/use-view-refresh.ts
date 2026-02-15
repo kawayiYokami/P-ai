@@ -13,8 +13,7 @@ type UseViewRefreshOptions = {
   loadPersonas: () => Promise<void>;
   loadChatSettings: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
-  refreshChatSnapshot: () => Promise<void>;
-  loadAllMessages: () => Promise<void>;
+  refreshConversationHistory: () => Promise<void>;
   loadArchives: () => Promise<void>;
   resetVisibleTurnCount: () => void;
   perfNow: () => number;
@@ -44,12 +43,9 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
         options.perfLog("refreshAll/refreshImageCacheStats", tRefreshCache);
       }
       if (options.viewMode.value === "chat") {
-        const tSnapshot = options.perfNow();
-        await options.refreshChatSnapshot();
-        options.perfLog("refreshAll/refreshChatSnapshotStep", tSnapshot);
         const tMessages = options.perfNow();
-        await options.loadAllMessages();
-        options.perfLog("refreshAll/loadAllMessagesStep", tMessages);
+        await options.refreshConversationHistory();
+        options.perfLog("refreshAll/refreshConversationHistory", tMessages);
         options.resetVisibleTurnCount();
       } else if (options.viewMode.value === "archives") {
         const tArchives = options.perfNow();
@@ -76,7 +72,7 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
       return;
     }
     if (options.viewMode.value === "chat") {
-      await options.refreshChatSnapshot();
+      await options.refreshConversationHistory();
     } else if (options.viewMode.value === "archives") {
       await options.loadArchives();
     }
