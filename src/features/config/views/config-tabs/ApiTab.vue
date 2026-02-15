@@ -101,11 +101,21 @@
           >
             <ChevronsUpDown class="h-3.5 w-3.5" />
           </button>
-          <ul tabindex="0" class="dropdown-content z-[1] menu p-1 shadow bg-base-100 rounded-box w-52 max-h-56 overflow-auto">
-            <li v-for="modelName in props.modelOptions" :key="modelName">
-              <button @click="props.selectedApiConfig.model = modelName">{{ modelName }}</button>
-            </li>
-          </ul>
+          <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[360px] max-h-72 overflow-hidden">
+            <input
+              v-model="modelSearch"
+              type="text"
+              :placeholder="t('config.api.searchModel')"
+              class="input input-sm input-bordered rounded-none border-x-0 border-t-0 focus:outline-none"
+              @click.stop
+            />
+            <ul class="menu flex-col flex-nowrap flex-1 min-h-0 overflow-auto p-1">
+              <li v-for="modelName in filteredModels" :key="modelName">
+                <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
+              </li>
+              <li v-if="filteredModels.length === 0" class="text-center text-xs opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
+            </ul>
+          </div>
         </div>
         <button v-if="!isSttMode" class="btn btn-sm btn-square btn-ghost bg-base-100" :class="{ loading: props.refreshingModels }" :disabled="props.refreshingModels" :title="t('config.api.refreshModels')" @click="$emit('refreshModels')">
           <RefreshCw class="h-3.5 w-3.5" />
@@ -184,6 +194,20 @@ defineEmits<{
 const { t } = useI18n();
 const baseUrlHelperOpen = ref(false);
 const selectedProviderId = ref("openai-official");
+const modelSearch = ref("");
+
+const filteredModels = computed(() => {
+  const search = modelSearch.value.trim().toLowerCase();
+  if (!search) return props.modelOptions;
+  return props.modelOptions.filter((m) => m.toLowerCase().includes(search));
+});
+
+function selectModel(modelName: string) {
+  if (props.selectedApiConfig) {
+    props.selectedApiConfig.model = modelName;
+  }
+  modelSearch.value = "";
+}
 
 const providerPresets: ProviderPreset[] = [
   { id: "openai-official", name: "OpenAI", urls: { openai: "https://api.openai.com/v1", openai_tts: "https://api.openai.com/v1" }, docsUrl: "https://platform.openai.com/docs/overview" },
