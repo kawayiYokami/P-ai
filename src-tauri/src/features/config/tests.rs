@@ -46,7 +46,7 @@
                 ApiConfig {
                     id: "a1".to_string(),
                     name: "chat".to_string(),
-                    request_format: "openai".to_string(),
+                    request_format: RequestFormat::OpenAI,
                     enable_text: true,
                     enable_image: true,
                     enable_audio: false,
@@ -61,7 +61,7 @@
                 ApiConfig {
                     id: "a2".to_string(),
                     name: "bad-stt".to_string(),
-                    request_format: "openai".to_string(),
+                    request_format: RequestFormat::OpenAI,
                     enable_text: true,
                     enable_image: false,
                     enable_audio: true,
@@ -101,7 +101,7 @@
                 ApiConfig {
                     id: "chat-a".to_string(),
                     name: "chat-a".to_string(),
-                    request_format: "openai".to_string(),
+                    request_format: RequestFormat::OpenAI,
                     enable_text: true,
                     enable_image: true,
                     enable_audio: true,
@@ -116,7 +116,7 @@
                 ApiConfig {
                     id: "edit-b".to_string(),
                     name: "edit-b".to_string(),
-                    request_format: "openai".to_string(),
+                    request_format: RequestFormat::OpenAI,
                     enable_text: true,
                     enable_image: false,
                     enable_audio: false,
@@ -152,7 +152,7 @@
             api_configs: vec![ApiConfig {
                 id: "tts-a".to_string(),
                 name: "tts-a".to_string(),
-                request_format: "openai_tts".to_string(),
+                request_format: RequestFormat::OpenAITts,
                 enable_text: true,
                 enable_image: false,
                 enable_audio: true,

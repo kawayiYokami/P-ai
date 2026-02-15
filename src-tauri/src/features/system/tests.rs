@@ -35,7 +35,7 @@
         let input = RefreshModelsInput {
             base_url: server.base_url(),
             api_key: "test-key".to_string(),
-            request_format: "openai".to_string(),
+            request_format: RequestFormat::OpenAI,
         };
 
         let rt = test_runtime();
@@ -67,7 +67,7 @@
         let input = RefreshModelsInput {
             base_url: server.base_url(),
             api_key: "test-key".to_string(),
-            request_format: "openai".to_string(),
+            request_format: RequestFormat::OpenAI,
         };
 
         let rt = test_runtime();
@@ -178,4 +178,3 @@
             "{\"query\":\"rust\"}".to_string()
         );
     }
-
