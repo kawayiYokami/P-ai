@@ -68,6 +68,8 @@
       "freeBadge": "免费",
       "model": "模型",
       "pickModel": "选择模型",
+      "searchModel": "搜索模型...",
+      "noModelFound": "未找到匹配模型",
       "refreshModels": "刷新模型列表",
       "temperature": "温度",
       "contextWindow": "上下文窗口",

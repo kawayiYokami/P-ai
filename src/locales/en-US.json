@@ -68,6 +68,8 @@
       "freeBadge": "Free",
       "model": "Model",
       "pickModel": "Pick Model",
+      "searchModel": "Search models...",
+      "noModelFound": "No matching models",
       "refreshModels": "Refresh Model List",
       "temperature": "Temperature",
       "contextWindow": "Context Window",
