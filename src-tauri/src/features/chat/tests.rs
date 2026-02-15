@@ -59,7 +59,7 @@
         let api = ApiConfig {
             id: "api-a".to_string(),
             name: "api-a".to_string(),
-            request_format: "openai".to_string(),
+            request_format: RequestFormat::OpenAI,
             enable_text: true,
             enable_image: false,
             enable_audio: false,
