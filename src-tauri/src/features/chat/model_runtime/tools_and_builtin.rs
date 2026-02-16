@@ -310,36 +310,80 @@ fn truncate_by_chars(input: &str, max_chars: usize) -> String {
 }
 
 async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
+    let normalized_url = url.trim();
+    if normalized_url.is_empty() {
+        return Ok(serde_json::json!({
+          "ok": false,
+          "url": "",
+          "status": Value::Null,
+          "error": "empty_url",
+          "message": "Fetch url is empty.",
+          "content": ""
+        }));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
         .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+        .map_err(|err| format!("Build HTTP client failed: {err}"));
+    let Ok(client) = client else {
+        return Ok(serde_json::json!({
+          "ok": false,
+          "url": normalized_url,
+          "status": Value::Null,
+          "error": "build_http_client_failed",
+          "message": client.err().unwrap_or_default(),
+          "content": ""
+        }));
+    };
     let resp = client
-        .get(url)
+        .get(normalized_url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         .send()
-        .await
-        .map_err(|err| format!("Fetch url failed: {err}"))?;
+        .await;
+    let Ok(resp) = resp else {
+        return Ok(serde_json::json!({
+          "ok": false,
+          "url": normalized_url,
+          "status": Value::Null,
+          "error": "request_failed",
+          "message": format!("Fetch url failed: {}", resp.err().unwrap()),
+          "content": ""
+        }));
+    };
     let status = resp.status();
-    if !status.is_success() {
-        return Err(format!("Fetch url failed with status {status}"));
-    }
     let html = resp
         .text()
         .await
-        .map_err(|err| format!("Read body failed: {err}"))?;
+        .unwrap_or_default();
+    if !status.is_success() {
+        let fallback_content = truncate_by_chars(&clean_text(&html), max_length);
+        return Ok(serde_json::json!({
+          "ok": false,
+          "url": normalized_url,
+          "status": status.as_u16(),
+          "error": "http_status_not_success",
+          "message": format!("Fetch url failed with status {status}"),
+          "content": fallback_content
+        }));
+    }
     let document = Html::parse_document(&html);
-    let body_selector =
-        Selector::parse("body").map_err(|err| format!("Parse selector failed: {err}"))?;
-    let raw = document
-        .select(&body_selector)
-        .next()
-        .map(|n| n.text().collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "));
+    let body_selector = Selector::parse("body");
+    let raw = if let Ok(selector) = body_selector {
+        document
+            .select(&selector)
+            .next()
+            .map(|n| n.text().collect::<Vec<_>>().join(" "))
+            .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "))
+    } else {
+        document.root_element().text().collect::<Vec<_>>().join(" ")
+    };
     let cleaned = clean_text(&raw);
     let truncated = truncate_by_chars(&cleaned, max_length);
     Ok(serde_json::json!({
-      "url": url,
+      "ok": true,
+      "url": normalized_url,
+      "status": status.as_u16(),
       "content": truncated
     }))
 }
