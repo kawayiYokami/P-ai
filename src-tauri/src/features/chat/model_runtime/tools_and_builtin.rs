@@ -636,45 +636,6 @@ fn builtin_memory_save_batch(app_state: &AppState, args: Value) -> Result<Value,
     }))
 }
 
-async fn builtin_desktop_screenshot(webp_quality: Option<f32>) -> Result<Value, String> {
-    let res = run_screenshot_tool(ScreenshotRequest {
-        mode: ScreenshotMode::Desktop,
-        monitor_id: None,
-        region: None,
-        save_path: None,
-        webp_quality: normalize_webp_quality(webp_quality),
-    })
-    .await
-    .map_err(|err| to_tool_err_string(&err))?;
-    let mut value =
-        serde_json::to_value(&res).map_err(|err| format!("serialize desktop screenshot result failed: {err}"))?;
-    if let Some(obj) = value.as_object_mut() {
-        let image_mime = res.image_mime.clone();
-        let image_base64 = res.image_base64.clone();
-        obj.insert(
-            "response".to_string(),
-            serde_json::json!({
-                "ok": true,
-                "width": res.width,
-                "height": res.height,
-                "imageMime": image_mime.clone(),
-                "elapsedMs": res.elapsed_ms
-            }),
-        );
-        obj.insert(
-            "parts".to_string(),
-            serde_json::json!([
-                {
-                    "type": "image",
-                    "data": image_base64,
-                    "mimeType": image_mime
-                }
-            ]),
-        );
-    }
-    Ok(value)
-}
-
 async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {
     let res = run_wait_tool(WaitRequest {
         mode: WaitMode::Sleep,
@@ -922,49 +883,6 @@ impl Tool for BuiltinMemorySaveBatchTool {
             ),
             Err(err) => {
                 eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=memory-save-batch err={err}")
-            }
-        }
-        result
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BuiltinDesktopScreenshotTool;
-
-impl Tool for BuiltinDesktopScreenshotTool {
-    const NAME: &'static str = "desktop_screenshot";
-    type Error = ToolInvokeError;
-    type Args = DesktopScreenshotToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "desktop_screenshot".to_string(),
-            description: "Capture current full desktop screenshot and return metadata + image base64.".to_string(),
-            parameters: serde_json::json!({
-              "type": "object",
-              "properties": {
-                "webp_quality": { "type": "number", "minimum": 1, "maximum": 100, "default": 75 }
-              }
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=desktop-screenshot args={}",
-            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
-        let result = builtin_desktop_screenshot(args.webp_quality)
-            .await
-            .map_err(ToolInvokeError::from);
-        match &result {
-            Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=desktop-screenshot result={}",
-                debug_value_snippet(v, 240)
-            ),
-            Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=desktop-screenshot err={err}")
             }
         }
         result

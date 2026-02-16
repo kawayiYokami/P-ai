@@ -526,6 +526,7 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
 async fn execute_builtin_tool_call(
     selected_api: &ApiConfig,
     app_state: Option<&AppState>,
+    screenshot_mcp_client: Option<&ScreenshotMcpClient>,
     tool_name: &str,
     args_json: &Value,
 ) -> Result<Value, String> {
@@ -554,7 +555,9 @@ async fn execute_builtin_tool_call(
         {
             let args: DesktopScreenshotToolArgs = serde_json::from_value(args_json.clone())
                 .map_err(|err| format!("Parse desktop_screenshot args failed: {err}"))?;
-            builtin_desktop_screenshot(args.webp_quality).await
+            let client = screenshot_mcp_client
+                .ok_or_else(|| "desktop_screenshot MCP client is not connected.".to_string())?;
+            call_desktop_screenshot_mcp_tool(client, args.webp_quality).await
         }
         "desktop_wait" | "desktop-wait" if tool_enabled(selected_api, "desktop-wait") => {
             let args: DesktopWaitToolArgs = serde_json::from_value(args_json.clone())
@@ -853,6 +856,36 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     Ok(client)
 }
 
+async fn call_desktop_screenshot_mcp_tool(
+    client: &ScreenshotMcpClient,
+    webp_quality: Option<f32>,
+) -> Result<Value, String> {
+    let arguments = webp_quality
+        .map(|quality| serde_json::json!({ "webp_quality": quality }))
+        .and_then(|value| value.as_object().cloned());
+    let result = client
+        .call_tool(rmcp::model::CallToolRequestParam {
+            name: MCP_SCREENSHOT_TOOL_NAME.into(),
+            arguments,
+            task: None,
+        })
+        .await
+        .map_err(|err| format!("Call MCP desktop_screenshot failed: {err}"))?;
+    if result.is_error.unwrap_or(false) {
+        let detail = result
+            .clone()
+            .into_typed::<Value>()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|_| {
+                serde_json::to_string(&result).unwrap_or_else(|_| "unknown error".to_string())
+            });
+        return Err(format!("MCP desktop_screenshot returned error: {detail}"));
+    }
+    result
+        .into_typed::<Value>()
+        .map_err(|err| format!("Parse MCP desktop_screenshot result failed: {err}"))
+}
+
 async fn call_model_deepseek_with_tools_http(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -865,6 +898,17 @@ async fn call_model_deepseek_with_tools_http(
     let tools = deepseek_tool_schemas(selected_api);
     if tools.is_empty() {
         return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
+    }
+    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
+    let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
+    if has_desktop_screenshot {
+        let mut _mcp_tools_for_attach: Vec<Box<dyn ToolDyn>> = Vec::new();
+        let client = try_attach_desktop_screenshot_mcp_tool(&mut _mcp_tools_for_attach)
+            .await
+            .map_err(|err| {
+                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
+            })?;
+        _mcp_screenshot_client = Some(client);
     }
 
     let client = reqwest::Client::builder()
@@ -1042,7 +1086,13 @@ async fn call_model_deepseek_with_tools_http(
             );
             let args_json: Value = serde_json::from_str(&tc.function.arguments)
                 .map_err(|err| format!("Parse tool arguments failed: {err}"))?;
-            let tool_result = execute_builtin_tool_call(selected_api, app_state, &tool_name, &args_json)
+            let tool_result = execute_builtin_tool_call(
+                selected_api,
+                app_state,
+                _mcp_screenshot_client.as_ref(),
+                &tool_name,
+                &args_json,
+            )
                 .await
                 .map_err(|err| {
                     send_tool_status_event(
@@ -1179,13 +1229,12 @@ async fn call_model_openai_with_tools(
     }
     let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     if has_desktop_screenshot {
-        match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
-            Ok(client) => _mcp_screenshot_client = Some(client),
-            Err(err) => {
-                eprintln!("[TOOL-DEBUG] MCP screenshot unavailable, fallback to builtin: {err}");
-                tools.push(Box::new(BuiltinDesktopScreenshotTool));
-            }
-        }
+        let client = try_attach_desktop_screenshot_mcp_tool(&mut tools)
+            .await
+            .map_err(|err| {
+                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
+            })?;
+        _mcp_screenshot_client = Some(client);
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
@@ -1580,13 +1629,12 @@ async fn call_model_gemini_with_tools(
     }
     let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     if has_desktop_screenshot {
-        match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
-            Ok(client) => _mcp_screenshot_client = Some(client),
-            Err(err) => {
-                eprintln!("[TOOL-DEBUG] MCP screenshot unavailable, fallback to builtin: {err}");
-                tools.push(Box::new(BuiltinDesktopScreenshotTool));
-            }
-        }
+        let client = try_attach_desktop_screenshot_mcp_tool(&mut tools)
+            .await
+            .map_err(|err| {
+                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
+            })?;
+        _mcp_screenshot_client = Some(client);
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
@@ -1899,13 +1947,12 @@ async fn call_model_anthropic_with_tools(
     }
     let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     if has_desktop_screenshot {
-        match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
-            Ok(client) => _mcp_screenshot_client = Some(client),
-            Err(err) => {
-                eprintln!("[TOOL-DEBUG] MCP screenshot unavailable, fallback to builtin: {err}");
-                tools.push(Box::new(BuiltinDesktopScreenshotTool));
-            }
-        }
+        let client = try_attach_desktop_screenshot_mcp_tool(&mut tools)
+            .await
+            .map_err(|err| {
+                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
+            })?;
+        _mcp_screenshot_client = Some(client);
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
