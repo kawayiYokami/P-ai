@@ -2,8 +2,16 @@
   <div class="grid gap-2">
     <div class="flex items-center gap-2">
       <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">{{ t("archives.refresh") }}</button>
+      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="triggerArchiveImport">{{ t("archives.importJson") }}</button>
       <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">{{ t("archives.exportMarkdown") }}</button>
       <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
+      <input
+        ref="archiveImportInputRef"
+        type="file"
+        accept=".json,application/json"
+        class="hidden"
+        @change="onArchiveImportChange"
+      />
     </div>
     <div class="grid grid-cols-1 gap-1 max-h-56 overflow-auto">
       <div
@@ -57,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ArchiveSummary, ChatMessage, ChatRole, MessagePart } from "../../../types/app";
 
@@ -69,16 +77,32 @@ const props = defineProps<{
 }>();
 const { t, locale } = useI18n();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "loadArchives"): void;
   (e: "selectArchive", archiveId: string): void;
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
   (e: "deleteArchive", archiveId: string): void;
+  (e: "importArchiveFile", file: File): void;
 }>();
 
 const visibleMessages = computed(() =>
   props.archiveMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool"),
 );
+const archiveImportInputRef = ref<HTMLInputElement | null>(null);
+
+function triggerArchiveImport() {
+  if (archiveImportInputRef.value) {
+    archiveImportInputRef.value.value = "";
+    archiveImportInputRef.value.click();
+  }
+}
+
+function onArchiveImportChange(event: Event) {
+  const input = event.target as HTMLInputElement | null;
+  const file = input?.files?.[0];
+  if (!file) return;
+  emit("importArchiveFile", file);
+}
 
 function messageText(msg: ChatMessage): string {
   return msg.parts

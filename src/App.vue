@@ -143,6 +143,7 @@
       :load-archives="loadArchives"
       :select-archive="selectArchive"
       :export-archive="exportArchive"
+      :import-archive-file="prepareArchiveImport"
       :delete-archive="deleteArchive"
       :close-history="closeHistory"
       :close-memory-viewer="closeMemoryViewer"
@@ -178,6 +179,48 @@
         <button @click.prevent="closeUpdateDialog">close</button>
       </form>
     </dialog>
+    <dialog class="modal" :class="{ 'modal-open': configSaveErrorDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">
+          {{ configSaveErrorDialogTitle }}
+        </h3>
+        <pre
+          class="mt-2 whitespace-pre-wrap text-sm"
+          :class="configSaveErrorDialogKind === 'warning' ? 'text-warning' : 'text-error'"
+        >{{ configSaveErrorDialogBody }}</pre>
+        <div class="modal-action">
+          <button class="btn btn-sm btn-primary" @click="closeConfigSaveErrorDialog">{{ t("common.close") }}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeConfigSaveErrorDialog">close</button>
+      </form>
+    </dialog>
+    <dialog class="modal" :class="{ 'modal-open': archiveImportPreviewDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">
+          {{ t("archives.importPreviewTitle") }}
+        </h3>
+        <div v-if="archiveImportPreview" class="mt-3 space-y-1 text-sm">
+          <div>{{ t("archives.importPreviewFile", { name: archiveImportPreview.fileName }) }}</div>
+          <div>{{ t("archives.importPreviewTotal", { count: archiveImportPreview.total }) }}</div>
+          <div>{{ t("archives.importPreviewAdd", { count: archiveImportPreview.imported }) }}</div>
+          <div>{{ t("archives.importPreviewReplace", { count: archiveImportPreview.replaced }) }}</div>
+          <div class="text-xs opacity-70 mt-2">{{ t("archives.importPreviewHint") }}</div>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-sm" :disabled="archiveImportRunning" @click="closeArchiveImportPreviewDialog">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-primary" :disabled="archiveImportRunning" @click="confirmArchiveImport">
+            {{ archiveImportRunning ? t("common.loading") : t("archives.importConfirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeArchiveImportPreviewDialog">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 <script setup lang="ts">
@@ -193,9 +236,9 @@ import { useWindowShell } from "./features/shell/composables/use-window-shell";
 import { useConfigAutosave } from "./features/config/composables/use-config-autosave";
 import { useConfigCore } from "./features/config/composables/use-config-core";
 import { useConfigEditors } from "./features/config/composables/use-config-editors";
-import { useConfigPersistence } from "./features/config/composables/use-config-persistence";
+import { useConfigPersistence, type ConfigSaveErrorInfo } from "./features/config/composables/use-config-persistence";
 import { useConfigRuntime } from "./features/config/composables/use-config-runtime";
-import { useArchivesView } from "./features/chat/composables/use-archives-view";
+import { useArchivesView, type ArchiveImportPreview } from "./features/chat/composables/use-archives-view";
 import { useAvatarCache } from "./features/chat/composables/use-avatar-cache";
 import { useChatDialogActions } from "./features/chat/composables/use-chat-dialog-actions";
 import { useChatRuntime } from "./features/chat/composables/use-chat-runtime";
@@ -277,6 +320,13 @@ const updateDialogTitle = ref("检查更新");
 const updateDialogBody = ref("");
 const updateDialogKind = ref<"info" | "error">("info");
 const updateDialogReleaseUrl = ref("");
+const configSaveErrorDialogOpen = ref(false);
+const configSaveErrorDialogTitle = ref("");
+const configSaveErrorDialogBody = ref("");
+const configSaveErrorDialogKind = ref<"warning" | "error">("error");
+const archiveImportPreviewDialogOpen = ref(false);
+const archiveImportPreview = ref<ArchiveImportPreview | null>(null);
+const archiveImportRunning = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
@@ -343,6 +393,8 @@ const {
   selectArchive,
   deleteArchive,
   exportArchive,
+  buildArchiveImportPreview,
+  importArchivePayload,
 } = useArchivesView({
   t: tr,
   setStatus,
@@ -602,6 +654,7 @@ const configPersistence = useConfigPersistence({
   t: tr,
   setStatus,
   setStatusError,
+  onSaveConfigError: openConfigSaveErrorDialog,
   config,
   locale,
   normalizeLocale,
@@ -740,6 +793,16 @@ function closeUpdateDialog() {
   updateDialogOpen.value = false;
 }
 
+function closeConfigSaveErrorDialog() {
+  configSaveErrorDialogOpen.value = false;
+}
+
+function closeArchiveImportPreviewDialog() {
+  if (archiveImportRunning.value) return;
+  archiveImportPreviewDialogOpen.value = false;
+  archiveImportPreview.value = null;
+}
+
 function openUpdateDialog(text: string, kind: "info" | "error", releaseUrl?: string) {
   updateDialogTitle.value = "检查更新";
   updateDialogBody.value = text;
@@ -752,6 +815,46 @@ function openUpdateRelease() {
   const url = updateDialogReleaseUrl.value.trim();
   if (!url) return;
   void invokeTauri("open_external_url", { url });
+}
+
+function openConfigSaveErrorDialog(info: ConfigSaveErrorInfo) {
+  configSaveErrorDialogTitle.value = t("status.saveConfigDialogTitle");
+  if (info.kind === "hotkey_conflict") {
+    configSaveErrorDialogKind.value = "warning";
+    configSaveErrorDialogBody.value = `${t("status.saveConfigHotkeyOccupied", { hotkey: info.hotkey })}\n${t("status.saveConfigDialogHint")}`;
+    configTab.value = "hotkey";
+  } else if (info.kind === "backend_404") {
+    configSaveErrorDialogKind.value = "error";
+    configSaveErrorDialogBody.value = t("status.saveConfigBackend404");
+  } else {
+    configSaveErrorDialogKind.value = "error";
+    configSaveErrorDialogBody.value = t("status.saveConfigFailed", { err: info.errorText });
+  }
+  configSaveErrorDialogOpen.value = true;
+}
+
+async function prepareArchiveImport(file: File) {
+  try {
+    const preview = await buildArchiveImportPreview(file);
+    archiveImportPreview.value = preview;
+    archiveImportPreviewDialogOpen.value = true;
+  } catch (e) {
+    setStatusError("status.importArchiveFailed", e);
+  }
+}
+
+async function confirmArchiveImport() {
+  if (!archiveImportPreview.value || archiveImportRunning.value) return;
+  archiveImportRunning.value = true;
+  try {
+    await importArchivePayload(archiveImportPreview.value.payloadJson);
+    archiveImportPreviewDialogOpen.value = false;
+    archiveImportPreview.value = null;
+  } catch (e) {
+    setStatusError("status.importArchiveFailed", e);
+  } finally {
+    archiveImportRunning.value = false;
+  }
 }
 
 async function autoCheckGithubUpdate() {
@@ -859,8 +962,8 @@ function handleToolsChanged() {
     clearTimeout(toolSwitchAutosaveTimer);
   }
   toolSwitchAutosaveTimer = setTimeout(async () => {
-    await saveConfig();
-    if (configTab.value === "tools") {
+    const saved = await saveConfig();
+    if (saved && configTab.value === "tools") {
       await refreshToolsStatus();
     }
   }, 250);

@@ -149,6 +149,7 @@ fn main() {
             get_archive_messages,
             delete_archive,
             export_archive_to_file,
+            import_archives_from_json,
             open_external_url,
             send_chat_message,
             stop_chat_message,
