@@ -491,6 +491,11 @@ async fn send_chat_message(
             prepared.preamble.push_str(summary.trim());
             prepared.preamble.push('\n');
         }
+        if let Some(terminal_block) = terminal_prompt_trusted_roots_block(&state, &selected_api) {
+            prepared.preamble.push('\n');
+            prepared.preamble.push_str(&terminal_block);
+            prepared.preamble.push('\n');
+        }
         let mut block2_parts = Vec::<String>::new();
         if let Some(xml) = &memory_board_xml {
             block2_parts.push(xml.clone());
@@ -1192,11 +1197,42 @@ fn check_tools_status(
             "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
             "desktop-screenshot" => ("loaded".to_string(), "桌面截图工具可用".to_string()),
             "desktop-wait" => ("loaded".to_string(), "桌面等待工具可用".to_string()),
-            "terminal-exec" => ("loaded".to_string(), "终端执行工具可用".to_string()),
-            "terminal-request-path-access" => (
-                "loaded".to_string(),
-                "终端根目录设置工具可用".to_string(),
-            ),
+            "terminal-exec" => {
+                #[cfg(target_os = "windows")]
+                {
+                    if state.terminal_shell.kind == "missing-git-bash" {
+                        (
+                            "unavailable".to_string(),
+                            "未检测到 Git Bash。请安装 Git for Windows 后再启用终端工具。"
+                                .to_string(),
+                        )
+                    } else {
+                        ("loaded".to_string(), "终端执行工具可用".to_string())
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    ("loaded".to_string(), "终端执行工具可用".to_string())
+                }
+            }
+            "terminal-request-path-access" => {
+                #[cfg(target_os = "windows")]
+                {
+                    if state.terminal_shell.kind == "missing-git-bash" {
+                        (
+                            "unavailable".to_string(),
+                            "未检测到 Git Bash。请安装 Git for Windows 后再启用终端工具。"
+                                .to_string(),
+                        )
+                    } else {
+                        ("loaded".to_string(), "终端根目录设置工具可用".to_string())
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    ("loaded".to_string(), "终端根目录设置工具可用".to_string())
+                }
+            }
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

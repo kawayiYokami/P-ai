@@ -321,6 +321,7 @@ const config = reactive<AppConfig>({
   visionApiConfigId: undefined,
   sttApiConfigId: undefined,
   sttAutoSend: false,
+  terminalProjectRoots: [],
   apiConfigs: [],
 });
 const configTab = ref<"hotkey" | "api" | "tools" | "persona" | "chatSettings">("hotkey");

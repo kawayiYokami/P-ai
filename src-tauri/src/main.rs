@@ -167,6 +167,7 @@ fn main() {
             send_debug_probe,
             desktop_screenshot,
             desktop_wait,
+            terminal_self_check,
             resolve_terminal_approval
         ])
         .run(tauri::generate_context!())

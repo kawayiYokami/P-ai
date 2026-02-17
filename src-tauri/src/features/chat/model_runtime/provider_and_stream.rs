@@ -525,11 +525,11 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "terminal_request_path_access",
-                "description": "Set terminal root directory for current session.",
+                "description": "Switch terminal root for current session. Requested path must be within user-configured trusted project roots.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string" },
+                        "path": { "type": "string", "description": "Directory path (absolute or relative to current session root)." },
                         "reason": { "type": "string" }
                     },
                     "required": ["path"]
@@ -542,12 +542,12 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "terminal_exec",
-                "description": "Execute shell command in stateless mode.",
+                "description": "Execute shell command inside current terminal root. Prefer relative cwd.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "command": { "type": "string" },
-                        "cwd": { "type": "string" },
+                        "cwd": { "type": "string", "description": "Relative working directory under current terminal root." },
                         "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
                     },
                     "required": ["command"]

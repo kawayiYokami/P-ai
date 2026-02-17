@@ -41,6 +41,7 @@ export type AppConfig = {
   visionApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
+  terminalProjectRoots: string[];
   apiConfigs: ApiConfigItem[];
 };
 

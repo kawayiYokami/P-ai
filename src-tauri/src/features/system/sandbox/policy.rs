@@ -27,11 +27,55 @@ fn sandbox_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
         .map_err(|err| format!("Resolve llm workspace failed: {err}"))
 }
 
+fn sandbox_allowed_project_roots_canonical(state: &AppState) -> Result<Vec<PathBuf>, String> {
+    let mut config = read_config(&state.config_path)?;
+    normalize_app_config(&mut config);
+    let mut roots = Vec::<PathBuf>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+
+    for raw in &config.terminal_project_roots {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let candidate = PathBuf::from(trimmed);
+        let canonical = match candidate.canonicalize() {
+            Ok(path) if path.is_dir() => path,
+            _ => continue,
+        };
+        let key = sandbox_normalize_path_for_compare(&canonical);
+        if seen.insert(key) {
+            roots.push(canonical);
+        }
+    }
+
+    if roots.is_empty() {
+        roots.push(sandbox_workspace_canonical(state)?);
+    }
+    Ok(roots)
+}
+
+fn sandbox_default_session_root_canonical(state: &AppState) -> Result<PathBuf, String> {
+    let allowed = sandbox_allowed_project_roots_canonical(state)?;
+    allowed
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No sandbox root available".to_string())
+}
+
+fn sandbox_target_within_allowed_project_roots(
+    state: &AppState,
+    target: &std::path::Path,
+) -> Result<bool, String> {
+    let allowed = sandbox_allowed_project_roots_canonical(state)?;
+    Ok(allowed.iter().any(|root| sandbox_path_is_within(root, target)))
+}
+
 fn sandbox_session_root_canonical(
     state: &AppState,
     session_id: &str,
  ) -> Result<PathBuf, String> {
-    let workspace = sandbox_workspace_canonical(state)?;
+    let default_root = sandbox_default_session_root_canonical(state)?;
     let root_text = {
         let guard = state
             .terminal_session_roots
@@ -40,13 +84,15 @@ fn sandbox_session_root_canonical(
         guard.get(session_id).cloned()
     };
     let Some(root_text) = root_text else {
-        return Ok(workspace);
+        return Ok(default_root);
     };
 
     let root = PathBuf::from(root_text);
     match root.canonicalize() {
-        Ok(path) if path.is_dir() => Ok(path),
-        _ => Ok(workspace),
+        Ok(path) if path.is_dir() && sandbox_target_within_allowed_project_roots(state, &path)? => {
+            Ok(path)
+        }
+        _ => Ok(default_root),
     }
 }
 

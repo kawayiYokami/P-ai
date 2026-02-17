@@ -1,4 +1,16 @@
 #[cfg(target_os = "windows")]
+fn sandbox_windows_process_compatible_path(path: &std::path::Path) -> std::path::PathBuf {
+    let raw = path.as_os_str().to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return std::path::PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return std::path::PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
+#[cfg(target_os = "windows")]
 fn sandbox_run_with_windows_job_backend_blocking(
     shell: &TerminalShellProfile,
     request: &SandboxRequest,
@@ -11,7 +23,7 @@ fn sandbox_run_with_windows_job_backend_blocking(
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
         JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
@@ -27,7 +39,8 @@ fn sandbox_run_with_windows_job_backend_blocking(
     }
 
     let mut command_builder = std::process::Command::new(&shell.path);
-    command_builder.current_dir(&request.cwd);
+    let cwd = sandbox_windows_process_compatible_path(&request.cwd);
+    command_builder.current_dir(&cwd);
     command_builder.stdout(std::process::Stdio::piped());
     command_builder.stderr(std::process::Stdio::piped());
     command_builder.stdin(std::process::Stdio::null());
@@ -48,9 +61,9 @@ fn sandbox_run_with_windows_job_backend_blocking(
     let job = JobGuard(job);
 
     let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-    info.BasicLimitInformation.LimitFlags =
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
-    info.BasicLimitInformation.ActiveProcessLimit = 1;
+    // Keep process tree cleanup on timeout/exit, but do not cap child process count:
+    // Git Bash bootstrap may spawn helper processes during startup.
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     let set_ok = unsafe {
         SetInformationJobObject(
             job.0,

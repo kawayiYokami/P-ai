@@ -125,6 +125,17 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     if (!options.config.sttApiConfigId) {
       options.config.sttAutoSend = false;
     }
+    const seenRoots = new Set<string>();
+    const normalizedRoots: string[] = [];
+    for (const raw of options.config.terminalProjectRoots || []) {
+      const trimmed = String(raw || "").trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seenRoots.has(key)) continue;
+      seenRoots.add(key);
+      normalizedRoots.push(trimmed);
+    }
+    options.config.terminalProjectRoots = normalizedRoots;
   }
 
   function buildConfigPayload(): AppConfig {
@@ -140,6 +151,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
       ...(options.config.sttApiConfigId ? { sttApiConfigId: options.config.sttApiConfigId } : {}),
       ...(options.config.sttAutoSend ? { sttAutoSend: true } : {}),
+      terminalProjectRoots: [...(options.config.terminalProjectRoots || [])],
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
@@ -177,6 +189,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       visionApiConfigId: options.config.visionApiConfigId,
       sttApiConfigId: options.config.sttApiConfigId,
       sttAutoSend: !!options.config.sttAutoSend,
+      terminalProjectRoots: [...(options.config.terminalProjectRoots || [])],
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,

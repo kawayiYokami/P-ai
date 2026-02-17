@@ -42,45 +42,49 @@ fn detect_default_terminal_shell() -> TerminalShellProfile {
                 .map(ToString::to_string)
         }
 
-        let pwsh_candidates = vec![
-            r"C:\Program Files\PowerShell\7\pwsh.exe".to_string(),
-            r"C:\Program Files\PowerShell\7-preview\pwsh.exe".to_string(),
-            r"C:\Program Files (x86)\PowerShell\7\pwsh.exe".to_string(),
-            format!(
-                r"{}\Microsoft\WindowsApps\pwsh.exe",
-                std::env::var("LOCALAPPDATA").unwrap_or_default()
-            ),
-        ];
-        if let Some(path) = first_existing_path(&pwsh_candidates).or_else(|| where_first("pwsh")) {
-            return with_args(
-                "pwsh",
-                path,
-                &["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+        fn derive_bash_candidates_from_git(git_exe: &str) -> Vec<String> {
+            let mut out = Vec::<String>::new();
+            let git_path = PathBuf::from(git_exe);
+            let Some(cmd_dir) = git_path.parent() else {
+                return out;
+            };
+            let Some(git_root) = cmd_dir.parent() else {
+                return out;
+            };
+            out.push(git_root.join("bin").join("bash.exe").to_string_lossy().to_string());
+            out.push(
+                git_root
+                    .join("usr")
+                    .join("bin")
+                    .join("bash.exe")
+                    .to_string_lossy()
+                    .to_string(),
             );
+            out
         }
 
-        let powershell_candidates = vec![
-            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
-            format!(
-                r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
-                std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string())
-            ),
+        let mut git_bash_candidates = vec![
+            r"C:\Program Files\Git\bin\bash.exe".to_string(),
+            r"C:\Program Files\Git\usr\bin\bash.exe".to_string(),
+            r"C:\Program Files (x86)\Git\bin\bash.exe".to_string(),
+            r"C:\Program Files (x86)\Git\usr\bin\bash.exe".to_string(),
         ];
-        if let Some(path) = first_existing_path(&powershell_candidates)
-            .or_else(|| where_first("powershell"))
-        {
-            return with_args(
-                "powershell",
-                path,
-                &["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
-            );
+        if let Some(git_path) = where_first("git") {
+            git_bash_candidates.extend(derive_bash_candidates_from_git(&git_path));
+        }
+        if let Some(path) = where_first("bash") {
+            git_bash_candidates.push(path);
         }
 
-        let comspec = std::env::var("ComSpec").ok();
-        let cmd_path = comspec
-            .filter(|value| Path::new(value).is_file())
-            .unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".to_string());
-        return with_args("cmd", cmd_path, &["/D", "/E:OFF", "/V:OFF", "/S", "/C"]);
+        if let Some(path) = first_existing_path(&git_bash_candidates) {
+            return with_args("git-bash", path, &["-lc"]);
+        }
+
+        return TerminalShellProfile {
+            kind: "missing-git-bash".to_string(),
+            path: String::new(),
+            args_prefix: Vec::new(),
+        };
     }
 
     #[cfg(target_os = "macos")]
@@ -180,7 +184,11 @@ fn resolve_terminal_path(base_dir: &Path, raw: &str) -> Result<PathBuf, String> 
     if trimmed.is_empty() {
         return Err("Path is empty.".to_string());
     }
-    let raw_path = PathBuf::from(trimmed);
+    let normalized = normalize_terminal_path_input_for_current_platform(trimmed);
+    if normalized.is_empty() {
+        return Err("Path is empty.".to_string());
+    }
+    let raw_path = PathBuf::from(&normalized);
     let joined = if raw_path.is_absolute() {
         raw_path
     } else {
@@ -206,8 +214,92 @@ fn terminal_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
         .map_err(|err| format!("Resolve llm workspace failed: {err}"))
 }
 
+fn terminal_allowed_project_roots_canonical(state: &AppState) -> Result<Vec<PathBuf>, String> {
+    let mut config = read_config(&state.config_path)?;
+    normalize_app_config(&mut config);
+    let mut roots = Vec::<PathBuf>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+
+    for raw in &config.terminal_project_roots {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let candidate = PathBuf::from(trimmed);
+        let canonical = match candidate.canonicalize() {
+            Ok(path) if path.is_dir() => path,
+            _ => continue,
+        };
+        let key = normalize_terminal_path_for_compare(&canonical);
+        if seen.insert(key) {
+            roots.push(canonical);
+        }
+    }
+
+    if roots.is_empty() {
+        roots.push(terminal_workspace_canonical(state)?);
+    }
+
+    Ok(roots)
+}
+
+fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfig) -> Option<String> {
+    let terminal_enabled = selected_api.enable_tools
+        && selected_api
+            .tools
+            .iter()
+            .any(|tool| {
+                tool.enabled
+                    && matches!(
+                        tool.id.as_str(),
+                        "terminal-exec" | "terminal-request-path-access"
+                    )
+            });
+    if !terminal_enabled {
+        return None;
+    }
+
+    let roots = terminal_allowed_project_roots_canonical(state).ok()?;
+    if roots.is_empty() {
+        return None;
+    }
+
+    let mut lines = Vec::<String>::new();
+    lines.push("[终端约束]".to_string());
+    lines.push(format!(
+        "你是个人助理，默认工作目录：{}。",
+        state.llm_workspace_path.to_string_lossy()
+    ));
+    lines.push("使用终端时，只能在以下可信目录（及其子目录）中操作：".to_string());
+    for (index, root) in roots.iter().enumerate() {
+        lines.push(format!("{}. {}", index + 1, root.to_string_lossy()));
+    }
+    lines.push(
+        "如果要切换会话根目录，先调用 terminal_request_path_access；切换后再调用 terminal_exec，cwd 尽量使用相对路径。"
+            .to_string(),
+    );
+    lines.push("除非用户明确要求，不要访问上述目录之外的文件。".to_string());
+    Some(lines.join("\n"))
+}
+
+fn terminal_default_session_root_canonical(state: &AppState) -> Result<PathBuf, String> {
+    let allowed = terminal_allowed_project_roots_canonical(state)?;
+    allowed
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No terminal project root available".to_string())
+}
+
+fn terminal_target_within_allowed_project_roots(
+    state: &AppState,
+    target: &Path,
+) -> Result<bool, String> {
+    let allowed = terminal_allowed_project_roots_canonical(state)?;
+    Ok(allowed.iter().any(|root| path_is_within(root, target)))
+}
+
 fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result<PathBuf, String> {
-    let workspace = terminal_workspace_canonical(state)?;
+    let default_root = terminal_default_session_root_canonical(state)?;
     let root_text = {
         let guard = state
             .terminal_session_roots
@@ -216,13 +308,15 @@ fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result
         guard.get(session_id).cloned()
     };
     let Some(root_text) = root_text else {
-        return Ok(workspace);
+        return Ok(default_root);
     };
 
     let root = PathBuf::from(root_text);
     match root.canonicalize() {
-        Ok(path) if path.is_dir() => Ok(path),
-        _ => Ok(workspace),
+        Ok(path) if path.is_dir() && terminal_target_within_allowed_project_roots(state, &path)? => {
+            Ok(path)
+        }
+        _ => Ok(default_root),
     }
 }
 
@@ -584,7 +678,11 @@ fn terminal_resolve_candidate_path(cwd: &Path, raw: &str) -> Option<PathBuf> {
     {
         return None;
     }
-    let candidate = PathBuf::from(&token);
+    let normalized = normalize_terminal_path_input_for_current_platform(&token);
+    if normalized.is_empty() {
+        return None;
+    }
+    let candidate = PathBuf::from(&normalized);
     let joined = if candidate.is_absolute() {
         candidate
     } else {
@@ -898,11 +996,26 @@ async fn builtin_terminal_exec(
     if cmd.is_empty() {
         return Err("terminal_exec.command is empty".to_string());
     }
+    #[cfg(target_os = "windows")]
+    if state.terminal_shell.kind == "missing-git-bash" {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "approved": false,
+            "blockedReason": "missing_git_bash",
+            "message": "Git Bash is required for terminal tools on Windows. Please install Git for Windows and ensure bash.exe is available.",
+            "sessionId": normalize_terminal_tool_session_id(session_id),
+            "command": cmd
+        }));
+    }
     if let Some(reason) = terminal_command_block_reason(cmd) {
         return Err(format!("terminal_exec blocked: {reason}"));
     }
 
     let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let allowed_project_roots = terminal_allowed_project_roots_canonical(state)?
+        .iter()
+        .map(|v| v.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
     let session_root = terminal_session_root_canonical(state, &normalized_session)?;
     let cwd = match resolve_terminal_cwd(state, &normalized_session, cwd) {
         Ok(path) => path,
@@ -915,6 +1028,7 @@ async fn builtin_terminal_exec(
                 "sessionId": normalized_session,
                 "rootPath": session_root.to_string_lossy().to_string(),
                 "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "allowedProjectRoots": allowed_project_roots,
                 "cwd": cwd.unwrap_or(""),
                 "command": cmd,
             }));
@@ -934,6 +1048,7 @@ async fn builtin_terminal_exec(
                 "sessionId": normalized_session,
                 "rootPath": session_root.to_string_lossy().to_string(),
                 "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "allowedProjectRoots": allowed_project_roots,
                 "cwd": cwd.to_string_lossy().to_string(),
                 "command": cmd,
                 "ungrantedPaths": ungranted_paths
@@ -1046,6 +1161,7 @@ async fn builtin_terminal_exec(
         "sessionId": normalized_session,
         "rootPath": session_root.to_string_lossy().to_string(),
         "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+        "allowedProjectRoots": allowed_project_roots,
         "cwd": cwd.to_string_lossy().to_string(),
         "command": cmd,
         "exitCode": execution.exit_code,
@@ -1066,8 +1182,14 @@ async fn builtin_terminal_request_path_access(
     reason: Option<&str>,
 ) -> Result<Value, String> {
     let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let allowed_roots = terminal_allowed_project_roots_canonical(state)?;
+    let allowed_roots_text = allowed_roots
+        .iter()
+        .map(|v| v.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let current_root = terminal_session_root_canonical(state, &normalized_session)?;
     let workspace = terminal_workspace_canonical(state)?;
-    let target = resolve_terminal_path(&workspace, path)?;
+    let target = resolve_terminal_path(&current_root, path)?;
 
     let set_session_root = |state: &AppState, session_id: &str, root: &Path| -> Result<(), String> {
         let mut roots = state
@@ -1078,57 +1200,20 @@ async fn builtin_terminal_request_path_access(
         Ok(())
     };
 
-    if path_is_within(&workspace, &target) {
-        set_session_root(state, &normalized_session, &target)?;
-        return Ok(serde_json::json!({
-            "ok": true,
-            "granted": true,
-            "sessionId": normalized_session,
-            "requestedPath": path,
-            "normalizedPath": target.to_string_lossy().to_string(),
-            "rootPath": target.to_string_lossy().to_string(),
-            "workspacePath": workspace.to_string_lossy().to_string(),
-            "reason": reason.unwrap_or("").trim(),
-            "note": "Session terminal root switched to requested path."
-        }));
-    }
-
-    let reason_text = reason.unwrap_or("").trim();
-    let approval_message = if reason_text.is_empty() {
-        format!(
-            "申请切换当前会话的终端根目录：\n会话: {normalized_session}\n目标根目录: {}\n\n仅当前会话有效，是否允许？",
-            target.to_string_lossy()
-        )
-    } else {
-        format!(
-            "申请切换当前会话的终端根目录：\n会话: {normalized_session}\n目标根目录: {}\n原因: {reason_text}\n\n仅当前会话有效，是否允许？",
-            target.to_string_lossy()
-        )
-    };
-    let approved = terminal_request_user_approval(
-        state,
-        "终端根目录切换审批",
-        &approval_message,
-        &normalized_session,
-        "path_access",
-        None,
-        None,
-        Some(&target),
-        Some(reason_text),
-        &[],
-    )
-    .await?;
-    if !approved {
+    if !allowed_roots.iter().any(|root| path_is_within(root, &target)) {
         return Ok(serde_json::json!({
             "ok": false,
             "granted": false,
+            "blockedReason": "path_not_in_trusted_project_roots",
+            "message": "Requested path is outside configured terminal project roots.",
             "sessionId": normalized_session,
             "requestedPath": path,
             "normalizedPath": target.to_string_lossy().to_string(),
-            "rootPath": terminal_session_root_canonical(state, &normalized_session)?.to_string_lossy().to_string(),
+            "rootPath": current_root.to_string_lossy().to_string(),
             "workspacePath": workspace.to_string_lossy().to_string(),
-            "reason": reason_text,
-            "note": "User denied terminal root switch request."
+            "allowedProjectRoots": allowed_roots_text,
+            "reason": reason.unwrap_or("").trim(),
+            "note": "Session terminal root remains unchanged."
         }));
     }
 
@@ -1142,7 +1227,8 @@ async fn builtin_terminal_request_path_access(
         "normalizedPath": target.to_string_lossy().to_string(),
         "rootPath": target.to_string_lossy().to_string(),
         "workspacePath": workspace.to_string_lossy().to_string(),
+        "allowedProjectRoots": allowed_roots_text,
         "reason": reason.unwrap_or("").trim(),
-        "note": "Session terminal root switched to requested path."
+        "note": "Session terminal root switched to requested path (trusted project roots only)."
     }))
 }

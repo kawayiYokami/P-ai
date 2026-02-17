@@ -42,6 +42,7 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_project_roots: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "a1".to_string(),
@@ -97,6 +98,7 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_project_roots: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "chat-a".to_string(),
@@ -149,6 +151,7 @@
             vision_api_config_id: Some("tts-a".to_string()),
             stt_api_config_id: Some("tts-a".to_string()),
             stt_auto_send: true,
+            terminal_project_roots: Vec::new(),
             api_configs: vec![ApiConfig {
                 id: "tts-a".to_string(),
                 name: "tts-a".to_string(),
@@ -173,5 +176,35 @@
         assert!(api.enable_tools);
         assert_eq!(cfg.vision_api_config_id, None);
         assert!(cfg.stt_auto_send);
+    }
+
+    #[test]
+    fn normalize_terminal_path_input_should_strip_wrapping_quotes() {
+        let out = normalize_terminal_path_input_for_current_platform(r#""./repo""#);
+        assert_eq!(out, "./repo".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normalize_terminal_path_input_should_convert_git_bash_style_on_windows() {
+        let out = normalize_terminal_path_input_for_current_platform("/e/work/repo");
+        assert_eq!(out, r"E:\work\repo".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normalize_terminal_project_roots_should_convert_and_dedup_windows_paths() {
+        let mut cfg = AppConfig::default();
+        cfg.terminal_project_roots = vec![
+            "/e/__easy_call_ai_path_norm_test__/repo".to_string(),
+            "E:/__easy_call_ai_path_norm_test__/repo".to_string(),
+            r#""E:\__easy_call_ai_path_norm_test__\repo""#.to_string(),
+        ];
+        normalize_terminal_project_roots(&mut cfg);
+        assert_eq!(cfg.terminal_project_roots.len(), 1);
+        assert_eq!(
+            cfg.terminal_project_roots[0],
+            r"E:\__easy_call_ai_path_norm_test__\repo".to_string()
+        );
     }
 

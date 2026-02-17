@@ -43,6 +43,139 @@ fn normalize_api_tools(config: &mut AppConfig) {
     }
 }
 
+fn trim_wrapping_quotes(value: &str) -> &str {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        let first = bytes[0];
+        let last = bytes[trimmed.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &trimmed[1..trimmed.len() - 1];
+        }
+    }
+    trimmed
+}
+
+fn resolve_user_home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+}
+
+fn expand_home_prefix(value: &str) -> String {
+    if value == "~" {
+        return resolve_user_home_dir()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| value.to_string());
+    }
+    let Some(rest) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+    else {
+        return value.to_string();
+    };
+    let Some(home) = resolve_user_home_dir() else {
+        return value.to_string();
+    };
+    if rest.trim().is_empty() {
+        return home.to_string_lossy().to_string();
+    }
+    home.join(rest).to_string_lossy().to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn has_windows_drive_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
+}
+
+#[cfg(target_os = "windows")]
+fn try_convert_git_bash_drive_path(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'/' || !bytes[1].is_ascii_alphabetic() {
+        return None;
+    }
+    if bytes.len() > 2 && bytes[2] != b'/' && bytes[2] != b'\\' {
+        return None;
+    }
+    let drive = (bytes[1] as char).to_ascii_uppercase();
+    let rest = value[2..].trim_start_matches(['/', '\\']);
+    if rest.is_empty() {
+        return Some(format!(r"{drive}:\"));
+    }
+    Some(format!(r"{drive}:\{}", rest.replace('/', "\\")))
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_windows_path_input(value: &str) -> String {
+    let mut text = value.trim().to_string();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest.replace('/', "\\"));
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        text = rest.to_string();
+    }
+    if let Some(converted) = try_convert_git_bash_drive_path(&text) {
+        return converted;
+    }
+    if text.starts_with("//") {
+        return text.replace('/', "\\");
+    }
+    if has_windows_drive_prefix(&text) {
+        return text.replace('/', "\\");
+    }
+    text
+}
+
+fn normalize_terminal_path_input_for_current_platform(raw: &str) -> String {
+    let unquoted = trim_wrapping_quotes(raw);
+    if unquoted.is_empty() {
+        return String::new();
+    }
+    let expanded = expand_home_prefix(unquoted);
+    #[cfg(target_os = "windows")]
+    {
+        normalize_windows_path_input(&expanded)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        expanded
+    }
+}
+
+fn normalize_terminal_project_roots(config: &mut AppConfig) {
+    let mut normalized = Vec::<String>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    for raw in &config.terminal_project_roots {
+        let mut normalized_path = normalize_terminal_path_input_for_current_platform(raw);
+        if normalized_path.is_empty() {
+            continue;
+        }
+        let candidate = PathBuf::from(&normalized_path);
+        if candidate.is_absolute() {
+            if let Ok(canonical) = candidate.canonicalize() {
+                if canonical.is_dir() {
+                    normalized_path = canonical.to_string_lossy().to_string();
+                }
+            }
+        }
+        let key = if cfg!(target_os = "windows") {
+            normalized_path.to_ascii_lowercase()
+        } else {
+            normalized_path.clone()
+        };
+        if seen.insert(key) {
+            normalized.push(normalized_path);
+        }
+    }
+    config.terminal_project_roots = normalized;
+}
+
 fn normalize_app_config(config: &mut AppConfig) {
     if config.api_configs.is_empty() {
         *config = AppConfig::default();
@@ -117,6 +250,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     if config.stt_api_config_id.is_none() {
         config.stt_auto_send = false;
     }
+    normalize_terminal_project_roots(config);
 }
 
 const MEDIA_REF_PREFIX: &str = "@media:";

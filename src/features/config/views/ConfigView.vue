@@ -49,7 +49,9 @@
           :config="config"
           :tool-api-config="toolApiConfig"
           :tool-statuses="toolStatuses"
+          :saving-config="savingConfig"
           @tool-switch-changed="$emit('toolSwitchChanged')"
+          @save-api-config="$emit('saveApiConfig')"
           @open-memory-viewer="$emit('openMemoryViewer')"
         />
 

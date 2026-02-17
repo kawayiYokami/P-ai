@@ -80,6 +80,11 @@ fn get_prompt_preview(
         prepared.preamble.push_str(summary.trim());
         prepared.preamble.push('\n');
     }
+    if let Some(terminal_block) = terminal_prompt_trusted_roots_block(&state, &api_config) {
+        prepared.preamble.push('\n');
+        prepared.preamble.push_str(&terminal_block);
+        prepared.preamble.push('\n');
+    }
     let mut user_content = vec![serde_json::json!({
         "type": "text",
         "text": prepared.latest_user_text,

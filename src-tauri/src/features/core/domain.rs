@@ -345,6 +345,8 @@ struct AppConfig {
     stt_api_config_id: Option<String>,
     #[serde(default)]
     stt_auto_send: bool,
+    #[serde(default)]
+    terminal_project_roots: Vec<String>,
     api_configs: Vec<ApiConfig>,
 }
 
@@ -363,6 +365,7 @@ impl Default for AppConfig {
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_project_roots: Vec::new(),
             api_configs: vec![api_config],
         }
     }

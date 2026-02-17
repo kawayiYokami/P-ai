@@ -1005,13 +1005,13 @@ impl Tool for BuiltinTerminalExecTool {
         ToolDefinition {
             name: "terminal_exec".to_string(),
             description:
-                "Execute a shell command in stateless mode. Default cwd is llm workspace."
+                "Execute a shell command inside current terminal root. Prefer relative cwd."
                     .to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
                 "command": { "type": "string", "description": "Shell command to execute" },
-                "cwd": { "type": "string", "description": "Working directory (optional)" },
+                "cwd": { "type": "string", "description": "Relative working directory under current session root (optional)" },
                 "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
               },
               "required": ["command"]
@@ -1062,12 +1062,13 @@ impl Tool for BuiltinTerminalRequestPathAccessTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "terminal_request_path_access".to_string(),
-            description: "Set terminal root directory for current session."
+            description:
+                "Switch terminal root for current session. Path must be within configured trusted project roots."
                 .to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "Directory path to grant for this session" },
+                "path": { "type": "string", "description": "Directory path (absolute or relative to current session root)" },
                 "reason": { "type": "string", "description": "Why this path is needed" }
               },
               "required": ["path"]
