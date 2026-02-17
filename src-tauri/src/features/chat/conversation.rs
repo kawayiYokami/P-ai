@@ -384,6 +384,7 @@ fn build_prompt(
     user_intro: &str,
     response_style_id: &str,
     ui_language: &str,
+    data_path: Option<&PathBuf>,
 ) -> PreparedPrompt {
     let latest_user_index = conversation.messages.iter().rposition(|m| m.role == "user");
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
@@ -543,10 +544,28 @@ fn build_prompt(
                 }
                 MessagePart::Image {
                     mime, bytes_base64, ..
-                } => latest_images.push((mime, bytes_base64)),
+                } => {
+                    let resolved = if let Some(path) = data_path {
+                        resolve_stored_binary_base64(path, &bytes_base64).unwrap_or_default()
+                    } else {
+                        bytes_base64
+                    };
+                    if !resolved.trim().is_empty() {
+                        latest_images.push((mime, resolved));
+                    }
+                }
                 MessagePart::Audio {
                     mime, bytes_base64, ..
-                } => latest_audios.push((mime, bytes_base64)),
+                } => {
+                    let resolved = if let Some(path) = data_path {
+                        resolve_stored_binary_base64(path, &bytes_base64).unwrap_or_default()
+                    } else {
+                        bytes_base64
+                    };
+                    if !resolved.trim().is_empty() {
+                        latest_audios.push((mime, resolved));
+                    }
+                }
             }
         }
         for extra in extra_text_blocks {

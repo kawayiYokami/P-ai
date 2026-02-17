@@ -127,6 +127,7 @@
       @load-archives="loadArchives"
       @select-archive="selectArchive"
       @export-archive="exportArchive"
+      @import-archive-file="importArchiveFile"
       @delete-archive="deleteArchive"
     />
     <dialog :ref="historyDialogVNodeRef" class="modal">
@@ -322,6 +323,7 @@ const props = defineProps<{
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   exportArchive: (payload: { format: "markdown" | "json" }) => void;
+  importArchiveFile: (file: File) => void;
   deleteArchive: (id: string) => void;
   closeHistory: () => void;
   closeMemoryViewer: () => void;

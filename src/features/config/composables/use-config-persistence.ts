@@ -5,10 +5,19 @@ import type { SupportedLocale } from "../../../i18n";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
+export type ConfigSaveErrorKind = "hotkey_conflict" | "backend_404" | "unknown";
+
+export type ConfigSaveErrorInfo = {
+  kind: ConfigSaveErrorKind;
+  errorText: string;
+  hotkey: string;
+};
+
 type UseConfigPersistenceOptions = {
   t: TrFn;
   setStatus: (text: string) => void;
   setStatusError: (key: string, error: unknown) => void;
+  onSaveConfigError?: (info: ConfigSaveErrorInfo) => void;
   config: AppConfig;
   locale: { value: string };
   normalizeLocale: (value: string) => SupportedLocale;
@@ -33,6 +42,36 @@ type UseConfigPersistenceOptions = {
 };
 
 export function useConfigPersistence(options: UseConfigPersistenceOptions) {
+  function classifySaveConfigError(error: unknown): ConfigSaveErrorInfo {
+    const errorText = String(error ?? "unknown");
+    const normalized = errorText.toLowerCase();
+    const isBackend404 = normalized.includes("404");
+    const isHotkeyConflict =
+      (normalized.includes("register hotkey failed")
+        && (normalized.includes("already registered") || normalized.includes("already in use")))
+      || normalized.includes("hotkey already registered");
+
+    if (isBackend404) {
+      return {
+        kind: "backend_404",
+        errorText,
+        hotkey: options.config.hotkey,
+      };
+    }
+    if (isHotkeyConflict) {
+      return {
+        kind: "hotkey_conflict",
+        errorText,
+        hotkey: options.config.hotkey,
+      };
+    }
+    return {
+      kind: "unknown",
+      errorText,
+      hotkey: options.config.hotkey,
+    };
+  }
+
   async function loadConfig() {
     options.suppressAutosave.value = true;
     options.loading.value = true;
@@ -91,14 +130,19 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
       console.info("[CONFIG] save_config success");
       options.setStatus(options.t("status.configSaved"));
+      return true;
     } catch (e) {
-      const err = String(e);
+      const saveError = classifySaveConfigError(e);
       console.error("[CONFIG] save_config failed:", e);
-      if (err.includes("404")) {
+      if (saveError.kind === "backend_404") {
         options.setStatus(options.t("status.saveConfigBackend404"));
+      } else if (saveError.kind === "hotkey_conflict") {
+        options.setStatus(options.t("status.saveConfigHotkeyOccupied", { hotkey: saveError.hotkey }));
       } else {
-        options.setStatus(options.t("status.saveConfigFailed", { err }));
+        options.setStatus(options.t("status.saveConfigFailed", { err: saveError.errorText }));
       }
+      options.onSaveConfigError?.(saveError);
+      return false;
     } finally {
       options.suppressAutosave.value = false;
       options.saving.value = false;
@@ -109,8 +153,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     const hotkey = String(value || "").trim();
     if (!hotkey) return;
     options.config.hotkey = hotkey;
-    await saveConfig();
-    options.setStatus(options.t("status.hotkeyUpdated", { hotkey }));
+    const saved = await saveConfig();
+    if (saved) {
+      options.setStatus(options.t("status.hotkeyUpdated", { hotkey }));
+    }
   }
 
   async function loadPersonas() {

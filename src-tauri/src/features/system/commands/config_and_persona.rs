@@ -509,13 +509,13 @@ fn get_chat_snapshot(
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
     let conversation = &data.conversations[idx];
 
-    let latest_user = conversation
+    let mut latest_user = conversation
         .messages
         .iter()
         .rev()
         .find(|m| m.role == "user")
         .cloned();
-    let latest_assistant = conversation
+    let mut latest_assistant = conversation
         .messages
         .iter()
         .rev()
@@ -526,6 +526,13 @@ fn get_chat_snapshot(
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);
+
+    if let Some(message) = latest_user.as_mut() {
+        materialize_message_parts_from_media_refs(&mut message.parts, &state.data_path);
+    }
+    if let Some(message) = latest_assistant.as_mut() {
+        materialize_message_parts_from_media_refs(&mut message.parts, &state.data_path);
+    }
 
     Ok(ChatSnapshot {
         conversation_id: conversation.id.clone(),
@@ -574,12 +581,13 @@ fn get_active_conversation_messages(
 
     let before_len = data.conversations.len();
     let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
-    let messages = data.conversations[idx].messages.clone();
+    let mut messages = data.conversations[idx].messages.clone();
 
     if defaults_changed || data.conversations.len() != before_len {
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
 }
 
