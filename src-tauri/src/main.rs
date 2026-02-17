@@ -51,6 +51,7 @@ include!("features/chat/model_runtime.rs");
 
 // ==================== 系统窗口与命令 ====================
 include!("features/system/windowing.rs");
+include!("features/system/sandbox.rs");
 include!("features/system/tools.rs");
 
 // ==================== 记忆匹配 ====================
