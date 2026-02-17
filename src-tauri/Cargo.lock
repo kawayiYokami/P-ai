@@ -1327,6 +1327,7 @@ dependencies = [
  "webbrowser",
  "webp",
  "windows-capture",
+ "windows-sys 0.59.0",
  "xcap",
 ]
 
