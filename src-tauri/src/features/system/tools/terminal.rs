@@ -268,6 +268,18 @@ fn terminal_path_allowed(state: &AppState, session_id: &str, target: &Path) -> R
     Ok(false)
 }
 
+fn terminal_should_parse_command_paths_for_boundary_check() -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // Linux/macOS rely on OS sandbox backend for hard path boundary.
+        return false;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        true
+    }
+}
+
 fn terminal_normalize_for_access_check(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
@@ -910,25 +922,27 @@ async fn builtin_terminal_exec(
         Err(err) => return Err(err),
     };
     let timeout_ms = normalize_terminal_timeout_ms(timeout_ms);
-    let ungranted_paths =
-        terminal_collect_ungranted_command_paths(state, &normalized_session, &cwd, cmd)?;
-    if !ungranted_paths.is_empty() {
-        return Ok(serde_json::json!({
-            "ok": false,
-            "approved": false,
-            "blockedReason": "path_not_granted_in_command",
-            "message": "Command references paths outside current terminal root. Call terminal_request_path_access first.",
-            "sessionId": normalized_session,
-            "rootPath": session_root.to_string_lossy().to_string(),
-            "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
-            "cwd": cwd.to_string_lossy().to_string(),
-            "command": cmd,
-            "ungrantedPaths": ungranted_paths
-                .iter()
-                .take(24)
-                .map(|path| path.to_string_lossy().to_string())
-                .collect::<Vec<_>>(),
-        }));
+    if terminal_should_parse_command_paths_for_boundary_check() {
+        let ungranted_paths =
+            terminal_collect_ungranted_command_paths(state, &normalized_session, &cwd, cmd)?;
+        if !ungranted_paths.is_empty() {
+            return Ok(serde_json::json!({
+                "ok": false,
+                "approved": false,
+                "blockedReason": "path_not_granted_in_command",
+                "message": "Command references paths outside current terminal root. Call terminal_request_path_access first.",
+                "sessionId": normalized_session,
+                "rootPath": session_root.to_string_lossy().to_string(),
+                "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "cwd": cwd.to_string_lossy().to_string(),
+                "command": cmd,
+                "ungrantedPaths": ungranted_paths
+                    .iter()
+                    .take(24)
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>(),
+            }));
+        }
     }
 
     match classify_terminal_write_risk(&cwd, cmd) {

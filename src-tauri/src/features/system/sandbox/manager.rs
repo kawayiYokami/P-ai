@@ -1,9 +1,13 @@
 #[derive(Debug, Clone, Copy)]
 enum SandboxBackendKind {
-    #[cfg(not(target_os = "windows"))]
-    ProcessBackend,
     #[cfg(target_os = "windows")]
     WindowsJobBackend,
+    #[cfg(target_os = "linux")]
+    LinuxBubblewrapBackend,
+    #[cfg(target_os = "macos")]
+    MacosSeatbeltBackend,
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    ProcessBackend,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -20,7 +24,21 @@ impl SandboxManager {
             };
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        {
+            return Self {
+                backend: SandboxBackendKind::LinuxBubblewrapBackend,
+            };
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            return Self {
+                backend: SandboxBackendKind::MacosSeatbeltBackend,
+            };
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
         Self {
             backend: SandboxBackendKind::ProcessBackend,
         }
@@ -34,13 +52,21 @@ impl SandboxManager {
         // Defense in depth: backend entrance re-checks cwd policy.
         sandbox_assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
         match self.backend {
-            #[cfg(not(target_os = "windows"))]
-            SandboxBackendKind::ProcessBackend => {
-                sandbox_run_with_process_backend(&state.terminal_shell, &request).await
-            }
             #[cfg(target_os = "windows")]
             SandboxBackendKind::WindowsJobBackend => {
                 sandbox_run_with_windows_job_backend(&state.terminal_shell, &request).await
+            }
+            #[cfg(target_os = "linux")]
+            SandboxBackendKind::LinuxBubblewrapBackend => {
+                sandbox_run_with_linux_bwrap_backend(&state.terminal_shell, &request).await
+            }
+            #[cfg(target_os = "macos")]
+            SandboxBackendKind::MacosSeatbeltBackend => {
+                sandbox_run_with_macos_seatbelt_backend(&state.terminal_shell, &request).await
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+            SandboxBackendKind::ProcessBackend => {
+                sandbox_run_with_process_backend(&state.terminal_shell, &request).await
             }
         }
     }

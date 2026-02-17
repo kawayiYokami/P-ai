@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 async fn sandbox_run_with_process_backend(
     shell: &TerminalShellProfile,
     request: &SandboxRequest,
