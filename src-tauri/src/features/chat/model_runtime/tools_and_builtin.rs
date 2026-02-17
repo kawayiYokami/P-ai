@@ -1062,7 +1062,7 @@ impl Tool for BuiltinTerminalRequestPathAccessTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "terminal_request_path_access".to_string(),
-            description: "Request terminal working directory access for current session."
+            description: "Set terminal root directory for current session."
                 .to_string(),
             parameters: serde_json::json!({
               "type": "object",

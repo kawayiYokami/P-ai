@@ -800,8 +800,7 @@ struct AppState {
     terminal_shell: TerminalShellProfile,
     state_lock: Arc<Mutex<()>>,
     inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
-    terminal_path_grants:
-        Arc<Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>>,
+    terminal_session_roots: Arc<Mutex<std::collections::HashMap<String, String>>>,
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
@@ -824,7 +823,7 @@ impl AppState {
             terminal_shell,
             state_lock: Arc::new(Mutex::new(())),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            terminal_path_grants: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }

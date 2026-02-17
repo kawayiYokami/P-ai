@@ -98,7 +98,7 @@
       "descDesktopScreenshot": "捕获当前整个桌面的图像内容。",
       "descDesktopWait": "按毫秒等待，用于操作节奏控制。",
       "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
-      "descTerminalPathAccess": "为当前会话申请额外目录的终端访问权限。",
+      "descTerminalPathAccess": "设置当前会话的终端根目录（超出根目录将被拒绝）。",
       "descGeneric": "通用工具能力。"
     },
     "persona": {

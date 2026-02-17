@@ -525,7 +525,7 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "terminal_request_path_access",
-                "description": "Request terminal working directory access for current session.",
+                "description": "Set terminal root directory for current session.",
                 "parameters": {
                     "type": "object",
                     "properties": {

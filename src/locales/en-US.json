@@ -98,7 +98,7 @@
       "descDesktopScreenshot": "Capture the current full desktop image.",
       "descDesktopWait": "Pause by milliseconds to control action pacing.",
       "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
-      "descTerminalPathAccess": "Request extra terminal path access for current session.",
+      "descTerminalPathAccess": "Set terminal root directory for current session (outside root is blocked).",
       "descGeneric": "General tool capability."
     },
     "persona": {

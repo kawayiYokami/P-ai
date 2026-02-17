@@ -206,24 +206,24 @@ fn terminal_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
         .map_err(|err| format!("Resolve llm workspace failed: {err}"))
 }
 
-fn terminal_has_session_path_access(state: &AppState, session_id: &str, target: &Path) -> bool {
-    let normalized_target = normalize_terminal_path_for_compare(target);
-    let guard = match state.terminal_path_grants.lock() {
-        Ok(guard) => guard,
-        Err(_) => return false,
+fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result<PathBuf, String> {
+    let workspace = terminal_workspace_canonical(state)?;
+    let root_text = {
+        let guard = state
+            .terminal_session_roots
+            .lock()
+            .map_err(|_| "Failed to lock terminal session roots".to_string())?;
+        guard.get(session_id).cloned()
     };
-    let grants = match guard.get(session_id) {
-        Some(grants) => grants,
-        None => return false,
+    let Some(root_text) = root_text else {
+        return Ok(workspace);
     };
 
-    grants.iter().any(|granted| {
-        let separator = std::path::MAIN_SEPARATOR.to_string();
-        normalized_target == *granted
-            || normalized_target
-                .strip_prefix(&(granted.clone() + &separator))
-                .is_some()
-    })
+    let root = PathBuf::from(root_text);
+    match root.canonicalize() {
+        Ok(path) if path.is_dir() => Ok(path),
+        _ => Ok(workspace),
+    }
 }
 
 fn ensure_terminal_workdir_allowed(
@@ -231,15 +231,12 @@ fn ensure_terminal_workdir_allowed(
     session_id: &str,
     cwd: &Path,
 ) -> Result<(), String> {
-    let workspace = terminal_workspace_canonical(state)?;
-    if path_is_within(&workspace, cwd) {
-        return Ok(());
-    }
-    if terminal_has_session_path_access(state, session_id, cwd) {
+    let session_root = terminal_session_root_canonical(state, session_id)?;
+    if path_is_within(&session_root, cwd) {
         return Ok(());
     }
     Err(format!(
-        "Working directory is not allowed yet: {}. Call terminal_request_path_access first.",
+        "Working directory is outside current terminal root: {}. Call terminal_request_path_access first.",
         cwd.to_string_lossy()
     ))
 }
@@ -249,26 +246,23 @@ fn resolve_terminal_cwd(
     session_id: &str,
     requested_cwd: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let workspace = terminal_workspace_canonical(state)?;
+    let session_root = terminal_session_root_canonical(state, session_id)?;
     let resolved = if let Some(raw) = requested_cwd {
         if raw.trim().is_empty() {
-            workspace.clone()
+            session_root.clone()
         } else {
-            resolve_terminal_path(&workspace, raw)?
+            resolve_terminal_path(&session_root, raw)?
         }
     } else {
-        workspace.clone()
+        session_root.clone()
     };
     ensure_terminal_workdir_allowed(state, session_id, &resolved)?;
     Ok(resolved)
 }
 
 fn terminal_path_allowed(state: &AppState, session_id: &str, target: &Path) -> Result<bool, String> {
-    let workspace = terminal_workspace_canonical(state)?;
-    if path_is_within(&workspace, target) {
-        return Ok(true);
-    }
-    if terminal_has_session_path_access(state, session_id, target) {
+    let session_root = terminal_session_root_canonical(state, session_id)?;
+    if path_is_within(&session_root, target) {
         return Ok(true);
     }
     Ok(false)
@@ -897,6 +891,7 @@ async fn builtin_terminal_exec(
     }
 
     let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let session_root = terminal_session_root_canonical(state, &normalized_session)?;
     let cwd = match resolve_terminal_cwd(state, &normalized_session, cwd) {
         Ok(path) => path,
         Err(err) if err.contains("Call terminal_request_path_access first.") => {
@@ -906,6 +901,7 @@ async fn builtin_terminal_exec(
                 "blockedReason": "path_not_granted",
                 "message": err,
                 "sessionId": normalized_session,
+                "rootPath": session_root.to_string_lossy().to_string(),
                 "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
                 "cwd": cwd.unwrap_or(""),
                 "command": cmd,
@@ -921,8 +917,9 @@ async fn builtin_terminal_exec(
             "ok": false,
             "approved": false,
             "blockedReason": "path_not_granted_in_command",
-            "message": "Command references paths outside allowed workspace/grants. Call terminal_request_path_access first.",
+            "message": "Command references paths outside current terminal root. Call terminal_request_path_access first.",
             "sessionId": normalized_session,
+            "rootPath": session_root.to_string_lossy().to_string(),
             "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
             "cwd": cwd.to_string_lossy().to_string(),
             "command": cmd,
@@ -976,6 +973,7 @@ async fn builtin_terminal_exec(
                     "blockedReason": "user_denied_existing_file_change",
                     "message": "User denied command that may modify existing files.",
                     "sessionId": normalized_session,
+                    "rootPath": session_root.to_string_lossy().to_string(),
                     "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
                     "cwd": cwd.to_string_lossy().to_string(),
                     "command": cmd,
@@ -1007,6 +1005,7 @@ async fn builtin_terminal_exec(
                     "blockedReason": "user_denied_unknown_write_risk",
                     "message": "User denied command with unknown write risk.",
                     "sessionId": normalized_session,
+                    "rootPath": session_root.to_string_lossy().to_string(),
                     "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
                     "cwd": cwd.to_string_lossy().to_string(),
                     "command": cmd,
@@ -1031,6 +1030,7 @@ async fn builtin_terminal_exec(
         "shellKind": execution.shell_kind,
         "shellPath": execution.shell_path,
         "sessionId": normalized_session,
+        "rootPath": session_root.to_string_lossy().to_string(),
         "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
         "cwd": cwd.to_string_lossy().to_string(),
         "command": cmd,
@@ -1055,34 +1055,45 @@ async fn builtin_terminal_request_path_access(
     let workspace = terminal_workspace_canonical(state)?;
     let target = resolve_terminal_path(&workspace, path)?;
 
+    let set_session_root = |state: &AppState, session_id: &str, root: &Path| -> Result<(), String> {
+        let mut roots = state
+            .terminal_session_roots
+            .lock()
+            .map_err(|_| "Failed to lock terminal session roots".to_string())?;
+        roots.insert(session_id.to_string(), root.to_string_lossy().to_string());
+        Ok(())
+    };
+
     if path_is_within(&workspace, &target) {
+        set_session_root(state, &normalized_session, &target)?;
         return Ok(serde_json::json!({
             "ok": true,
             "granted": true,
             "sessionId": normalized_session,
             "requestedPath": path,
             "normalizedPath": target.to_string_lossy().to_string(),
+            "rootPath": target.to_string_lossy().to_string(),
             "workspacePath": workspace.to_string_lossy().to_string(),
             "reason": reason.unwrap_or("").trim(),
-            "note": "Path is already inside llm workspace."
+            "note": "Session terminal root switched to requested path."
         }));
     }
 
     let reason_text = reason.unwrap_or("").trim();
     let approval_message = if reason_text.is_empty() {
         format!(
-            "申请为当前会话授予终端路径访问权限：\n会话: {normalized_session}\n路径: {}\n\n仅当前会话有效，是否允许？",
+            "申请切换当前会话的终端根目录：\n会话: {normalized_session}\n目标根目录: {}\n\n仅当前会话有效，是否允许？",
             target.to_string_lossy()
         )
     } else {
         format!(
-            "申请为当前会话授予终端路径访问权限：\n会话: {normalized_session}\n路径: {}\n原因: {reason_text}\n\n仅当前会话有效，是否允许？",
+            "申请切换当前会话的终端根目录：\n会话: {normalized_session}\n目标根目录: {}\n原因: {reason_text}\n\n仅当前会话有效，是否允许？",
             target.to_string_lossy()
         )
     };
     let approved = terminal_request_user_approval(
         state,
-        "终端路径授权审批",
+        "终端根目录切换审批",
         &approval_message,
         &normalized_session,
         "path_access",
@@ -1100,20 +1111,14 @@ async fn builtin_terminal_request_path_access(
             "sessionId": normalized_session,
             "requestedPath": path,
             "normalizedPath": target.to_string_lossy().to_string(),
+            "rootPath": terminal_session_root_canonical(state, &normalized_session)?.to_string_lossy().to_string(),
             "workspacePath": workspace.to_string_lossy().to_string(),
             "reason": reason_text,
-            "note": "User denied path access request."
+            "note": "User denied terminal root switch request."
         }));
     }
 
-    let mut grants = state
-        .terminal_path_grants
-        .lock()
-        .map_err(|_| "Failed to lock terminal path grants".to_string())?;
-    let entry = grants
-        .entry(normalized_session.clone())
-        .or_insert_with(std::collections::HashSet::new);
-    entry.insert(normalize_terminal_path_for_compare(&target));
+    set_session_root(state, &normalized_session, &target)?;
 
     Ok(serde_json::json!({
         "ok": true,
@@ -1121,8 +1126,9 @@ async fn builtin_terminal_request_path_access(
         "sessionId": normalized_session,
         "requestedPath": path,
         "normalizedPath": target.to_string_lossy().to_string(),
+        "rootPath": target.to_string_lossy().to_string(),
         "workspacePath": workspace.to_string_lossy().to_string(),
         "reason": reason.unwrap_or("").trim(),
-        "note": "Path access granted for current session only."
+        "note": "Session terminal root switched to requested path."
     }))
 }
