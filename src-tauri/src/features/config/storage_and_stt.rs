@@ -119,6 +119,273 @@ fn normalize_app_config(config: &mut AppConfig) {
     }
 }
 
+const MEDIA_REF_PREFIX: &str = "@media:";
+const MEDIA_BASE64_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+struct MediaBase64Cache {
+    entries: std::collections::HashMap<String, MediaBase64CacheEntry>,
+    total_bytes: usize,
+    seq: u64,
+}
+
+#[derive(Debug, Clone)]
+struct MediaBase64CacheEntry {
+    value: String,
+    bytes: usize,
+    seq: u64,
+}
+
+fn media_base64_cache() -> &'static Mutex<MediaBase64Cache> {
+    static CACHE: OnceLock<Mutex<MediaBase64Cache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(MediaBase64Cache::default()))
+}
+
+fn media_base64_cache_get(key: &str) -> Option<String> {
+    let mut guard = media_base64_cache().lock().ok()?;
+    guard.seq = guard.seq.saturating_add(1);
+    let current_seq = guard.seq;
+    let entry = guard.entries.get_mut(key)?;
+    entry.seq = current_seq;
+    Some(entry.value.clone())
+}
+
+fn media_base64_cache_put(key: String, value: String) {
+    let bytes = value.len();
+    if bytes > MEDIA_BASE64_CACHE_MAX_BYTES {
+        return;
+    }
+    let Ok(mut guard) = media_base64_cache().lock() else {
+        return;
+    };
+    if let Some(old) = guard.entries.remove(&key) {
+        guard.total_bytes = guard.total_bytes.saturating_sub(old.bytes);
+    }
+    guard.seq = guard.seq.saturating_add(1);
+    let seq = guard.seq;
+    guard.entries.insert(
+        key.clone(),
+        MediaBase64CacheEntry {
+            value,
+            bytes,
+            seq,
+        },
+    );
+    guard.total_bytes = guard.total_bytes.saturating_add(bytes);
+
+    while guard.total_bytes > MEDIA_BASE64_CACHE_MAX_BYTES {
+        let Some(evict_key) = guard
+            .entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.seq)
+            .map(|(k, _)| k.clone())
+        else {
+            break;
+        };
+        if let Some(removed) = guard.entries.remove(&evict_key) {
+            guard.total_bytes = guard.total_bytes.saturating_sub(removed.bytes);
+        } else {
+            break;
+        }
+    }
+}
+
+fn media_storage_dir_from_data_path(data_path: &PathBuf) -> Result<PathBuf, String> {
+    let parent = data_path
+        .parent()
+        .ok_or_else(|| "App data path has no parent directory".to_string())?;
+    Ok(parent.join("media"))
+}
+
+fn media_extension_from_mime(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/webp" => "webp",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        "audio/wav" | "audio/wave" => "wav",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/aiff" => "aiff",
+        "audio/aac" => "aac",
+        "audio/ogg" => "ogg",
+        "audio/flac" => "flac",
+        "audio/webm" => "webm",
+        _ => "bin",
+    }
+}
+
+fn media_marker_from_id(media_id: &str) -> String {
+    format!("{MEDIA_REF_PREFIX}{media_id}")
+}
+
+fn media_id_from_marker(value: &str) -> Option<&str> {
+    value.trim().strip_prefix(MEDIA_REF_PREFIX)
+}
+
+fn persist_media_bytes(data_path: &PathBuf, mime: &str, raw: &[u8]) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    if raw.is_empty() {
+        return Err("media payload is empty".to_string());
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(raw);
+    let hash = format!("{:x}", hasher.finalize());
+    let ext = media_extension_from_mime(mime);
+    let media_id = format!("{hash}.{ext}");
+    let dir = media_storage_dir_from_data_path(data_path)?;
+    fs::create_dir_all(&dir).map_err(|err| format!("Create media directory failed: {err}"))?;
+    let path = dir.join(&media_id);
+    if !path.exists() {
+        fs::write(&path, raw).map_err(|err| format!("Write media file failed: {err}"))?;
+    }
+    Ok(media_id)
+}
+
+fn resolve_stored_binary_base64(data_path: &PathBuf, stored: &str) -> Result<String, String> {
+    let trimmed = stored.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    let Some(media_id) = media_id_from_marker(trimmed) else {
+        return Ok(trimmed.to_string());
+    };
+    if let Some(hit) = media_base64_cache_get(trimmed) {
+        return Ok(hit);
+    }
+    let dir = media_storage_dir_from_data_path(data_path)?;
+    let path = dir.join(media_id);
+    let raw = fs::read(&path).map_err(|err| {
+        format!(
+            "Read media file failed ({}): {err}",
+            path.to_string_lossy()
+        )
+    })?;
+    let encoded = B64.encode(raw);
+    media_base64_cache_put(trimmed.to_string(), encoded.clone());
+    Ok(encoded)
+}
+
+fn externalize_stored_binary_base64(
+    data_path: &PathBuf,
+    mime: &str,
+    stored: &str,
+) -> Result<String, String> {
+    let trimmed = stored.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    if media_id_from_marker(trimmed).is_some() {
+        return Ok(trimmed.to_string());
+    }
+    let raw = B64
+        .decode(trimmed)
+        .map_err(|err| format!("Decode media base64 failed: {err}"))?;
+    let media_id = persist_media_bytes(data_path, mime, &raw)?;
+    Ok(media_marker_from_id(&media_id))
+}
+
+fn externalize_message_parts_to_media_refs(
+    parts: &mut [MessagePart],
+    data_path: &PathBuf,
+) -> Result<bool, String> {
+    let mut changed = false;
+    for part in parts {
+        match part {
+            MessagePart::Image {
+                mime,
+                bytes_base64,
+                ..
+            }
+            | MessagePart::Audio {
+                mime,
+                bytes_base64,
+                ..
+            } => {
+                let next = externalize_stored_binary_base64(data_path, mime, bytes_base64)?;
+                if *bytes_base64 != next {
+                    *bytes_base64 = next;
+                    changed = true;
+                }
+            }
+            MessagePart::Text { .. } => {}
+        }
+    }
+    Ok(changed)
+}
+
+fn externalize_message_parts_to_media_refs_lossy(parts: &mut [MessagePart], data_path: &PathBuf) -> bool {
+    let mut changed = false;
+    for part in parts {
+        match part {
+            MessagePart::Image {
+                mime,
+                bytes_base64,
+                ..
+            }
+            | MessagePart::Audio {
+                mime,
+                bytes_base64,
+                ..
+            } => {
+                let Ok(next) = externalize_stored_binary_base64(data_path, mime, bytes_base64) else {
+                    continue;
+                };
+                if *bytes_base64 != next {
+                    *bytes_base64 = next;
+                    changed = true;
+                }
+            }
+            MessagePart::Text { .. } => {}
+        }
+    }
+    changed
+}
+
+fn materialize_message_parts_from_media_refs(parts: &mut [MessagePart], data_path: &PathBuf) {
+    for part in parts {
+        match part {
+            MessagePart::Image { bytes_base64, .. } | MessagePart::Audio { bytes_base64, .. } => {
+                if media_id_from_marker(bytes_base64).is_none() {
+                    continue;
+                }
+                match resolve_stored_binary_base64(data_path, bytes_base64) {
+                    Ok(decoded) => *bytes_base64 = decoded,
+                    Err(_) => {
+                        bytes_base64.clear();
+                    }
+                }
+            }
+            MessagePart::Text { .. } => {}
+        }
+    }
+}
+
+fn materialize_chat_message_parts_from_media_refs(messages: &mut [ChatMessage], data_path: &PathBuf) {
+    for message in messages {
+        materialize_message_parts_from_media_refs(&mut message.parts, data_path);
+    }
+}
+
+fn migrate_app_data_inline_media_to_refs(data_path: &PathBuf, data: &mut AppData) -> bool {
+    let mut changed = false;
+    for conversation in &mut data.conversations {
+        for message in &mut conversation.messages {
+            changed |= externalize_message_parts_to_media_refs_lossy(&mut message.parts, data_path);
+        }
+    }
+    for archive in &mut data.archived_conversations {
+        for message in &mut archive.source_conversation.messages {
+            changed |= externalize_message_parts_to_media_refs_lossy(&mut message.parts, data_path);
+        }
+    }
+    changed
+}
+
 fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     if !path.exists() {
         return Ok(AppData::default());
@@ -127,7 +394,11 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     let content = fs::read_to_string(path).map_err(|err| format!("Read app_data failed: {err}"))?;
     let mut parsed = serde_json::from_str::<AppData>(&content).unwrap_or_default();
     parsed.version = APP_DATA_SCHEMA_VERSION;
-    ensure_default_agent(&mut parsed);
+    let defaults_changed = ensure_default_agent(&mut parsed);
+    let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
+    if defaults_changed || migrated {
+        write_app_data(path, &parsed)?;
+    }
     Ok(parsed)
 }
 

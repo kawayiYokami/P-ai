@@ -37,6 +37,7 @@
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
+            None,
         );
 
         assert!(

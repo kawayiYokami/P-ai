@@ -431,7 +431,8 @@ async fn send_chat_message(
         let mut storage_api = selected_api.clone();
         storage_api.enable_image = true;
         storage_api.enable_audio = true;
-        let user_parts = build_user_parts(&input.payload, &storage_api)?;
+        let mut user_parts = build_user_parts(&input.payload, &storage_api)?;
+        externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
         let conversation_before = data.conversations[idx].clone();
         let search_text = conversation_search_text(&conversation_before);
         let memory_board_xml =
@@ -481,6 +482,7 @@ async fn send_chat_message(
             &user_intro,
             &data.response_style_id,
             &app_config.ui_language,
+            Some(&state.data_path),
         );
         if let Some(summary) = last_archive_summary {
             prepared.preamble.push_str(
