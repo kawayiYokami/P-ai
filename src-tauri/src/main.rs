@@ -88,6 +88,9 @@ fn main() {
         .manage(state)
         .setup(|app| {
             let app_handle = app.handle().clone();
+            if let Ok(mut handle_slot) = app_handle.state::<AppState>().app_handle.lock() {
+                *handle_slot = Some(app_handle.clone());
+            }
             if let Err(err) = register_default_hotkey(&app_handle) {
                 eprintln!("[BOOT] register_default_hotkey failed: {err}");
             }
@@ -162,7 +165,8 @@ fn main() {
             clear_image_text_cache,
             send_debug_probe,
             desktop_screenshot,
-            desktop_wait
+            desktop_wait,
+            resolve_terminal_approval
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

@@ -125,6 +125,8 @@ function toolDescription(id: string): string {
   if (id === "memory-save") return t("config.tools.descMemorySave");
   if (id === "desktop-screenshot") return t("config.tools.descDesktopScreenshot");
   if (id === "desktop-wait") return t("config.tools.descDesktopWait");
+  if (id === "terminal-exec") return t("config.tools.descTerminalExec");
+  if (id === "terminal-request-path-access") return t("config.tools.descTerminalPathAccess");
   return t("config.tools.descGeneric");
 }
 

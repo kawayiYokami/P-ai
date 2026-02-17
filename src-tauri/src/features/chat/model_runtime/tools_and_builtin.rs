@@ -732,6 +732,22 @@ struct DesktopWaitToolArgs {
     ms: u64,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TerminalExecToolArgs {
+    command: String,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TerminalRequestPathAccessToolArgs {
+    path: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct BuiltinFetchTool;
 
@@ -968,6 +984,119 @@ impl Tool for BuiltinDesktopWaitTool {
                 debug_value_snippet(v, 240)
             ),
             Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=desktop-wait err={err}"),
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTerminalExecTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+impl Tool for BuiltinTerminalExecTool {
+    const NAME: &'static str = "terminal_exec";
+    type Error = ToolInvokeError;
+    type Args = TerminalExecToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "terminal_exec".to_string(),
+            description:
+                "Execute a shell command in stateless mode. Default cwd is llm workspace."
+                    .to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "command": { "type": "string", "description": "Shell command to execute" },
+                "cwd": { "type": "string", "description": "Working directory (optional)" },
+                "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
+              },
+              "required": ["command"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=terminal-exec args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let result = builtin_terminal_exec(
+            &self.app_state,
+            &self.session_id,
+            &args.command,
+            args.cwd.as_deref(),
+            args.timeout_ms,
+        )
+        .await
+        .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=terminal-exec result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => {
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=terminal-exec err={err}")
+            }
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTerminalRequestPathAccessTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+impl Tool for BuiltinTerminalRequestPathAccessTool {
+    const NAME: &'static str = "terminal_request_path_access";
+    type Error = ToolInvokeError;
+    type Args = TerminalRequestPathAccessToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "terminal_request_path_access".to_string(),
+            description: "Request terminal working directory access for current session."
+                .to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "Directory path to grant for this session" },
+                "reason": { "type": "string", "description": "Why this path is needed" }
+              },
+              "required": ["path"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=terminal-request-path-access args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let result = builtin_terminal_request_path_access(
+            &self.app_state,
+            &self.session_id,
+            &args.path,
+            args.reason.as_deref(),
+        )
+        .await
+        .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=terminal-request-path-access result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.err name=terminal-request-path-access err={err}"
+            ),
         }
         result
     }

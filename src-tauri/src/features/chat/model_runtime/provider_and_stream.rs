@@ -520,6 +520,41 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             }
         }));
     }
+    if tool_enabled(selected_api, "terminal-request-path-access") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "terminal_request_path_access",
+                "description": "Request terminal working directory access for current session.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "reason": { "type": "string" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }));
+    }
+    if tool_enabled(selected_api, "terminal-exec") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "terminal_exec",
+                "description": "Execute shell command in stateless mode.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" },
+                        "cwd": { "type": "string" },
+                        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
+                    },
+                    "required": ["command"]
+                }
+            }
+        }));
+    }
     tools
 }
 
@@ -527,6 +562,7 @@ async fn execute_builtin_tool_call(
     selected_api: &ApiConfig,
     app_state: Option<&AppState>,
     screenshot_mcp_client: Option<&ScreenshotMcpClient>,
+    tool_session_id: &str,
     tool_name: &str,
     args_json: &Value,
 ) -> Result<Value, String> {
@@ -563,6 +599,38 @@ async fn execute_builtin_tool_call(
             let args: DesktopWaitToolArgs = serde_json::from_value(args_json.clone())
                 .map_err(|err| format!("Parse desktop_wait args failed: {err}"))?;
             builtin_desktop_wait(args.ms).await
+        }
+        "terminal_request_path_access" | "terminal-request-path-access"
+            if tool_enabled(selected_api, "terminal-request-path-access") =>
+        {
+            let state = app_state.ok_or_else(|| {
+                "terminal_request_path_access requires app state".to_string()
+            })?;
+            let args: TerminalRequestPathAccessToolArgs =
+                serde_json::from_value(args_json.clone()).map_err(|err| {
+                    format!("Parse terminal_request_path_access args failed: {err}")
+                })?;
+            builtin_terminal_request_path_access(
+                state,
+                tool_session_id,
+                &args.path,
+                args.reason.as_deref(),
+            )
+            .await
+        }
+        "terminal_exec" | "terminal-exec" if tool_enabled(selected_api, "terminal-exec") => {
+            let state = app_state
+                .ok_or_else(|| "terminal_exec requires app state".to_string())?;
+            let args: TerminalExecToolArgs = serde_json::from_value(args_json.clone())
+                .map_err(|err| format!("Parse terminal_exec args failed: {err}"))?;
+            builtin_terminal_exec(
+                state,
+                tool_session_id,
+                &args.command,
+                args.cwd.as_deref(),
+                args.timeout_ms,
+            )
+            .await
         }
         _ => Err(format!("Unsupported or disabled tool: {tool_name}")),
     }
@@ -894,6 +962,7 @@ async fn call_model_deepseek_with_tools_http(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
     let tools = deepseek_tool_schemas(selected_api);
     if tools.is_empty() {
@@ -1090,6 +1159,7 @@ async fn call_model_deepseek_with_tools_http(
                 selected_api,
                 app_state,
                 _mcp_screenshot_client.as_ref(),
+                tool_session_id,
                 &tool_name,
                 &args_json,
             )
@@ -1178,6 +1248,7 @@ async fn call_model_openai_with_tools(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
     if selected_api.request_format.is_deepseek_kimi() {
         return call_model_deepseek_with_tools_http(
@@ -1188,6 +1259,7 @@ async fn call_model_openai_with_tools(
             app_state,
             on_delta,
             max_tool_iterations,
+            tool_session_id,
         )
         .await;
     }
@@ -1197,7 +1269,17 @@ async fn call_model_openai_with_tools(
     let has_memory = tool_enabled(selected_api, "memory-save");
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
-    if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
+    let has_terminal_request_path_access =
+        tool_enabled(selected_api, "terminal-request-path-access");
+    let has_terminal_exec = tool_enabled(selected_api, "terminal-exec");
+    if !has_fetch
+        && !has_bing
+        && !has_memory
+        && !has_desktop_screenshot
+        && !has_desktop_wait
+        && !has_terminal_request_path_access
+        && !has_terminal_exec
+    {
         return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
     }
 
@@ -1238,6 +1320,24 @@ async fn call_model_openai_with_tools(
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
+    }
+    if has_terminal_request_path_access {
+        let state = app_state
+            .ok_or_else(|| "terminal_request_path_access requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalRequestPathAccessTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+    }
+    if has_terminal_exec {
+        let state = app_state
+            .ok_or_else(|| "terminal_exec requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalExecTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
     }
 
     let agent = client
@@ -1591,13 +1691,24 @@ async fn call_model_gemini_with_tools(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_bing = tool_enabled(selected_api, "bing-search");
     let has_memory = tool_enabled(selected_api, "memory-save");
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
-    if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
+    let has_terminal_request_path_access =
+        tool_enabled(selected_api, "terminal-request-path-access");
+    let has_terminal_exec = tool_enabled(selected_api, "terminal-exec");
+    if !has_fetch
+        && !has_bing
+        && !has_memory
+        && !has_desktop_screenshot
+        && !has_desktop_wait
+        && !has_terminal_request_path_access
+        && !has_terminal_exec
+    {
         return call_model_gemini_rig_style(api_config, model_name, prepared).await;
     }
 
@@ -1638,6 +1749,24 @@ async fn call_model_gemini_with_tools(
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
+    }
+    if has_terminal_request_path_access {
+        let state = app_state
+            .ok_or_else(|| "terminal_request_path_access requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalRequestPathAccessTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+    }
+    if has_terminal_exec {
+        let state = app_state
+            .ok_or_else(|| "terminal_exec requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalExecTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
     }
 
     let gemini_safety_settings = serde_json::json!({
@@ -1909,13 +2038,24 @@ async fn call_model_anthropic_with_tools(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_bing = tool_enabled(selected_api, "bing-search");
     let has_memory = tool_enabled(selected_api, "memory-save");
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
-    if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
+    let has_terminal_request_path_access =
+        tool_enabled(selected_api, "terminal-request-path-access");
+    let has_terminal_exec = tool_enabled(selected_api, "terminal-exec");
+    if !has_fetch
+        && !has_bing
+        && !has_memory
+        && !has_desktop_screenshot
+        && !has_desktop_wait
+        && !has_terminal_request_path_access
+        && !has_terminal_exec
+    {
         return call_model_anthropic_rig_style(api_config, model_name, prepared).await;
     }
 
@@ -1956,6 +2096,24 @@ async fn call_model_anthropic_with_tools(
     }
     if has_desktop_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
+    }
+    if has_terminal_request_path_access {
+        let state = app_state
+            .ok_or_else(|| "terminal_request_path_access requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalRequestPathAccessTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+    }
+    if has_terminal_exec {
+        let state = app_state
+            .ok_or_else(|| "terminal_exec requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalExecTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
     }
 
     let agent = client
@@ -2218,6 +2376,7 @@ async fn call_model_openai_style(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
     if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
@@ -2232,6 +2391,7 @@ async fn call_model_openai_style(
                 app_state,
                 on_delta,
                 max_tool_iterations,
+                tool_session_id,
             )
             .await;
         }
@@ -2250,6 +2410,7 @@ async fn call_model_openai_style(
                 app_state,
                 on_delta,
                 max_tool_iterations,
+                tool_session_id,
             )
             .await;
         }
@@ -2270,6 +2431,7 @@ async fn call_model_openai_style(
             app_state,
             on_delta,
             max_tool_iterations,
+            tool_session_id,
         )
         .await;
     }

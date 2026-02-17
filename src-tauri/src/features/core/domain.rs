@@ -227,6 +227,20 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             enabled: false,
             values: serde_json::json!({}),
         },
+        ApiToolConfig {
+            id: "terminal-exec".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["terminal-exec".to_string()],
+            enabled: false,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "terminal-request-path-access".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["terminal-request-path-access".to_string()],
+            enabled: false,
+            values: serde_json::json!({}),
+        },
     ]
 }
 
@@ -779,10 +793,17 @@ struct PreparedPrompt {
 
 #[derive(Debug, Clone)]
 struct AppState {
+    app_handle: Arc<Mutex<Option<AppHandle>>>,
     config_path: PathBuf,
     data_path: PathBuf,
+    llm_workspace_path: PathBuf,
+    terminal_shell: TerminalShellProfile,
     state_lock: Arc<Mutex<()>>,
     inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
+    terminal_path_grants:
+        Arc<Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>>,
+    terminal_pending_approvals:
+        Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 impl AppState {
@@ -790,12 +811,21 @@ impl AppState {
         let project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
             .ok_or_else(|| "Failed to resolve config directory".to_string())?;
         let config_dir = project_dirs.config_dir().to_path_buf();
+        let llm_workspace_path = config_dir.join("llm-workspace");
+        fs::create_dir_all(&llm_workspace_path)
+            .map_err(|err| format!("Create llm workspace failed: {err}"))?;
+        let terminal_shell = detect_default_terminal_shell();
 
         Ok(Self {
+            app_handle: Arc::new(Mutex::new(None)),
             config_path: config_dir.join("config.toml"),
             data_path: config_dir.join("app_data.json"),
+            llm_workspace_path,
+            terminal_shell,
             state_lock: Arc::new(Mutex::new(())),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_path_grants: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 }

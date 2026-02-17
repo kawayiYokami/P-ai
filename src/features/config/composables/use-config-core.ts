@@ -20,6 +20,14 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     { id: "memory-save", command: "builtin", args: ["memory-save"], enabled: true, values: {} },
     { id: "desktop-screenshot", command: "builtin", args: ["desktop-screenshot"], enabled: false, values: {} },
     { id: "desktop-wait", command: "builtin", args: ["desktop-wait"], enabled: false, values: {} },
+    { id: "terminal-exec", command: "builtin", args: ["terminal-exec"], enabled: false, values: {} },
+    {
+      id: "terminal-request-path-access",
+      command: "builtin",
+      args: ["terminal-request-path-access"],
+      enabled: false,
+      values: {},
+    },
   ] as const;
 
   function defaultApiTools() {

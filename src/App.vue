@@ -196,6 +196,36 @@
         <button @click.prevent="closeConfigSaveErrorDialog">close</button>
       </form>
     </dialog>
+    <dialog class="modal" :class="{ 'modal-open': terminalApprovalDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">
+          {{ terminalApprovalDialogTitle }}
+        </h3>
+        <pre class="mt-2 whitespace-pre-wrap text-sm text-base-content">{{ terminalApprovalDialogBody }}</pre>
+        <div v-if="terminalApprovalQueue.length > 1" class="text-xs opacity-70 mt-2">
+          {{ t("status.terminalApprovalQueueHint", { count: terminalApprovalQueue.length }) }}
+        </div>
+        <div class="modal-action">
+          <button
+            class="btn btn-sm"
+            :disabled="terminalApprovalResolving"
+            @click="denyTerminalApproval"
+          >
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="terminalApprovalResolving"
+            @click="approveTerminalApproval"
+          >
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="denyTerminalApproval">close</button>
+      </form>
+    </dialog>
     <dialog class="modal" :class="{ 'modal-open': archiveImportPreviewDialogOpen }">
       <div class="modal-box max-w-md">
         <h3 class="font-semibold text-base">
@@ -227,7 +257,7 @@
 import { computed, reactive, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "./services/tauri-api";
-import { useAppBootstrap } from "./features/shell/composables/use-app-bootstrap";
+import { useAppBootstrap, type TerminalApprovalRequestPayload } from "./features/shell/composables/use-app-bootstrap";
 import { useAppCore } from "./features/shell/composables/use-app-core";
 import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle";
 import { useAppTheme } from "./features/shell/composables/use-app-theme";
@@ -324,6 +354,8 @@ const configSaveErrorDialogOpen = ref(false);
 const configSaveErrorDialogTitle = ref("");
 const configSaveErrorDialogBody = ref("");
 const configSaveErrorDialogKind = ref<"warning" | "error">("error");
+const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
+const terminalApprovalResolving = ref(false);
 const archiveImportPreviewDialogOpen = ref(false);
 const archiveImportPreview = ref<ArchiveImportPreview | null>(null);
 const archiveImportRunning = ref(false);
@@ -614,6 +646,14 @@ const { visibleTurns, hasMoreTurns, chatContextUsageRatio, chatUsagePercent } = 
 });
 const displayTurns = computed(() => chatting.value ? [] : visibleTurns.value);
 const displayHasMoreTurns = computed(() => !chatting.value && hasMoreTurns.value);
+const terminalApprovalCurrent = computed(() => terminalApprovalQueue.value[0] ?? null);
+const terminalApprovalDialogOpen = computed(() => !!terminalApprovalCurrent.value);
+const terminalApprovalDialogTitle = computed(
+  () => terminalApprovalCurrent.value?.title || "终端审批",
+);
+const terminalApprovalDialogBody = computed(
+  () => terminalApprovalCurrent.value?.message || "",
+);
 
 function syncUserAliasFromPersona() {
   const next = (userPersona.value?.name || "").trim() || t("archives.roleUser");
@@ -774,6 +814,9 @@ const appBootstrap = useAppBootstrap({
     locale.value = lang;
   },
   onRefreshSignal: handleWindowRefreshSignal,
+  onTerminalApprovalRequested: (payload) => {
+    enqueueTerminalApprovalRequest(payload);
+  },
 });
 
 function setUiLanguage(value: string) {
@@ -795,6 +838,47 @@ function closeUpdateDialog() {
 
 function closeConfigSaveErrorDialog() {
   configSaveErrorDialogOpen.value = false;
+}
+
+function enqueueTerminalApprovalRequest(payload: TerminalApprovalRequestPayload) {
+  const requestId = String(payload.requestId || "").trim();
+  if (!requestId) return;
+  terminalApprovalQueue.value.push({
+    ...payload,
+    requestId,
+    title: String(payload.title || "终端审批"),
+    message: String(payload.message || ""),
+    approvalKind: String(payload.approvalKind || "unknown"),
+    sessionId: String(payload.sessionId || ""),
+  });
+}
+
+async function resolveTerminalApproval(approved: boolean) {
+  if (terminalApprovalResolving.value) return;
+  const current = terminalApprovalCurrent.value;
+  if (!current) return;
+  terminalApprovalResolving.value = true;
+  try {
+    await invokeTauri("resolve_terminal_approval", {
+      input: {
+        requestId: current.requestId,
+        approved,
+      },
+    });
+  } catch (error) {
+    console.warn("[TERMINAL] resolve_terminal_approval failed:", error);
+  } finally {
+    terminalApprovalQueue.value.shift();
+    terminalApprovalResolving.value = false;
+  }
+}
+
+function denyTerminalApproval() {
+  void resolveTerminalApproval(false);
+}
+
+function approveTerminalApproval() {
+  void resolveTerminalApproval(true);
 }
 
 function closeArchiveImportPreviewDialog() {

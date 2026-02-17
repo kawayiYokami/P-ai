@@ -3,6 +3,7 @@
     "refresh": "Refresh",
     "close": "Close",
     "cancel": "Cancel",
+    "confirm": "Confirm",
     "save": "Save",
     "loading": "Loading..."
   },
@@ -96,6 +97,8 @@
       "descMemorySave": "Save key facts into long-term memory.",
       "descDesktopScreenshot": "Capture the current full desktop image.",
       "descDesktopWait": "Pause by milliseconds to control action pacing.",
+      "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
+      "descTerminalPathAccess": "Request extra terminal path access for current session.",
       "descGeneric": "General tool capability."
     },
     "persona": {
@@ -237,7 +240,8 @@
     "recordTranscribed": "Recording converted to text.",
     "noSpeechText": "No text recognized.",
     "recordAutoStopped": "Recording reached limit {seconds}s and stopped automatically.",
-    "recordStartFailed": "Start recording failed: {err}"
+    "recordStartFailed": "Start recording failed: {err}",
+    "terminalApprovalQueueHint": "{count} terminal approval request(s) are still waiting."
   },
   "archives": {
     "refresh": "Refresh Archives",

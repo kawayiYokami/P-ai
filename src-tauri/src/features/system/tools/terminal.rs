@@ -1,0 +1,1144 @@
+use std::path::Path;
+use std::process::Stdio;
+
+const TERMINAL_MAX_OUTPUT_BYTES: usize = 256 * 1024;
+const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 20_000;
+const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
+const TERMINAL_APPROVAL_TIMEOUT_MS: u64 = 180_000;
+
+#[derive(Debug, Clone)]
+struct TerminalShellProfile {
+    kind: String,
+    path: String,
+    args_prefix: Vec<String>,
+}
+
+fn detect_default_terminal_shell() -> TerminalShellProfile {
+    #[cfg(target_os = "windows")]
+    {
+        fn with_args(kind: &str, path: String, args_prefix: &[&str]) -> TerminalShellProfile {
+            TerminalShellProfile {
+                kind: kind.to_string(),
+                path,
+                args_prefix: args_prefix.iter().map(|v| (*v).to_string()).collect(),
+            }
+        }
+
+        fn first_existing_path(candidates: &[String]) -> Option<String> {
+            candidates
+                .iter()
+                .find(|candidate| Path::new(candidate.as_str()).is_file())
+                .cloned()
+        }
+
+        fn where_first(name: &str) -> Option<String> {
+            let output = std::process::Command::new("where").arg(name).output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let text = String::from_utf8_lossy(&output.stdout);
+            text.lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty() && Path::new(line).is_file())
+                .map(ToString::to_string)
+        }
+
+        let pwsh_candidates = vec![
+            r"C:\Program Files\PowerShell\7\pwsh.exe".to_string(),
+            r"C:\Program Files\PowerShell\7-preview\pwsh.exe".to_string(),
+            r"C:\Program Files (x86)\PowerShell\7\pwsh.exe".to_string(),
+            format!(
+                r"{}\Microsoft\WindowsApps\pwsh.exe",
+                std::env::var("LOCALAPPDATA").unwrap_or_default()
+            ),
+        ];
+        if let Some(path) = first_existing_path(&pwsh_candidates).or_else(|| where_first("pwsh")) {
+            return with_args(
+                "pwsh",
+                path,
+                &["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+            );
+        }
+
+        let powershell_candidates = vec![
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
+            format!(
+                r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
+                std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string())
+            ),
+        ];
+        if let Some(path) = first_existing_path(&powershell_candidates)
+            .or_else(|| where_first("powershell"))
+        {
+            return with_args(
+                "powershell",
+                path,
+                &["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+            );
+        }
+
+        let comspec = std::env::var("ComSpec").ok();
+        let cmd_path = comspec
+            .filter(|value| Path::new(value).is_file())
+            .unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".to_string());
+        return with_args("cmd", cmd_path, &["/D", "/E:OFF", "/V:OFF", "/S", "/C"]);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let zsh = Path::new("/bin/zsh");
+        if zsh.is_file() {
+            return TerminalShellProfile {
+                kind: "zsh".to_string(),
+                path: zsh.to_string_lossy().to_string(),
+                args_prefix: vec!["-lc".to_string()],
+            };
+        }
+        let bash = Path::new("/bin/bash");
+        if bash.is_file() {
+            return TerminalShellProfile {
+                kind: "bash".to_string(),
+                path: bash.to_string_lossy().to_string(),
+                args_prefix: vec!["-lc".to_string()],
+            };
+        }
+        return TerminalShellProfile {
+            kind: "sh".to_string(),
+            path: "/bin/sh".to_string(),
+            args_prefix: vec!["-lc".to_string()],
+        };
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for candidate in ["/bin/bash", "/usr/bin/bash", "/bin/sh"] {
+            if Path::new(candidate).is_file() {
+                let kind = Path::new(candidate)
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("sh")
+                    .to_string();
+                return TerminalShellProfile {
+                    kind,
+                    path: candidate.to_string(),
+                    args_prefix: vec!["-lc".to_string()],
+                };
+            }
+        }
+        return TerminalShellProfile {
+            kind: "sh".to_string(),
+            path: "/bin/sh".to_string(),
+            args_prefix: vec!["-lc".to_string()],
+        };
+    }
+
+    #[allow(unreachable_code)]
+    TerminalShellProfile {
+        kind: "shell".to_string(),
+        path: "sh".to_string(),
+        args_prefix: vec!["-lc".to_string()],
+    }
+}
+
+fn normalize_terminal_tool_session_id(session_id: &str) -> String {
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() {
+        "default-session".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_terminal_timeout_ms(timeout_ms: Option<u64>) -> u64 {
+    let value = timeout_ms.unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS);
+    value.clamp(1, TERMINAL_MAX_TIMEOUT_MS)
+}
+
+fn normalize_terminal_path_for_compare(path: &Path) -> String {
+    let text = path.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    {
+        text.to_ascii_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        text
+    }
+}
+
+fn path_is_within(base: &Path, target: &Path) -> bool {
+    let base_norm = normalize_terminal_path_for_compare(base);
+    let target_norm = normalize_terminal_path_for_compare(target);
+    let separator = std::path::MAIN_SEPARATOR.to_string();
+    target_norm == base_norm
+        || target_norm
+            .strip_prefix(&(base_norm.clone() + &separator))
+            .is_some()
+}
+
+fn resolve_terminal_path(base_dir: &Path, raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Path is empty.".to_string());
+    }
+    let raw_path = PathBuf::from(trimmed);
+    let joined = if raw_path.is_absolute() {
+        raw_path
+    } else {
+        base_dir.join(raw_path)
+    };
+
+    let canonical = joined
+        .canonicalize()
+        .map_err(|_| format!("Path does not exist: {}", joined.to_string_lossy()))?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "Path is not a directory: {}",
+            canonical.to_string_lossy()
+        ));
+    }
+    Ok(canonical)
+}
+
+fn terminal_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
+    state
+        .llm_workspace_path
+        .canonicalize()
+        .map_err(|err| format!("Resolve llm workspace failed: {err}"))
+}
+
+fn terminal_has_session_path_access(state: &AppState, session_id: &str, target: &Path) -> bool {
+    let normalized_target = normalize_terminal_path_for_compare(target);
+    let guard = match state.terminal_path_grants.lock() {
+        Ok(guard) => guard,
+        Err(_) => return false,
+    };
+    let grants = match guard.get(session_id) {
+        Some(grants) => grants,
+        None => return false,
+    };
+
+    grants.iter().any(|granted| {
+        let separator = std::path::MAIN_SEPARATOR.to_string();
+        normalized_target == *granted
+            || normalized_target
+                .strip_prefix(&(granted.clone() + &separator))
+                .is_some()
+    })
+}
+
+fn ensure_terminal_workdir_allowed(
+    state: &AppState,
+    session_id: &str,
+    cwd: &Path,
+) -> Result<(), String> {
+    let workspace = terminal_workspace_canonical(state)?;
+    if path_is_within(&workspace, cwd) {
+        return Ok(());
+    }
+    if terminal_has_session_path_access(state, session_id, cwd) {
+        return Ok(());
+    }
+    Err(format!(
+        "Working directory is not allowed yet: {}. Call terminal_request_path_access first.",
+        cwd.to_string_lossy()
+    ))
+}
+
+fn resolve_terminal_cwd(
+    state: &AppState,
+    session_id: &str,
+    requested_cwd: Option<&str>,
+) -> Result<PathBuf, String> {
+    let workspace = terminal_workspace_canonical(state)?;
+    let resolved = if let Some(raw) = requested_cwd {
+        if raw.trim().is_empty() {
+            workspace.clone()
+        } else {
+            resolve_terminal_path(&workspace, raw)?
+        }
+    } else {
+        workspace.clone()
+    };
+    ensure_terminal_workdir_allowed(state, session_id, &resolved)?;
+    Ok(resolved)
+}
+
+fn terminal_path_allowed(state: &AppState, session_id: &str, target: &Path) -> Result<bool, String> {
+    let workspace = terminal_workspace_canonical(state)?;
+    if path_is_within(&workspace, target) {
+        return Ok(true);
+    }
+    if terminal_has_session_path_access(state, session_id, target) {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn terminal_normalize_for_access_check(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    if let Some(parent) = path.parent() {
+        if let Ok(parent_canonical) = parent.canonicalize() {
+            if let Some(name) = path.file_name() {
+                return parent_canonical.join(name);
+            }
+            return parent_canonical;
+        }
+    }
+    path.to_path_buf()
+}
+
+#[derive(Debug, Clone)]
+enum TerminalWriteRisk {
+    None,
+    NewOnly { count: usize },
+    Existing { paths: Vec<PathBuf> },
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalApprovalRequestPayload {
+    request_id: String,
+    title: String,
+    message: String,
+    approval_kind: String,
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requested_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    existing_paths: Vec<String>,
+    timeout_ms: u64,
+}
+
+fn terminal_tokenize(command: &str) -> Vec<String> {
+    let mut tokens = Vec::<String>::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = command.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            } else if ch == '\\' {
+                if let Some(next) = chars.peek().copied() {
+                    if next == q || next == '\\' {
+                        current.push(next);
+                        chars.next();
+                    } else {
+                        current.push(ch);
+                    }
+                } else {
+                    current.push(ch);
+                }
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+
+        if ch == '\'' || ch == '"' {
+            quote = Some(ch);
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(current.clone());
+                current.clear();
+            }
+            continue;
+        }
+        if matches!(ch, '>' | '<' | '|' | ';') {
+            if !current.is_empty() {
+                tokens.push(current.clone());
+                current.clear();
+            }
+            if ch == '>' && chars.peek().copied() == Some('>') {
+                chars.next();
+                tokens.push(">>".to_string());
+            } else {
+                tokens.push(ch.to_string());
+            }
+            continue;
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn terminal_unquote_token(token: &str) -> String {
+    let trimmed = token.trim();
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        if (bytes[0] == b'\'' && bytes[trimmed.len() - 1] == b'\'')
+            || (bytes[0] == b'"' && bytes[trimmed.len() - 1] == b'"')
+        {
+            return trimmed[1..trimmed.len() - 1].to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_has_windows_drive_prefix(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn terminal_has_windows_drive_prefix(_token: &str) -> bool {
+    false
+}
+
+fn terminal_is_explicit_path_token(token: &str) -> bool {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with('-') {
+        return false;
+    }
+    if trimmed.contains("://") {
+        return false;
+    }
+    if matches!(
+        trimmed,
+        "|" | "||" | "&" | "&&" | ";" | ">" | ">>" | "<" | "2>" | "1>"
+    ) {
+        return false;
+    }
+    if PathBuf::from(trimmed).is_absolute() {
+        return true;
+    }
+    if terminal_has_windows_drive_prefix(trimmed) {
+        return true;
+    }
+    trimmed.starts_with("./")
+        || trimmed.starts_with(".\\")
+        || trimmed.starts_with("../")
+        || trimmed.starts_with("..\\")
+        || trimmed.starts_with("~/")
+        || trimmed.starts_with("~\\")
+        || trimmed.contains('\\')
+        || trimmed.contains('/')
+}
+
+fn terminal_collect_command_path_candidates(cwd: &Path, command: &str) -> Vec<PathBuf> {
+    let tokens = terminal_tokenize(command);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+
+    let mut raw_paths = Vec::<String>::new();
+    let mut idx = 0usize;
+    while idx < tokens.len() {
+        let token = terminal_unquote_token(&tokens[idx]);
+        let lower = token.to_ascii_lowercase();
+
+        if (lower == ">" || lower == ">>")
+            && tokens
+                .get(idx + 1)
+                .map(|next| !next.trim().is_empty())
+                .unwrap_or(false)
+        {
+            raw_paths.push(tokens[idx + 1].clone());
+            idx += 2;
+            continue;
+        }
+
+        if matches!(
+            lower.as_str(),
+            "-path"
+                | "-literalpath"
+                | "--path"
+                | "-file"
+                | "--file"
+                | "-output"
+                | "--output"
+        ) && tokens
+            .get(idx + 1)
+            .map(|next| !next.trim().is_empty())
+            .unwrap_or(false)
+        {
+            raw_paths.push(tokens[idx + 1].clone());
+            idx += 2;
+            continue;
+        }
+
+        if terminal_is_explicit_path_token(&token) {
+            raw_paths.push(token);
+        }
+
+        idx += 1;
+    }
+
+    let mut out = Vec::<PathBuf>::new();
+    for raw in raw_paths {
+        if let Some(path) = terminal_resolve_candidate_path(cwd, &raw) {
+            out.push(path);
+        }
+    }
+    terminal_dedup_paths(out)
+}
+
+fn terminal_collect_ungranted_command_paths(
+    state: &AppState,
+    session_id: &str,
+    cwd: &Path,
+    command: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let mut blocked = Vec::<PathBuf>::new();
+    for path in terminal_collect_command_path_candidates(cwd, command) {
+        let normalized = terminal_normalize_for_access_check(&path);
+        if !terminal_path_allowed(state, session_id, &normalized)? {
+            blocked.push(normalized);
+        }
+    }
+    Ok(terminal_dedup_paths(blocked))
+}
+
+fn terminal_has_output_redirection(command: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev = '\0';
+    for ch in command.chars() {
+        if ch == '\'' && !in_double && prev != '\\' {
+            in_single = !in_single;
+        } else if ch == '"' && !in_single && prev != '\\' {
+            in_double = !in_double;
+        } else if ch == '>' && !in_single && !in_double {
+            return true;
+        }
+        prev = ch;
+    }
+    false
+}
+
+fn terminal_has_write_intent(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    terminal_has_output_redirection(command)
+        || lower.contains("set-content")
+        || lower.contains("add-content")
+        || lower.contains("out-file")
+        || lower.contains("remove-item")
+        || lower.contains("copy-item")
+        || lower.contains("move-item")
+        || lower.contains("rename-item")
+        || lower.contains("new-item")
+        || lower.contains("clear-content")
+        || lower.contains("git checkout")
+        || lower.contains("git restore")
+        || lower.contains("git apply")
+        || lower.contains("git clean")
+        || lower.contains("git reset")
+        || lower.contains("git add")
+        || lower.contains("git rm")
+        || lower.contains("git mv")
+        || lower.contains(" rm ")
+        || lower.starts_with("rm ")
+        || lower.contains(" del ")
+        || lower.starts_with("del ")
+        || lower.contains(" erase ")
+        || lower.starts_with("erase ")
+        || lower.contains(" mv ")
+        || lower.starts_with("mv ")
+        || lower.contains(" cp ")
+        || lower.starts_with("cp ")
+        || lower.contains(" touch ")
+        || lower.starts_with("touch ")
+        || lower.contains(" sed -i")
+        || lower.contains(" perl -pi")
+}
+
+fn terminal_resolve_candidate_path(cwd: &Path, raw: &str) -> Option<PathBuf> {
+    let token = terminal_unquote_token(raw);
+    if token.is_empty() {
+        return None;
+    }
+    if token.starts_with('-') {
+        return None;
+    }
+    if token.contains('*') || token.contains('?') {
+        return None;
+    }
+    if token.contains("://") {
+        return None;
+    }
+    if matches!(token.as_str(), "|" | "||" | "&" | "&&" | ";" | ">" | ">>" | "<")
+    {
+        return None;
+    }
+    let candidate = PathBuf::from(&token);
+    let joined = if candidate.is_absolute() {
+        candidate
+    } else {
+        cwd.join(candidate)
+    };
+    Some(joined)
+}
+
+fn terminal_dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::<PathBuf>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    for path in paths {
+        let key = normalize_terminal_path_for_compare(&path);
+        if seen.insert(key) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+fn classify_terminal_write_risk(cwd: &Path, command: &str) -> TerminalWriteRisk {
+    if !terminal_has_write_intent(command) {
+        return TerminalWriteRisk::None;
+    }
+    let tokens = terminal_tokenize(command);
+    if tokens.is_empty() {
+        return TerminalWriteRisk::Unknown;
+    }
+
+    let mut raw_targets = Vec::<String>::new();
+    let mut unknown = false;
+
+    let mut idx = 0usize;
+    while idx < tokens.len() {
+        let token = terminal_unquote_token(&tokens[idx]);
+        let lower = token.to_ascii_lowercase();
+
+        if (lower == ">" || lower == ">>")
+            && tokens
+                .get(idx + 1)
+                .map(|next| !next.trim().is_empty())
+                .unwrap_or(false)
+        {
+            raw_targets.push(tokens[idx + 1].clone());
+            idx += 2;
+            continue;
+        }
+
+        if matches!(lower.as_str(), "-path" | "-literalpath")
+            && tokens
+                .get(idx + 1)
+                .map(|next| !next.trim().is_empty())
+                .unwrap_or(false)
+        {
+            raw_targets.push(tokens[idx + 1].clone());
+            idx += 2;
+            continue;
+        }
+
+        if matches!(
+            lower.as_str(),
+            "set-content"
+                | "add-content"
+                | "out-file"
+                | "remove-item"
+                | "copy-item"
+                | "move-item"
+                | "rename-item"
+                | "new-item"
+                | "rm"
+                | "del"
+                | "erase"
+                | "mv"
+                | "cp"
+                | "touch"
+                | "truncate"
+        ) {
+            let mut found = false;
+            for next in tokens.iter().skip(idx + 1) {
+                let next_trim = next.trim();
+                if next_trim.is_empty() || next_trim.starts_with('-') {
+                    continue;
+                }
+                if matches!(next_trim, "|" | "||" | "&" | "&&" | ";") {
+                    break;
+                }
+                raw_targets.push(next.clone());
+                found = true;
+                break;
+            }
+            if !found {
+                unknown = true;
+            }
+        }
+
+        if lower == "git" {
+            if let Some(sub) = tokens.get(idx + 1).map(|v| terminal_unquote_token(v)) {
+                let sub_lower = sub.to_ascii_lowercase();
+                if matches!(
+                    sub_lower.as_str(),
+                    "checkout" | "restore" | "apply" | "clean" | "reset" | "add" | "rm" | "mv"
+                ) {
+                    let mut found = false;
+                    for next in tokens.iter().skip(idx + 2) {
+                        let next_trim = next.trim();
+                        if next_trim.is_empty() || next_trim.starts_with('-') {
+                            continue;
+                        }
+                        if matches!(next_trim, "|" | "||" | "&" | "&&" | ";") {
+                            break;
+                        }
+                        raw_targets.push(next.clone());
+                        found = true;
+                        break;
+                    }
+                    if !found {
+                        unknown = true;
+                    }
+                }
+            }
+        }
+
+        idx += 1;
+    }
+
+    let mut existing = Vec::<PathBuf>::new();
+    let mut new_paths = Vec::<PathBuf>::new();
+    for raw in raw_targets {
+        let Some(path) = terminal_resolve_candidate_path(cwd, &raw) else {
+            unknown = true;
+            continue;
+        };
+        if path.exists() {
+            existing.push(path);
+        } else {
+            new_paths.push(path);
+        }
+    }
+    existing = terminal_dedup_paths(existing);
+    new_paths = terminal_dedup_paths(new_paths);
+
+    if !existing.is_empty() {
+        return TerminalWriteRisk::Existing { paths: existing };
+    }
+    if !new_paths.is_empty() && !unknown {
+        return TerminalWriteRisk::NewOnly {
+            count: new_paths.len(),
+        };
+    }
+    TerminalWriteRisk::Unknown
+}
+
+async fn terminal_request_user_approval(
+    state: &AppState,
+    title: &str,
+    message: &str,
+    session_id: &str,
+    approval_kind: &str,
+    cwd: Option<&Path>,
+    command: Option<&str>,
+    requested_path: Option<&Path>,
+    reason: Option<&str>,
+    existing_paths: &[PathBuf],
+) -> Result<bool, String> {
+    let request_id = Uuid::new_v4().to_string();
+    let app_handle = {
+        let guard = state
+            .app_handle
+            .lock()
+            .map_err(|_| "Failed to lock app handle".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "App handle is not ready".to_string())?
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    {
+        let mut pending = state
+            .terminal_pending_approvals
+            .lock()
+            .map_err(|_| "Failed to lock terminal pending approvals".to_string())?;
+        pending.insert(request_id.clone(), tx);
+    }
+
+    let payload = TerminalApprovalRequestPayload {
+        request_id: request_id.clone(),
+        title: title.to_string(),
+        message: message.to_string(),
+        approval_kind: approval_kind.to_string(),
+        session_id: session_id.to_string(),
+        cwd: cwd.map(|v| v.to_string_lossy().to_string()),
+        command: command
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string),
+        requested_path: requested_path.map(|v| v.to_string_lossy().to_string()),
+        reason: reason
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string),
+        existing_paths: existing_paths
+            .iter()
+            .take(32)
+            .map(|v| v.to_string_lossy().to_string())
+            .collect(),
+        timeout_ms: TERMINAL_APPROVAL_TIMEOUT_MS,
+    };
+
+    if let Err(err) = app_handle.emit("easy-call:terminal-approval-request", &payload) {
+        if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
+            pending.remove(&request_id);
+        }
+        return Err(format!("Emit terminal approval request failed: {err}"));
+    }
+
+    let wait = tokio::time::timeout(
+        std::time::Duration::from_millis(TERMINAL_APPROVAL_TIMEOUT_MS),
+        rx,
+    )
+    .await;
+
+    if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
+        pending.remove(&request_id);
+    }
+
+    match wait {
+        Ok(Ok(approved)) => Ok(approved),
+        Ok(Err(_)) => Err("Terminal approval channel closed unexpectedly.".to_string()),
+        Err(_) => Err(format!(
+            "Terminal approval timed out after {}ms.",
+            TERMINAL_APPROVAL_TIMEOUT_MS
+        )),
+    }
+}
+
+fn resolve_terminal_approval_request(
+    state: &AppState,
+    request_id: &str,
+    approved: bool,
+) -> Result<bool, String> {
+    let trimmed = request_id.trim();
+    if trimmed.is_empty() {
+        return Err("requestId is empty.".to_string());
+    }
+
+    let sender = {
+        let mut pending = state
+            .terminal_pending_approvals
+            .lock()
+            .map_err(|_| "Failed to lock terminal pending approvals".to_string())?;
+        pending.remove(trimmed)
+    };
+
+    let Some(sender) = sender else {
+        eprintln!(
+            "[TOOL-DEBUG] terminal approval request not found: {}",
+            trimmed
+        );
+        return Ok(false);
+    };
+
+    if sender.send(approved).is_err() {
+        eprintln!(
+            "[TOOL-DEBUG] terminal approval receiver dropped: {}",
+            trimmed
+        );
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn terminal_command_block_reason(command: &str) -> Option<&'static str> {
+    let lower = command.to_ascii_lowercase();
+    if lower.contains("-encodedcommand") || lower.contains(" -enc ") || lower.contains(" -e ") {
+        return Some("encoded command is blocked");
+    }
+    if lower.contains("invoke-expression") || lower.contains("iex ") || lower.contains("iex(") {
+        return Some("Invoke-Expression/iex is blocked");
+    }
+    if lower.contains("start-process")
+        && (lower.contains("powershell")
+            || lower.contains("pwsh")
+            || lower.contains("cmd.exe")
+            || lower.contains("/bin/sh")
+            || lower.contains("/bin/bash"))
+    {
+        return Some("spawning nested shells is blocked");
+    }
+    None
+}
+
+fn truncate_terminal_output(bytes: &[u8]) -> (String, bool) {
+    if bytes.len() <= TERMINAL_MAX_OUTPUT_BYTES {
+        return (String::from_utf8_lossy(bytes).to_string(), false);
+    }
+    (
+        String::from_utf8_lossy(&bytes[..TERMINAL_MAX_OUTPUT_BYTES]).to_string(),
+        true,
+    )
+}
+
+async fn builtin_terminal_exec(
+    state: &AppState,
+    session_id: &str,
+    command: &str,
+    cwd: Option<&str>,
+    timeout_ms: Option<u64>,
+) -> Result<Value, String> {
+    let cmd = command.trim();
+    if cmd.is_empty() {
+        return Err("terminal_exec.command is empty".to_string());
+    }
+    if let Some(reason) = terminal_command_block_reason(cmd) {
+        return Err(format!("terminal_exec blocked: {reason}"));
+    }
+
+    let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let cwd = match resolve_terminal_cwd(state, &normalized_session, cwd) {
+        Ok(path) => path,
+        Err(err) if err.contains("Call terminal_request_path_access first.") => {
+            return Ok(serde_json::json!({
+                "ok": false,
+                "approved": false,
+                "blockedReason": "path_not_granted",
+                "message": err,
+                "sessionId": normalized_session,
+                "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "cwd": cwd.unwrap_or(""),
+                "command": cmd,
+            }));
+        }
+        Err(err) => return Err(err),
+    };
+    let timeout_ms = normalize_terminal_timeout_ms(timeout_ms);
+    let ungranted_paths =
+        terminal_collect_ungranted_command_paths(state, &normalized_session, &cwd, cmd)?;
+    if !ungranted_paths.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "approved": false,
+            "blockedReason": "path_not_granted_in_command",
+            "message": "Command references paths outside allowed workspace/grants. Call terminal_request_path_access first.",
+            "sessionId": normalized_session,
+            "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+            "cwd": cwd.to_string_lossy().to_string(),
+            "command": cmd,
+            "ungrantedPaths": ungranted_paths
+                .iter()
+                .take(24)
+                .map(|path| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    match classify_terminal_write_risk(&cwd, cmd) {
+        TerminalWriteRisk::None => {}
+        TerminalWriteRisk::NewOnly { count } => {
+            eprintln!(
+                "[TOOL-DEBUG] terminal_exec write-risk=NewOnly new_path_count={} session={}",
+                count, normalized_session
+            );
+        }
+        TerminalWriteRisk::Existing { paths } => {
+            let mut lines = vec![
+                "该命令将修改/删除已有文件，是否批准本次执行？".to_string(),
+                format!("会话: {normalized_session}"),
+                format!("工作目录: {}", cwd.to_string_lossy()),
+                format!("命令: {cmd}"),
+                "命中已有路径：".to_string(),
+            ];
+            for path in paths.iter().take(8) {
+                lines.push(format!("- {}", path.to_string_lossy()));
+            }
+            if paths.len() > 8 {
+                lines.push(format!("... 其余 {} 项已省略", paths.len() - 8));
+            }
+            let approved = terminal_request_user_approval(
+                state,
+                "终端执行审批",
+                &lines.join("\n"),
+                &normalized_session,
+                "existing_write_risk",
+                Some(&cwd),
+                Some(cmd),
+                None,
+                None,
+                &paths,
+            )
+            .await?;
+            if !approved {
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "approved": false,
+                    "blockedReason": "user_denied_existing_file_change",
+                    "message": "User denied command that may modify existing files.",
+                    "sessionId": normalized_session,
+                    "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                    "cwd": cwd.to_string_lossy().to_string(),
+                    "command": cmd,
+                }));
+            }
+        }
+        TerminalWriteRisk::Unknown => {
+            let message = format!(
+                "无法判定该命令是否会修改已有文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",
+                cwd.to_string_lossy()
+            );
+            let approved = terminal_request_user_approval(
+                state,
+                "终端执行审批",
+                &message,
+                &normalized_session,
+                "unknown_write_risk",
+                Some(&cwd),
+                Some(cmd),
+                None,
+                None,
+                &[],
+            )
+            .await?;
+            if !approved {
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "approved": false,
+                    "blockedReason": "user_denied_unknown_write_risk",
+                    "message": "User denied command with unknown write risk.",
+                    "sessionId": normalized_session,
+                    "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                    "cwd": cwd.to_string_lossy().to_string(),
+                    "command": cmd,
+                }));
+            }
+        }
+    }
+
+    let shell = &state.terminal_shell;
+    let mut command_builder = tokio::process::Command::new(&shell.path);
+    command_builder.kill_on_drop(true);
+    command_builder.current_dir(&cwd);
+    command_builder.stdout(Stdio::piped());
+    command_builder.stderr(Stdio::piped());
+    command_builder.stdin(Stdio::null());
+    for arg in &shell.args_prefix {
+        command_builder.arg(arg);
+    }
+    command_builder.arg(cmd);
+
+    let started = std::time::Instant::now();
+    let output = tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        command_builder.output(),
+    )
+    .await
+    .map_err(|_| format!("terminal_exec timed out after {timeout_ms}ms"))?
+    .map_err(|err| format!("terminal_exec spawn failed: {err}"))?;
+
+    let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    let (stdout, stdout_truncated) = truncate_terminal_output(&output.stdout);
+    let (stderr, stderr_truncated) = truncate_terminal_output(&output.stderr);
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    Ok(serde_json::json!({
+        "ok": output.status.success(),
+        "shellKind": shell.kind,
+        "shellPath": shell.path,
+        "sessionId": normalized_session,
+        "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+        "cwd": cwd.to_string_lossy().to_string(),
+        "command": cmd,
+        "exitCode": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "durationMs": duration_ms,
+        "timedOut": false,
+        "truncated": stdout_truncated || stderr_truncated,
+        "stdoutTruncated": stdout_truncated,
+        "stderrTruncated": stderr_truncated
+    }))
+}
+
+async fn builtin_terminal_request_path_access(
+    state: &AppState,
+    session_id: &str,
+    path: &str,
+    reason: Option<&str>,
+) -> Result<Value, String> {
+    let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let workspace = terminal_workspace_canonical(state)?;
+    let target = resolve_terminal_path(&workspace, path)?;
+
+    if path_is_within(&workspace, &target) {
+        return Ok(serde_json::json!({
+            "ok": true,
+            "granted": true,
+            "sessionId": normalized_session,
+            "requestedPath": path,
+            "normalizedPath": target.to_string_lossy().to_string(),
+            "workspacePath": workspace.to_string_lossy().to_string(),
+            "reason": reason.unwrap_or("").trim(),
+            "note": "Path is already inside llm workspace."
+        }));
+    }
+
+    let reason_text = reason.unwrap_or("").trim();
+    let approval_message = if reason_text.is_empty() {
+        format!(
+            "申请为当前会话授予终端路径访问权限：\n会话: {normalized_session}\n路径: {}\n\n仅当前会话有效，是否允许？",
+            target.to_string_lossy()
+        )
+    } else {
+        format!(
+            "申请为当前会话授予终端路径访问权限：\n会话: {normalized_session}\n路径: {}\n原因: {reason_text}\n\n仅当前会话有效，是否允许？",
+            target.to_string_lossy()
+        )
+    };
+    let approved = terminal_request_user_approval(
+        state,
+        "终端路径授权审批",
+        &approval_message,
+        &normalized_session,
+        "path_access",
+        None,
+        None,
+        Some(&target),
+        Some(reason_text),
+        &[],
+    )
+    .await?;
+    if !approved {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "granted": false,
+            "sessionId": normalized_session,
+            "requestedPath": path,
+            "normalizedPath": target.to_string_lossy().to_string(),
+            "workspacePath": workspace.to_string_lossy().to_string(),
+            "reason": reason_text,
+            "note": "User denied path access request."
+        }));
+    }
+
+    let mut grants = state
+        .terminal_path_grants
+        .lock()
+        .map_err(|_| "Failed to lock terminal path grants".to_string())?;
+    let entry = grants
+        .entry(normalized_session.clone())
+        .or_insert_with(std::collections::HashSet::new);
+    entry.insert(normalize_terminal_path_for_compare(&target));
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "granted": true,
+        "sessionId": normalized_session,
+        "requestedPath": path,
+        "normalizedPath": target.to_string_lossy().to_string(),
+        "workspacePath": workspace.to_string_lossy().to_string(),
+        "reason": reason.unwrap_or("").trim(),
+        "note": "Path access granted for current session only."
+    }))
+}

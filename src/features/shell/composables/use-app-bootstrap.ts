@@ -2,12 +2,27 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type ViewMode = "chat" | "archives" | "config";
 
+export type TerminalApprovalRequestPayload = {
+  requestId: string;
+  title: string;
+  message: string;
+  approvalKind: string;
+  sessionId: string;
+  cwd?: string;
+  command?: string;
+  requestedPath?: string;
+  reason?: string;
+  existingPaths?: string[];
+  timeoutMs?: number;
+};
+
 type AppBootstrapOptions = {
   setViewMode: (mode: ViewMode) => void;
   initWindowMode: () => ViewMode;
   onThemeChanged: (theme: string) => void;
   onLocaleChanged: (locale: string) => void;
   onRefreshSignal: () => Promise<void>;
+  onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -32,6 +47,14 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
         await options.onRefreshSignal();
       }),
     );
+    unlisteners.push(
+      await listen<TerminalApprovalRequestPayload>(
+        "easy-call:terminal-approval-request",
+        (event) => {
+          options.onTerminalApprovalRequested?.(event.payload);
+        },
+      ),
+    );
   }
 
   function unmount() {
@@ -46,4 +69,3 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
     unmount,
   };
 }
-

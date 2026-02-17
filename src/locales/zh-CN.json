@@ -3,6 +3,7 @@
     "refresh": "刷新",
     "close": "关闭",
     "cancel": "取消",
+    "confirm": "确认",
     "save": "保存",
     "loading": "加载中..."
   },
@@ -96,6 +97,8 @@
       "descMemorySave": "把关键信息写入长期记忆。",
       "descDesktopScreenshot": "捕获当前整个桌面的图像内容。",
       "descDesktopWait": "按毫秒等待，用于操作节奏控制。",
+      "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
+      "descTerminalPathAccess": "为当前会话申请额外目录的终端访问权限。",
       "descGeneric": "通用工具能力。"
     },
     "persona": {
@@ -237,7 +240,8 @@
     "recordTranscribed": "录音已转文字。",
     "noSpeechText": "未识别到文本。",
     "recordAutoStopped": "录音已达到上限 {seconds}s，自动停止。",
-    "recordStartFailed": "开始录音失败: {err}"
+    "recordStartFailed": "开始录音失败: {err}",
+    "terminalApprovalQueueHint": "当前还有 {count} 条终端审批请求等待处理。"
   },
   "archives": {
     "refresh": "刷新归档",

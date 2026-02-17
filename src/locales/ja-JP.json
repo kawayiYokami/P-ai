@@ -3,6 +3,7 @@
     "refresh": "更新",
     "close": "閉じる",
     "cancel": "キャンセル",
+    "confirm": "確認",
     "save": "保存",
     "loading": "読み込み中..."
   },
@@ -90,6 +91,10 @@
       "descFetch": "Webページを取得し本文を抽出します。",
       "descBingSearch": "Web検索を実行し候補を返します。",
       "descMemorySave": "重要情報を長期記憶に保存します。",
+      "descDesktopScreenshot": "現在のデスクトップ全体を画像として取得します。",
+      "descDesktopWait": "指定ミリ秒だけ待機し、操作の間隔を調整します。",
+      "descTerminalExec": "制御された作業ディレクトリで無状態の端末コマンドを1回実行します。",
+      "descTerminalPathAccess": "現在のセッションで追加ディレクトリアクセスを申請します。",
       "descGeneric": "汎用ツール機能。"
     },
     "persona": {
@@ -231,7 +236,8 @@
     "recordTranscribed": "録音を文字起こししました。",
     "noSpeechText": "認識されたテキストがありません。",
     "recordAutoStopped": "録音が上限 {seconds}s に達し自動停止しました。",
-    "recordStartFailed": "録音開始失敗: {err}"
+    "recordStartFailed": "録音開始失敗: {err}",
+    "terminalApprovalQueueHint": "未処理の端末承認リクエストが {count} 件あります。"
   },
   "archives": {
     "refresh": "アーカイブ更新",

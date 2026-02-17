@@ -3,6 +3,7 @@
     "refresh": "새로고침",
     "close": "닫기",
     "cancel": "취소",
+    "confirm": "확인",
     "save": "저장",
     "loading": "불러오는 중..."
   },
@@ -90,6 +91,10 @@
       "descFetch": "웹 페이지를 가져와 본문을 추출합니다.",
       "descBingSearch": "웹 검색을 실행하고 후보 결과를 반환합니다.",
       "descMemorySave": "핵심 정보를 장기 기억에 저장합니다.",
+      "descDesktopScreenshot": "현재 전체 데스크톱 화면 이미지를 캡처합니다.",
+      "descDesktopWait": "밀리초 단위로 대기하여 작업 템포를 제어합니다.",
+      "descTerminalExec": "제어된 작업 경로에서 무상태 터미널 명령을 1회 실행합니다.",
+      "descTerminalPathAccess": "현재 세션에서 추가 경로 접근 권한을 요청합니다.",
       "descGeneric": "일반 도구 기능."
     },
     "persona": {
@@ -231,7 +236,8 @@
     "recordTranscribed": "녹음을 텍스트로 변환했습니다.",
     "noSpeechText": "인식된 텍스트가 없습니다.",
     "recordAutoStopped": "녹음이 최대 {seconds}s에 도달해 자동 중지되었습니다.",
-    "recordStartFailed": "녹음 시작 실패: {err}"
+    "recordStartFailed": "녹음 시작 실패: {err}",
+    "terminalApprovalQueueHint": "처리 대기 중인 터미널 승인 요청이 {count}개 있습니다."
   },
   "archives": {
     "refresh": "아카이브 새로고침",

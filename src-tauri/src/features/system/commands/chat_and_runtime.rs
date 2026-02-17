@@ -530,6 +530,7 @@ async fn send_chat_message(
         Some(&state),
         &on_delta,
         app_config.tool_max_iterations as usize,
+        &conversation_id,
     )
     .await?;
     let assistant_text = model_reply.assistant_text;
@@ -1191,6 +1192,11 @@ fn check_tools_status(
             "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
             "desktop-screenshot" => ("loaded".to_string(), "桌面截图工具可用".to_string()),
             "desktop-wait" => ("loaded".to_string(), "桌面等待工具可用".to_string()),
+            "terminal-exec" => ("loaded".to_string(), "终端执行工具可用".to_string()),
+            "terminal-request-path-access" => (
+                "loaded".to_string(),
+                "终端路径授权工具可用".to_string(),
+            ),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {
