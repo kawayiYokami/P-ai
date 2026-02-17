@@ -1,6 +1,9 @@
 #[derive(Debug, Clone, Copy)]
 enum SandboxBackendKind {
+    #[cfg(not(target_os = "windows"))]
     ProcessBackend,
+    #[cfg(target_os = "windows")]
+    WindowsJobBackend,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -10,6 +13,14 @@ struct SandboxManager {
 
 impl SandboxManager {
     fn from_state(_state: &AppState) -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            return Self {
+                backend: SandboxBackendKind::WindowsJobBackend,
+            };
+        }
+
+        #[cfg(not(target_os = "windows"))]
         Self {
             backend: SandboxBackendKind::ProcessBackend,
         }
@@ -23,8 +34,13 @@ impl SandboxManager {
         // Defense in depth: backend entrance re-checks cwd policy.
         sandbox_assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
         match self.backend {
+            #[cfg(not(target_os = "windows"))]
             SandboxBackendKind::ProcessBackend => {
                 sandbox_run_with_process_backend(&state.terminal_shell, &request).await
+            }
+            #[cfg(target_os = "windows")]
+            SandboxBackendKind::WindowsJobBackend => {
+                sandbox_run_with_windows_job_backend(&state.terminal_shell, &request).await
             }
         }
     }

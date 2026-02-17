@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "windows"))]
 async fn sandbox_run_with_process_backend(
     shell: &TerminalShellProfile,
     request: &SandboxRequest,
