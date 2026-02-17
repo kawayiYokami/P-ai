@@ -1195,7 +1195,7 @@ fn check_tools_status(
             "terminal-exec" => ("loaded".to_string(), "终端执行工具可用".to_string()),
             "terminal-request-path-access" => (
                 "loaded".to_string(),
-                "终端路径授权工具可用".to_string(),
+                "终端根目录设置工具可用".to_string(),
             ),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };

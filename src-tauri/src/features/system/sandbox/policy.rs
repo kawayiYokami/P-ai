@@ -27,28 +27,27 @@ fn sandbox_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
         .map_err(|err| format!("Resolve llm workspace failed: {err}"))
 }
 
-fn sandbox_has_session_path_access(
+fn sandbox_session_root_canonical(
     state: &AppState,
     session_id: &str,
-    target: &std::path::Path,
-) -> bool {
-    let normalized_target = sandbox_normalize_path_for_compare(target);
-    let guard = match state.terminal_path_grants.lock() {
-        Ok(guard) => guard,
-        Err(_) => return false,
+ ) -> Result<PathBuf, String> {
+    let workspace = sandbox_workspace_canonical(state)?;
+    let root_text = {
+        let guard = state
+            .terminal_session_roots
+            .lock()
+            .map_err(|_| "Failed to lock terminal session roots".to_string())?;
+        guard.get(session_id).cloned()
     };
-    let grants = match guard.get(session_id) {
-        Some(grants) => grants,
-        None => return false,
+    let Some(root_text) = root_text else {
+        return Ok(workspace);
     };
 
-    grants.iter().any(|granted| {
-        let separator = std::path::MAIN_SEPARATOR.to_string();
-        normalized_target == *granted
-            || normalized_target
-                .strip_prefix(&(granted.clone() + &separator))
-                .is_some()
-    })
+    let root = PathBuf::from(root_text);
+    match root.canonicalize() {
+        Ok(path) if path.is_dir() => Ok(path),
+        _ => Ok(workspace),
+    }
 }
 
 fn sandbox_path_allowed(
@@ -56,11 +55,11 @@ fn sandbox_path_allowed(
     session_id: &str,
     target: &std::path::Path,
 ) -> Result<bool, String> {
-    let workspace = sandbox_workspace_canonical(state)?;
-    if sandbox_path_is_within(&workspace, target) {
+    let root = sandbox_session_root_canonical(state, session_id)?;
+    if sandbox_path_is_within(&root, target) {
         return Ok(true);
     }
-    Ok(sandbox_has_session_path_access(state, session_id, target))
+    Ok(false)
 }
 
 fn sandbox_assert_cwd_allowed(
@@ -72,7 +71,7 @@ fn sandbox_assert_cwd_allowed(
         return Ok(());
     }
     Err(format!(
-        "Working directory is not allowed yet: {}. Call terminal_request_path_access first.",
+        "Working directory is outside current terminal root: {}. Call terminal_request_path_access first.",
         cwd.to_string_lossy()
     ))
 }

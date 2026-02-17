@@ -94,7 +94,7 @@
       "descDesktopScreenshot": "現在のデスクトップ全体を画像として取得します。",
       "descDesktopWait": "指定ミリ秒だけ待機し、操作の間隔を調整します。",
       "descTerminalExec": "制御された作業ディレクトリで無状態の端末コマンドを1回実行します。",
-      "descTerminalPathAccess": "現在のセッションで追加ディレクトリアクセスを申請します。",
+      "descTerminalPathAccess": "現在のセッションの端末ルートディレクトリを設定します（ルート外は拒否）。",
       "descGeneric": "汎用ツール機能。"
     },
     "persona": {

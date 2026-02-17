@@ -94,7 +94,7 @@
       "descDesktopScreenshot": "현재 전체 데스크톱 화면 이미지를 캡처합니다.",
       "descDesktopWait": "밀리초 단위로 대기하여 작업 템포를 제어합니다.",
       "descTerminalExec": "제어된 작업 경로에서 무상태 터미널 명령을 1회 실행합니다.",
-      "descTerminalPathAccess": "현재 세션에서 추가 경로 접근 권한을 요청합니다.",
+      "descTerminalPathAccess": "현재 세션의 터미널 루트 디렉터리를 설정합니다(루트 밖은 차단).",
       "descGeneric": "일반 도구 기능."
     },
     "persona": {
