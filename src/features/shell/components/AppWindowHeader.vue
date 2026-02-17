@@ -51,7 +51,7 @@
         </button>
         <button
           class="btn btn-ghost btn-xs hover:bg-error/20"
-          title="Close"
+          :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"
         >
@@ -69,7 +69,7 @@
         </button>
         <button
           class="btn btn-ghost btn-xs hover:bg-error/20"
-          title="Close"
+          :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"
         >
@@ -97,6 +97,7 @@ defineProps<{
   openConfigTitle: string;
   openGithubTitle: string;
   checkUpdateTitle: string;
+  closeTitle?: string;
   checkingUpdate: boolean;
 }>();
 

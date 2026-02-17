@@ -29,7 +29,7 @@
         <button
           class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 text-error"
           :title="t('archives.deleteTitle')"
-          @click="$emit('deleteArchive', a.archiveId)"
+          @click="onDeleteClick(a.archiveId)"
         >
           {{ t("archives.delete") }}
         </button>
@@ -73,7 +73,6 @@ const props = defineProps<{
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];
-  renderMessage: (msg: ChatMessage) => string;
 }>();
 const { t, locale } = useI18n();
 
@@ -102,6 +101,12 @@ function onArchiveImportChange(event: Event) {
   const file = input?.files?.[0];
   if (!file) return;
   emit("importArchiveFile", file);
+}
+
+function onDeleteClick(archiveId: string) {
+  if (!archiveId) return;
+  if (!window.confirm(t("archives.deleteConfirm"))) return;
+  emit("deleteArchive", archiveId);
 }
 
 function messageText(msg: ChatMessage): string {

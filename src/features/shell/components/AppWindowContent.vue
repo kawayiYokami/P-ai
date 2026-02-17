@@ -123,7 +123,6 @@
       :archives="archives"
       :selected-archive-id="selectedArchiveId"
       :archive-messages="archiveMessages"
-      :render-message="renderMessage"
       @load-archives="loadArchives"
       @select-archive="selectArchive"
       @export-archive="exportArchive"
@@ -142,7 +141,6 @@
     </dialog>
     <dialog :ref="memoryDialogVNodeRef" class="modal">
       <MemoryDialog
-        :import-input-ref="memoryImportInput"
         :title="t('memory.title')"
         :empty-text="t('memory.empty')"
         :page-text="t('memory.page', { page: memoryPage, total: memoryPageCount })"
@@ -270,11 +268,9 @@ const props = defineProps<{
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];
-  renderMessage: (message: ChatMessage) => string;
   currentHistory: ChatMessage[];
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
-  memoryImportInput: HTMLInputElement | null;
   memoryList: MemoryItem[];
   memoryPage: number;
   memoryPageCount: number;

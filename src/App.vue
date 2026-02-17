@@ -15,6 +15,7 @@
       :open-config-title="t('window.configTitle')"
       :open-github-title="'打开 GitHub 仓库'"
       :check-update-title="'检查更新'"
+      :close-title="t('common.close')"
       :checking-update="checkingUpdate"
       @start-drag="startDrag"
       @force-archive="forceArchiveNow"
@@ -90,11 +91,9 @@
       :archives="archives"
       :selected-archive-id="selectedArchiveId"
       :archive-messages="archiveMessages"
-      :render-message="renderMessage"
       :current-history="currentHistory"
       :message-text="messageText"
       :extract-message-images="extractMessageImages"
-      :memory-import-input="memoryImportInput"
       :memory-list="memoryList"
       :memory-page="memoryPage"
       :memory-page-count="memoryPageCount"
@@ -285,7 +284,6 @@ import {
   extractMessageImages,
   messageText,
   removeBinaryPlaceholders,
-  renderMessage,
 } from "./utils/chat-message";
 import { formatI18nError } from "./utils/error";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
@@ -380,7 +378,7 @@ const chatSettingsAutosaveReady = ref(false);
 const suppressAutosave = ref(false);
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
-const PERF_DEBUG = true;
+const PERF_DEBUG = import.meta.env.DEV;
 const { perfNow, perfLog, setStatus, setStatusError, localeOptions, applyUiLanguage } = useAppCore({
   t: tr,
   config,
@@ -436,7 +434,6 @@ const {
 
 const {
   memoryDialog,
-  memoryImportInput,
   memoryList,
   memoryPage,
   memoryPageCount,

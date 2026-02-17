@@ -28,8 +28,11 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     const idx = options.config.apiConfigs.findIndex(
       (a) => a.id === options.config.selectedApiConfigId,
     );
-    if (idx >= 0) options.config.apiConfigs.splice(idx, 1);
-    options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
+    if (idx < 0) return;
+    options.config.apiConfigs.splice(idx, 1);
+    if (options.config.apiConfigs.length > 0) {
+      options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
+    }
     options.normalizeApiBindingsLocal();
   }
 
@@ -69,5 +72,4 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     removeSelectedPersona,
   };
 }
-
 

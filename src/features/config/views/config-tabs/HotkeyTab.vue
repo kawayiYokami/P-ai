@@ -39,11 +39,25 @@
     <div class="grid grid-cols-2 gap-2">
       <label class="form-control min-w-0">
         <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
-        <input v-model.number="config.minRecordSeconds" type="number" min="1" max="30" class="input input-bordered input-sm w-full" />
+        <input
+          :value="config.minRecordSeconds"
+          type="number"
+          min="1"
+          max="30"
+          class="input input-bordered input-sm w-full"
+          @input="onMinRecordSecondsInput"
+        />
       </label>
       <label class="form-control min-w-0">
         <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
-        <input v-model.number="config.maxRecordSeconds" type="number" min="1" max="600" class="input input-bordered input-sm w-full" />
+        <input
+          :value="config.maxRecordSeconds"
+          type="number"
+          min="1"
+          max="600"
+          class="input input-bordered input-sm w-full"
+          @input="onMaxRecordSecondsInput"
+        />
       </label>
     </div>
   </div>
@@ -104,6 +118,9 @@ const emit = defineEmits<{
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
   (e: "captureHotkey", value: string): void;
+  (e: "update:recordHotkey", value: string): void;
+  (e: "update:minRecordSeconds", value: number): void;
+  (e: "update:maxRecordSeconds", value: number): void;
 }>();
 
 const { t } = useI18n();
@@ -114,12 +131,41 @@ let hotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 const recordHotkeyCapturing = ref(false);
 let recordHotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 
+function normalizeHotkeyTokens(value: string): string[] {
+  return String(value || "")
+    .split("+")
+    .map((token) => token.trim().toUpperCase())
+    .filter((token) => token.length > 0);
+}
+
+function isTokenPrefix(shorter: string[], longer: string[]): boolean {
+  if (shorter.length === 0 || longer.length === 0) return false;
+  if (shorter.length > longer.length) return false;
+  for (let i = 0; i < shorter.length; i += 1) {
+    if (shorter[i] !== longer[i]) return false;
+  }
+  return true;
+}
+
 const hotkeyRecordConflict = computed(() => {
-  const hotkey = String(props.config.hotkey || "").trim().toUpperCase();
-  const recordHotkey = String(props.config.recordHotkey || "").trim().toUpperCase();
-  if (!hotkey || !recordHotkey) return false;
-  return hotkey === recordHotkey;
+  const hotkeyTokens = normalizeHotkeyTokens(props.config.hotkey);
+  const recordHotkeyTokens = normalizeHotkeyTokens(props.config.recordHotkey);
+  if (hotkeyTokens.length === 0 || recordHotkeyTokens.length === 0) return false;
+  if (hotkeyTokens.length <= recordHotkeyTokens.length) {
+    return isTokenPrefix(hotkeyTokens, recordHotkeyTokens);
+  }
+  return isTokenPrefix(recordHotkeyTokens, hotkeyTokens);
 });
+
+function onMinRecordSecondsInput(event: Event) {
+  const raw = Number((event.target as HTMLInputElement).value);
+  emit("update:minRecordSeconds", raw);
+}
+
+function onMaxRecordSecondsInput(event: Event) {
+  const raw = Number((event.target as HTMLInputElement).value);
+  emit("update:maxRecordSeconds", raw);
+}
 
 function isModifierKey(code: string): boolean {
   return code === "AltLeft"
@@ -232,7 +278,7 @@ function startRecordHotkeyCapture() {
     if (isModifierKey(event.code)) {
       const modifierOnly = modifiers[0];
       if (modifiers.length === 1 && modifierOnly) {
-        props.config.recordHotkey = modifierOnly;
+        emit("update:recordHotkey", modifierOnly);
         stopRecordHotkeyCapture();
       }
       return;
@@ -240,7 +286,7 @@ function startRecordHotkeyCapture() {
 
     const main = mainKeyFromEvent(event).trim();
     if (!main) return;
-    props.config.recordHotkey = modifiers.length > 0 ? `${modifiers.join("+")}+${main}` : main;
+    emit("update:recordHotkey", modifiers.length > 0 ? `${modifiers.join("+")}+${main}` : main);
     stopRecordHotkeyCapture();
   };
   window.addEventListener("keydown", recordHotkeyCaptureHandler, true);

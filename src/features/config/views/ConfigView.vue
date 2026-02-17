@@ -25,6 +25,9 @@
           @stop-hotkey-record-test="$emit('stopHotkeyRecordTest')"
           @play-hotkey-record-test="$emit('playHotkeyRecordTest')"
           @capture-hotkey="$emit('captureHotkey', $event)"
+          @update:record-hotkey="onRecordHotkeyChanged"
+          @update:min-record-seconds="onMinRecordSecondsChanged"
+          @update:max-record-seconds="onMaxRecordSecondsChanged"
         />
 
         <ApiTab
@@ -239,6 +242,9 @@ const localCropError = ref("");
 const avatarEditorTargetId = ref("");
 let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
+const MIN_RECORD_SECONDS = 1;
+const MAX_MIN_RECORD_SECONDS = 30;
+const MAX_RECORD_SECONDS = 600;
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();
@@ -348,6 +354,30 @@ function closeCropDialog() {
   localCropError.value = "";
 }
 
+// `config` is a shared reactive object from the root app state.
+// Direct mutation here is intentional and immediately reflected upstream.
+function onRecordHotkeyChanged(value: string) {
+  const next = String(value || "").trim();
+  if (!next) return;
+  props.config.recordHotkey = next;
+}
+
+function onMinRecordSecondsChanged(value: number) {
+  const next = Math.max(MIN_RECORD_SECONDS, Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(value) || MIN_RECORD_SECONDS)));
+  props.config.minRecordSeconds = next;
+  if (props.config.maxRecordSeconds < next) {
+    props.config.maxRecordSeconds = next;
+  }
+}
+
+function onMaxRecordSecondsChanged(value: number) {
+  const next = Math.max(
+    props.config.minRecordSeconds,
+    Math.min(MAX_RECORD_SECONDS, Math.round(Number(value) || props.config.minRecordSeconds)),
+  );
+  props.config.maxRecordSeconds = next;
+}
+
 async function onAvatarFilePicked(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -425,7 +455,10 @@ function confirmCrop() {
   const dataUrl = canvas.toDataURL("image/webp", 0.8);
   const marker = "base64,";
   const idx = dataUrl.indexOf(marker);
-  if (idx < 0) return;
+  if (idx < 0) {
+    localCropError.value = t("config.persona.avatarSaveEncodeFailed");
+    return;
+  }
   const bytesBase64 = dataUrl.slice(idx + marker.length);
   emit("saveAgentAvatar", {
     agentId: cropTarget.agentId,

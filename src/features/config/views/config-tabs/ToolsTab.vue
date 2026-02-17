@@ -170,7 +170,7 @@ const terminalSelfCheckResult = ref("");
 const waitMs = ref(800);
 const screenshotPreviewDataUrl = ref("");
 const screenshotDialogRef = ref<HTMLDialogElement | null>(null);
-const GIT_DOWNLOAD_URL = "https://git-scm.com/download/win";
+const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
 const terminalProjectRootsText = computed({
   get: () => (props.config.terminalProjectRoots || []).join("\n"),
   set: (value) => {
@@ -186,7 +186,7 @@ function toolStatusById(id: string): ToolLoadStatus | undefined {
 }
 
 function statusText(id: string): string {
-  return toolStatusById(id)?.status ?? "unknown";
+  return toolStatusById(id)?.status ?? t("config.tools.statusUnknown");
 }
 
 function statusDotClass(id: string): string {

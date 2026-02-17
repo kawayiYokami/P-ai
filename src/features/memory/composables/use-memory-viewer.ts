@@ -34,7 +34,6 @@ const MEMORY_PAGE_SIZE = 5;
 
 export function useMemoryViewer(options: UseMemoryViewerOptions) {
   const memoryDialog = ref<HTMLDialogElement | null>(null);
-  const memoryImportInput = ref<HTMLInputElement | null>(null);
   const memoryList = ref<MemoryEntry[]>([]);
   const memoryPage = ref(1);
 
@@ -90,10 +89,10 @@ export function useMemoryViewer(options: UseMemoryViewerOptions) {
   }
 
   function triggerMemoryImport() {
-    if (memoryImportInput.value) {
-      memoryImportInput.value.value = "";
-      memoryImportInput.value.click();
-    }
+    const input = memoryDialog.value?.querySelector<HTMLInputElement>("input[type='file']");
+    if (!input) return;
+    input.value = "";
+    input.click();
   }
 
   async function handleMemoryImportFile(event: Event) {
@@ -130,7 +129,6 @@ export function useMemoryViewer(options: UseMemoryViewerOptions) {
 
   return {
     memoryDialog,
-    memoryImportInput,
     memoryList,
     memoryPage,
     memoryPageCount,
@@ -142,4 +140,3 @@ export function useMemoryViewer(options: UseMemoryViewerOptions) {
     handleMemoryImportFile,
   };
 }
-

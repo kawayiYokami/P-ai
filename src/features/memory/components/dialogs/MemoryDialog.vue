@@ -48,8 +48,9 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
+
 defineProps<{
-  importInputRef: HTMLInputElement | null;
   title: string;
   emptyText: string;
   pageText: string;
@@ -72,4 +73,10 @@ defineEmits<{
   triggerImport: [];
   importFile: [event: Event];
 }>();
+
+const importInputRef = ref<HTMLInputElement | null>(null);
+
+defineExpose({
+  importInputRef,
+});
 </script>

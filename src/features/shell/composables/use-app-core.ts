@@ -45,7 +45,9 @@ export function useAppCore(options: UseAppCoreOptions) {
     if (options.config.uiLanguage === lang && options.locale.value === lang) return false;
     options.config.uiLanguage = lang;
     options.locale.value = lang;
-    emit("easy-call:locale-changed", lang);
+    void emit("easy-call:locale-changed", lang).catch((error) => {
+      console.warn("[LOCALE] emit easy-call:locale-changed failed:", error);
+    });
     return true;
   }
 

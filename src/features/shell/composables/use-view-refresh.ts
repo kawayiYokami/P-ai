@@ -64,11 +64,18 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
       options.configAutosaveReady.value = false;
       options.personasAutosaveReady.value = false;
       options.chatSettingsAutosaveReady.value = false;
-      await refreshAllViewData();
-      windowBootstrapped.value = true;
-      options.configAutosaveReady.value = true;
-      options.personasAutosaveReady.value = true;
-      options.chatSettingsAutosaveReady.value = true;
+      try {
+        await refreshAllViewData();
+        windowBootstrapped.value = true;
+        options.configAutosaveReady.value = true;
+        options.personasAutosaveReady.value = true;
+        options.chatSettingsAutosaveReady.value = true;
+      } catch (error) {
+        console.error("[VIEW] window bootstrap refresh failed:", error);
+        options.configAutosaveReady.value = false;
+        options.personasAutosaveReady.value = false;
+        options.chatSettingsAutosaveReady.value = false;
+      }
       return;
     }
     if (options.viewMode.value === "chat") {

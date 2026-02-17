@@ -498,6 +498,7 @@ function jumpToBottom() {
 }
 
 let loadingMore = false;
+let loadingMoreOldHeight = 0;
 
 function evaluateFollowState(el: HTMLElement) {
   // Hysteresis: avoid jitter around the boundary during streaming updates.
@@ -525,13 +526,8 @@ function onScroll() {
   });
   if (el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
     loadingMore = true;
-    const oldHeight = el.scrollHeight;
+    loadingMoreOldHeight = el.scrollHeight;
     emit("loadMoreTurns");
-    nextTick(() => {
-      const newHeight = el.scrollHeight;
-      el.scrollTop = newHeight - oldHeight;
-      loadingMore = false;
-    });
   }
 }
 
@@ -592,9 +588,30 @@ watch(
 watch(
   () => props.turns.length,
   (newLen, oldLen) => {
+    if (loadingMore && newLen > oldLen) {
+      nextTick(() => {
+        const el = scrollContainer.value;
+        if (!el) {
+          loadingMore = false;
+          return;
+        }
+        const newHeight = el.scrollHeight;
+        el.scrollTop = Math.max(0, newHeight - loadingMoreOldHeight);
+        loadingMore = false;
+      });
+      return;
+    }
     if (newLen > oldLen && autoFollowOutput.value) {
       nextTick(() => scrollToBottom());
     }
+  },
+);
+
+watch(
+  () => props.hasMoreTurns,
+  (hasMore) => {
+    if (hasMore) return;
+    loadingMore = false;
   },
 );
 

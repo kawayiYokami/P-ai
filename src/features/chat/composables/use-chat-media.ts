@@ -157,8 +157,19 @@ export function useChatMedia(options: UseChatMediaOptions) {
             const url = new URL(raw);
             if (url.protocol === "file:") {
               let decoded = decodeURIComponent(url.pathname || "");
-              if (/^\/[a-zA-Z]:\//.test(decoded)) decoded = decoded.slice(1);
-              if (decoded) out.push(decoded.replace(/\//g, "\\"));
+              if (!decoded) continue;
+              if (url.host) {
+                const uncPath = `\\\\${url.host}${decoded.replace(/\//g, "\\")}`;
+                out.push(uncPath);
+                continue;
+              }
+              const isWindowsDrivePath = /^\/[a-zA-Z]:\//.test(decoded) || /^[a-zA-Z]:\//.test(decoded);
+              if (isWindowsDrivePath) {
+                if (/^\/[a-zA-Z]:\//.test(decoded)) decoded = decoded.slice(1);
+                out.push(decoded.replace(/\//g, "\\"));
+              } else {
+                out.push(decoded);
+              }
             }
           } catch {
             // ignore invalid uri
@@ -232,6 +243,14 @@ export function useChatMedia(options: UseChatMediaOptions) {
       event.preventDefault();
       options.setChatError("");
       void onNativeFileDrop(pastedPaths);
+      return;
+    }
+
+    const text = event.clipboardData?.getData("text/plain") || "";
+    if (text && !options.chatInput.value.trim() && apiConfig.enableText) {
+      event.preventDefault();
+      options.chatInput.value = text;
+      options.setChatError("");
       return;
     }
 
@@ -361,22 +380,27 @@ export function useChatMedia(options: UseChatMediaOptions) {
       };
       hotkeyTestRecorder.onstop = async () => {
         const durationMs = Math.max(0, Date.now() - hotkeyTestStartedAt);
-        hotkeyTestRecording.value = false;
-        clearHotkeyTestTimers();
-        stopHotkeyTestStream();
-        if (chunks.length === 0) return;
-        const blob = new Blob(chunks, { type: hotkeyTestRecorder?.mimeType || "audio/webm" });
-        const dataUrl = await readBlobAsDataUrl(blob);
-        const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
-        if (!base64) return;
-        hotkeyTestAudio.value = {
-          mime: blob.type || "audio/webm",
-          bytesBase64: base64,
-          durationMs,
-        };
-        options.setStatus(
-          options.t("status.recordTestDone", { seconds: Math.max(1, Math.round(durationMs / 1000)) }),
-        );
+        try {
+          if (chunks.length === 0) return;
+          const blob = new Blob(chunks, { type: hotkeyTestRecorder?.mimeType || "audio/webm" });
+          const dataUrl = await readBlobAsDataUrl(blob);
+          const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
+          if (!base64) return;
+          hotkeyTestAudio.value = {
+            mime: blob.type || "audio/webm",
+            bytesBase64: base64,
+            durationMs,
+          };
+          options.setStatus(
+            options.t("status.recordTestDone", { seconds: Math.max(1, Math.round(durationMs / 1000)) }),
+          );
+        } catch (e) {
+          options.setStatusError("status.recordTestFailed", e);
+        } finally {
+          hotkeyTestRecording.value = false;
+          clearHotkeyTestTimers();
+          stopHotkeyTestStream();
+        }
       };
       hotkeyTestRecorder.start();
       hotkeyTestStartedAt = Date.now();

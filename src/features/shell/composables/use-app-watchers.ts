@@ -156,7 +156,16 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
         }));
         return;
       }
-      await options.refreshToolsStatus();
+      try {
+        await options.refreshToolsStatus();
+      } catch (error) {
+        console.error("[WATCH] refreshToolsStatus failed:", error);
+        options.toolStatuses.value = (options.toolApiConfig.value?.tools ?? []).map((tool) => ({
+          id: tool.id,
+          status: "failed",
+          detail: String(error),
+        }));
+      }
     },
   );
 
@@ -164,18 +173,25 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => options.configTab.value,
     async (tab) => {
       if (tab !== "chatSettings") return;
-      await options.refreshImageCacheStats();
+      try {
+        await options.refreshImageCacheStats();
+      } catch (error) {
+        console.error("[WATCH] refreshImageCacheStats failed:", error);
+      }
     },
   );
 
   watch(
     () => options.activeChatApiConfigId.value,
-    async (newId, oldId) => {
-      if (newId === oldId) return;
+    async () => {
       if (options.suppressChatReloadWatch.value) return;
       if (options.viewMode.value !== "chat") return;
-      await options.refreshConversationHistory();
-      options.resetVisibleTurnCount();
+      try {
+        await options.refreshConversationHistory();
+        options.resetVisibleTurnCount();
+      } catch (error) {
+        console.error("[WATCH] refreshConversationHistory failed:", error);
+      }
     },
   );
 }

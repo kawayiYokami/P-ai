@@ -7,8 +7,8 @@ type UseAppLifecycleOptions = {
   onPaste: (event: ClipboardEvent) => void;
   onDragOver: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
-  onNativeFileDrop: (paths: string[]) => Promise<void> | void;
-  onNativeDragState: (active: boolean) => void;
+  onNativeFileDrop?: (paths: string[]) => Promise<void> | void;
+  onNativeDragState?: (active: boolean) => void;
   recordHotkeyMount: () => void;
   recordHotkeyUnmount: () => void;
   refreshAllViewData: () => Promise<void>;
@@ -27,20 +27,29 @@ type UseAppLifecycleOptions = {
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
   onMounted(async () => {
-    await options.appBootstrapMount();
+    try {
+      await options.appBootstrapMount();
+    } catch (error) {
+      console.error("[LIFECYCLE] app bootstrap mount failed:", error);
+    }
     options.restoreThemeFromStorage();
     window.addEventListener("paste", options.onPaste);
     window.addEventListener("dragover", options.onDragOver);
     window.addEventListener("drop", options.onDrop);
     options.recordHotkeyMount();
-    await options.refreshAllViewData();
-    options.configAutosaveReady.value = true;
-    options.personasAutosaveReady.value = true;
-    options.chatSettingsAutosaveReady.value = true;
-    if (options.viewMode.value === "chat") {
-      await options.syncAlwaysOnTop();
+    try {
+      await options.refreshAllViewData();
+      if (options.viewMode.value === "chat") {
+        await options.syncAlwaysOnTop();
+      }
+      await options.afterMountedReady?.();
+    } catch (error) {
+      console.error("[LIFECYCLE] mounted async flow failed:", error);
+    } finally {
+      options.configAutosaveReady.value = true;
+      options.personasAutosaveReady.value = true;
+      options.chatSettingsAutosaveReady.value = true;
     }
-    await options.afterMountedReady?.();
   });
 
   onBeforeUnmount(() => {

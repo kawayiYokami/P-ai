@@ -10,6 +10,7 @@
             v-for="(img, idx) in extractImages(m)"
             :key="`${img.mime}-${idx}`"
             :src="`data:${img.mime};base64,${img.bytesBase64}`"
+            alt=""
             loading="lazy"
             decoding="async"
             class="rounded max-h-32 object-contain bg-base-100/40"

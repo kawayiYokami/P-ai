@@ -31,30 +31,34 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
   async function mount() {
     const mode = options.initWindowMode();
     options.setViewMode(mode);
-
-    unlisteners.push(
-      await listen<string>("easy-call:theme-changed", (event) => {
-        options.onThemeChanged(event.payload);
-      }),
-    );
-    unlisteners.push(
-      await listen<string>("easy-call:locale-changed", (event) => {
-        options.onLocaleChanged(event.payload);
-      }),
-    );
-    unlisteners.push(
-      await listen("easy-call:refresh", async () => {
-        await options.onRefreshSignal();
-      }),
-    );
-    unlisteners.push(
-      await listen<TerminalApprovalRequestPayload>(
-        "easy-call:terminal-approval-request",
-        (event) => {
-          options.onTerminalApprovalRequested?.(event.payload);
-        },
-      ),
-    );
+    try {
+      unlisteners.push(
+        await listen<string>("easy-call:theme-changed", (event) => {
+          options.onThemeChanged(event.payload);
+        }),
+      );
+      unlisteners.push(
+        await listen<string>("easy-call:locale-changed", (event) => {
+          options.onLocaleChanged(event.payload);
+        }),
+      );
+      unlisteners.push(
+        await listen("easy-call:refresh", async () => {
+          await options.onRefreshSignal();
+        }),
+      );
+      unlisteners.push(
+        await listen<TerminalApprovalRequestPayload>(
+          "easy-call:terminal-approval-request",
+          (event) => {
+            options.onTerminalApprovalRequested?.(event.payload);
+          },
+        ),
+      );
+    } catch (error) {
+      unmount();
+      throw error;
+    }
   }
 
   function unmount() {

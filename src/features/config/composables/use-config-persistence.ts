@@ -41,11 +41,52 @@ type UseConfigPersistenceOptions = {
   syncTrayIcon: (agentId?: string) => Promise<void>;
 };
 
+const MIN_RECORD_SECONDS = 1;
+const MAX_MIN_RECORD_SECONDS = 30;
+const DEFAULT_MAX_RECORD_SECONDS = 60;
+const MAX_RECORD_SECONDS = 600;
+
 export function useConfigPersistence(options: UseConfigPersistenceOptions) {
+  function extractHttpStatus(error: unknown): number | null {
+    if (!error || typeof error !== "object") return null;
+    const err = error as Record<string, unknown>;
+    const directStatus = err.status;
+    if (typeof directStatus === "number") return directStatus;
+    if (typeof directStatus === "string") {
+      const parsed = Number(directStatus);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const response = err.response;
+    if (!response || typeof response !== "object") return null;
+    const responseStatus = (response as Record<string, unknown>).status;
+    if (typeof responseStatus === "number") return responseStatus;
+    if (typeof responseStatus === "string") {
+      const parsed = Number(responseStatus);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  }
+
+  function normalizeRecordSeconds(
+    minValue: unknown,
+    maxValue: unknown,
+  ): { minRecordSeconds: number; maxRecordSeconds: number } {
+    const minRecordSeconds = Math.max(
+      MIN_RECORD_SECONDS,
+      Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(minValue) || MIN_RECORD_SECONDS)),
+    );
+    const maxRecordSeconds = Math.max(
+      minRecordSeconds,
+      Math.min(MAX_RECORD_SECONDS, Math.round(Number(maxValue) || DEFAULT_MAX_RECORD_SECONDS)),
+    );
+    return { minRecordSeconds, maxRecordSeconds };
+  }
+
   function classifySaveConfigError(error: unknown): ConfigSaveErrorInfo {
     const errorText = String(error ?? "unknown");
     const normalized = errorText.toLowerCase();
-    const isBackend404 = normalized.includes("404");
+    const status = extractHttpStatus(error);
+    const isBackend404 = status === 404 || normalized.includes("404");
     const isHotkeyConflict =
       (normalized.includes("register hotkey failed")
         && (normalized.includes("already registered") || normalized.includes("already in use")))
@@ -82,8 +123,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = cfg.recordHotkey || "Alt";
-      options.config.minRecordSeconds = Math.max(1, Math.min(30, Number(cfg.minRecordSeconds || 1)));
-      options.config.maxRecordSeconds = Math.max(options.config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
+      const normalizedRecord = normalizeRecordSeconds(cfg.minRecordSeconds, cfg.maxRecordSeconds);
+      options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
+      options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
       options.config.chatApiConfigId = cfg.chatApiConfigId;
@@ -120,8 +162,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = saved.recordHotkey || "Alt";
-      options.config.minRecordSeconds = Math.max(1, Math.min(30, Number(saved.minRecordSeconds || 1)));
-      options.config.maxRecordSeconds = Math.max(options.config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
+      const normalizedRecord = normalizeRecordSeconds(saved.minRecordSeconds, saved.maxRecordSeconds);
+      options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
+      options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.chatApiConfigId = saved.chatApiConfigId;
@@ -160,9 +203,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     if (!hotkey) return;
     options.config.hotkey = hotkey;
     const saved = await saveConfig();
-    if (saved) {
-      options.setStatus(options.t("status.hotkeyUpdated", { hotkey }));
-    }
+    if (!saved) return;
+    options.setStatus(options.t("status.hotkeyUpdated", { hotkey }));
   }
 
   async function loadPersonas() {
@@ -179,6 +221,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.syncUserAliasFromPersona();
       await options.preloadPersonaAvatars();
       await options.syncTrayIcon(options.selectedPersonaId.value);
+    } catch (e) {
+      options.setStatusError("status.loadPersonasFailed", e);
     } finally {
       options.suppressAutosave.value = false;
     }
@@ -203,6 +247,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         options.selectedResponseStyleId.value = "concise";
       }
       await options.syncTrayIcon(options.selectedPersonaId.value);
+    } catch (e) {
+      options.setStatusError("status.loadChatSettingsFailed", e);
     } finally {
       options.suppressAutosave.value = false;
     }

@@ -16,6 +16,7 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
   let suppressUntil = 0;
   let blockUntilRelease = false;
   let conflictHintShown = false;
+  let recordingStarted = false;
 
   const startDelayMs = options.startDelayMs ?? 180;
 
@@ -151,6 +152,7 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
       startTimer = setTimeout(() => {
         if (!hotkeyPressed) return;
         if (Date.now() < suppressUntil) return;
+        recordingStarted = true;
         void options.onStartRecording();
       }, startDelayMs);
     };
@@ -163,11 +165,14 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
         blockUntilRelease = false;
         hotkeyPressed = false;
         clearStartTimer();
+        recordingStarted = false;
         return;
       }
       event.preventDefault();
       hotkeyPressed = false;
       clearStartTimer();
+      if (!recordingStarted) return;
+      recordingStarted = false;
       void options.onStopRecording(false);
     };
 
@@ -180,10 +185,16 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     blockUntilRelease = true;
     hotkeyPressed = false;
     clearStartTimer();
+    recordingStarted = false;
   }
 
   function unmount() {
     clearStartTimer();
+    hotkeyPressed = false;
+    suppressUntil = 0;
+    blockUntilRelease = false;
+    conflictHintShown = false;
+    recordingStarted = false;
     if (keydownHandler) {
       window.removeEventListener("keydown", keydownHandler);
       keydownHandler = null;

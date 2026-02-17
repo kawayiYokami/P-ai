@@ -36,8 +36,13 @@ export function useWindowShell() {
 
   async function toggleAlwaysOnTop() {
     if (!appWindow.value) return;
-    alwaysOnTop.value = !alwaysOnTop.value;
-    await appWindow.value.setAlwaysOnTop(alwaysOnTop.value);
+    const desired = !alwaysOnTop.value;
+    try {
+      await appWindow.value.setAlwaysOnTop(desired);
+      alwaysOnTop.value = desired;
+    } catch (error) {
+      console.error("[WINDOW] setAlwaysOnTop failed:", error);
+    }
   }
 
   return {
@@ -51,4 +56,3 @@ export function useWindowShell() {
     toggleAlwaysOnTop,
   };
 }
-

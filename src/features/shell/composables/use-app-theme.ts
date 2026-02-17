@@ -2,10 +2,14 @@ import { ref } from "vue";
 import { emit } from "@tauri-apps/api/event";
 
 export type AppTheme = "light" | "forest";
+const THEME_SET: AppTheme[] = ["light", "forest"];
+const currentTheme = ref<AppTheme>("light");
+
+function isValidTheme(value: unknown): value is AppTheme {
+  return typeof value === "string" && THEME_SET.includes(value as AppTheme);
+}
 
 export function useAppTheme() {
-  const currentTheme = ref<AppTheme>("light");
-
   function applyTheme(theme: AppTheme) {
     currentTheme.value = theme;
     document.documentElement.setAttribute("data-theme", theme);
@@ -13,8 +17,8 @@ export function useAppTheme() {
   }
 
   function restoreThemeFromStorage() {
-    const savedTheme = localStorage.getItem("theme") as AppTheme | null;
-    if (savedTheme) {
+    const savedTheme = localStorage.getItem("theme");
+    if (isValidTheme(savedTheme)) {
       applyTheme(savedTheme);
     }
   }
@@ -22,7 +26,9 @@ export function useAppTheme() {
   function toggleTheme() {
     const next = currentTheme.value === "light" ? "forest" : "light";
     applyTheme(next);
-    emit("easy-call:theme-changed", next);
+    void emit("easy-call:theme-changed", next).catch((error) => {
+      console.warn("[THEME] emit easy-call:theme-changed failed:", error);
+    });
   }
 
   return {
@@ -32,4 +38,3 @@ export function useAppTheme() {
     toggleTheme,
   };
 }
-

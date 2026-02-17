@@ -8,6 +8,11 @@ type UseConfigCoreOptions = {
 };
 
 export function useConfigCore(options: UseConfigCoreOptions) {
+  const MIN_RECORD_SECONDS = 1;
+  const MAX_MIN_RECORD_SECONDS = 30;
+  const DEFAULT_MAX_RECORD_SECONDS = 60;
+  const MAX_RECORD_SECONDS = 600;
+
   const BUILTIN_TOOL_DEFAULTS = [
     {
       id: "fetch",
@@ -89,12 +94,12 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     const recordHotkey = String(options.config.recordHotkey || "").trim();
     options.config.recordHotkey = recordHotkey || "Alt";
     options.config.minRecordSeconds = Math.max(
-      1,
-      Math.min(30, Math.round(Number(options.config.minRecordSeconds) || 1)),
+      MIN_RECORD_SECONDS,
+      Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(options.config.minRecordSeconds) || MIN_RECORD_SECONDS)),
     );
     options.config.maxRecordSeconds = Math.max(
       options.config.minRecordSeconds,
-      Math.round(Number(options.config.maxRecordSeconds) || 60),
+      Math.min(MAX_RECORD_SECONDS, Math.round(Number(options.config.maxRecordSeconds) || DEFAULT_MAX_RECORD_SECONDS)),
     );
     options.config.toolMaxIterations = Math.max(
       1,

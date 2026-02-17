@@ -89,8 +89,17 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   }
 
   async function selectArchive(archiveId: string) {
-    selectedArchiveId.value = archiveId;
-    archiveMessages.value = await invokeTauri<ChatMessage[]>("get_archive_messages", { archiveId });
+    const previousId = selectedArchiveId.value;
+    const previousMessages = archiveMessages.value;
+    try {
+      const messages = await invokeTauri<ChatMessage[]>("get_archive_messages", { archiveId });
+      selectedArchiveId.value = archiveId;
+      archiveMessages.value = messages;
+    } catch (e) {
+      selectedArchiveId.value = previousId;
+      archiveMessages.value = previousMessages;
+      options.setStatusError("status.loadArchivesFailed", e);
+    }
   }
 
   async function deleteArchive(archiveId: string) {
@@ -158,20 +167,24 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   }
 
   async function importArchivePayload(payloadJson: string) {
-    const result = await invokeTauri<ImportArchivesResult>("import_archives_from_json", {
-      input: { payloadJson },
-    });
-    if (result.selectedArchiveId) {
-      selectedArchiveId.value = result.selectedArchiveId;
+    try {
+      const result = await invokeTauri<ImportArchivesResult>("import_archives_from_json", {
+        input: { payloadJson },
+      });
+      if (result.selectedArchiveId) {
+        selectedArchiveId.value = result.selectedArchiveId;
+      }
+      await loadArchives();
+      options.setStatus(
+        options.t("status.importArchiveDone", {
+          imported: result.importedCount,
+          replaced: result.replacedCount,
+          total: result.totalCount,
+        }),
+      );
+    } catch (err) {
+      options.setStatusError("status.importArchiveFailed", err);
     }
-    await loadArchives();
-    options.setStatus(
-      options.t("status.importArchiveDone", {
-        imported: result.importedCount,
-        replaced: result.replacedCount,
-        total: result.totalCount,
-      }),
-    );
   }
 
   return {
