@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Stdio;
 
 const TERMINAL_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 20_000;
@@ -1016,44 +1015,29 @@ async fn builtin_terminal_exec(
         }
     }
 
-    let shell = &state.terminal_shell;
-    let mut command_builder = tokio::process::Command::new(&shell.path);
-    command_builder.kill_on_drop(true);
-    command_builder.current_dir(&cwd);
-    command_builder.stdout(Stdio::piped());
-    command_builder.stderr(Stdio::piped());
-    command_builder.stdin(Stdio::null());
-    for arg in &shell.args_prefix {
-        command_builder.arg(arg);
-    }
-    command_builder.arg(cmd);
-
-    let started = std::time::Instant::now();
-    let output = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        command_builder.output(),
+    let execution = sandbox_execute_command(
+        state,
+        &normalized_session,
+        cmd,
+        &cwd,
+        timeout_ms,
     )
-    .await
-    .map_err(|_| format!("terminal_exec timed out after {timeout_ms}ms"))?
-    .map_err(|err| format!("terminal_exec spawn failed: {err}"))?;
-
-    let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    let (stdout, stdout_truncated) = truncate_terminal_output(&output.stdout);
-    let (stderr, stderr_truncated) = truncate_terminal_output(&output.stderr);
-    let exit_code = output.status.code().unwrap_or(-1);
+    .await?;
+    let (stdout, stdout_truncated) = truncate_terminal_output(&execution.stdout);
+    let (stderr, stderr_truncated) = truncate_terminal_output(&execution.stderr);
 
     Ok(serde_json::json!({
-        "ok": output.status.success(),
-        "shellKind": shell.kind,
-        "shellPath": shell.path,
+        "ok": execution.ok,
+        "shellKind": execution.shell_kind,
+        "shellPath": execution.shell_path,
         "sessionId": normalized_session,
         "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
         "cwd": cwd.to_string_lossy().to_string(),
         "command": cmd,
-        "exitCode": exit_code,
+        "exitCode": execution.exit_code,
         "stdout": stdout,
         "stderr": stderr,
-        "durationMs": duration_ms,
+        "durationMs": execution.duration_ms,
         "timedOut": false,
         "truncated": stdout_truncated || stderr_truncated,
         "stdoutTruncated": stdout_truncated,
