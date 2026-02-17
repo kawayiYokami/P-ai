@@ -11,7 +11,10 @@ fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
     }
 
     let content = fs::read_to_string(path).map_err(|err| format!("Read config failed: {err}"))?;
-    let mut parsed = toml::from_str::<AppConfig>(&content).unwrap_or_default();
+    let mut parsed = toml::from_str::<AppConfig>(&content).map_err(|err| {
+        eprintln!("[CONFIG] Parse config failed ({}): {err}", path.display());
+        format!("Parse config failed ({}): {err}", path.display())
+    })?;
     normalize_app_config(&mut parsed);
     Ok(parsed)
 }
@@ -255,6 +258,7 @@ fn normalize_app_config(config: &mut AppConfig) {
 
 const MEDIA_REF_PREFIX: &str = "@media:";
 const MEDIA_BASE64_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_IMAGE_TEXT_CACHE_ENTRIES: usize = 1000;
 
 #[derive(Default)]
 struct MediaBase64Cache {
@@ -526,7 +530,10 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     }
 
     let content = fs::read_to_string(path).map_err(|err| format!("Read app_data failed: {err}"))?;
-    let mut parsed = serde_json::from_str::<AppData>(&content).unwrap_or_default();
+    let mut parsed = serde_json::from_str::<AppData>(&content).map_err(|err| {
+        eprintln!("[CONFIG] Parse app_data failed ({}): {err}", path.display());
+        format!("Parse app_data failed ({}): {err}", path.display())
+    })?;
     parsed.version = APP_DATA_SCHEMA_VERSION;
     let defaults_changed = ensure_default_agent(&mut parsed);
     let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
@@ -703,6 +710,18 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
         text: text.to_string(),
         updated_at: now_iso(),
     });
+    if data.image_text_cache.len() <= MAX_IMAGE_TEXT_CACHE_ENTRIES {
+        return;
+    }
+    let Some((oldest_idx, _)) = data
+        .image_text_cache
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.updated_at.cmp(&b.updated_at))
+    else {
+        return;
+    };
+    data.image_text_cache.remove(oldest_idx);
 }
 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {

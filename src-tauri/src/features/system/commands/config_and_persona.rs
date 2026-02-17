@@ -397,17 +397,46 @@ fn clear_agent_avatar(
 #[tauri::command]
 fn read_avatar_data_url(
     input: AvatarDataPathInput,
+    state: State<'_, AppState>,
 ) -> Result<AvatarDataUrlOutput, String> {
     if input.path.trim().is_empty() {
         return Ok(AvatarDataUrlOutput {
             data_url: String::new(),
         });
     }
-    let bytes = fs::read(&input.path)
+    let avatars_dir = avatar_storage_dir(&state)?;
+    let root = fs::canonicalize(&avatars_dir).map_err(|err| {
+        format!(
+            "Resolve avatar root failed ({}): {err}",
+            avatars_dir.to_string_lossy()
+        )
+    })?;
+    let target = fs::canonicalize(input.path.trim()).map_err(|err| {
+        format!("Resolve avatar path failed ({}): {err}", input.path.trim())
+    })?;
+    if !target.starts_with(&root) {
+        return Err("Avatar path is outside allowed avatar directory.".to_string());
+    }
+    let metadata = fs::metadata(&target)
+        .map_err(|err| format!("Read avatar metadata failed: {err}"))?;
+    if !metadata.is_file() {
+        return Err("Avatar path must be a regular file.".to_string());
+    }
+    let ext = target
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(|v| v.to_ascii_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "webp" => "image/webp",
+        "png" => "image/png",
+        _ => return Err("Avatar file type is not allowed (only .webp/.png).".to_string()),
+    };
+    let bytes = fs::read(&target)
         .map_err(|err| format!("Read avatar file failed: {err}"))?;
     let base64 = B64.encode(bytes);
     Ok(AvatarDataUrlOutput {
-        data_url: format!("data:image/webp;base64,{base64}"),
+        data_url: format!("data:{mime};base64,{base64}"),
     })
 }
 
@@ -485,11 +514,15 @@ fn get_chat_snapshot(
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
     let requested_agent_id = input.agent_id.trim();
-    let effective_agent_id = if data
-        .agents
-        .iter()
-        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    if !requested_agent_id.is_empty()
+        && !data
+            .agents
+            .iter()
+            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
     {
+        return Err(format!("Selected agent '{requested_agent_id}' not found."));
+    }
+    let effective_agent_id = if !requested_agent_id.is_empty() {
         requested_agent_id.to_string()
     } else if data
         .agents
@@ -559,11 +592,15 @@ fn get_active_conversation_messages(
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
     let requested_agent_id = input.agent_id.trim();
-    let effective_agent_id = if data
-        .agents
-        .iter()
-        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    if !requested_agent_id.is_empty()
+        && !data
+            .agents
+            .iter()
+            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
     {
+        return Err(format!("Selected agent '{requested_agent_id}' not found."));
+    }
+    let effective_agent_id = if !requested_agent_id.is_empty() {
         requested_agent_id.to_string()
     } else if data
         .agents

@@ -139,17 +139,23 @@ async fn send_chat_message(
                     if converted.is_empty() {
                         continue;
                     }
-                    let mapped = format!("[图片{}]\n{}", idx + 1, converted);
-                    converted_texts.push(mapped);
 
                     let guard = state
                         .state_lock
                         .lock()
                         .map_err(|_| "Failed to lock state mutex".to_string())?;
                     let mut data = read_app_data(&state.data_path)?;
-                    upsert_image_text_cache(&mut data, &hash, &vision_api.id, &converted);
-                    write_app_data(&state.data_path, &data)?;
+                    let mapped = if let Some(existing) =
+                        find_image_text_cache(&data, &hash, &vision_api.id)
+                    {
+                        format!("[图片{}]\n{}", idx + 1, existing)
+                    } else {
+                        upsert_image_text_cache(&mut data, &hash, &vision_api.id, &converted);
+                        write_app_data(&state.data_path, &data)?;
+                        format!("[图片{}]\n{}", idx + 1, converted)
+                    };
                     drop(guard);
+                    converted_texts.push(mapped);
                 }
 
                 if !converted_texts.is_empty() {

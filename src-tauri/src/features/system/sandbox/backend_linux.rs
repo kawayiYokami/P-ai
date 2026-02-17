@@ -37,7 +37,6 @@ fn sandbox_linux_ro_bind_dirs(shell: &TerminalShellProfile) -> Vec<std::path::Pa
         "/etc",
         "/opt",
         "/run",
-        "/dev",
         "/nix",
     ] {
         push(std::path::PathBuf::from(candidate));
@@ -96,13 +95,14 @@ async fn sandbox_run_with_linux_bwrap_backend(
     }
     command_builder.arg(&request.command);
 
+    let timeout_ms = request.timeout_ms.max(1);
     let started = std::time::Instant::now();
     let output = tokio::time::timeout(
-        std::time::Duration::from_millis(request.timeout_ms),
+        std::time::Duration::from_millis(timeout_ms),
         command_builder.output(),
     )
     .await
-    .map_err(|_| format!("terminal_exec timed out after {}ms", request.timeout_ms))?
+    .map_err(|_| format!("terminal_exec timed out after {}ms", timeout_ms))?
     .map_err(|err| format!("terminal_exec spawn failed: {err}"))?;
 
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;

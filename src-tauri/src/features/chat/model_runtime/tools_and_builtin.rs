@@ -309,6 +309,94 @@ fn truncate_by_chars(input: &str, max_chars: usize) -> String {
     out
 }
 
+fn is_forbidden_fetch_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || v4.octets()[0] == 0
+        }
+        std::net::IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return true;
+            }
+            let seg0 = v6.segments()[0];
+            if (seg0 & 0xfe00) == 0xfc00 {
+                return true;
+            }
+            if (seg0 & 0xffc0) == 0xfe80 {
+                return true;
+            }
+            if let Some(mapped) = v6.to_ipv4() {
+                return is_forbidden_fetch_ip(std::net::IpAddr::V4(mapped));
+            }
+            false
+        }
+    }
+}
+
+struct ValidatedFetchTarget {
+    url: reqwest::Url,
+    resolve_host: Option<String>,
+    resolved_addrs: Vec<std::net::SocketAddr>,
+}
+
+async fn validate_builtin_fetch_url(raw: &str) -> Result<ValidatedFetchTarget, String> {
+    let parsed = reqwest::Url::parse(raw).map_err(|err| format!("Invalid fetch url: {err}"))?;
+    let scheme = parsed.scheme().to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return Err("Only http/https URLs are allowed.".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Fetch url must include a host.".to_string())?;
+    let host_text = host.to_string();
+    let host_lower = host_text.trim().to_ascii_lowercase();
+    if host_lower == "localhost" || host_lower.ends_with(".localhost") {
+        return Err("Fetch url host is blocked: localhost.".to_string());
+    }
+    let port = parsed
+        .port_or_known_default()
+        .unwrap_or(if scheme == "https" { 443 } else { 80 });
+    if let Ok(ip) = host_text.parse::<std::net::IpAddr>() {
+        if is_forbidden_fetch_ip(ip) {
+            return Err("Fetch url host resolves to a blocked local/private address.".to_string());
+        }
+        return Ok(ValidatedFetchTarget {
+            url: parsed,
+            resolve_host: None,
+            resolved_addrs: vec![std::net::SocketAddr::new(ip, port)],
+        });
+    }
+    let resolved = tokio::net::lookup_host((host_text.as_str(), port))
+        .await
+        .map_err(|err| format!("Resolve host failed: {err}"))?;
+    let mut addrs = Vec::<std::net::SocketAddr>::new();
+    for addr in resolved {
+        if is_forbidden_fetch_ip(addr.ip()) {
+            return Err(
+                "Fetch url host resolves to a blocked loopback/link-local/private address."
+                    .to_string(),
+            );
+        }
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
+        }
+    }
+    if addrs.is_empty() {
+        return Err("Fetch url host has no resolved IP addresses.".to_string());
+    }
+    Ok(ValidatedFetchTarget {
+        url: parsed,
+        resolve_host: Some(host_text),
+        resolved_addrs: addrs,
+    })
+}
+
 async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
     let normalized_url = url.trim();
     if normalized_url.is_empty() {
@@ -322,22 +410,43 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
         }));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"));
+    let validated = match validate_builtin_fetch_url(normalized_url).await {
+        Ok(target) => target,
+        Err(message) => {
+            return Ok(serde_json::json!({
+              "ok": false,
+              "url": normalized_url,
+              "status": Value::Null,
+              "error": "invalid_url",
+              "message": message,
+              "content": ""
+            }));
+        }
+    };
+
+    let mut client_builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(12));
+    if let Some(host) = validated.resolve_host.as_deref() {
+        for addr in &validated.resolved_addrs {
+            client_builder = client_builder.resolve(host, *addr);
+        }
+    }
+    let client = client_builder.build();
     let Ok(client) = client else {
+        let build_err = client
+            .err()
+            .map(|err| format!("Build HTTP client failed: {err}"))
+            .unwrap_or_else(|| "Build HTTP client failed: unknown error".to_string());
         return Ok(serde_json::json!({
           "ok": false,
           "url": normalized_url,
           "status": Value::Null,
           "error": "build_http_client_failed",
-          "message": client.err().unwrap_or_default(),
+          "message": build_err,
           "content": ""
         }));
     };
     let resp = client
-        .get(normalized_url)
+        .get(validated.url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         .send()
         .await;
@@ -458,7 +567,7 @@ fn normalize_memory_keywords(raw: &[String]) -> Vec<String> {
     let mut out = Vec::<String>::new();
     for item in raw {
         let v = item.trim().to_lowercase();
-        if v.len() < 2 {
+        if v.chars().count() < 2 {
             continue;
         }
         if !out.iter().any(|x| x == &v) {

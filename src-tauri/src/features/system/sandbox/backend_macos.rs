@@ -13,9 +13,20 @@ fn sandbox_find_sandbox_exec_binary() -> Option<std::path::PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn sandbox_escape_profile_path(path: &std::path::Path) -> String {
-    path.to_string_lossy()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
+    let text = path.to_string_lossy();
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push('_'),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(target_os = "macos")]
@@ -75,13 +86,14 @@ async fn sandbox_run_with_macos_seatbelt_backend(
     }
     command_builder.arg(&request.command);
 
+    let timeout_ms = request.timeout_ms.max(1);
     let started = std::time::Instant::now();
     let output = tokio::time::timeout(
-        std::time::Duration::from_millis(request.timeout_ms),
+        std::time::Duration::from_millis(timeout_ms),
         command_builder.output(),
     )
     .await
-    .map_err(|_| format!("terminal_exec timed out after {}ms", request.timeout_ms))?
+    .map_err(|_| format!("terminal_exec timed out after {}ms", timeout_ms))?
     .map_err(|err| format!("terminal_exec spawn failed: {err}"))?;
 
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;

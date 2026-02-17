@@ -992,12 +992,36 @@ fn import_memories(
             merged_count += 1;
             continue;
         }
-
-        let id = if incoming.id.trim().is_empty() {
+        let requested_id = incoming.id.trim();
+        if !requested_id.is_empty() {
+            if let Some(existing_idx) = data.memories.iter().position(|m| m.id == requested_id) {
+                let existing = &mut data.memories[existing_idx];
+                if memory_content_key(&existing.content) == key {
+                    for kw in keywords {
+                        if !existing.keywords.iter().any(|x| x == &kw) {
+                            existing.keywords.push(kw);
+                        }
+                    }
+                    existing.updated_at = now.clone();
+                    merged_count += 1;
+                    continue;
+                }
+            }
+        }
+        let mut id = if requested_id.is_empty() {
             Uuid::new_v4().to_string()
+        } else if let Some(existing) = data.memories.iter().find(|m| m.id == requested_id) {
+            if memory_content_key(&existing.content) == key {
+                requested_id.to_string()
+            } else {
+                Uuid::new_v4().to_string()
+            }
         } else {
-            incoming.id
+            requested_id.to_string()
         };
+        while data.memories.iter().any(|m| m.id == id) {
+            id = Uuid::new_v4().to_string();
+        }
         data.memories.push(MemoryEntry {
             id,
             content: content.clone(),

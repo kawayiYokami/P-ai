@@ -101,6 +101,7 @@ fn sandbox_run_with_windows_job_backend_blocking(
         buf
     });
 
+    let timeout_ms = request.timeout_ms.max(1);
     let started = std::time::Instant::now();
     loop {
         if let Some(_status) = child
@@ -109,12 +110,12 @@ fn sandbox_run_with_windows_job_backend_blocking(
         {
             break;
         }
-        if started.elapsed().as_millis() >= request.timeout_ms as u128 {
+        if started.elapsed().as_millis() >= timeout_ms as u128 {
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!(
                 "terminal_exec timed out after {}ms",
-                request.timeout_ms
+                timeout_ms
             ));
         }
         std::thread::sleep(std::time::Duration::from_millis(15));

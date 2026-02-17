@@ -253,8 +253,9 @@ fn build_user_parts(
                     image.mime.trim()
                 ));
             }
+            let bytes_base64 = image.bytes_base64.trim();
             let raw = B64
-                .decode(image.bytes_base64.trim())
+                .decode(bytes_base64)
                 .map_err(|err| format!("Decode image base64 failed: {err}"))?;
             if mime == "application/pdf" {
                 if !api_config.request_format.is_gemini() {
@@ -266,7 +267,7 @@ fn build_user_parts(
                 total_binary += raw.len();
                 parts.push(MessagePart::Image {
                     mime: "application/pdf".to_string(),
-                    bytes_base64: B64.encode(raw),
+                    bytes_base64: bytes_base64.to_string(),
                     name: None,
                     compressed: false,
                 });
@@ -289,13 +290,14 @@ fn build_user_parts(
         }
 
         for audio in audios {
+            let bytes_base64 = audio.bytes_base64.trim();
             let raw = B64
-                .decode(audio.bytes_base64.trim())
+                .decode(bytes_base64)
                 .map_err(|err| format!("Decode audio base64 failed: {err}"))?;
             total_binary += raw.len();
             parts.push(MessagePart::Audio {
                 mime: audio.mime.trim().to_string(),
-                bytes_base64: B64.encode(raw),
+                bytes_base64: bytes_base64.to_string(),
                 name: None,
                 compressed: false,
             });
@@ -359,10 +361,10 @@ fn sanitize_memory_block_xml(raw: &str) -> String {
     raw.lines()
         .filter(|line| {
             let t = line.trim();
-            !(t.starts_with("<keywords>")
-                || t.starts_with("</keywords>")
-                || t.starts_with("<reason>")
-                || t.starts_with("</reason>"))
+            !(t.contains("<keywords>")
+                || t.contains("</keywords>")
+                || t.contains("<reason>")
+                || t.contains("</reason>"))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -467,50 +469,126 @@ fn build_prompt(
             reasoning_content: None,
         });
     }
+    let response_style = response_style_preset(response_style_id);
+    let highest_instruction_md = highest_instruction_markdown();
+    let (
+        not_provided_label,
+        assistant_settings_label,
+        user_settings_label,
+        role_constraints_label,
+        conversation_style_label,
+        language_settings_label,
+        user_nickname_label,
+        user_intro_label,
+        role_identity_line,
+        role_confusion_line,
+        language_follow_user_line,
+        language_instruction,
+    ) = match ui_language.trim() {
+        "en-US" => (
+            "Not provided",
+            "Assistant settings",
+            "User settings",
+            "Role constraints",
+            "Conversation style",
+            "Language settings",
+            "User nickname",
+            "User self-introduction",
+            "- You are \"{}\", and the user is \"{}\".",
+            "- Do not treat yourself as the user, and do not confuse the two roles.",
+            "- If the user explicitly requests a reply language, follow the user's request.",
+            "Please respond in English by default.",
+        ),
+        "ja-JP" => (
+            "未提供",
+            "アシスタント設定",
+            "ユーザー設定",
+            "役割制約",
+            "会話スタイル",
+            "言語設定",
+            "ユーザー名",
+            "ユーザー自己紹介",
+            "- あなたは「{}」、ユーザーは「{}」です。",
+            "- 自分をユーザーだと見なさず、両者の役割を混同しないでください。",
+            "- ユーザーが回答言語を明示した場合は、その指定に従ってください。",
+            "通常は日本語で回答してください。",
+        ),
+        "ko-KR" => (
+            "제공되지 않음",
+            "어시스턴트 설정",
+            "사용자 설정",
+            "역할 제약",
+            "대화 스타일",
+            "언어 설정",
+            "사용자 닉네임",
+            "사용자 자기소개",
+            "- 당신은 \"{}\", 사용자는 \"{}\"입니다.",
+            "- 자신을 사용자로 간주하지 말고, 두 역할을 혼동하지 마세요.",
+            "- 사용자가 답변 언어를 명시하면 그 지시를 따르세요.",
+            "기본적으로 한국어로 답변해 주세요.",
+        ),
+        _ => (
+            "未提供",
+            "助理设定",
+            "用户设定",
+            "角色约束",
+            "对话风格",
+            "语言设定",
+            "用户昵称",
+            "用户自我介绍",
+            "- 你是“{}”，用户是“{}”。",
+            "- 不要把自己当作用户，不要混淆双方身份。",
+            "- 若用户明确指定回答语言，以用户指定为准。",
+            "默认使用中文回答。",
+        ),
+    };
     let user_intro_display = if user_intro.trim().is_empty() {
-        "未提供".to_string()
+        not_provided_label.to_string()
     } else {
         user_intro.trim().to_string()
     };
-    let response_style = response_style_preset(response_style_id);
-    let highest_instruction_md = highest_instruction_markdown();
-    let language_instruction = match ui_language.trim() {
-        "en-US" => "Please respond in English by default.",
-        "ja-JP" => "通常は日本語で回答してください。",
-        "ko-KR" => "기본적으로 한국어로 답변해 주세요.",
-        _ => "默认使用中文回答。",
-    };
+    let role_identity_text = role_identity_line
+        .replacen("{}", &xml_escape_prompt(&agent.name), 1)
+        .replacen("{}", &xml_escape_prompt(user_name), 1);
 
     let preamble = format!(
         "{}\n\
-## 助理设定\n\
+## {}\n\
 {}\n\
 \n\
-## 用户设定\n\
-- 用户昵称：{}\n\
-- 用户自我介绍：{}\n\
+## {}\n\
+- {}：{}\n\
+- {}：{}\n\
 \n\
-## 角色约束\n\
-- 你是“{}”，用户是“{}”。\n\
-- 不要把自己当作用户，不要混淆双方身份。\n\
+## {}\n\
+{}\n\
+{}\n\
 \n\
-## 对话风格\n\
+## {}\n\
 - 当前风格：{}\n\
 {}\n\
 \n\
-## 语言设定\n\
+## {}\n\
 - {}\n\
-- 若用户明确指定回答语言，以用户指定为准。\n\
+- {}\n\
 \n",
         highest_instruction_md,
+        assistant_settings_label,
         agent.system_prompt,
+        user_settings_label,
+        user_nickname_label,
         xml_escape_prompt(user_name),
+        user_intro_label,
         xml_escape_prompt(&user_intro_display),
-        agent.name,
-        user_name,
+        role_constraints_label,
+        role_identity_text,
+        role_confusion_line,
+        conversation_style_label,
         response_style.name,
         response_style.prompt,
-        language_instruction
+        language_settings_label,
+        language_instruction,
+        language_follow_user_line
     );
 
     let latest_user = conversation
@@ -546,7 +624,17 @@ fn build_prompt(
                     mime, bytes_base64, ..
                 } => {
                     let resolved = if let Some(path) = data_path {
-                        resolve_stored_binary_base64(path, &bytes_base64).unwrap_or_default()
+                        match resolve_stored_binary_base64(path, &bytes_base64) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                eprintln!(
+                                    "[PROMPT] resolve image attachment failed (mime={}, data_path={}): {err}",
+                                    mime,
+                                    path.to_string_lossy()
+                                );
+                                bytes_base64
+                            }
+                        }
                     } else {
                         bytes_base64
                     };
@@ -558,7 +646,17 @@ fn build_prompt(
                     mime, bytes_base64, ..
                 } => {
                     let resolved = if let Some(path) = data_path {
-                        resolve_stored_binary_base64(path, &bytes_base64).unwrap_or_default()
+                        match resolve_stored_binary_base64(path, &bytes_base64) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                eprintln!(
+                                    "[PROMPT] resolve audio attachment failed (mime={}, data_path={}): {err}",
+                                    mime,
+                                    path.to_string_lossy()
+                                );
+                                bytes_base64
+                            }
+                        }
                     } else {
                         bytes_base64
                     };

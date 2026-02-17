@@ -89,8 +89,13 @@ fn main() {
         .manage(state)
         .setup(|app| {
             let app_handle = app.handle().clone();
-            if let Ok(mut handle_slot) = app_handle.state::<AppState>().app_handle.lock() {
-                *handle_slot = Some(app_handle.clone());
+            match app_handle.state::<AppState>().app_handle.lock() {
+                Ok(mut handle_slot) => {
+                    *handle_slot = Some(app_handle.clone());
+                }
+                Err(_) => {
+                    eprintln!("[BOOT] failed to lock app_handle slot");
+                }
             }
             if let Err(err) = register_default_hotkey(&app_handle) {
                 eprintln!("[BOOT] register_default_hotkey failed: {err}");
