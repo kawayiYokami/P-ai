@@ -435,12 +435,11 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "bing_search",
-                "description": "Search web with Bing.",
+                "description": "Search web with Bing. Query must preserve all user keywords/entities exactly; do not rewrite, summarize, or drop terms.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string" },
-                        "num_results": { "type": "integer", "default": 5 }
+                        "query": { "type": "string" }
                     },
                     "required": ["query"]
                 }
@@ -575,7 +574,7 @@ async fn execute_builtin_tool_call(
         "bing_search" | "bing-search" if tool_enabled(selected_api, "bing-search") => {
             let args: BingSearchToolArgs = serde_json::from_value(args_json.clone())
                 .map_err(|err| format!("Parse bing_search args failed: {err}"))?;
-            builtin_bing_search(&args.query, args.num_results.unwrap_or(5)).await
+            builtin_bing_search(&args.query).await
         }
         "memory_save" | "memory-save" if tool_enabled(selected_api, "memory-save") => {
             let state = app_state.ok_or_else(|| "memory_save requires app state".to_string())?;
