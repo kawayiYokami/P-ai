@@ -9,12 +9,16 @@ type ForceArchiveResult = {
   archiveId?: string | null;
   summary: string;
   mergedMemories: number;
+  warning?: string | null;
+  reasonCode?: string | null;
+  elapsedMs?: number | null;
 };
 
 type UseChatRuntimeOptions = {
   t: TrFn;
   setStatus: (text: string) => void;
   setStatusError: (key: string, error: unknown) => void;
+  setChatError: (text: string) => void;
   activeChatApiConfigId: Ref<string>;
   selectedPersonaId: Ref<string>;
   chatting: Ref<boolean>;
@@ -28,23 +32,61 @@ type UseChatRuntimeOptions = {
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
   async function forceArchiveNow() {
-    if (!options.activeChatApiConfigId.value || !options.selectedPersonaId.value) return;
-    if (options.chatting.value || options.forcingArchive.value) return;
+    const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
+    const agentId = String(options.selectedPersonaId.value || "").trim();
+    if (!apiConfigId || !agentId) {
+      const text = options.t("status.forceArchiveNoTarget");
+      options.setStatus(text);
+      options.setChatError(text);
+      return;
+    }
+    if (options.forcingArchive.value) {
+      const text = options.t("status.forceArchiveInProgress");
+      options.setStatus(text);
+      options.setChatError(text);
+      return;
+    }
+    if (options.chatting.value) {
+      const text = options.t("status.forceArchiveBusy");
+      options.setStatus(text);
+      options.setChatError(text);
+      return;
+    }
+
+    options.setStatus(options.t("status.forceArchiveRunning"));
+    options.setChatError("");
     options.forcingArchive.value = true;
     try {
       const result = await invokeTauri<ForceArchiveResult>("force_archive_current", {
         input: {
-          apiConfigId: options.activeChatApiConfigId.value,
-          agentId: options.selectedPersonaId.value,
+          apiConfigId,
+          agentId,
         },
       });
-      options.setStatus(
-        result.archived ? options.t("status.forceArchiveDone", { count: result.mergedMemories }) : result.summary,
-      );
+      if (result.warning) {
+        const detail = `${result.warning}${result.elapsedMs ? ` (${result.elapsedMs}ms)` : ""}`;
+        const text = options.t("status.forceArchivePartial", { reason: detail });
+        options.setStatus(text);
+        options.setChatError(text);
+      } else if (result.archived) {
+        options.setStatus(options.t("status.forceArchiveDone", { count: result.mergedMemories }));
+        options.setChatError("");
+      } else {
+        options.setStatus(result.summary);
+        options.setChatError(result.summary);
+      }
       await loadAllMessages();
       options.visibleTurnCount.value = 1;
     } catch (e) {
-      options.setStatusError("status.forceArchiveFailed", e);
+      const errText = String(e ?? "");
+      if (errText.includes("活动对话已变化")) {
+        const text = options.t("status.forceArchiveConflict");
+        options.setStatus(text);
+        options.setChatError(text);
+      } else {
+        options.setStatusError("status.forceArchiveFailed", e);
+        options.setChatError(options.t("status.forceArchiveFailed", { err: String(e) }));
+      }
     } finally {
       options.forcingArchive.value = false;
     }

@@ -729,6 +729,9 @@ const chatRuntime = useChatRuntime({
   t: tr,
   setStatus,
   setStatusError,
+  setChatError: (text) => {
+    chatErrorText.value = text;
+  },
   activeChatApiConfigId,
   selectedPersonaId,
   chatting,

@@ -1144,6 +1144,48 @@ struct ForceArchiveResult {
     archive_id: Option<String>,
     summary: String,
     merged_memories: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    elapsed_ms: Option<u64>,
+}
+
+fn build_force_archive_fallback_summary(source_conversation: &Conversation) -> String {
+    let total = source_conversation.messages.len();
+    let user_count = source_conversation
+        .messages
+        .iter()
+        .filter(|m| m.role == "user")
+        .count();
+    let assistant_count = source_conversation
+        .messages
+        .iter()
+        .filter(|m| m.role == "assistant")
+        .count();
+    let latest_user_focus = source_conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(archive_message_plain_text)
+        .map(|text| clean_text(text.trim()))
+        .filter(|text| !text.is_empty())
+        .map(|text| {
+            let head = text.chars().take(120).collect::<String>();
+            if text.chars().count() > 120 {
+                format!("{head}...")
+            } else {
+                head
+            }
+        })
+        .unwrap_or_else(|| "无".to_string());
+
+    format!(
+        "本次对话已归档（降级总结）。总消息 {} 条（用户 {} / 助手 {}）。最近用户关注：{}。",
+        total, user_count, assistant_count, latest_user_focus
+    )
 }
 
 async fn summarize_archived_conversation_with_model(
@@ -1200,7 +1242,28 @@ async fn summarize_archived_conversation_with_model(
         latest_audios: Vec::new(),
     };
 
-    let reply = call_model_openai_rig_style(resolved_api, &selected_api.model, prepared).await?;
+    let reply = tokio::time::timeout(
+        std::time::Duration::from_secs(40),
+        async {
+            match resolved_api.request_format {
+                RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
+                    call_model_openai_rig_style(resolved_api, &selected_api.model, prepared).await
+                }
+                RequestFormat::Gemini => {
+                    call_model_gemini_rig_style(resolved_api, &selected_api.model, prepared).await
+                }
+                RequestFormat::Anthropic => {
+                    call_model_anthropic_rig_style(resolved_api, &selected_api.model, prepared).await
+                }
+                RequestFormat::OpenAITts => Err(format!(
+                    "Request format '{}' is not supported for archive summary.",
+                    resolved_api.request_format
+                )),
+            }
+        },
+    )
+    .await
+    .map_err(|_| "Archive summary request timed out".to_string())??;
     let parsed = parse_archive_summary_draft(&reply.assistant_text).ok_or_else(|| {
         format!(
             "Parse archive summary JSON failed. raw={}",
@@ -1220,6 +1283,8 @@ async fn force_archive_current(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
+    let started_at = std::time::Instant::now();
+    let trace_id = Uuid::new_v4().to_string();
     let (selected_api, resolved_api, source, agent, user_alias, memories) = {
         let guard = state
             .state_lock
@@ -1269,6 +1334,10 @@ async fn force_archive_current(
         drop(guard);
         (selected_api, resolved_api, source, agent, user_alias, memories)
     };
+    eprintln!(
+        "[ARCHIVE-FORCE] trace={} begin api={} model={} format={} conversation={}",
+        trace_id, selected_api.id, selected_api.model, resolved_api.request_format, source.id
+    );
 
     if source.messages.is_empty() {
         return Ok(ForceArchiveResult {
@@ -1276,10 +1345,13 @@ async fn force_archive_current(
             archive_id: None,
             summary: "当前对话为空，无需归档。".to_string(),
             merged_memories: 0,
+            warning: None,
+            reason_code: Some("empty_conversation".to_string()),
+            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
         });
     }
 
-    let (summary, summary_memories) = summarize_archived_conversation_with_model(
+    let (summary, summary_memories, warning, reason_code) = match summarize_archived_conversation_with_model(
         &resolved_api,
         &selected_api,
         &agent,
@@ -1287,7 +1359,27 @@ async fn force_archive_current(
         &source,
         &memories,
     )
-    .await?;
+    .await {
+        Ok((summary, summary_memories)) => (summary, summary_memories, None, None),
+        Err(err) => {
+            let fallback_summary = build_force_archive_fallback_summary(&source);
+            let reason = if err.to_ascii_lowercase().contains("timed out") {
+                "summary_timeout"
+            } else {
+                "summary_failed"
+            };
+            eprintln!(
+                "[ARCHIVE-FORCE] trace={} summary degraded reason={} err={}",
+                trace_id, reason, err
+            );
+            (
+                fallback_summary,
+                Vec::new(),
+                Some("归档总结生成失败，已使用本地降级摘要。".to_string()),
+                Some(reason.to_string()),
+            )
+        }
+    };
 
     let guard = state
         .state_lock
@@ -1311,12 +1403,22 @@ async fn force_archive_current(
     }
     write_app_data(&state.data_path, &data)?;
     drop(guard);
+    eprintln!(
+        "[ARCHIVE-FORCE] trace={} done archived={} merged_memories={} warning={}",
+        trace_id,
+        archive_id.is_some(),
+        merged_memories,
+        warning.is_some()
+    );
 
     Ok(ForceArchiveResult {
         archived: true,
         archive_id,
         summary,
         merged_memories,
+        warning,
+        reason_code,
+        elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
     })
 }
 
