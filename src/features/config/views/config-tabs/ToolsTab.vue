@@ -1,5 +1,5 @@
 <template>
-  <div v-if="!toolApiConfig" class="text-xs opacity-70">{{ t("config.tools.noChatApi") }}</div>
+  <div v-if="!toolApiConfig" class="text-xs opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
   <template v-else>
     <div class="grid gap-2">
       <label class="form-control">

@@ -50,7 +50,7 @@
       <textarea
         v-model="selectedPersona.systemPrompt"
         class="textarea textarea-bordered textarea-sm"
-        rows="4"
+        rows="12"
         :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
       ></textarea>
     </label>

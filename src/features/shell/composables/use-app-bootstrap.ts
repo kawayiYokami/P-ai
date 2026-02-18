@@ -1,6 +1,17 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type ViewMode = "chat" | "archives" | "config";
+type ConversationApiSettingsPayload = {
+  chatApiConfigId: string;
+  visionApiConfigId?: string;
+  sttApiConfigId?: string;
+  sttAutoSend?: boolean;
+};
+type ChatSettingsPayload = {
+  selectedAgentId: string;
+  userAlias: string;
+  responseStyleId: string;
+};
 
 export type TerminalApprovalRequestPayload = {
   requestId: string;
@@ -23,6 +34,8 @@ type AppBootstrapOptions = {
   onLocaleChanged: (locale: string) => void;
   onRefreshSignal: () => Promise<void>;
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
+  onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
+  onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -52,6 +65,22 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
           "easy-call:terminal-approval-request",
           (event) => {
             options.onTerminalApprovalRequested?.(event.payload);
+          },
+        ),
+      );
+      unlisteners.push(
+        await listen<ConversationApiSettingsPayload>(
+          "easy-call:conversation-api-updated",
+          (event) => {
+            options.onConversationApiUpdated?.(event.payload);
+          },
+        ),
+      );
+      unlisteners.push(
+        await listen<ChatSettingsPayload>(
+          "easy-call:chat-settings-updated",
+          (event) => {
+            options.onChatSettingsUpdated?.(event.payload);
           },
         ),
       );

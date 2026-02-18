@@ -317,7 +317,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       console.info("[CONFIG] save_conversation_api_settings success");
     } catch (e) {
       console.error("[CONFIG] save_conversation_api_settings failed:", e);
-      options.setStatusError("status.saveConversationApiFailed", e);
+      options.setStatusError("status.saveConversationLlmFailed", e);
     }
   }
 

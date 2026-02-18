@@ -1,18 +1,18 @@
 <template>
-  <label class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.chatApi") }}</span></div>
+  <label class="form-control mb-3">
+    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.chatLlmProvider") }}</span></div>
     <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
       <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
     </select>
   </label>
-  <label class="form-control">
+  <label class="form-control mb-3">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.visionApi") }}</span></div>
     <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)">
       <option value="">{{ t("config.chatSettings.noVision") }}</option>
       <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
     </select>
   </label>
-  <label class="form-control">
+  <label class="form-control mb-3">
     <div class="label py-1"><span class="label-text text-xs">语音转写（STT）</span></div>
     <div class="flex items-center gap-2">
       <select :value="config.sttApiConfigId ?? ''" class="select select-bordered select-sm flex-1" @change="onSttSelectChange">
@@ -31,13 +31,13 @@
       </label>
     </div>
   </label>
-  <label class="form-control">
+  <label class="form-control mb-3">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.assistantPersona") }}</span></div>
     <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
       <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
     </select>
   </label>
-  <div class="form-control">
+  <div class="form-control mb-3">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.responseStyle") }}</span></div>
     <div class="join w-full">
       <button
@@ -51,22 +51,24 @@
       </button>
     </div>
   </div>
-  <div class="grid grid-cols-3 gap-1 min-w-0">
-    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
-    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
-    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openSystemPromptPreview')">{{ t("config.chatSettings.previewSystemPrompt") }}</button>
+  <div class="grid grid-cols-3 gap-2 mb-3">
+    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
+    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
+    <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openSystemPromptPreview')">{{ t("config.chatSettings.previewSystemPrompt") }}</button>
   </div>
-  <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
-    <div class="flex items-center justify-between">
-      <span class="font-medium">{{ t("config.chatSettings.imageCacheTitle") }}</span>
-      <div class="flex gap-1">
-        <button class="btn btn-xs btn-ghost" :class="{ loading: cacheStatsLoading }" @click="$emit('refreshImageCacheStats')">{{ t("common.refresh") }}</button>
-        <button class="btn btn-xs btn-ghost" :disabled="cacheStats.entries === 0" @click="$emit('clearImageCache')">{{ t("config.chatSettings.clearCache") }}</button>
+  <div class="card bg-base-100 border border-base-300">
+    <div class="card-body p-3 text-xs">
+      <div class="flex items-center justify-between">
+        <span class="font-medium">{{ t("config.chatSettings.imageCacheTitle") }}</span>
+        <div class="flex gap-1">
+          <button class="btn btn-xs btn-ghost" :class="{ loading: cacheStatsLoading }" @click="$emit('refreshImageCacheStats')">{{ t("common.refresh") }}</button>
+          <button class="btn btn-xs btn-ghost" :disabled="cacheStats.entries === 0" @click="$emit('clearImageCache')">{{ t("config.chatSettings.clearCache") }}</button>
+        </div>
       </div>
+      <div class="mt-1 opacity-80">{{ t("config.chatSettings.cacheEntries", { entries: cacheStats.entries, chars: cacheStats.totalChars }) }}</div>
+      <div class="mt-1 opacity-70">{{ t("config.chatSettings.cacheUpdatedAt", { value: cacheStats.latestUpdatedAt || "-" }) }}</div>
+      <div class="mt-1 opacity-60">{{ t("config.chatSettings.cacheHint") }}</div>
     </div>
-    <div class="mt-1 opacity-80">{{ t("config.chatSettings.cacheEntries", { entries: cacheStats.entries, chars: cacheStats.totalChars }) }}</div>
-    <div class="mt-1 opacity-70">{{ t("config.chatSettings.cacheUpdatedAt", { value: cacheStats.latestUpdatedAt || "-" }) }}</div>
-    <div class="mt-1 opacity-60">{{ t("config.chatSettings.cacheHint") }}</div>
   </div>
 </template>
 

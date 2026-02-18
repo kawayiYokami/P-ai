@@ -13,16 +13,11 @@
       :always-on-top-on-title="t('chat.alwaysOnTopOn')"
       :always-on-top-off-title="t('chat.alwaysOnTopOff')"
       :open-config-title="t('window.configTitle')"
-      :open-github-title="'打开 GitHub 仓库'"
-      :check-update-title="'检查更新'"
       :close-title="t('common.close')"
-      :checking-update="checkingUpdate"
       @start-drag="startDrag"
       @force-archive="forceArchiveNow"
       @toggle-always-on-top="toggleAlwaysOnTop"
       @open-config="openConfigWindow"
-      @check-update="manualCheckGithubUpdate"
-      @open-github="openGithubRepository"
       @close-window="closeWindow"
     />
 
@@ -139,6 +134,8 @@
       :send-chat="chatFlow.sendChat"
       :stop-chat="chatFlow.stopChat"
       :load-more-turns="loadMoreTurns"
+      :on-recall-turn="handleRecallTurn"
+      :on-regenerate-turn="handleRegenerateTurn"
       :load-archives="loadArchives"
       :select-archive="selectArchive"
       :export-archive="exportArchive"
@@ -152,6 +149,9 @@
       :trigger-memory-import="triggerMemoryImport"
       :handle-memory-import-file="handleMemoryImportFile"
       :close-prompt-preview="closePromptPreview"
+      :checking-update="checkingUpdate"
+      :check-update="manualCheckGithubUpdate"
+      :open-github="openGithubRepository"
     />
 
     <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
@@ -253,7 +253,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, reactive, ref, shallowRef } from "vue";
+import { computed, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "./services/tauri-api";
 import { useAppBootstrap, type TerminalApprovalRequestPayload } from "./features/shell/composables/use-app-bootstrap";
@@ -818,7 +818,51 @@ const appBootstrap = useAppBootstrap({
   onTerminalApprovalRequested: (payload) => {
     enqueueTerminalApprovalRequest(payload);
   },
+  onConversationApiUpdated: async (payload) => {
+    config.chatApiConfigId = String(payload.chatApiConfigId || "");
+    config.visionApiConfigId = payload.visionApiConfigId || undefined;
+    config.sttApiConfigId = payload.sttApiConfigId || undefined;
+    config.sttAutoSend = !!payload.sttAutoSend;
+    if (chatErrorText.value.includes("不支持图片附件") || chatErrorText.value.includes("PDF 附件")) {
+      chatErrorText.value = "";
+    }
+    if (viewMode.value === "chat") {
+      await refreshConversationHistory();
+      visibleTurnCount.value = 1;
+    }
+  },
+  onChatSettingsUpdated: async (payload) => {
+    const nextAgentId = String(payload.selectedAgentId || "").trim();
+    if (nextAgentId) {
+      selectedPersonaId.value = nextAgentId;
+      if (personaEditorId.value !== nextAgentId) {
+        personaEditorId.value = nextAgentId;
+      }
+    }
+    userAlias.value = String(payload.userAlias || "").trim() || t("archives.roleUser");
+    const nextStyleId = String(payload.responseStyleId || "").trim();
+    if (nextStyleId) {
+      selectedResponseStyleId.value = nextStyleId;
+    }
+    if (viewMode.value === "chat") {
+      await refreshConversationHistory();
+      visibleTurnCount.value = 1;
+    }
+  },
 });
+
+watch(
+  () => ({
+    apiId: activeChatApiConfigId.value,
+    imageEnabled: !!activeChatApiConfig.value?.enableImage,
+    visionEnabled: hasVisionFallback.value,
+  }),
+  () => {
+    if (chatErrorText.value.includes("不支持图片附件") || chatErrorText.value.includes("PDF 附件")) {
+      chatErrorText.value = "";
+    }
+  },
+);
 
 function setUiLanguage(value: string) {
   if (!applyUiLanguage(value)) return;
@@ -1040,6 +1084,53 @@ const chatFlow = useChatFlow({
 
 function clearStreamBuffer() {
   chatFlow.clearStreamBuffer();
+}
+
+type RewindConversationResult = {
+  removedCount: number;
+  remainingCount: number;
+  recalledUserMessage?: ChatMessage;
+};
+
+async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage | null> {
+  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
+  const agentId = String(selectedPersonaId.value || "").trim();
+  const messageId = String(turnId || "").trim();
+  if (!apiConfigId || !agentId || !messageId) return null;
+  try {
+    const result = await invokeTauri<RewindConversationResult>("rewind_conversation_from_message", {
+      input: {
+        session: {
+          apiConfigId,
+          agentId,
+        },
+        messageId,
+      },
+    });
+    await loadAllMessages();
+    visibleTurnCount.value = 1;
+    return result.recalledUserMessage ?? null;
+  } catch (error) {
+    setStatusError("status.rewindConversationFailed", error);
+    return null;
+  }
+}
+
+async function handleRecallTurn(payload: { turnId: string }) {
+  if (chatting.value || forcingArchive.value) return;
+  const recalledUserMessage = await rewindConversationFromTurn(payload.turnId);
+  if (!recalledUserMessage) return;
+  chatInput.value = removeBinaryPlaceholders(messageText(recalledUserMessage));
+  clipboardImages.value = extractMessageImages(recalledUserMessage);
+}
+
+async function handleRegenerateTurn(payload: { turnId: string }) {
+  if (chatting.value || forcingArchive.value) return;
+  const recalledUserMessage = await rewindConversationFromTurn(payload.turnId);
+  if (!recalledUserMessage) return;
+  chatInput.value = removeBinaryPlaceholders(messageText(recalledUserMessage));
+  clipboardImages.value = extractMessageImages(recalledUserMessage);
+  await chatFlow.sendChat();
 }
 
 function handleToolsChanged() {

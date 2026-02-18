@@ -1,26 +1,38 @@
 <template>
-  <div class="h-full min-h-0 flex flex-col gap-2">
-    <div class="tabs tabs-boxed tabs-sm shrink-0">
-      <a class="tab" :class="{ 'tab-active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">{{ t("config.tabs.hotkey") }}</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">{{ t("config.tabs.api") }}</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">{{ t("config.tabs.tools") }}</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">{{ t("config.tabs.persona") }}</a>
-      <a class="tab" :class="{ 'tab-active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
+  <div class="h-full min-h-0 flex gap-3">
+    <div class="w-48 shrink-0">
+      <ul class="menu bg-base-200 rounded-box">
+        <li>
+          <a :class="{ 'active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">{{ t("config.tabs.hotkey") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">{{ t("config.tabs.api") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">{{ t("config.tabs.tools") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">{{ t("config.tabs.persona") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'appearance' }" @click="$emit('update:configTab', 'appearance')">{{ t("config.tabs.appearance") }}</a>
+        </li>
+        <li>
+          <a :class="{ 'active': configTab === 'about' }" @click="$emit('update:configTab', 'about')">{{ t("config.tabs.about") }}</a>
+        </li>
+      </ul>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-y-auto pr-1">
-      <div class="grid gap-2">
+    <div class="flex-1 min-w-0 overflow-y-auto">
         <HotkeyTab
           v-if="configTab === 'hotkey'"
           :config="config"
-          :ui-language="uiLanguage"
-          :locale-options="localeOptions"
-          :current-theme="currentTheme"
           :hotkey-test-recording="hotkeyTestRecording"
           :hotkey-test-recording-ms="hotkeyTestRecordingMs"
           :hotkey-test-audio-ready="hotkeyTestAudioReady"
-          @update:ui-language="$emit('update:uiLanguage', $event)"
-          @toggle-theme="$emit('toggleTheme')"
           @start-hotkey-record-test="$emit('startHotkeyRecordTest')"
           @stop-hotkey-record-test="$emit('stopHotkeyRecordTest')"
           @play-hotkey-record-test="$emit('playHotkeyRecordTest')"
@@ -93,12 +105,28 @@
           @refresh-image-cache-stats="$emit('refreshImageCacheStats')"
           @clear-image-cache="$emit('clearImageCache')"
         />
-      </div>
-    </div>
-  </div>
 
-  <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="onAvatarFilePicked" />
-  <dialog ref="avatarEditorDialog" class="modal">
+        <AppearanceTab
+          v-else-if="configTab === 'appearance'"
+          :ui-language="uiLanguage"
+          :locale-options="localeOptions"
+          :current-theme="currentTheme"
+          @update:ui-language="$emit('update:uiLanguage', $event)"
+          @toggle-theme="$emit('toggleTheme')"
+        />
+
+        <AboutTab
+          v-else-if="configTab === 'about'"
+          :checking-update="checkingUpdate"
+          @check-update="$emit('checkUpdate')"
+          @open-github="$emit('openGithub')"
+        />
+      </div>
+
+    <!-- Dialogs -->
+
+    <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="onAvatarFilePicked" />
+    <dialog ref="avatarEditorDialog" class="modal">
     <div class="modal-box p-3 max-w-sm">
       <h3 class="text-sm font-semibold mb-2">{{ t("config.persona.editAvatar") }}</h3>
       <div class="rounded border border-base-300 bg-base-100 p-3">
@@ -129,8 +157,8 @@
     <form method="dialog" class="modal-backdrop">
       <button aria-label="close">close</button>
     </form>
-  </dialog>
-  <dialog ref="cropDialog" class="modal" @close="destroyCropper">
+    </dialog>
+    <dialog ref="cropDialog" class="modal" @close="destroyCropper">
     <div class="modal-box p-3 max-w-md">
       <h3 class="text-sm font-semibold mb-2">{{ t("config.persona.cropAvatar") }}</h3>
       <div class="rounded border border-base-300 bg-base-100 p-2 min-h-64">
@@ -147,7 +175,8 @@
     <form method="dialog" class="modal-backdrop">
       <button aria-label="close">close</button>
     </form>
-  </dialog>
+    </dialog>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -160,8 +189,10 @@ import ApiTab from "./config-tabs/ApiTab.vue";
 import ToolsTab from "./config-tabs/ToolsTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
+import AppearanceTab from "./config-tabs/AppearanceTab.vue";
+import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "persona" | "chatSettings";
+type ConfigTab = "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{
@@ -200,6 +231,7 @@ const props = defineProps<{
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudioReady: boolean;
+  checkingUpdate: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -228,6 +260,8 @@ const emit = defineEmits<{
   (e: "captureHotkey", value: string): void;
   (e: "saveAgentAvatar", value: { agentId: string; mime: string; bytesBase64: string }): void;
   (e: "clearAgentAvatar", value: { agentId: string }): void;
+  (e: "checkUpdate"): void;
+  (e: "openGithub"): void;
 }>();
 
 const { t } = useI18n();

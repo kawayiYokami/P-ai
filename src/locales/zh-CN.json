@@ -5,6 +5,7 @@
     "cancel": "取消",
     "confirm": "确认",
     "save": "保存",
+    "delete": "删除",
     "loading": "加载中..."
   },
   "window": {
@@ -18,7 +19,9 @@
       "api": "LLM",
       "tools": "工具",
       "persona": "人格",
-      "chatSettings": "对话"
+      "chatSettings": "对话",
+      "appearance": "外观",
+      "about": "关于"
     },
     "language": {
       "label": "界面语言",
@@ -80,7 +83,7 @@
       "capTools": "工具调用"
     },
     "tools": {
-      "noChatApi": "未配置对话AI",
+      "noChatLlmProvider": "未配置对话LLM供应商",
       "maxIterations": "工具最大调用轮次",
       "terminalProjectRoots": "终端可用项目目录",
       "terminalProjectRootsPlaceholder": "每行一个目录，例如:\nD:\\\\work\\\\repo-a\nE:\\\\github\\\\repo-b",
@@ -89,7 +92,7 @@
       "normalizeAndSaveRoots": "保存",
       "gitRequiredHint": "检测到未安装 Git Bash。",
       "installGit": "安装 Git（Git Bash）",
-      "disabledHint": "当前对话AI未启用工具调用。",
+      "disabledHint": "当前对话LLM供应商未启用工具调用。",
       "toolEnabled": "启用",
       "imageCapabilityRequired": "当前模型未开启图片能力，截图/等待不可启用。",
       "viewMemory": "查看",
@@ -137,7 +140,7 @@
       "cropperNotReady": "裁剪器未就绪，请重新选择图片。"
     },
     "chatSettings": {
-      "chatApi": "对话AI",
+      "chatLlmProvider": "对话LLM供应商",
       "visionApi": "图转文AI（可选）",
       "noVision": "不配置",
       "assistantPersona": "AI人格",
@@ -160,6 +163,9 @@
   },
   "chat": {
     "loadMore": "加载更多...",
+    "copy": "复制",
+    "regenerate": "重新生成",
+    "recall": "撤回",
     "voice": "语音{index}",
     "jumpToBottom": "回到底部",
     "image": "图片{index}",
@@ -208,7 +214,7 @@
     "savingChatSettings": "正在保存对话设置...",
     "chatSettingsSaved": "对话设置已保存。",
     "saveChatSettingsFailed": "保存对话设置失败: {err}",
-    "saveConversationApiFailed": "保存对话API设置失败: {err}",
+    "saveConversationLlmFailed": "保存对话LLM供应商设置失败: {err}",
     "avatarSaved": "头像已保存。",
     "avatarSaveFailed": "保存头像失败: {err}",
     "avatarCleared": "头像已清除。",
@@ -219,7 +225,7 @@
     "imageCacheCleared": "图片转文缓存已清理。",
     "clearImageCacheFailed": "清理图片缓存失败: {err}",
     "loadChatSnapshotFailed": "加载会话快照失败: {err}",
-    "forceArchiveNoTarget": "当前未选择可用的对话配置或人格，暂无法强制归档。",
+    "forceArchiveNoTarget": "当前未选择可用的对话LLM供应商配置或人格，暂无法强制归档。",
     "forceArchiveInProgress": "强制归档正在进行中，请稍候。",
     "forceArchiveBusy": "当前正在对话生成中，请稍后再试强制归档。",
     "forceArchiveRunning": "正在执行强制归档...",
@@ -228,6 +234,7 @@
     "forceArchiveDone": "已强制归档，新增记忆 {count} 条。",
     "forceArchiveFailed": "强制归档失败: {err}",
     "loadMessagesFailed": "加载消息失败: {err}",
+    "rewindConversationFailed": "撤回消息失败: {err}",
     "toolCallDone": "工具调用完成",
     "requestFailed": "请求失败：{err}",
     "toolCallFailed": "工具调用失败",
@@ -284,5 +291,16 @@
     "toolCall": "工具调用：{name}",
     "toolArgs": "参数: {value}",
     "toolNoArgs": "无参数"
+  },
+  "appearance": {
+    "theme": "主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "language": "界面语言"
+  },
+  "about": {
+    "version": "版本",
+    "checkUpdate": "检查更新",
+    "github": "GitHub 仓库"
   }
 }
