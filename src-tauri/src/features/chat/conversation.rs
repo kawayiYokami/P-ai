@@ -1,12 +1,12 @@
 fn latest_active_conversation_index(
     data: &AppData,
-    api_config_id: &str,
+    _api_config_id: &str,
     agent_id: &str,
 ) -> Option<usize> {
     data.conversations
         .iter()
         .rposition(|c| {
-            c.status == "active" && c.agent_id == agent_id && c.api_config_id == api_config_id
+            c.status == "active" && c.agent_id == agent_id
         })
 }
 
@@ -16,6 +16,11 @@ fn ensure_active_conversation_index(
     agent_id: &str,
 ) -> usize {
     if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
+        // Keep conversation metadata aligned with the currently selected chat API.
+        if data.conversations[idx].api_config_id != api_config_id {
+            data.conversations[idx].api_config_id = api_config_id.to_string();
+            data.conversations[idx].updated_at = now_iso();
+        }
         return idx;
     }
 

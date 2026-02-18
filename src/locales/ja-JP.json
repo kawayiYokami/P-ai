@@ -5,6 +5,7 @@
     "cancel": "キャンセル",
     "confirm": "確認",
     "save": "保存",
+    "delete": "削除",
     "loading": "読み込み中..."
   },
   "window": {
@@ -18,7 +19,9 @@
       "api": "LLM",
       "tools": "ツール",
       "persona": "人格",
-      "chatSettings": "会話"
+      "chatSettings": "会話",
+      "appearance": "外観",
+      "about": "について"
     },
     "language": {
       "label": "UI 言語",
@@ -78,7 +81,7 @@
       "capTools": "ツール呼び出し"
     },
     "tools": {
-      "noChatApi": "対話APIが未設定です",
+      "noChatLlmProvider": "対話LLMプロバイダーが未設定です",
       "maxIterations": "ツール最大呼び出し回数",
       "terminalProjectRoots": "端末で許可するプロジェクトディレクトリ",
       "terminalProjectRootsPlaceholder": "1行に1ディレクトリ（例）:\nD:\\\\work\\\\repo-a\nE:\\\\github\\\\repo-b",
@@ -87,7 +90,7 @@
       "normalizeAndSaveRoots": "保存",
       "gitRequiredHint": "Git Bash が検出されませんでした。",
       "installGit": "Git（Git Bash）をインストール",
-      "disabledHint": "現在の対話AIではツール呼び出しが無効です。",
+      "disabledHint": "現在の対話LLMプロバイダーではツール呼び出しが無効です。",
       "viewMemory": "表示",
       "desktopScreenshotTitle": "デスクトップスクリーンショット",
       "desktopScreenshotDesc": "ワンクリックでデスクトップ全体を1回撮影します。",
@@ -133,7 +136,7 @@
       "cropperNotReady": "トリミング未準備です。画像を再選択してください。"
     },
     "chatSettings": {
-      "chatApi": "対話AI",
+      "chatLlmProvider": "対話LLMプロバイダー",
       "visionApi": "画像読解AI（任意）",
       "noVision": "未設定",
       "assistantPersona": "AI人格",
@@ -156,6 +159,9 @@
   },
   "chat": {
     "loadMore": "追加読込...",
+    "copy": "コピー",
+    "regenerate": "再生成",
+    "recall": "取り消し",
     "voice": "音声{index}",
     "jumpToBottom": "最下部へ",
     "image": "画像{index}",
@@ -204,7 +210,7 @@
     "savingChatSettings": "会話設定を保存中...",
     "chatSettingsSaved": "会話設定を保存しました。",
     "saveChatSettingsFailed": "会話設定の保存に失敗: {err}",
-    "saveConversationApiFailed": "会話API設定の保存に失敗: {err}",
+    "saveConversationLlmFailed": "会話LLMプロバイダー設定の保存に失敗: {err}",
     "avatarSaved": "アバターを保存しました。",
     "avatarSaveFailed": "アバター保存に失敗: {err}",
     "avatarCleared": "アバターを削除しました。",
@@ -215,7 +221,7 @@
     "imageCacheCleared": "画像キャッシュをクリアしました。",
     "clearImageCacheFailed": "画像キャッシュのクリアに失敗: {err}",
     "loadChatSnapshotFailed": "会話スナップショットの読み込みに失敗: {err}",
-    "forceArchiveNoTarget": "有効な会話APIまたは人格が未選択のため、強制アーカイブできません。",
+    "forceArchiveNoTarget": "有効な会話LLMプロバイダーまたは人格が未選択のため、強制アーカイブできません。",
     "forceArchiveInProgress": "強制アーカイブは既に実行中です。しばらくお待ちください。",
     "forceArchiveBusy": "会話生成中のため、強制アーカイブは後でお試しください。",
     "forceArchiveRunning": "強制アーカイブを実行中...",
@@ -224,6 +230,7 @@
     "forceArchiveDone": "強制アーカイブ完了。追加記憶: {count} 件。",
     "forceArchiveFailed": "強制アーカイブ失敗: {err}",
     "loadMessagesFailed": "メッセージ読み込み失敗: {err}",
+    "rewindConversationFailed": "メッセージ取り消し失敗: {err}",
     "toolCallDone": "ツール呼び出し完了",
     "requestFailed": "リクエスト失敗: {err}",
     "toolCallFailed": "ツール呼び出し失敗",
@@ -280,5 +287,16 @@
     "toolCall": "ツール呼び出し: {name}",
     "toolArgs": "引数: {value}",
     "toolNoArgs": "引数なし"
+  },
+  "appearance": {
+    "theme": "テーマ",
+    "themeLight": "ライト",
+    "themeDark": "ダーク",
+    "language": "UI 言語"
+  },
+  "about": {
+    "version": "バージョン",
+    "checkUpdate": "更新を確認",
+    "github": "GitHub リポジトリ"
   }
 }

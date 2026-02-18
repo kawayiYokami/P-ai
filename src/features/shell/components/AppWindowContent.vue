@@ -44,6 +44,7 @@
       :hotkey-test-recording="hotkeyTestRecording"
       :hotkey-test-recording-ms="hotkeyTestRecordingMs"
       :hotkey-test-audio-ready="!!hotkeyTestAudio"
+      :checking-update="checkingUpdate"
       @update:config-tab="updateConfigTab"
       @update:ui-language="setUiLanguage"
       @update:persona-editor-id="updatePersonaEditorId"
@@ -69,6 +70,8 @@
       @capture-hotkey="captureHotkey"
       @save-agent-avatar="saveAgentAvatar"
       @clear-agent-avatar="clearAgentAvatar"
+      @check-update="checkUpdate"
+      @open-github="openGithub"
     />
 
     <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
@@ -105,6 +108,8 @@
         @send-chat="sendChat"
         @stop-chat="stopChat"
         @load-more-turns="loadMoreTurns"
+        @recall-turn="onRecallTurn"
+        @regenerate-turn="onRegenerateTurn"
       />
       <div
         v-if="forcingArchive"
@@ -240,6 +245,7 @@ const props = defineProps<{
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudio: unknown;
+  checkingUpdate: boolean;
   userAlias: string;
   selectedPersonaName: string;
   userAvatarUrl: string;
@@ -316,6 +322,8 @@ const props = defineProps<{
   sendChat: () => void;
   stopChat: () => void;
   loadMoreTurns: () => void;
+  onRecallTurn: (payload: { turnId: string }) => void;
+  onRegenerateTurn: (payload: { turnId: string }) => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   exportArchive: (payload: { format: "markdown" | "json" }) => void;
@@ -329,6 +337,8 @@ const props = defineProps<{
   triggerMemoryImport: () => void;
   handleMemoryImportFile: (event: Event) => void;
   closePromptPreview: () => void;
+  checkUpdate: () => void;
+  openGithub: () => void;
 }>();
 
 const historyDialogVNodeRef: VNodeRef = (el) => {

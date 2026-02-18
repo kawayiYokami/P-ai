@@ -16,7 +16,7 @@
 
       <!-- 历史对话 turns -->
       <template v-for="turn in turns" :key="turn.id">
-        <div class="chat chat-end">
+        <div class="chat chat-end group/user-turn">
           <div class="chat-header mb-1">
             <div v-if="userAvatarUrl" class="avatar">
               <div class="w-7 rounded-full">
@@ -59,6 +59,19 @@
               </button>
             </div>
           </div>
+          <div
+            v-if="!chatting && !frozen"
+            class="mt-1 flex justify-end opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
+          >
+            <button
+              type="button"
+              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="t('chat.recall')"
+              @click="$emit('recallTurn', { turnId: turn.id })"
+            >
+              <Undo2 class="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         <div v-if="turn.assistantText || turn.assistantReasoningStandard || turn.assistantReasoningInline" class="chat chat-start">
           <div class="chat-header mb-1 flex items-center gap-1">
@@ -74,7 +87,7 @@
             </div>
             <details
               v-if="turn.assistantReasoningStandard"
-              class="collapse collapse-arrow border border-base-300 bg-base-200 min-w-0 max-w-[min(65vw,34rem)]"
+              class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
             >
               <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center">
                 <span class="block min-w-0 flex-1 whitespace-normal break-words">
@@ -86,7 +99,7 @@
               </div>
             </details>
           </div>
-          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300 assistant-markdown">
             <details
               v-if="resolvedTurnInlineReasoning(turn)"
               class="collapse border border-base-content/10 bg-base-200/50 mb-2"
@@ -104,6 +117,24 @@
               v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
               @click="handleAssistantLinkClick"
             ></div>
+            <div v-if="!chatting && !frozen" class="mt-2 flex items-center gap-1.5">
+              <button
+                type="button"
+                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+                :title="t('chat.copy')"
+                @click="copyAssistantTurn(turn)"
+              >
+                <Copy class="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+                :title="t('chat.regenerate')"
+                @click="$emit('regenerateTurn', { turnId: turn.id })"
+              >
+                <RotateCcw class="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -152,7 +183,7 @@
             </div>
             <details
               v-if="latestReasoningStandardText"
-              class="collapse collapse-arrow border border-base-300 bg-base-200 min-w-0 max-w-[min(65vw,34rem)]"
+              class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
             >
               <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center gap-1">
                 <span class="block min-w-0 flex-1 whitespace-normal break-words">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
@@ -163,7 +194,7 @@
               </div>
             </details>
           </div>
-          <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300 assistant-markdown">
             <details
               v-if="latestInlineReasoningText"
               class="collapse border border-base-content/10 bg-base-200/50 mb-2"
@@ -254,7 +285,7 @@
         <textarea
           ref="chatInputRef"
           v-model="localChatInput"
-          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden"
+          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden chat-input-no-focus"
           rows="1"
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
@@ -273,7 +304,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, FileText, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
+import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Mic, Pause, Play, RotateCcw, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
@@ -316,6 +347,8 @@ const emit = defineEmits<{
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "loadMoreTurns"): void;
+  (e: "recallTurn", payload: { turnId: string }): void;
+  (e: "regenerateTurn", payload: { turnId: string }): void;
 }>();
 const { t } = useI18n();
 
@@ -400,6 +433,16 @@ const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts
 
 function resolvedTurnInlineReasoning(turn: ChatTurn): string {
   return splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline || "";
+}
+
+async function copyAssistantTurn(turn: ChatTurn) {
+  const copyText = splitThinkText(turn.assistantText).visible || turn.assistantText || "";
+  if (!copyText) return;
+  try {
+    await navigator.clipboard.writeText(copyText);
+  } catch {
+    // Ignore clipboard failures to avoid interrupting chat flow.
+  }
 }
 
 function firstLinePreview(raw: string): string {
@@ -681,6 +724,20 @@ watch(
 :deep(.chat-bubble) {
   min-width: 0;
   min-height: 0;
+}
+
+:deep(.chat-input-no-focus:focus),
+:deep(.chat-input-no-focus:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+:deep(.chat-input-no-focus),
+:deep(.chat-input-no-focus:hover),
+:deep(.chat-input-no-focus:focus),
+:deep(.chat-input-no-focus:focus-visible) {
+  border-color: transparent !important;
 }
 
 </style>

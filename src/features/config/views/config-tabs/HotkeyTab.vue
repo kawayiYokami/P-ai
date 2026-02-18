@@ -1,11 +1,5 @@
 <template>
   <label class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.language.label") }}</span></div>
-    <select :value="uiLanguage" class="select select-bordered select-sm" @change="$emit('update:uiLanguage', ($event.target as HTMLSelectElement).value)">
-      <option v-for="item in localeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-    </select>
-  </label>
-  <label class="form-control">
     <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.label") }}</span></div>
     <div class="flex items-center gap-2">
       <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
@@ -85,35 +79,21 @@
       </button>
     </div>
   </div>
-  <div class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.theme") }}</span></div>
-    <button class="btn btn-sm btn-ghost bg-base-100 w-full flex items-center justify-center gap-2" @click="$emit('toggleTheme')">
-      <Sun v-if="currentTheme === 'light'" class="h-4 w-4" />
-      <Moon v-else class="h-4 w-4" />
-      <span>{{ currentTheme === "light" ? t("config.hotkey.lightTheme") : t("config.hotkey.darkTheme") }}</span>
-    </button>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Moon, Sun } from "lucide-vue-next";
 import type { AppConfig } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
-  uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
-  localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
-  currentTheme: "light" | "forest";
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudioReady: boolean;
 }>();
 
 const emit = defineEmits<{
-  (e: "update:uiLanguage", value: string): void;
-  (e: "toggleTheme"): void;
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;

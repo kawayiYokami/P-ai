@@ -54,3 +54,23 @@ body {
 .window-content::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--bc) / 0.5);
 }
+
+:where(
+  .input,
+  .textarea,
+  .select,
+  .btn,
+  .menu a,
+  [tabindex]
+):focus,
+:where(
+  .input,
+  .textarea,
+  .select,
+  .btn,
+  .menu a,
+  [tabindex]
+):focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}

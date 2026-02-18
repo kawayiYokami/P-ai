@@ -1,10 +1,11 @@
 <template>
-  <div class="grid gap-2">
+  <div class="flex flex-col gap-3 h-full">
     <div class="flex items-center gap-2">
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">{{ t("archives.refresh") }}</button>
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="triggerArchiveImport">{{ t("archives.importJson") }}</button>
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">{{ t("archives.exportMarkdown") }}</button>
-      <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
+      <button class="btn bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">{{ t("archives.refresh") }}</button>
+      <button class="btn bg-base-100 border-base-300 hover:bg-base-200" @click="triggerArchiveImport">{{ t("archives.importJson") }}</button>
+      <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">{{ t("archives.exportMarkdown") }}</button>
+      <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="!selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
+      <button class="btn bg-base-100 border-base-300 hover:bg-base-200 text-error" :disabled="!selectedArchiveId" @click="onDeleteClick(selectedArchiveId)">{{ t("common.delete") }}</button>
       <input
         ref="archiveImportInputRef"
         type="file"
@@ -13,51 +14,44 @@
         @change="onArchiveImportChange"
       />
     </div>
-    <div class="grid grid-cols-1 gap-1 max-h-56 overflow-auto">
-      <div
-        v-for="a in archives"
-        :key="a.archiveId"
-        class="flex items-center gap-1"
-      >
-        <button
-          class="btn btn-sm justify-start flex-1 min-w-0 bg-base-100 border-base-300 hover:bg-base-200"
-          :class="{ 'btn-active': a.archiveId === selectedArchiveId }"
-          @click="$emit('selectArchive', a.archiveId)"
-        >
-          <span class="truncate">{{ a.title }} <span v-if="a.messageCount">({{ a.messageCount }})</span></span>
-        </button>
-        <button
-          class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 text-error"
-          :title="t('archives.deleteTitle')"
-          @click="onDeleteClick(a.archiveId)"
-        >
-          {{ t("archives.delete") }}
-        </button>
+    <div class="flex gap-3 flex-1 min-h-0">
+      <div class="w-56 overflow-auto">
+        <div class="flex flex-col gap-2">
+          <div
+            v-for="a in archives"
+            :key="a.archiveId"
+            class="p-2 rounded cursor-pointer hover:bg-base-200"
+            :class="{ 'bg-primary/10': a.archiveId === selectedArchiveId }"
+            @click="$emit('selectArchive', a.archiveId)"
+          >
+            <div class="font-medium truncate text-sm">{{ a.title }}</div>
+            <div v-if="a.archivedAt" class="text-xs opacity-70 truncate">{{ formatDate(a.archivedAt) }}</div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="divider my-1">{{ t("archives.contentDivider") }}</div>
-    <div class="max-h-80 overflow-auto space-y-2">
-      <div v-for="m in visibleMessages" :key="m.id" class="text-xs border border-base-300 rounded p-2 bg-base-100">
-        <div class="flex items-center justify-between mb-1">
-          <div class="font-semibold">{{ roleLabel(m.role) }}</div>
-          <div class="opacity-60">{{ formatDate(m.createdAt) }}</div>
-        </div>
-        <div v-if="messageText(m)" class="whitespace-pre-wrap break-words">{{ messageText(m) }}</div>
-        <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">
-          <details v-for="(tool, idx) in toolSummaries(m)" :key="`${m.id}-tool-${idx}`" class="collapse collapse-arrow border border-base-300 bg-base-200">
-            <summary class="collapse-title py-2 px-3 min-h-0 text-xs">{{ t("archives.toolCall", { name: tool.name }) }}</summary>
-            <div class="collapse-content px-3 pb-2">
-              <div class="whitespace-pre-wrap break-words text-xs opacity-80">{{ tool.content }}</div>
-            </div>
-          </details>
-        </div>
-        <div v-if="messageImages(m).length > 0" class="mt-2 grid gap-1">
-          <img
-            v-for="(img, idx) in messageImages(m)"
-            :key="`${img.mime}-${idx}`"
-            :src="`data:${img.mime};base64,${img.bytesBase64}`"
-            class="rounded max-h-32 object-contain bg-base-100/40 border border-base-300"
-          />
+      <div class="flex-1 overflow-auto space-y-2">
+        <div v-for="m in visibleMessages" :key="m.id" class="border border-base-300 rounded p-3 bg-base-100">
+          <div class="flex items-center justify-between mb-1">
+            <div class="badge badge-primary badge-sm">{{ roleLabel(m.role) }}</div>
+            <div class="opacity-60 text-xs">{{ formatDate(m.createdAt) }}</div>
+          </div>
+          <div v-if="messageText(m)" class="whitespace-pre-wrap break-words">{{ messageText(m) }}</div>
+          <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">
+            <details v-for="(tool, idx) in toolSummaries(m)" :key="`${m.id}-tool-${idx}`" class="collapse collapse-arrow border border-base-300 bg-base-200">
+              <summary class="collapse-title py-2 px-3 min-h-0 text-sm font-medium">{{ t("archives.toolCall", { name: tool.name }) }}</summary>
+              <div class="collapse-content px-3 pb-2">
+                <div class="whitespace-pre-wrap break-words text-sm opacity-80">{{ tool.content }}</div>
+              </div>
+            </details>
+          </div>
+          <div v-if="messageImages(m).length > 0" class="mt-2 grid gap-1">
+            <img
+              v-for="(img, idx) in messageImages(m)"
+              :key="`${img.mime}-${idx}`"
+              :src="`data:${img.mime};base64,${img.bytesBase64}`"
+              class="rounded max-h-32 object-contain bg-base-100/40 border border-base-300"
+            />
+          </div>
         </div>
       </div>
     </div>

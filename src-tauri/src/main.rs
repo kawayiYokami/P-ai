@@ -147,6 +147,7 @@ fn main() {
             save_conversation_api_settings,
             get_chat_snapshot,
             get_active_conversation_messages,
+            rewind_conversation_from_message,
             get_prompt_preview,
             get_system_prompt_preview,
             list_archives,

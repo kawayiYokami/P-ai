@@ -200,6 +200,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
 #[tauri::command]
 fn save_chat_settings(
     input: ChatSettings,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ChatSettings, String> {
     let guard = state
@@ -222,11 +223,15 @@ fn save_chat_settings(
     write_app_data(&state.data_path, &data)?;
     drop(guard);
 
-    Ok(ChatSettings {
+    let payload = ChatSettings {
         selected_agent_id: input.selected_agent_id,
         user_alias: data.user_alias,
         response_style_id: data.response_style_id,
-    })
+    };
+
+    let _ = app.emit("easy-call:chat-settings-updated", &payload);
+
+    Ok(payload)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,6 +478,7 @@ fn sync_tray_icon(
 #[tauri::command]
 fn save_conversation_api_settings(
     input: ConversationApiSettings,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ConversationApiSettings, String> {
     let guard = state
@@ -489,12 +495,16 @@ fn save_conversation_api_settings(
     write_config(&state.config_path, &config)?;
     drop(guard);
 
-    Ok(ConversationApiSettings {
+    let payload = ConversationApiSettings {
         chat_api_config_id: config.chat_api_config_id,
         vision_api_config_id: config.vision_api_config_id,
         stt_api_config_id: config.stt_api_config_id,
         stt_auto_send: config.stt_auto_send,
-    })
+    };
+
+    let _ = app.emit("easy-call:conversation-api-updated", &payload);
+
+    Ok(payload)
 }
 
 #[tauri::command]
@@ -508,8 +518,6 @@ fn get_chat_snapshot(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
-        .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
@@ -539,7 +547,15 @@ fn get_chat_snapshot(
     };
 
     let before_len = data.conversations.len();
-    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
+    let idx = if let Some(existing_idx) =
+        latest_active_conversation_index(&data, "", &effective_agent_id)
+    {
+        existing_idx
+    } else {
+        let api_config = resolve_selected_api_config(&app_config, None)
+            .ok_or_else(|| "No API config available".to_string())?;
+        ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
+    };
     let conversation = &data.conversations[idx];
 
     let mut latest_user = conversation
@@ -586,8 +602,6 @@ fn get_active_conversation_messages(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
-        .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
@@ -617,7 +631,15 @@ fn get_active_conversation_messages(
     };
 
     let before_len = data.conversations.len();
-    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
+    let idx = if let Some(existing_idx) =
+        latest_active_conversation_index(&data, "", &effective_agent_id)
+    {
+        existing_idx
+    } else {
+        let api_config = resolve_selected_api_config(&app_config, None)
+            .ok_or_else(|| "No API config available".to_string())?;
+        ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
+    };
     let mut messages = data.conversations[idx].messages.clone();
 
     if defaults_changed || data.conversations.len() != before_len {
@@ -626,5 +648,110 @@ fn get_active_conversation_messages(
     drop(guard);
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RewindConversationInput {
+    session: SessionSelector,
+    message_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RewindConversationResult {
+    removed_count: usize,
+    remaining_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recalled_user_message: Option<ChatMessage>,
+}
+
+#[tauri::command]
+fn rewind_conversation_from_message(
+    input: RewindConversationInput,
+    state: State<'_, AppState>,
+) -> Result<RewindConversationResult, String> {
+    let message_id = input.message_id.trim();
+    if message_id.is_empty() {
+        return Err("messageId is required.".to_string());
+    }
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+    let app_config = read_config(&state.config_path)?;
+
+    let mut data = read_app_data(&state.data_path)?;
+    let defaults_changed = ensure_default_agent(&mut data);
+    let requested_agent_id = input.session.agent_id.trim();
+    if requested_agent_id.is_empty() {
+        return Err("agentId is required.".to_string());
+    }
+    if !data
+        .agents
+        .iter()
+        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        return Err(format!("Selected agent '{requested_agent_id}' not found."));
+    }
+
+    let before_len = data.conversations.len();
+    let idx = latest_active_conversation_index(&data, "", requested_agent_id)
+        .ok_or_else(|| "No active conversation found for current agent.".to_string())?;
+    let conversation = data
+        .conversations
+        .get_mut(idx)
+        .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
+
+    let remove_from = conversation
+        .messages
+        .iter()
+        .position(|m| m.id == message_id && m.role == "user")
+        .ok_or_else(|| "Target user message not found in active conversation.".to_string())?;
+
+    let mut recalled_user_message = conversation.messages.get(remove_from).cloned();
+    let removed_count = conversation.messages.len().saturating_sub(remove_from);
+    conversation.messages.truncate(remove_from);
+    conversation.updated_at = now_iso();
+    conversation.last_user_at = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.created_at.clone());
+    conversation.last_assistant_at = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "assistant")
+        .map(|m| m.created_at.clone());
+    let context_window_tokens = app_config
+        .api_configs
+        .iter()
+        .find(|api| api.id == conversation.api_config_id)
+        .map(|api| api.context_window_tokens)
+        .unwrap_or(128000);
+    conversation.last_context_usage_ratio = if conversation.messages.is_empty() {
+        0.0
+    } else {
+        compute_context_usage_ratio(conversation, context_window_tokens)
+    };
+
+    if defaults_changed || data.conversations.len() != before_len || removed_count > 0 {
+        write_app_data(&state.data_path, &data)?;
+    }
+    drop(guard);
+
+    if let Some(message) = recalled_user_message.as_mut() {
+        materialize_message_parts_from_media_refs(&mut message.parts, &state.data_path);
+    }
+
+    Ok(RewindConversationResult {
+        removed_count,
+        remaining_count: remove_from,
+        recalled_user_message,
+    })
 }
 

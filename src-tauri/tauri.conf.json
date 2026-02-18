@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Easy Call AI - 配置窗口",
-        "width": 400,
-        "height": 620,
+        "width": 900,
+        "height": 900,
         "dragDropEnabled": false,
         "resizable": true,
         "visible": false,
@@ -36,8 +36,8 @@
       {
         "label": "archives",
         "title": "Easy Call AI - 归档窗口",
-        "width": 520,
-        "height": 720,
+        "width": 900,
+        "height": 900,
         "dragDropEnabled": false,
         "resizable": true,
         "visible": false,
@@ -57,4 +57,3 @@
     "targets": "all"
   }
 }
-

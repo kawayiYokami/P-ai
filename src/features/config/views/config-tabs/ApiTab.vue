@@ -1,11 +1,18 @@
 <template>
-  <button class="btn btn-primary btn-sm w-full" :disabled="!props.configDirty || props.savingConfig" @click="$emit('saveApiConfig')">
-    {{ props.savingConfig ? t("config.api.saving") : props.configDirty ? t("config.api.saveConfig") : t("config.api.saved") }}
-  </button>
   <label class="form-control">
     <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.editTitle") }}</span></div>
     <div class="flex gap-1">
-      <select v-model="props.config.selectedApiConfigId" class="select select-bordered select-sm flex-1">
+      <button
+        class="btn btn-sm btn-square"
+        :class="props.configDirty ? 'btn-primary' : 'btn-ghost bg-base-100'"
+        :disabled="!props.configDirty || props.savingConfig"
+        :title="props.savingConfig ? t('config.api.saving') : props.configDirty ? t('config.api.saveConfig') : t('config.api.saved')"
+        @click="$emit('saveApiConfig')"
+      >
+        <Save v-if="!props.savingConfig" class="h-3.5 w-3.5" />
+        <span v-else class="loading loading-spinner loading-xs"></span>
+      </button>
+      <select v-model="props.config.selectedApiConfigId" class="select select-bordered select-sm flex-1" @change="$emit('configSwitched')">
         <option v-for="a in props.config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
       </select>
       <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.addConfig')" @click="$emit('addApiConfig')">
@@ -160,7 +167,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronsUpDown, ExternalLink, Link, Plus, RefreshCw, Trash2, WandSparkles } from "lucide-vue-next";
+import { ChevronsUpDown, ExternalLink, Link, Plus, RefreshCw, Save, Trash2, WandSparkles } from "lucide-vue-next";
 import type { ApiConfigItem, ApiRequestFormat, AppConfig } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 
@@ -189,6 +196,7 @@ defineEmits<{
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;
   (e: "refreshModels"): void;
+  (e: "configSwitched"): void;
 }>();
 
 const { t } = useI18n();

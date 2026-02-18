@@ -268,11 +268,7 @@ fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, Stri
         .map(|archive| ArchiveSummary {
             archive_id: archive.archive_id.clone(),
             archived_at: archive.archived_at.clone(),
-            title: format!(
-                "{} - {}",
-                archive_time_label(&archive.archived_at),
-                archive_first_user_preview(&archive.source_conversation)
-            ),
+            title: archive_first_user_preview(&archive.source_conversation),
             message_count: archive.source_conversation.messages.len(),
             api_config_id: archive.source_conversation.api_config_id.clone(),
             agent_id: archive.source_conversation.agent_id.clone(),
