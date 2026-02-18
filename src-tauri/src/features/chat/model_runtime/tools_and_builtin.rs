@@ -497,7 +497,15 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
     }))
 }
 
-async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, String> {
+async fn builtin_bing_search(query: &str) -> Result<Value, String> {
+    fn contains_cjk(text: &str) -> bool {
+        text.chars().any(|ch| {
+            ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+                || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+                || ('\u{3040}'..='\u{30FF}').contains(&ch)
+                || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
+        })
+    }
     fn decode_b64_relaxed(input: &str) -> Option<String> {
         let mut candidates = Vec::new();
         candidates.push(input.trim().to_string());
@@ -581,9 +589,17 @@ async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, S
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-    let limit = num_results.clamp(1, 10);
+    let limit = 10usize;
+    let raw_query = query.trim();
     let mut last_error: Option<String> = None;
-    for base in ["https://cn.bing.com", "https://www.bing.com"] {
+    let mut last_request_url: Option<String> = None;
+    let prefer_cn = contains_cjk(raw_query);
+    let bases = if prefer_cn {
+        ["https://cn.bing.com", "https://www.bing.com"]
+    } else {
+        ["https://www.bing.com", "https://cn.bing.com"]
+    };
+    for base in bases {
         let item_sel =
             Selector::parse("li.b_algo").map_err(|err| format!("Parse selector failed: {err}"))?;
         let a_sel =
@@ -594,9 +610,11 @@ async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, S
             .map_err(|err| format!("Parse selector failed: {err}"))?;
         let p_fallback_sel =
             Selector::parse("p").map_err(|err| format!("Parse selector failed: {err}"))?;
-        let url = format!(
-            "{base}/search?q={}&form=QBLH&qs=HS&sp=-1&count=10&mkt=zh-CN&setlang=zh-Hans",
-            urlencoding::encode(query)
+        let url = format!("{base}/search?q={}", urlencoding::encode(raw_query));
+        last_request_url = Some(url.clone());
+        eprintln!(
+            "[TOOL-DEBUG] bing-search request_url query={} url={}",
+            raw_query, url
         );
         let resp = client
             .get(&url)
@@ -651,13 +669,19 @@ async fn builtin_bing_search(query: &str, num_results: usize) -> Result<Value, S
             }
         }
         if !rows.is_empty() {
-            return Ok(serde_json::json!({"query": query, "engine": "bing", "results": rows}));
+            return Ok(serde_json::json!({
+                "query": query,
+                "requestUrl": url,
+                "engine": "bing",
+                "results": rows
+            }));
         }
         last_error = Some("no results parsed".to_string());
     }
     Err(format!(
-        "bing search failed: {}",
-        last_error.unwrap_or_else(|| "unknown".to_string())
+        "bing search failed: {} (request_url={})",
+        last_error.unwrap_or_else(|| "unknown".to_string()),
+        last_request_url.unwrap_or_else(|| "<none>".to_string())
     ))
 }
 
@@ -907,8 +931,6 @@ struct FetchToolArgs {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct BingSearchToolArgs {
     query: String,
-    #[serde(default)]
-    num_results: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1014,8 +1036,7 @@ impl Tool for BuiltinBingSearchTool {
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "query": { "type": "string", "description": "Query" },
-                "num_results": { "type": "integer", "description": "Result count", "default": 5 }
+                "query": { "type": "string", "description": "Query" }
               },
               "required": ["query"]
             }),
@@ -1027,7 +1048,7 @@ impl Tool for BuiltinBingSearchTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=bing-search args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
-        let result = builtin_bing_search(&args.query, args.num_results.unwrap_or(5))
+        let result = builtin_bing_search(&args.query)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
