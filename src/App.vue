@@ -655,7 +655,7 @@ const { visibleTurns, hasMoreTurns, chatContextUsageRatio, chatUsagePercent } = 
   perfNow,
 });
 const displayTurns = computed(() => chatting.value ? [] : visibleTurns.value);
-const displayHasMoreTurns = computed(() => !chatting.value && hasMoreTurns.value);
+const displayHasMoreTurns = computed(() => hasMoreTurns.value);
 const terminalApprovalCurrent = computed(() => terminalApprovalQueue.value[0] ?? null);
 const terminalApprovalDialogOpen = computed(() => !!terminalApprovalCurrent.value);
 const terminalApprovalDialogTitle = computed(

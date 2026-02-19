@@ -11,13 +11,28 @@
     <div ref="scrollContainer" class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
       <!-- 加载更多提示 -->
       <div v-if="hasMoreTurns" class="text-center">
-        <button class="btn btn-ghost btn-xs text-base-content/50" @click="$emit('loadMoreTurns')">{{ t("chat.loadMore") }}</button>
+        <button
+          class="btn btn-ghost btn-xs text-base-content/50"
+          :disabled="chatting || frozen"
+          @click="$emit('loadMoreTurns')"
+        >
+          {{ t("chat.loadMore") }}
+        </button>
       </div>
 
       <!-- 历史对话 turns -->
       <template v-for="turn in turns" :key="turn.id">
         <div class="chat chat-end group/user-turn">
-          <div class="chat-header mb-1">
+          <div class="chat-header mb-1 flex items-center gap-2">
+            <button
+              v-if="!chatting && !frozen"
+              type="button"
+              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
+              :title="t('chat.recall')"
+              @click="$emit('recallTurn', { turnId: turn.id })"
+            >
+              <Undo2 class="h-3.5 w-3.5" />
+            </button>
             <div v-if="userAvatarUrl" class="avatar">
               <div class="w-7 rounded-full">
                 <img :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" :title="userAlias || t('archives.roleUser')" />
@@ -58,19 +73,6 @@
                 <span>{{ t("chat.voice", { index: idx + 1 }) }}</span>
               </button>
             </div>
-          </div>
-          <div
-            v-if="!chatting && !frozen"
-            class="mt-1 flex justify-end opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
-          >
-            <button
-              type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
-              :title="t('chat.recall')"
-              @click="$emit('recallTurn', { turnId: turn.id })"
-            >
-              <Undo2 class="h-3.5 w-3.5" />
-            </button>
           </div>
         </div>
         <div v-if="turn.assistantText || turn.assistantReasoningStandard || turn.assistantReasoningInline" class="chat chat-start">
@@ -578,7 +580,7 @@ function onScroll() {
     evaluateFollowState(el);
     followScrollRaf = 0;
   });
-  if (el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
+  if (!props.chatting && el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
     emit("loadMoreTurns");
