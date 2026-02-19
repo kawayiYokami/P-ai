@@ -8,18 +8,12 @@
         Drop image or PDF
       </div>
     </div>
-    <div ref="scrollContainer" class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
-      <!-- 加载更多提示 -->
-      <div v-if="hasMoreTurns" class="text-center">
-        <button
-          class="btn btn-ghost btn-xs text-base-content/50"
-          :disabled="chatting || frozen"
-          @click="$emit('loadMoreTurns')"
-        >
-          {{ t("chat.loadMore") }}
-        </button>
-      </div>
-
+    <div
+      ref="scrollContainer"
+      class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2"
+      @scroll="onScroll"
+      @wheel.passive="onWheel"
+    >
       <!-- 历史对话 turns -->
       <template v-for="turn in turns" :key="turn.id">
         <div class="chat chat-end group/user-turn">
@@ -555,6 +549,7 @@ function jumpToBottom() {
 
 let loadingMore = false;
 let loadingMoreOldHeight = 0;
+let lastScrollTop = 0;
 
 function evaluateFollowState(el: HTMLElement) {
   // Hysteresis: avoid jitter around the boundary during streaming updates.
@@ -575,12 +570,25 @@ function evaluateFollowState(el: HTMLElement) {
 function onScroll() {
   const el = scrollContainer.value;
   if (!el) return;
+  const scrollingUp = el.scrollTop < lastScrollTop;
+  lastScrollTop = el.scrollTop;
   if (followScrollRaf) cancelAnimationFrame(followScrollRaf);
   followScrollRaf = requestAnimationFrame(() => {
     evaluateFollowState(el);
     followScrollRaf = 0;
   });
-  if (!props.chatting && el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
+  if (!props.chatting && scrollingUp && el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
+    loadingMore = true;
+    loadingMoreOldHeight = el.scrollHeight;
+    emit("loadMoreTurns");
+  }
+}
+
+function onWheel(event: WheelEvent) {
+  const el = scrollContainer.value;
+  if (!el) return;
+  const pushingUpAtTop = event.deltaY < 0 && el.scrollTop <= 20;
+  if (!props.chatting && pushingUpAtTop && props.hasMoreTurns && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
     emit("loadMoreTurns");
