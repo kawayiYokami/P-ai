@@ -1,6 +1,6 @@
 [package]
 name = "easy-call-ai"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "Easy Call AI desktop app"
 default-run = "easy-call-ai"
@@ -51,4 +51,3 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
-
