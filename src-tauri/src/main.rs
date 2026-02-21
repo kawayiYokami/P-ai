@@ -55,6 +55,7 @@ include!("features/system/sandbox.rs");
 include!("features/system/tools.rs");
 
 // ==================== 记忆匹配 ====================
+include!("features/memory/store.rs");
 include!("features/memory/matcher.rs");
 
 include!("features/system/commands.rs");
@@ -113,6 +114,9 @@ fn main() {
             if changed {
                 let _ = write_app_data(&app_state.data_path, &data);
             }
+            if let Err(err) = memory_store_open(&app_state.data_path) {
+                eprintln!("[BOOT] initialize memory store failed: {err}");
+            }
             let avatar_path = data
                 .agents
                 .iter()
@@ -159,6 +163,12 @@ fn main() {
             export_memories_to_file,
             export_memories_to_path,
             import_memories,
+            search_memories_mixed,
+            sync_memory_embedding_provider,
+            memory_rebuild_indexes,
+            memory_health_check,
+            memory_backup_db,
+            memory_restore_db,
             get_archive_messages,
             get_archive_summary,
             delete_archive,

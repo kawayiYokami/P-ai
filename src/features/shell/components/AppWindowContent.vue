@@ -213,13 +213,19 @@ import type {
   UnarchivedConversationSummary,
 } from "../../../types/app";
 
-type MemoryItem = { id: string; content: string; keywords: string[] };
+type MemoryItem = {
+  id: string;
+  memoryType: "knowledge" | "skill" | "emotion" | "event";
+  judgment: string;
+  reasoning: string;
+  tags: string[];
+};
 
 const props = defineProps<{
   t: (key: string, params?: Record<string, unknown>) => string;
   viewMode: "chat" | "archives" | "config";
   config: AppConfig;
-  configTab: "hotkey" | "api" | "tools" | "persona" | "chatSettings";
+  configTab: "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "memory" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
   currentTheme: "light" | "forest";
   selectedApiConfig: ApiConfigItem | null;
@@ -301,7 +307,7 @@ const props = defineProps<{
   setHistoryDialogRef: (el: Element | null) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
-  updateConfigTab: (value: "hotkey" | "api" | "tools" | "persona" | "chatSettings") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "memory" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;

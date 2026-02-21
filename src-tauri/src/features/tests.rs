@@ -44,6 +44,7 @@
             last_context_usage_ratio: 0.0,
             status: "active".to_string(),
             messages,
+            memory_recall_table: Vec::new(),
         }
     }
 

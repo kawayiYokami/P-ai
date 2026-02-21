@@ -47,6 +47,7 @@ fn ensure_active_conversation_index(
         last_context_usage_ratio: 0.0,
         status: "active".to_string(),
         messages: Vec::new(),
+        memory_recall_table: Vec::new(),
     };
 
     data.conversations.push(conversation);
@@ -731,4 +732,3 @@ fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
         _ => None,
     }
 }
-

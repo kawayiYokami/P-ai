@@ -455,10 +455,12 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "content": { "type": "string" },
-                        "keywords": { "type": "array", "items": { "type": "string" } }
+                        "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"] },
+                        "judgment": { "type": "string" },
+                        "reasoning": { "type": "string" },
+                        "tags": { "type": "array", "items": { "type": "string" } }
                     },
-                    "required": ["content", "keywords"]
+                    "required": ["memory_type", "judgment", "tags"]
                 }
             }
         }));
@@ -476,10 +478,12 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "content": { "type": "string" },
-                                    "keywords": { "type": "array", "items": { "type": "string" } }
+                                    "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"] },
+                                    "judgment": { "type": "string" },
+                                    "reasoning": { "type": "string" },
+                                    "tags": { "type": "array", "items": { "type": "string" } }
                                 },
-                                "required": ["content", "keywords"]
+                                "required": ["memory_type", "judgment", "tags"]
                             }
                         }
                     },
@@ -2503,5 +2507,4 @@ async fn describe_image_with_vision_api(
     };
     Ok(reply.assistant_text)
 }
-
 

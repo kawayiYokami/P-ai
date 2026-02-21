@@ -49,6 +49,7 @@ fn get_prompt_preview(
             last_context_usage_ratio: 0.0,
             status: "active".to_string(),
             messages: Vec::new(),
+            memory_recall_table: Vec::new(),
         });
 
     let user_name = user_persona_name(&data);
@@ -815,17 +816,7 @@ fn import_archives_from_json(
 
 #[tauri::command]
 fn list_memories(state: State<'_, AppState>) -> Result<Vec<MemoryEntry>, String> {
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-
-    let mut memories = data.memories.clone();
-    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(memories)
+    memory_store_list_memories(&state.data_path)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -853,6 +844,28 @@ struct ImportMemoriesResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SearchMemoriesMixedInput {
+    query: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMemoriesMixedResult {
+    memories: Vec<SearchMemoriesMixedHit>,
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMemoriesMixedHit {
+    memory: MemoryEntry,
+    bm25_score: f64,
+    vector_score: f64,
+    final_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ExportMemoriesFileResult {
     path: String,
     count: usize,
@@ -864,21 +877,38 @@ struct ExportMemoriesToPathInput {
     path: String,
 }
 
-fn memory_content_key(content: &str) -> String {
-    clean_text(content.trim()).to_lowercase()
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncMemoryEmbeddingProviderInput {
+    provider_id: String,
+    #[serde(default)]
+    model_name: Option<String>,
+    #[serde(default)]
+    batch_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryHealthCheckInput {
+    #[serde(default)]
+    auto_repair: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryBackupInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryRestoreInput {
+    path: String,
 }
 
 #[tauri::command]
 fn export_memories(state: State<'_, AppState>) -> Result<MemoryExportPayload, String> {
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-
-    let mut memories = data.memories;
-    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let memories = memory_store_list_memories(&state.data_path)?;
 
     Ok(MemoryExportPayload {
         version: 1,
@@ -892,14 +922,7 @@ fn export_memories_to_file(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ExportMemoriesFileResult, String> {
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-    let mut memories = data.memories;
-    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let memories = memory_store_list_memories(&state.data_path)?;
     let payload = MemoryExportPayload {
         version: 1,
         exported_at: now_iso(),
@@ -937,14 +960,7 @@ fn export_memories_to_path(
         .ok_or_else(|| "Export path has no parent directory".to_string())?;
     fs::create_dir_all(parent).map_err(|err| format!("Create export dir failed: {err}"))?;
 
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-    let mut memories = data.memories;
-    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let memories = memory_store_list_memories(&state.data_path)?;
     let payload = MemoryExportPayload {
         version: 1,
         exported_at: now_iso(),
@@ -965,99 +981,155 @@ fn import_memories(
     input: ImportMemoriesInput,
     state: State<'_, AppState>,
 ) -> Result<ImportMemoriesResult, String> {
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let mut data = read_app_data(&state.data_path)?;
-
-    let now = now_iso();
-    let mut created_count = 0usize;
-    let mut merged_count = 0usize;
-    let mut imported_count = 0usize;
-
-    let mut key_index = std::collections::HashMap::<String, usize>::new();
-    for (idx, m) in data.memories.iter().enumerate() {
-        let key = memory_content_key(&m.content);
-        if !key.is_empty() {
-            key_index.insert(key, idx);
-        }
-    }
-
-    for incoming in input.memories {
-        let content = clean_text(incoming.content.trim());
-        if content.is_empty() {
-            continue;
-        }
-        let keywords = normalize_memory_keywords(&incoming.keywords);
-        if keywords.is_empty() {
-            continue;
-        }
-
-        imported_count += 1;
-        let key = memory_content_key(&content);
-        if let Some(idx) = key_index.get(&key).copied() {
-            let existing = &mut data.memories[idx];
-            for kw in keywords {
-                if !existing.keywords.iter().any(|x| x == &kw) {
-                    existing.keywords.push(kw);
-                }
-            }
-            existing.updated_at = now.clone();
-            merged_count += 1;
-            continue;
-        }
-        let requested_id = incoming.id.trim();
-        if !requested_id.is_empty() {
-            if let Some(existing_idx) = data.memories.iter().position(|m| m.id == requested_id) {
-                let existing = &mut data.memories[existing_idx];
-                if memory_content_key(&existing.content) == key {
-                    for kw in keywords {
-                        if !existing.keywords.iter().any(|x| x == &kw) {
-                            existing.keywords.push(kw);
-                        }
-                    }
-                    existing.updated_at = now.clone();
-                    merged_count += 1;
-                    continue;
-                }
-            }
-        }
-        let mut id = if requested_id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else if let Some(existing) = data.memories.iter().find(|m| m.id == requested_id) {
-            if memory_content_key(&existing.content) == key {
-                requested_id.to_string()
-            } else {
-                Uuid::new_v4().to_string()
-            }
-        } else {
-            requested_id.to_string()
-        };
-        while data.memories.iter().any(|m| m.id == id) {
-            id = Uuid::new_v4().to_string();
-        }
-        data.memories.push(MemoryEntry {
-            id,
-            content: content.clone(),
-            keywords,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        });
-        key_index.insert(key, data.memories.len() - 1);
-        created_count += 1;
-    }
-
-    write_app_data(&state.data_path, &data)?;
-    invalidate_memory_matcher_cache();
-    drop(guard);
-
+    let stats = memory_store_import_memories(&state.data_path, &input.memories)?;
     Ok(ImportMemoriesResult {
-        imported_count,
-        created_count,
-        merged_count,
-        total_count: data.memories.len(),
+        imported_count: stats.imported_count,
+        created_count: stats.created_count,
+        merged_count: stats.merged_count,
+        total_count: stats.total_count,
     })
+}
+
+#[tauri::command]
+fn search_memories_mixed(
+    input: SearchMemoriesMixedInput,
+    state: State<'_, AppState>,
+) -> Result<SearchMemoriesMixedResult, String> {
+    let started = std::time::Instant::now();
+    let query = input.query.trim();
+    if query.is_empty() {
+        // Empty query is intentionally used by the frontend as "browse all memories" mode.
+        // Real mixed retrieval always provides non-empty query text.
+        return Ok(SearchMemoriesMixedResult {
+            memories: memory_store_list_memories(&state.data_path)?
+                .into_iter()
+                .map(|memory| SearchMemoriesMixedHit {
+                    memory,
+                    bm25_score: 0.0,
+                    vector_score: 0.0,
+                    final_score: 0.0,
+                })
+                .collect::<Vec<_>>(),
+            elapsed_ms: started.elapsed().as_millis(),
+        });
+    }
+
+    let memories = memory_store_list_memories(&state.data_path)?;
+    let ranked = memory_mixed_ranked_items(
+        &state.data_path,
+        &memories,
+        query,
+        MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER,
+    );
+    if ranked.is_empty() {
+        return Ok(SearchMemoriesMixedResult {
+            memories: Vec::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+        });
+    }
+
+    let memory_map = memories
+        .into_iter()
+        .map(|m| (m.id.clone(), m))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut out = Vec::<SearchMemoriesMixedHit>::new();
+    for item in ranked {
+        if let Some(memory) = memory_map.get(&item.memory_id) {
+            out.push(SearchMemoriesMixedHit {
+                memory: memory.clone(),
+                bm25_score: item.bm25_score,
+                vector_score: item.vector_score,
+                final_score: item.final_score,
+            });
+        }
+    }
+    Ok(SearchMemoriesMixedResult {
+        memories: out,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+#[tauri::command]
+fn sync_memory_embedding_provider(
+    input: SyncMemoryEmbeddingProviderInput,
+    state: State<'_, AppState>,
+) -> Result<MemoryStoreProviderSyncReport, String> {
+    let provider_id = input.provider_id.trim();
+    if provider_id.is_empty() {
+        return Err("providerId is required".to_string());
+    }
+    let model_name = input
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("deterministic-local-embedder");
+    let batch_size = input.batch_size.unwrap_or(64).max(1);
+
+    memory_store_sync_provider_index(
+        &state.data_path,
+        provider_id,
+        model_name,
+        batch_size,
+        |texts| {
+            let mut out = Vec::<Vec<f32>>::new();
+            for text in texts {
+                let mut hasher = Sha256::new();
+                hasher.update(provider_id.as_bytes());
+                hasher.update(b"|");
+                hasher.update(text.as_bytes());
+                let digest = hasher.finalize();
+                let mut vec = Vec::<f32>::new();
+                for chunk in digest.chunks(4) {
+                    let mut bytes = [0u8; 4];
+                    for (idx, b) in chunk.iter().enumerate() {
+                        bytes[idx] = *b;
+                    }
+                    let value = u32::from_le_bytes(bytes) as f32 / u32::MAX as f32;
+                    vec.push(value);
+                }
+                out.push(vec);
+            }
+            Ok(out)
+        },
+    )
+}
+
+#[tauri::command]
+fn memory_rebuild_indexes(state: State<'_, AppState>) -> Result<MemoryStoreRebuildReport, String> {
+    memory_store_rebuild_indexes(&state.data_path)
+}
+
+#[tauri::command]
+fn memory_health_check(
+    input: MemoryHealthCheckInput,
+    state: State<'_, AppState>,
+) -> Result<MemoryStoreHealthReport, String> {
+    memory_store_health_check(&state.data_path, input.auto_repair)
+}
+
+#[tauri::command]
+fn memory_backup_db(
+    input: MemoryBackupInput,
+    state: State<'_, AppState>,
+) -> Result<MemoryStoreBackupResult, String> {
+    let path = PathBuf::from(input.path.trim());
+    if input.path.trim().is_empty() {
+        return Err("backup path is empty".to_string());
+    }
+    memory_store_backup_db(&state.data_path, &path)
+}
+
+#[tauri::command]
+fn memory_restore_db(
+    input: MemoryRestoreInput,
+    state: State<'_, AppState>,
+) -> Result<MemoryStoreBackupResult, String> {
+    let path = PathBuf::from(input.path.trim());
+    if input.path.trim().is_empty() {
+        return Err("restore path is empty".to_string());
+    }
+    memory_store_restore_db(&state.data_path, &path)
 }
 
 #[tauri::command]
@@ -1081,8 +1153,14 @@ fn xml_escape(input: &str) -> String {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ArchiveMemoryDraft {
-    content: String,
-    keywords: Vec<String>,
+    #[serde(default, alias = "memoryType")]
+    memory_type: String,
+    #[serde(default, alias = "content")]
+    judgment: String,
+    #[serde(default)]
+    reasoning: String,
+    #[serde(default, alias = "keywords")]
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1108,48 +1186,25 @@ fn parse_archive_summary_draft(raw: &str) -> Option<ArchiveSummaryDraft> {
     serde_json::from_str::<ArchiveSummaryDraft>(&trimmed[start..=end]).ok()
 }
 
-fn merge_memories_into_app_data(data: &mut AppData, drafts: &[ArchiveMemoryDraft]) -> usize {
-    let now = now_iso();
-    let mut merged = 0usize;
+fn merge_memories_into_store(data_path: &PathBuf, drafts: &[ArchiveMemoryDraft]) -> Result<usize, String> {
+    let mut inputs = Vec::<MemoryDraftInput>::new();
     for d in drafts {
-        let content = clean_text(d.content.trim());
-        if content.is_empty() {
+        let judgment = clean_text(d.judgment.trim());
+        if judgment.is_empty() {
             continue;
         }
-        let keywords = normalize_memory_keywords(&d.keywords);
-        if keywords.is_empty() {
+        let tags = normalize_memory_keywords(&d.tags);
+        if tags.is_empty() {
             continue;
         }
-        if memory_contains_sensitive(&content, &keywords) {
-            continue;
-        }
-        let mut merged_existing = false;
-        for existing in &mut data.memories {
-            if memory_content_key(&existing.content) == memory_content_key(&content) {
-                for kw in &keywords {
-                    if !existing.keywords.iter().any(|x| x == kw) {
-                        existing.keywords.push(kw.clone());
-                    }
-                }
-                existing.updated_at = now.clone();
-                merged_existing = true;
-                merged += 1;
-                break;
-            }
-        }
-        if merged_existing {
-            continue;
-        }
-        data.memories.push(MemoryEntry {
-            id: Uuid::new_v4().to_string(),
-            content,
-            keywords,
-            created_at: now.clone(),
-            updated_at: now.clone(),
+        inputs.push(MemoryDraftInput {
+            memory_type: d.memory_type.clone(),
+            judgment,
+            reasoning: clean_text(d.reasoning.trim()),
+            tags,
         });
-        merged += 1;
     }
-    merged
+    memory_store_merge_drafts(data_path, &inputs)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1231,14 +1286,14 @@ async fn summarize_archived_conversation_with_model(
 
     let instruction = format!(
         "你要做归档总结。输出严格 JSON，不要 markdown，不要代码块。\n\
-         JSON schema: {{\"summary\":\"string\",\"memories\":[{{\"content\":\"string\",\"keywords\":[\"string\"]}}]}}\n\
+         JSON schema: {{\"summary\":\"string\",\"memories\":[{{\"memoryType\":\"knowledge|skill|emotion|event\",\"judgment\":\"string\",\"reasoning\":\"string\",\"tags\":[\"string\"]}}]}}\n\
          规则:\n\
          1) summary 必填，必须按时间顺序写，语言自然、具体，不要模板化空话。\n\
          2) summary 必须覆盖并按此顺序组织：论题（讨论了什么）-> 经过（关键分歧/变化）-> 结论（已决定事项）。\n\
          3) summary 必须单独明确两部分：悬而未定的论题；接下来建议决策（给出可执行的下一步）。\n\
          4) 如有多个论题，必须逐个输出（按时间先后分别写清每个论题的经过与结论），禁止合并成笼统描述。\n\
          5) summary 必须保留可追溯锚点：关键对象、关键时间点、关键数字或约束条件；不确定就写“待确认”，禁止猜测。\n\
-         6) memories 最多 7 条；非必要不生成；仅保留对用户长期有价值的信息。\n\
+         6) memories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event（禁止 task）。\n\
          7) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。\n\
          8) 你是 {assistant_name}，用户称谓是 {user_name}。\n\
          9) {tool_rules}",
@@ -1342,7 +1397,7 @@ async fn force_archive_current(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
         let user_alias = data.user_alias.clone();
-        let memories = data.memories.clone();
+        let memories = memory_store_list_memories(&state.data_path)?;
         let source_idx = latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
             .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
         let source = data
@@ -1416,10 +1471,7 @@ async fn force_archive_current(
         &selected_api.id,
         &source.agent_id,
     );
-    let merged_memories = merge_memories_into_app_data(&mut data, &summary_memories);
-    if merged_memories > 0 {
-        invalidate_memory_matcher_cache();
-    }
+    let merged_memories = merge_memories_into_store(&state.data_path, &summary_memories)?;
     write_app_data(&state.data_path, &data)?;
     drop(guard);
     eprintln!(

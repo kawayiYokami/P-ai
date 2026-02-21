@@ -89,6 +89,15 @@ Tauri 管理 3 个无边框窗口：`main`（配置，400×620）、`chat`（对
 ```
 type: `feat` `fix` `refactor` `chore` `docs` `style` `test`，每次提交聚焦单一主题。
 
+- 提交标题中的描述部分必须使用中文，禁止英文描述或中英混写。
+- 若提交标题不符合中文规则，必须先改写标题再提交。
+- 推荐示例：
+  - `feat: 记忆混合检索改为BM25与向量加权`
+  - `fix: 修复BM25分数恒为0的问题`
+- 反例（禁止）：
+  - `feat: switch memory retrieval to bm25`
+  - `fix: bm25 score issue`
+
 ### Rust 规则
 
 - 禁止 `unwrap()` / `expect()`（测试除外），统一使用 `Result` 传递可读错误

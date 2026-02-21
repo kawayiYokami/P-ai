@@ -20,6 +20,7 @@
       "tools": "도구",
       "persona": "페르소나",
       "chatSettings": "대화",
+      "memory": "메모리",
       "appearance": "외관",
       "about": "정보"
     },
@@ -308,3 +309,4 @@
     "github": "GitHub 저장소"
   }
 }
+

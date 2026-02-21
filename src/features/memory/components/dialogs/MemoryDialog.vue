@@ -17,16 +17,18 @@
           class="card card-compact bg-base-100 border border-base-300 shadow-md"
         >
           <div class="card-body text-xs p-3">
-            <div class="whitespace-pre-wrap break-words">{{ memory.content }}</div>
+            <div class="badge badge-sm">{{ memory.memoryType }}</div>
+            <div class="mt-1 whitespace-pre-wrap break-words">{{ memory.judgment }}</div>
+            <div v-if="memory.reasoning" class="mt-1 opacity-80 whitespace-pre-wrap break-words">{{ memory.reasoning }}</div>
             <div class="mt-2 flex flex-wrap items-center gap-1">
               <span
-                v-for="(kw, kwIdx) in memory.keywords"
+                v-for="(kw, kwIdx) in memory.tags"
                 :key="`${memory.id}-kw-${kwIdx}`"
                 class="badge badge-sm badge-ghost"
               >
                 {{ kw }}
               </span>
-              <span v-if="memory.keywords.length === 0" class="text-[11px] opacity-60">-</span>
+              <span v-if="memory.tags.length === 0" class="text-[11px] opacity-60">-</span>
             </div>
           </div>
         </div>
@@ -59,8 +61,8 @@ defineProps<{
   exportText: string;
   importText: string;
   closeText: string;
-  memoryList: Array<{ id: string; content: string; keywords: string[] }>;
-  pagedMemories: Array<{ id: string; content: string; keywords: string[] }>;
+  memoryList: Array<{ id: string; memoryType: string; judgment: string; reasoning: string; tags: string[] }>;
+  pagedMemories: Array<{ id: string; memoryType: string; judgment: string; reasoning: string; tags: string[] }>;
   memoryPage: number;
   memoryPageCount: number;
 }>();

@@ -18,6 +18,9 @@
           <a :class="{ 'active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
         </li>
         <li>
+          <a :class="{ 'active': configTab === 'memory' }" @click="$emit('update:configTab', 'memory')">{{ t("config.tabs.memory") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': configTab === 'appearance' }" @click="$emit('update:configTab', 'appearance')">{{ t("config.tabs.appearance") }}</a>
         </li>
         <li>
@@ -67,7 +70,7 @@
           :saving-config="savingConfig"
           @tool-switch-changed="$emit('toolSwitchChanged')"
           @save-api-config="$emit('saveApiConfig')"
-          @open-memory-viewer="$emit('openMemoryViewer')"
+          @open-memory-viewer="$emit('update:configTab', 'memory')"
         />
 
         <PersonaTab
@@ -105,6 +108,8 @@
           @refresh-image-cache-stats="$emit('refreshImageCacheStats')"
           @clear-image-cache="$emit('clearImageCache')"
         />
+
+        <MemoryTab v-else-if="configTab === 'memory'" />
 
         <AppearanceTab
           v-else-if="configTab === 'appearance'"
@@ -189,10 +194,11 @@ import ApiTab from "./config-tabs/ApiTab.vue";
 import ToolsTab from "./config-tabs/ToolsTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
+import MemoryTab from "./config-tabs/MemoryTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "appearance" | "about";
+type ConfigTab = "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "memory" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{

@@ -282,7 +282,7 @@ async fn send_chat_message(
                 .cloned()
                 .ok_or_else(|| "Selected agent not found.".to_string())?;
             let user_alias = data.user_alias.clone();
-            let memories = data.memories.clone();
+            let memories = memory_store_list_memories(&state.data_path)?;
             drop(guard);
 
             match summarize_archived_conversation_with_model(
@@ -322,10 +322,8 @@ async fn send_chat_message(
                         &selected_api.id,
                         &effective_agent_id,
                     );
-                    let memory_merged = merge_memories_into_app_data(&mut data, &summary_memories);
-                    if memory_merged > 0 {
-                        invalidate_memory_matcher_cache();
-                    }
+                    let memory_merged =
+                        merge_memories_into_store(&state.data_path, &summary_memories)?;
                     eprintln!(
                         "[ARCHIVE] archived ok. conversation_id={}, reason={}, summary_len={}, merged_memories={}",
                         source.id,
@@ -440,9 +438,19 @@ async fn send_chat_message(
         let mut user_parts = build_user_parts(&input.payload, &storage_api)?;
         externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
         let conversation_before = data.conversations[idx].clone();
-        let search_text = conversation_search_text(&conversation_before);
+        let recall_query_text = memory_recall_query_text(&conversation_before, &effective_user_text);
+        let store_memories = memory_store_list_memories(&state.data_path)?;
+        let recall_hit_ids =
+            memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
+
+        for memory_id in recall_hit_ids {
+            data.conversations[idx].memory_recall_table.push(memory_id);
+        }
+
+        let latest_recall_ids =
+            latest_recall_memory_ids(&data.conversations[idx].memory_recall_table, 7);
         let memory_board_xml =
-            build_memory_board_xml(&data.memories, &search_text, &effective_user_text);
+            build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
         let last_archive_summary = data
             .archived_conversations
             .iter()
@@ -460,7 +468,6 @@ async fn send_chat_message(
         let latest_user_text = effective_user_text.clone();
 
         let now = now_iso();
-
         let user_message = ChatMessage {
             id: Uuid::new_v4().to_string(),
             role: "user".to_string(),
@@ -757,7 +764,6 @@ async fn stop_chat_message(
 
 async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
     let base = input.base_url.trim().trim_end_matches('/');
-    let url = format!("{base}/models");
     let api_key = input.api_key.trim();
 
     if api_key.contains('\r') || api_key.contains('\n') {
@@ -778,32 +784,44 @@ async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, 
         .build()
         .map_err(|err| format!("Build HTTP client failed: {err}"))?;
 
-    // 按用户约定：仅使用同一个 URL 规则（base_url + /models），不做额外路径推断。
-    let resp = client
-        .get(&url)
-        .header(AUTHORIZATION, auth_value)
-        .send()
-        .await
-        .map_err(|err| format!("Fetch model list failed ({url}): {err}"))?;
+    let mut urls = vec![format!("{base}/models")];
+    if !base.to_ascii_lowercase().ends_with("/v1") {
+        urls.push(format!("{base}/v1/models"));
+    }
+    urls.dedup();
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let raw = resp.text().await.unwrap_or_default();
-        let snippet = raw.chars().take(600).collect::<String>();
-        return Err(format!(
-            "Fetch model list failed: {url} -> {status} | {snippet}"
-        ));
+    let mut last_error = String::new();
+    for url in urls {
+        let resp = client
+            .get(&url)
+            .header(AUTHORIZATION, auth_value.clone())
+            .send()
+            .await
+            .map_err(|err| format!("Fetch model list failed ({url}): {err}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let raw = resp.text().await.unwrap_or_default();
+            let snippet = raw.chars().take(600).collect::<String>();
+            last_error = format!("Fetch model list failed: {url} -> {status} | {snippet}");
+            if status.as_u16() == 404 {
+                continue;
+            }
+            return Err(last_error);
+        }
+
+        let body = resp
+            .json::<OpenAIModelListResponse>()
+            .await
+            .map_err(|err| format!("Parse model list failed ({url}): {err}"))?;
+
+        let mut models = body.data.into_iter().map(|item| item.id).collect::<Vec<_>>();
+        models.sort();
+        models.dedup();
+        return Ok(models);
     }
 
-    let body = resp
-        .json::<OpenAIModelListResponse>()
-        .await
-        .map_err(|err| format!("Parse model list failed ({url}): {err}"))?;
-
-    let mut models = body.data.into_iter().map(|item| item.id).collect::<Vec<_>>();
-    models.sort();
-    models.dedup();
-    Ok(models)
+    Err(last_error)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

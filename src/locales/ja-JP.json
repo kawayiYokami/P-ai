@@ -20,6 +20,7 @@
       "tools": "ツール",
       "persona": "人格",
       "chatSettings": "会話",
+      "memory": "メモリ",
       "appearance": "外観",
       "about": "について"
     },
@@ -308,3 +309,4 @@
     "github": "GitHub リポジトリ"
   }
 }
+

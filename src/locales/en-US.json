@@ -20,6 +20,7 @@
       "tools": "Tools",
       "persona": "Persona",
       "chatSettings": "Chat",
+      "memory": "Memory",
       "appearance": "Appearance",
       "about": "About"
     },
@@ -312,3 +313,4 @@
     "github": "GitHub Repository"
   }
 }
+

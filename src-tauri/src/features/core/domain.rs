@@ -660,6 +660,8 @@ struct Conversation {
     last_context_usage_ratio: f64,
     status: String,
     messages: Vec<ChatMessage>,
+    #[serde(default)]
+    memory_recall_table: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -697,8 +699,14 @@ struct ImageTextCacheEntry {
 #[serde(rename_all = "camelCase")]
 struct MemoryEntry {
     id: String,
-    content: String,
-    keywords: Vec<String>,
+    #[serde(default, alias = "memoryType")]
+    memory_type: String,
+    #[serde(default, alias = "content")]
+    judgment: String,
+    #[serde(default)]
+    reasoning: String,
+    #[serde(default, alias = "keywords")]
+    tags: Vec<String>,
     created_at: String,
     updated_at: String,
 }
@@ -718,8 +726,6 @@ struct AppData {
     archived_conversations: Vec<ConversationArchive>,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
-    #[serde(default)]
-    memories: Vec<MemoryEntry>,
 }
 
 impl Default for AppData {
@@ -733,7 +739,6 @@ impl Default for AppData {
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
-            memories: Vec::new(),
         }
     }
 }

@@ -20,6 +20,7 @@
       "tools": "工具",
       "persona": "人格",
       "chatSettings": "对话",
+      "memory": "记忆",
       "appearance": "外观",
       "about": "关于"
     },
@@ -312,3 +313,4 @@
     "github": "GitHub 仓库"
   }
 }
+

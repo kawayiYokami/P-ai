@@ -730,8 +730,10 @@ fn memory_contains_sensitive(content: &str, keywords: &[String]) -> bool {
 
 #[derive(Debug, Clone)]
 struct MemorySaveDraft {
-    content: String,
-    keywords: Vec<String>,
+    memory_type: String,
+    judgment: String,
+    reasoning: String,
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -740,25 +742,33 @@ struct MemorySaveUpsertItemResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    keywords: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     updated_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
 }
 
-fn parse_memory_save_draft(content: &str, keywords_raw: Vec<String>) -> Result<MemorySaveDraft, String> {
-    let content = content.trim();
-    if content.is_empty() {
-        return Err("memory_save.content is required".to_string());
+fn parse_memory_save_draft(
+    memory_type_raw: &str,
+    judgment: &str,
+    reasoning: &str,
+    tags_raw: Vec<String>,
+) -> Result<MemorySaveDraft, String> {
+    let judgment = judgment.trim();
+    if judgment.is_empty() {
+        return Err("memory_save.judgment is required".to_string());
     }
-    let keywords = normalize_memory_keywords(&keywords_raw);
-    if keywords.is_empty() {
-        return Err("memory_save.keywords must contain at least one valid keyword".to_string());
+    let memory_type = memory_store_normalize_memory_type(memory_type_raw)?;
+    let tags = normalize_memory_keywords(&tags_raw);
+    if tags.is_empty() {
+        return Err("memory_save.tags must contain at least one valid tag".to_string());
     }
     Ok(MemorySaveDraft {
-        content: content.to_string(),
-        keywords,
+        memory_type,
+        judgment: judgment.to_string(),
+        reasoning: clean_text(reasoning),
+        tags,
     })
 }
 
@@ -766,91 +776,53 @@ fn upsert_memories(
     app_state: &AppState,
     drafts: &[MemorySaveDraft],
 ) -> Result<(Vec<MemorySaveUpsertItemResult>, usize), String> {
-    let guard = app_state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let mut data = read_app_data(&app_state.data_path)?;
-    let now = now_iso();
-    let mut results = Vec::<MemorySaveUpsertItemResult>::new();
-    let mut changed = 0usize;
-
-    for draft in drafts {
-        if memory_contains_sensitive(&draft.content, &draft.keywords) {
+    let inputs = drafts
+        .iter()
+        .map(|d| MemoryDraftInput {
+            memory_type: d.memory_type.clone(),
+            judgment: d.judgment.clone(),
+            reasoning: d.reasoning.clone(),
+            tags: d.tags.clone(),
+        })
+        .collect::<Vec<_>>();
+    let (results, total_memories) = memory_store_upsert_drafts(&app_state.data_path, &inputs)?;
+    for (draft, result) in drafts.iter().zip(results.iter()) {
+        if let Some(id) = result.id.as_ref() {
             eprintln!(
-                "[TOOL-DEBUG] memory-save rejected sensitive content. keywords={}",
-                draft.keywords.join(",")
+                "[TOOL-DEBUG] memory-save saved. id={}, type={}, tags={}, judgment_len={}",
+                id,
+                draft.memory_type,
+                draft.tags.join(","),
+                draft.judgment.chars().count()
             );
-            results.push(MemorySaveUpsertItemResult {
-                saved: false,
-                id: None,
-                keywords: None,
-                updated_at: None,
-                reason: Some("sensitive_rejected".to_string()),
-            });
-            continue;
         }
-
-        let memory_id = if let Some(existing) = data
-            .memories
-            .iter_mut()
-            .find(|m| m.content.trim() == draft.content)
-        {
-            existing.keywords = draft.keywords.clone();
-            existing.updated_at = now.clone();
-            existing.id.clone()
-        } else {
-            data.memories.push(MemoryEntry {
-                id: Uuid::new_v4().to_string(),
-                content: draft.content.clone(),
-                keywords: draft.keywords.clone(),
-                created_at: now.clone(),
-                updated_at: now.clone(),
-            });
-            data.memories
-                .last()
-                .map(|m| m.id.clone())
-                .unwrap_or_else(|| "created".to_string())
-        };
-        changed += 1;
-        results.push(MemorySaveUpsertItemResult {
-            saved: true,
-            id: Some(memory_id.clone()),
-            keywords: Some(draft.keywords.clone()),
-            updated_at: Some(now.clone()),
-            reason: None,
-        });
-        eprintln!(
-            "[TOOL-DEBUG] memory-save saved. id={}, keywords={}, content_len={}",
-            memory_id,
-            draft.keywords.join(","),
-            draft.content.chars().count()
-        );
     }
-
-    if changed > 0 {
-        write_app_data(&app_state.data_path, &data)?;
-        invalidate_memory_matcher_cache();
-    }
-    let total_memories = data.memories.len();
-    drop(guard);
     Ok((results, total_memories))
 }
 
 fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, String> {
-    let content = args
-        .get("content")
+    let memory_type = args
+        .get("memory_type")
+        .or_else(|| args.get("memoryType"))
         .and_then(Value::as_str)
-        .ok_or_else(|| "memory_save.content is required".to_string())?;
-    let keywords_raw = args
-        .get("keywords")
+        .ok_or_else(|| "memory_save.memoryType is required".to_string())?;
+    let judgment = args
+        .get("judgment")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "memory_save.judgment is required".to_string())?;
+    let reasoning = args
+        .get("reasoning")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let tags_raw = args
+        .get("tags")
         .and_then(Value::as_array)
-        .ok_or_else(|| "memory_save.keywords is required".to_string())?
+        .ok_or_else(|| "memory_save.tags is required".to_string())?
         .iter()
         .filter_map(Value::as_str)
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let draft = parse_memory_save_draft(content, keywords_raw)?;
+    let draft = parse_memory_save_draft(memory_type, judgment, reasoning, tags_raw)?;
     let (results, total_memories) = upsert_memories(app_state, &[draft])?;
     let first = results
         .into_iter()
@@ -859,7 +831,7 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
     Ok(serde_json::json!({
       "saved": first.saved,
       "id": first.id,
-      "keywords": first.keywords,
+      "tags": first.tags,
       "updatedAt": first.updated_at,
       "reason": first.reason,
       "totalMemories": total_memories
@@ -883,19 +855,28 @@ fn builtin_memory_save_batch(app_state: &AppState, args: Value) -> Result<Value,
             truncated = true;
             break;
         }
-        let content = item
-            .get("content")
+        let memory_type = item
+            .get("memory_type")
+            .or_else(|| item.get("memoryType"))
             .and_then(Value::as_str)
-            .ok_or_else(|| "memory_save_batch.memories[].content is required".to_string())?;
-        let keywords = item
-            .get("keywords")
+            .ok_or_else(|| "memory_save_batch.memories[].memoryType is required".to_string())?;
+        let judgment = item
+            .get("judgment")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "memory_save_batch.memories[].judgment is required".to_string())?;
+        let reasoning = item
+            .get("reasoning")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let tags = item
+            .get("tags")
             .and_then(Value::as_array)
-            .ok_or_else(|| "memory_save_batch.memories[].keywords is required".to_string())?
+            .ok_or_else(|| "memory_save_batch.memories[].tags is required".to_string())?
             .iter()
             .filter_map(Value::as_str)
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
-        drafts.push(parse_memory_save_draft(content, keywords)?);
+        drafts.push(parse_memory_save_draft(memory_type, judgment, reasoning, tags)?);
     }
 
     let (items, total_memories) = upsert_memories(app_state, &drafts)?;
@@ -935,14 +916,18 @@ struct BingSearchToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct MemorySaveToolArgs {
-    content: String,
-    keywords: Vec<String>,
+    memory_type: String,
+    judgment: String,
+    reasoning: Option<String>,
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct MemorySaveBatchItemArgs {
-    content: String,
-    keywords: Vec<String>,
+    memory_type: String,
+    judgment: String,
+    reasoning: Option<String>,
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1083,22 +1068,26 @@ impl Tool for BuiltinMemorySaveTool {
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "content": { "type": "string", "description": "记忆正文，简洁具体" },
-                "keywords": {
+                "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"], "description": "记忆类型（不支持 task）" },
+                "judgment": { "type": "string", "description": "记忆论断，单条可检索判断句" },
+                "reasoning": { "type": "string", "description": "理由，可为空" },
+                "tags": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "关键词列表，用于后续命中提示板"
+                  "description": "标签列表，用于后续命中提示板"
                 }
               },
-              "required": ["content", "keywords"]
+              "required": ["memory_type", "judgment", "tags"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let args_json = serde_json::json!({
-            "content": args.content,
-            "keywords": args.keywords,
+            "memoryType": args.memory_type,
+            "judgment": args.judgment,
+            "reasoning": args.reasoning.unwrap_or_default(),
+            "tags": args.tags,
         });
         eprintln!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=memory-save args={}",
@@ -1142,10 +1131,12 @@ impl Tool for BuiltinMemorySaveBatchTool {
                   "items": {
                     "type": "object",
                     "properties": {
-                      "content": { "type": "string" },
-                      "keywords": { "type": "array", "items": { "type": "string" } }
+                      "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"] },
+                      "judgment": { "type": "string" },
+                      "reasoning": { "type": "string" },
+                      "tags": { "type": "array", "items": { "type": "string" } }
                     },
-                    "required": ["content", "keywords"]
+                    "required": ["memory_type", "judgment", "tags"]
                   }
                 }
               },
@@ -1330,4 +1321,3 @@ impl Tool for BuiltinTerminalRequestPathAccessTool {
         result
     }
 }
-

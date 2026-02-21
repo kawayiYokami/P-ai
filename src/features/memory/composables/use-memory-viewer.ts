@@ -4,8 +4,10 @@ import { invokeTauri } from "../../../services/tauri-api";
 
 type MemoryEntry = {
   id: string;
-  content: string;
-  keywords: string[];
+  memoryType: "knowledge" | "skill" | "emotion" | "event";
+  judgment: string;
+  reasoning: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 };
