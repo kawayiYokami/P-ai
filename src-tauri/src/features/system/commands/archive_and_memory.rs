@@ -886,6 +886,29 @@ fn list_memories(state: State<'_, AppState>) -> Result<Vec<MemoryEntry>, String>
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct DeleteMemoryInput {
+    memory_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteMemoryResult {
+    status: String,
+}
+
+#[tauri::command]
+fn delete_memory(
+    input: DeleteMemoryInput,
+    state: State<'_, AppState>,
+) -> Result<DeleteMemoryResult, String> {
+    memory_store_delete_memory(&state.data_path, &input.memory_id)?;
+    Ok(DeleteMemoryResult {
+        status: "deleted".to_string(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MemoryExportPayload {
     version: u32,
     exported_at: String,
@@ -925,6 +948,7 @@ struct SearchMemoriesMixedResult {
 struct SearchMemoriesMixedHit {
     memory: MemoryEntry,
     bm25_score: f64,
+    bm25_raw_score: f64,
     vector_score: f64,
     final_score: f64,
 }
@@ -1030,8 +1054,18 @@ struct MemoryProviderBindings {
 #[serde(rename_all = "camelCase")]
 struct SaveMemoryRerankBindingResult {
     status: String,
-    rerank_api_config_id: String,
+    rerank_api_config_id: Option<String>,
     model_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryEmbeddingSyncProgress {
+    status: String,
+    done_batches: usize,
+    total_batches: usize,
+    trace_id: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1153,6 +1187,7 @@ fn search_memories_mixed(
                 .map(|memory| SearchMemoriesMixedHit {
                     memory,
                     bm25_score: 0.0,
+                    bm25_raw_score: 0.0,
                     vector_score: 0.0,
                     final_score: 0.0,
                 })
@@ -1185,6 +1220,7 @@ fn search_memories_mixed(
             out.push(SearchMemoriesMixedHit {
                 memory: memory.clone(),
                 bm25_score: item.bm25_score,
+                bm25_raw_score: item.bm25_raw_score,
                 vector_score: item.vector_score,
                 final_score: item.final_score,
             });
@@ -1409,13 +1445,46 @@ fn get_memory_provider_bindings(state: State<'_, AppState>) -> Result<MemoryProv
 }
 
 #[tauri::command]
+fn get_memory_embedding_sync_progress(state: State<'_, AppState>) -> Result<MemoryEmbeddingSyncProgress, String> {
+    let conn = memory_store_open(&state.data_path)?;
+    let status = memory_store_get_runtime_state(&conn, "rebuild_status")?
+        .unwrap_or_else(|| "idle".to_string());
+    let done_batches = memory_store_get_runtime_state(&conn, "rebuild_done_batches")?
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let total_batches = memory_store_get_runtime_state(&conn, "rebuild_total_batches")?
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let trace_id = memory_store_get_runtime_state(&conn, "rebuild_trace_id")?;
+    let error = memory_store_get_runtime_state(&conn, "rebuild_error")?;
+    Ok(MemoryEmbeddingSyncProgress {
+        status,
+        done_batches,
+        total_batches,
+        trace_id,
+        error,
+    })
+}
+
+#[tauri::command]
 fn save_memory_embedding_binding(
     input: SaveMemoryEmbeddingBindingInput,
     state: State<'_, AppState>,
 ) -> Result<MemoryStoreProviderSyncReport, String> {
     let api_id = input.api_config_id.trim();
     if api_id.is_empty() {
-        return Err("apiConfigId is required".to_string());
+        let conn = memory_store_open(&state.data_path)?;
+        let old_provider_id = memory_store_get_runtime_state(&conn, "active_index_provider_id")?;
+        memory_store_set_runtime_state(&conn, "embedding_api_config_id", "")?;
+        memory_store_set_runtime_state(&conn, "active_index_provider_id", "")?;
+        return Ok(MemoryStoreProviderSyncReport {
+            status: "disabled".to_string(),
+            old_provider_id,
+            new_provider_id: String::new(),
+            deleted: 0,
+            added: 0,
+            batch_count: 0,
+        });
     }
     let app_config = read_config(&state.config_path)?;
     let api = app_config
@@ -1473,7 +1542,13 @@ fn save_memory_rerank_binding(
 ) -> Result<SaveMemoryRerankBindingResult, String> {
     let api_id = input.api_config_id.trim();
     if api_id.is_empty() {
-        return Err("apiConfigId is required".to_string());
+        let conn = memory_store_open(&state.data_path)?;
+        memory_store_set_runtime_state(&conn, "rerank_api_config_id", "")?;
+        return Ok(SaveMemoryRerankBindingResult {
+            status: "disabled".to_string(),
+            rerank_api_config_id: None,
+            model_name: String::new(),
+        });
     }
     let app_config = read_config(&state.config_path)?;
     let api = app_config
@@ -1502,7 +1577,7 @@ fn save_memory_rerank_binding(
     memory_store_set_runtime_state(&conn, "rerank_api_config_id", &api.id)?;
     Ok(SaveMemoryRerankBindingResult {
         status: "saved".to_string(),
-        rerank_api_config_id: api.id,
+        rerank_api_config_id: Some(api.id),
         model_name: model_name.to_string(),
     })
 }

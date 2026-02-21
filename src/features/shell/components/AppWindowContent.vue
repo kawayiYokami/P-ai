@@ -227,7 +227,7 @@ const props = defineProps<{
   config: AppConfig;
   configTab: "hotkey" | "api" | "tools" | "persona" | "chatSettings" | "memory" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
-  currentTheme: "light" | "forest";
+  currentTheme: "light" | "dracula";
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;

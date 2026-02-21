@@ -830,7 +830,7 @@ const appBootstrap = useAppBootstrap({
   },
   initWindowMode: () => initWindow(),
   onThemeChanged: (theme) => {
-    if (theme === "light" || theme === "forest") {
+    if (theme === "light" || theme === "dracula") {
       applyTheme(theme);
     }
   },

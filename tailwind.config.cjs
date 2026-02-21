@@ -10,6 +10,6 @@ module.exports = {
     }),
   ],
   daisyui: {
-    themes: ["light", "forest"],
+    themes: ["light", "dracula"],
   },
 };

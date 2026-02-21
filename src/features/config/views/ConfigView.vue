@@ -3,28 +3,28 @@
     <div class="w-48 shrink-0">
       <ul class="menu bg-base-200 rounded-box">
         <li>
-          <a :class="{ 'active': configTab === 'hotkey' }" @click="$emit('update:configTab', 'hotkey')">{{ t("config.tabs.hotkey") }}</a>
+          <a :class="{ 'active': configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'api' }" @click="$emit('update:configTab', 'api')">{{ t("config.tabs.api") }}</a>
+          <a :class="{ 'active': configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">{{ t("config.tabs.api") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'tools' }" @click="$emit('update:configTab', 'tools')">{{ t("config.tabs.tools") }}</a>
+          <a :class="{ 'active': configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">{{ t("config.tabs.tools") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'persona' }" @click="$emit('update:configTab', 'persona')">{{ t("config.tabs.persona") }}</a>
+          <a :class="{ 'active': configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">{{ t("config.tabs.persona") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'chatSettings' }" @click="$emit('update:configTab', 'chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
+          <a :class="{ 'active': configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'memory' }" @click="$emit('update:configTab', 'memory')">{{ t("config.tabs.memory") }}</a>
+          <a :class="{ 'active': configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'appearance' }" @click="$emit('update:configTab', 'appearance')">{{ t("config.tabs.appearance") }}</a>
+          <a :class="{ 'active': configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">{{ t("config.tabs.appearance") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'about' }" @click="$emit('update:configTab', 'about')">{{ t("config.tabs.about") }}</a>
+          <a :class="{ 'active': configTab === 'about', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('about')">{{ t("config.tabs.about") }}</a>
         </li>
       </ul>
     </div>
@@ -109,7 +109,11 @@
           @clear-image-cache="$emit('clearImageCache')"
         />
 
-        <MemoryTab v-else-if="configTab === 'memory'" />
+        <MemoryTab
+          v-else-if="configTab === 'memory'"
+          :sync-locked="memorySyncLocked"
+          @sync-lock-change="onMemorySyncLockChange"
+        />
 
         <AppearanceTab
           v-else-if="configTab === 'appearance'"
@@ -206,7 +210,7 @@ const props = defineProps<{
   configTab: ConfigTab;
   uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
-  currentTheme: "light" | "forest";
+  currentTheme: "light" | "dracula";
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -280,6 +284,7 @@ const cropSource = ref("");
 const cropperReady = ref(false);
 const localCropError = ref("");
 const avatarEditorTargetId = ref("");
+const memorySyncLocked = ref(false);
 let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
 const MIN_RECORD_SECONDS = 1;
@@ -416,6 +421,17 @@ function onMaxRecordSecondsChanged(value: number) {
     Math.min(MAX_RECORD_SECONDS, Math.round(Number(value) || props.config.minRecordSeconds)),
   );
   props.config.maxRecordSeconds = next;
+}
+
+function requestTabChange(nextTab: ConfigTab) {
+  if (memorySyncLocked.value && nextTab !== "memory") {
+    return;
+  }
+  emit("update:configTab", nextTab);
+}
+
+function onMemorySyncLockChange(locked: boolean) {
+  memorySyncLocked.value = !!locked;
 }
 
 async function onAvatarFilePicked(event: Event) {

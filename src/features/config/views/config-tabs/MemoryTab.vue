@@ -1,93 +1,229 @@
 <template>
-  <div class="space-y-3">
+  <div class="space-y-3 relative">
+    <!-- 同步锁定遮罩 -->
+    <div
+      v-if="syncLocked"
+      class="absolute inset-0 z-20 flex items-start justify-center pt-8 bg-base-100/80 backdrop-blur-sm"
+    >
+      <div class="rounded-box border border-base-300 bg-base-100 px-6 py-4 shadow-lg flex flex-col items-center gap-3 min-w-72">
+        <span class="loading loading-spinner loading-md text-primary"></span>
+        <div class="text-sm font-medium">嵌入同步进行中</div>
+        <progress class="progress progress-primary w-full" :value="syncProgressPercent" max="100"></progress>
+        <div class="text-xs opacity-70">
+          {{ syncProgressText }}
+        </div>
+      </div>
+    </div>
+
+    <!-- 记忆配置区 -->
     <div class="card bg-base-100 border border-base-300">
-      <div class="card-body p-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <button class="btn btn-xs" :disabled="loading" @click="refreshMemories">{{ t("common.refresh") }}</button>
-          <button class="btn btn-xs" :disabled="loading" @click="exportMemories">{{ t("memory.export") }}</button>
-          <button class="btn btn-xs" :disabled="loading" @click="triggerImport">{{ t("memory.import") }}</button>
+      <div class="card-body p-3 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium">向量化配置</span>
+          <div class="text-xs opacity-60">即使无向量化也可以有非常好的回想体验</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- 嵌入配置 -->
+          <div class="flex flex-col gap-2">
+            <label class="form-control">
+              <div class="label py-0"><span class="label-text text-xs">嵌入模型</span></div>
+              <select v-model="embeddingApiConfigId" class="select select-bordered select-sm">
+                <option value="">未配置</option>
+                <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
+                  {{ api.name }}
+                </option>
+              </select>
+            </label>
+            <div class="flex gap-2">
+              <button class="btn btn-sm flex-1" :disabled="loading || !embeddingApiConfigId" @click="testEmbeddingProvider">
+                测试嵌入
+              </button>
+              <button
+                class="btn btn-sm btn-primary flex-1"
+                :disabled="loading || syncLocked || !embeddingApiConfigId || !embeddingReadyToSave"
+                @click="saveEmbeddingBinding"
+              >
+                保存并同步
+              </button>
+            </div>
+          </div>
+
+          <!-- 重排配置 -->
+          <div class="flex flex-col gap-2">
+            <label class="form-control">
+              <div class="label py-0"><span class="label-text text-xs">重排模型</span></div>
+              <select v-model="rerankApiConfigId" class="select select-bordered select-sm">
+                <option value="">未配置</option>
+                <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
+                  {{ api.name }}
+                </option>
+              </select>
+            </label>
+            <div class="flex gap-2">
+              <button class="btn btn-sm flex-1" :disabled="loading || !rerankApiConfigId" @click="testRerankProvider">
+                测试重排
+              </button>
+              <button
+                class="btn btn-sm flex-1"
+                :disabled="loading || syncLocked || (!!rerankApiConfigId && !rerankReadyToSave)"
+                @click="saveRerankBinding"
+              >
+                保存重排
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="opMessage" class="text-xs break-all rounded-box bg-base-200/50 px-2 py-1.5">
+          {{ opMessage }}
+        </div>
+      </div>
+    </div>
+
+    <!-- 记忆列表区 -->
+    <div class="card bg-base-100 min-h-[280px]">
+      <div class="card-body p-3 min-h-0 flex flex-col gap-3">
+        <!-- 标题 + 操作 -->
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium">记忆列表</span>
+          <div class="join">
+            <button class="btn btn-xs join-item" :disabled="loading" @click="refreshMemories" title="刷新">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+            </button>
+            <button class="btn btn-xs join-item" :disabled="loading" @click="exportMemories" title="导出">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            </button>
+            <button class="btn btn-xs join-item" :disabled="loading" @click="triggerImport" title="导入">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            </button>
+          </div>
           <input ref="importInputRef" type="file" accept=".json,application/json" class="hidden" @change="handleImportFile" />
         </div>
-        <div class="text-xs opacity-70 break-all">{{ opMessage }}</div>
-      </div>
-    </div>
 
-    <div class="card bg-base-100 border border-base-300">
-      <div class="card-body p-3 space-y-2">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <label class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">嵌入 LLM</span></div>
-            <select v-model="embeddingApiConfigId" class="select select-bordered select-xs">
-              <option value="">无</option>
-              <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
-                {{ api.name }} ({{ api.requestFormat }})
-              </option>
-            </select>
-          </label>
-          <label class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">重排 LLM</span></div>
-            <select v-model="rerankApiConfigId" class="select select-bordered select-xs">
-              <option value="">无</option>
-              <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
-                {{ api.name }} ({{ api.requestFormat }})
-              </option>
-            </select>
-          </label>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <button class="btn btn-xs" :disabled="loading" @click="testEmbeddingProvider">测试嵌入</button>
-          <button class="btn btn-xs btn-primary" :disabled="loading || !embeddingApiConfigId || !embeddingReadyToSave" @click="saveEmbeddingBinding">保存嵌入并同步</button>
-          <button class="btn btn-xs" :disabled="loading" @click="testRerankProvider">测试重排</button>
-          <button class="btn btn-xs btn-primary" :disabled="loading || !rerankApiConfigId || !rerankReadyToSave" @click="saveRerankBinding">保存重排</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card bg-base-100 border border-base-300 min-h-[260px]">
-      <div class="card-body p-3 min-h-0 flex flex-col gap-2">
-        <div class="flex flex-wrap items-center gap-2 border-b border-base-300 pb-2">
-          <input
-            v-model.trim="searchQuery"
-            class="input input-bordered input-xs w-64"
-            placeholder="搜索记忆（混合检索）"
-            @keyup.enter="searchMemories"
-          />
-          <button class="btn btn-xs btn-primary" :disabled="loading || !searchQuery" @click="searchMemories">搜索</button>
-          <button class="btn btn-xs" :disabled="loading || !isSearchMode" @click="clearSearch">清空</button>
-          <span v-if="loading" class="text-[11px] opacity-70">搜索中...</span>
-        </div>
-        <div v-if="memoryList.length === 0" class="text-xs opacity-70">{{ t("memory.empty") }}</div>
-        <div v-else class="min-h-0 flex-1 overflow-auto space-y-2 pr-1">
-          <div v-for="memory in pagedMemories" :key="memory.id" class="border border-base-300 rounded p-2 text-xs">
-            <div class="badge badge-sm">{{ memory.memoryType }}</div>
-            <div class="mt-1 whitespace-pre-wrap break-words">{{ memory.judgment }}</div>
-            <div v-if="memory.reasoning" class="mt-1 opacity-80 whitespace-pre-wrap break-words">{{ memory.reasoning }}</div>
-            <div class="mt-2 flex flex-wrap gap-1">
-              <span v-for="(kw, idx) in memory.tags" :key="`${memory.id}-${idx}`" class="badge badge-sm badge-ghost">{{ kw }}</span>
-              <span v-if="!memory.tags.length" class="opacity-60">-</span>
+        <!-- 搜索栏 -->
+        <div class="join">
+          <div>
+            <div>
+              <input
+                v-model.trim="searchQuery"
+                class="input input-bordered input-sm join-item flex-1"
+                placeholder="搜索记忆（混合检索）"
+                @keyup.enter="searchMemories"
+              />
             </div>
-            <div v-if="isSearchMode" class="mt-1 opacity-70 text-[11px]">
-              bm25={{ (memory.bm25Score ?? 0).toFixed(3) }},
-              vector={{ (memory.vectorScore ?? 0).toFixed(3) }},
-              final={{ (memory.finalScore ?? 0).toFixed(3) }}
-            </div>
-            <div class="mt-1 opacity-60 text-[11px]">{{ memory.updatedAt || memory.createdAt }}</div>
+          </div>
+          <div class="indicator">
+            <span v-if="isSearchMode" class="indicator-item badge badge-secondary badge-xs">结果</span>
+            <button
+              class="btn btn-sm join-item"
+              :class="searchQuery ? 'btn-primary' : 'btn-ghost'"
+              :disabled="loading || !searchQuery"
+              @click="searchMemories"
+            >
+              搜索
+            </button>
           </div>
         </div>
-        <div class="flex items-center justify-between border-t border-base-300 pt-2">
-          <span class="text-xs opacity-70">{{ t("memory.page", { page: memoryPage, total: memoryPageCount }) }}</span>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="isSearchMode"
+            class="btn btn-xs btn-ghost"
+            :disabled="loading"
+            @click="clearSearch"
+          >
+            清空
+          </button>
+          <span v-if="loading" class="text-xs opacity-70">
+            <span class="loading loading-spinner loading-xs"></span>
+            搜索中...
+          </span>
+        </div>
+
+        <!-- 搜索结果信息 -->
+        <div v-if="isSearchMode && memoryList.length > 0" class="text-xs opacity-70 flex items-center gap-2">
+          <span class="badge badge-sm badge-ghost">搜索结果</span>
+          <span>{{ memoryList.length }} 条匹配</span>
+        </div>
+
+                <!-- 记忆列表 -->
+                <div v-if="memoryList.length === 0" class="flex-1 flex items-center justify-center text-sm opacity-50">
+                  {{ t("memory.empty") }}
+                </div>
+                <div v-else class="min-h-0 flex-1 overflow-auto gap-2 flex flex-col">
+                  <div
+                    v-for="memory in pagedMemories"
+                    :key="memory.id"
+                    class="card bg-base-200 card-border border-base-300 card-sm"
+                  >
+                    <div class="card-body gap-2 p-3">
+                      <!-- 标题：类型 + 时间 + 标签 + 删除 -->
+                      <h2 class="flex items-center justify-between m-0 p-0">
+                        <span class="flex flex-wrap items-center gap-2 font-semibold text-xs">
+                          <span
+                            class="badge badge-sm"
+                            :class="memoryTypeBadgeClass(memory.memoryType)"
+                          >{{ memoryTypeLabel(memory.memoryType) }}</span>
+                          <span class="opacity-50">{{ formatMemoryTime(memory.updatedAt || memory.createdAt) }}</span>
+                          <span v-for="(kw, idx) in memory.tags" :key="`${memory.id}-${idx}`" class="badge badge-sm badge-neutral opacity-80">
+                            {{ kw }}
+                          </span>
+                          <span v-if="!memory.tags.length" class="opacity-40 text-[11px]">无标签</span>
+                        </span>
+                        <button
+                          class="btn btn-xs btn-ghost btn-circle"
+                          @click="deleteMemory(memory.id)"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        </button>
+                      </h2>
+
+                      <!-- 内容 -->
+                      <div class="whitespace-pre-wrap break-words leading-relaxed text-xs">{{ memory.judgment }}</div>
+
+                      <!-- 推理 -->
+                      <div v-if="memory.reasoning" class="py-2">
+                        <div class="pl-2 border-l-2 border-base-300 opacity-70 whitespace-pre-wrap break-words italic text-xs">
+                          {{ memory.reasoning }}
+                        </div>
+                      </div>
+
+                      <!-- 搜索分数 -->
+                      <div v-if="isSearchMode" class="pt-2">
+                        <div class="flex flex-wrap gap-3 text-[11px] opacity-60">
+                          <span>BM25: {{ (memory.bm25Score ?? 0).toFixed(3) }}</span>
+                          <span>向量: {{ (memory.vectorScore ?? 0).toFixed(3) }}</span>
+                          <span class="text-primary font-medium">综合: {{ (memory.finalScore ?? 0).toFixed(3) }}</span>
+                        </div>
+                        <div class="mt-1.5 h-1.5 bg-base-300 rounded-full overflow-hidden">
+                          <div
+                            class="h-full bg-primary rounded-full transition-all"
+                            :style="{ width: `${Math.min(100, (memory.finalScore ?? 0) * 100)}%` }"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+        <!-- 分页 -->
+        <div v-if="memoryList.length > 0" class="flex justify-center border-t border-base-300 pt-3">
           <div class="join">
-            <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">{{ t("memory.prevPage") }}</button>
-            <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">{{ t("memory.nextPage") }}</button>
+            <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">
+              ‹
+            </button>
+            <button class="btn btn-xs join-item btn-active">{{ memoryPage }} / {{ memoryPageCount }}</button>
+            <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">
+              ›
+            </button>
+          </div>
+        </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 
@@ -100,6 +236,7 @@ type MemoryEntry = {
   createdAt: string;
   updatedAt: string;
   bm25Score?: number;
+  bm25RawScore?: number;
   vectorScore?: number;
   finalScore?: number;
 };
@@ -118,6 +255,7 @@ type ApiRequestFormat =
 type ApiConfigLite = {
   id: string;
   name: string;
+  model?: string;
   requestFormat: ApiRequestFormat;
   enableText?: boolean;
 };
@@ -127,6 +265,12 @@ type AppConfigLite = {
 };
 
 const { t } = useI18n();
+const props = withDefaults(defineProps<{ syncLocked?: boolean }>(), {
+  syncLocked: false,
+});
+const emit = defineEmits<{
+  (e: "sync-lock-change", value: boolean): void;
+}>();
 const MEMORY_PAGE_SIZE = 10;
 const loading = ref(false);
 const opMessage = ref("");
@@ -140,6 +284,19 @@ const embeddingLastPassedTestKey = ref("");
 const rerankLastPassedTestKey = ref("");
 const importInputRef = ref<HTMLInputElement | null>(null);
 const apiConfigs = ref<ApiConfigLite[]>([]);
+const syncProgressDone = ref(0);
+const syncProgressTotal = ref(0);
+const syncProgressStatus = ref("idle");
+let syncTimer: ReturnType<typeof setInterval> | null = null;
+const syncLocked = computed(() => !!props.syncLocked);
+const syncProgressPercent = computed(() => {
+  if (syncProgressTotal.value <= 0) return 5;
+  return Math.max(0, Math.min(100, Math.round((syncProgressDone.value / syncProgressTotal.value) * 100)));
+});
+const syncProgressText = computed(() => {
+  if (syncProgressTotal.value <= 0) return `状态: ${syncProgressStatus.value}`;
+  return `批次 ${syncProgressDone.value}/${syncProgressTotal.value} (${syncProgressPercent.value}%)`;
+});
 
 const sortedMemories = computed(() => {
   if (isSearchMode.value) {
@@ -192,6 +349,55 @@ const pagedMemories = computed(() => {
   return sortedMemories.value.slice(start, start + MEMORY_PAGE_SIZE);
 });
 
+function memoryTypeBadgeClass(type: string): string {
+  const classes: Record<string, string> = {
+    knowledge: "badge-primary",
+    skill: "badge-secondary",
+    emotion: "badge-accent",
+    event: "badge-info",
+  };
+  return classes[type] || "badge-ghost";
+}
+
+function memoryTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    knowledge: "知识",
+    skill: "技能",
+    emotion: "情感",
+    event: "事件",
+  };
+  return labels[type] || type;
+}
+
+function formatMemoryTime(iso: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  if (hours < 24) return `${hours} 小时前`;
+  if (days < 7) return `${days} 天前`;
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+
+  if (year === now.getFullYear()) {
+    return `${month}-${day} ${hour}:${minute}`;
+  }
+  return `${year}-${month}-${day}`;
+}
+
 async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   loading.value = true;
   try {
@@ -204,13 +410,22 @@ async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   }
 }
 
+async function deleteMemory(memoryId: string) {
+  const result = await withLoading(() =>
+    invokeTauri<{ status: string }>("delete_memory", { input: { memoryId } }),
+  );
+  if (!result) return;
+  await refreshMemories();
+  opMessage.value = "已删除记忆";
+}
+
 async function refreshMemories() {
   const result = await withLoading(() => invokeTauri<MemoryEntry[]>("list_memories"));
   if (!result) return;
   memoryList.value = result;
   memoryPage.value = 1;
   isSearchMode.value = false;
-  opMessage.value = `Loaded ${result.length} memories.`;
+  opMessage.value = `已加载 ${result.length} 条记忆`;
 }
 
 async function searchMemories() {
@@ -224,6 +439,7 @@ async function searchMemories() {
       memories: Array<{
         memory: MemoryEntry;
         bm25Score: number;
+        bm25RawScore: number;
         vectorScore: number;
         finalScore: number;
       }>;
@@ -234,12 +450,13 @@ async function searchMemories() {
   memoryList.value = result.memories.map((hit) => ({
     ...hit.memory,
     bm25Score: hit.bm25Score,
+    bm25RawScore: hit.bm25RawScore,
     vectorScore: hit.vectorScore,
     finalScore: hit.finalScore,
   }));
   memoryPage.value = 1;
   isSearchMode.value = true;
-  opMessage.value = `Search done: ${result.memories.length} hit(s), ${result.elapsedMs} ms.`;
+  opMessage.value = `搜索完成: ${result.memories.length} 条结果, 耗时 ${result.elapsedMs}ms`;
 }
 
 async function clearSearch() {
@@ -250,7 +467,7 @@ async function clearSearch() {
 async function exportMemories() {
   const result = await withLoading(() => invokeTauri<{ path: string; count: number }>("export_memories_to_file"));
   if (!result) return;
-  opMessage.value = `Exported ${result.count} memories to ${result.path}`;
+  opMessage.value = `已导出 ${result.count} 条记忆到 ${result.path}`;
 }
 
 function triggerImport() {
@@ -272,14 +489,14 @@ async function handleImportFile(event: Event) {
         ? (parsed as { memories: unknown[] }).memories
         : null;
     if (!Array.isArray(memories)) {
-      throw new Error("invalid memories payload");
+      throw new Error("无效的记忆文件格式");
     }
     const result = await invokeTauri<{ importedCount: number; createdCount: number; mergedCount: number; totalCount: number }>(
       "import_memories",
       { input: { memories } },
     );
     await refreshMemories();
-    opMessage.value = `Import done: created=${result.createdCount}, merged=${result.mergedCount}, total=${result.totalCount}`;
+    opMessage.value = `导入完成: 新增 ${result.createdCount} 条, 合并 ${result.mergedCount} 条, 共 ${result.totalCount} 条`;
   });
 }
 
@@ -298,7 +515,7 @@ async function testEmbeddingProvider() {
   );
   if (!result) return;
   embeddingLastPassedTestKey.value = embeddingCurrentTestKey.value;
-  opMessage.value = `嵌入测试成功: kind=${result.providerKind}, model=${result.modelName}, dim=${result.vectorDim}, ${result.elapsedMs}ms`;
+  opMessage.value = `嵌入测试成功: ${result.providerKind} · 维度 ${result.vectorDim} · 耗时 ${result.elapsedMs}ms`;
 }
 
 async function testRerankProvider() {
@@ -315,35 +532,56 @@ async function testRerankProvider() {
   );
   if (!result) return;
   rerankLastPassedTestKey.value = rerankCurrentTestKey.value;
-  opMessage.value = `重排测试成功: kind=${result.providerKind}, model=${result.modelName}, count=${result.resultCount}, top=(${result.topIndex ?? "-"}, ${(result.topScore ?? 0).toFixed(4)}), ${result.elapsedMs}ms`;
+  opMessage.value = `重排测试成功: ${result.providerKind} · ${result.resultCount} 条结果 · 耗时 ${result.elapsedMs}ms`;
 }
 
 async function saveEmbeddingBinding() {
   const cfg = selectedEmbeddingApiConfig.value;
   if (!cfg) {
-    opMessage.value = "请先选择嵌入 LLM。";
+    opMessage.value = "请先选择嵌入模型";
     return;
   }
+  emit("sync-lock-change", true);
+  syncProgressDone.value = 0;
+  syncProgressTotal.value = 0;
+  syncProgressStatus.value = "running";
+  startSyncProgressPolling();
   const result = await withLoading(() =>
     invokeTauri<{ status: string; oldProviderId?: string; newProviderId: string; deleted: number; added: number; batchCount: number }>(
       "save_memory_embedding_binding",
       {
         input: {
           apiConfigId: cfg.id,
-          modelName: cfg.model || undefined,
+          modelName: cfg.name || undefined,
           batchSize: 64,
         },
       },
     ),
   );
-  if (!result) return;
-  opMessage.value = `嵌入保存并同步成功: old=${result.oldProviderId || "-"}, new=${result.newProviderId}, add=${result.added}, del=${result.deleted}, batches=${result.batchCount}`;
+  if (result) {
+    opMessage.value = `嵌入同步完成: 新增 ${result.added} 条, 删除 ${result.deleted} 条, 共 ${result.batchCount} 批次`;
+  }
+  await refreshSyncProgress();
+  stopSyncProgressPolling();
+  emit("sync-lock-change", false);
 }
 
 async function saveRerankBinding() {
   const cfg = selectedRerankApiConfig.value;
   if (!cfg) {
-    opMessage.value = "请先选择重排 LLM。";
+    const result = await withLoading(() =>
+      invokeTauri<{ status: string; rerankApiConfigId: string; modelName: string }>(
+        "save_memory_rerank_binding",
+        {
+          input: {
+            apiConfigId: "__none__",
+          },
+        },
+      ),
+    );
+    if (!result) return;
+    rerankLastPassedTestKey.value = "";
+    opMessage.value = "重排已关闭";
     return;
   }
   const result = await withLoading(() =>
@@ -352,13 +590,13 @@ async function saveRerankBinding() {
       {
         input: {
           apiConfigId: cfg.id,
-          modelName: cfg.model || undefined,
+          modelName: cfg.name || undefined,
         },
       },
     ),
   );
   if (!result) return;
-  opMessage.value = `重排保存成功: id=${result.rerankApiConfigId}, model=${result.modelName}`;
+  opMessage.value = `重排配置已保存`;
 }
 
 async function loadApiConfigs() {
@@ -381,4 +619,40 @@ onMounted(() => {
   void loadBindings();
   void refreshMemories();
 });
+
+onBeforeUnmount(() => {
+  stopSyncProgressPolling();
+  emit("sync-lock-change", false);
+});
+
+function startSyncProgressPolling() {
+  stopSyncProgressPolling();
+  syncTimer = setInterval(() => {
+    void refreshSyncProgress();
+  }, 350);
+}
+
+function stopSyncProgressPolling() {
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
+  }
+}
+
+async function refreshSyncProgress() {
+  try {
+    const progress = await invokeTauri<{
+      status: string;
+      doneBatches: number;
+      totalBatches: number;
+      traceId?: string;
+      error?: string;
+    }>("get_memory_embedding_sync_progress");
+    syncProgressStatus.value = progress.status || "idle";
+    syncProgressDone.value = Math.max(0, Number(progress.doneBatches || 0));
+    syncProgressTotal.value = Math.max(0, Number(progress.totalBatches || 0));
+  } catch {
+    // Keep UI responsive if progress endpoint is temporarily unavailable.
+  }
+}
 </script>

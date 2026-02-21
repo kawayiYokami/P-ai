@@ -186,25 +186,6 @@ fn memory_store_migrate_legacy_app_data_memories(
     }))
 }
 
-fn memory_store_normalize_provider_id(raw: &str) -> Result<String, String> {
-    let mut out = String::new();
-    for ch in raw.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-        } else if ch == '-' || ch == '_' || ch == '.' {
-            out.push('_');
-        }
-    }
-    while out.contains("__") {
-        out = out.replace("__", "_");
-    }
-    let out = out.trim_matches('_').to_string();
-    if out.is_empty() {
-        return Err("provider_id is empty after normalization".to_string());
-    }
-    Ok(out)
-}
-
 fn memory_store_open(data_path: &PathBuf) -> Result<Connection, String> {
     let db_path = memory_store_db_path(data_path);
     if !db_path.exists() {
@@ -464,6 +445,19 @@ fn memory_store_get_runtime_state(conn: &Connection, key: &str) -> Result<Option
     .map_err(|err| format!("Get runtime state failed for '{key}': {err}"))
 }
 
+fn memory_store_provider_model_name(
+    conn: &Connection,
+    provider_id: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT model_name FROM embedding_provider WHERE provider_id=?1",
+        params![provider_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|err| format!("Query provider model_name failed: {err}"))
+}
+
 fn memory_store_tag_id_by_name(conn: &Connection, tag: &str) -> Result<String, String> {
     let found = conn
         .query_row(
@@ -530,10 +524,11 @@ fn memory_store_sync_memory_fts(conn: &Connection, memory_id: &str) -> Result<()
         tags.push(row.map_err(|err| format!("Read memory tag failed: {err}"))?);
     }
     let tags_text = tags.join(" ");
-    let fts_text = format!("{} {}", judgment.trim(), tags_text.trim())
+    let raw_fts_text = format!("{} {}", judgment.trim(), tags_text.trim())
         .trim()
         .to_string();
-    let fts_doc = fts_text;
+    // Keep FTS indexing tokenization aligned with query tokenization (jieba).
+    let fts_doc = memory_tokenize_terms(&raw_fts_text, false).join(" ");
 
     conn.execute("DELETE FROM memory_fts WHERE item_id=?1", params![memory_id])
         .map_err(|err| format!("Delete memory_fts row failed: {err}"))?;
@@ -757,6 +752,32 @@ fn memory_store_list_memories(data_path: &PathBuf) -> Result<Vec<MemoryEntry>, S
     Ok(out)
 }
 
+fn memory_store_delete_memory(data_path: &PathBuf, memory_id: &str) -> Result<(), String> {
+    let target_id = memory_id.trim();
+    if target_id.is_empty() {
+        return Err("memory_id is required".to_string());
+    }
+
+    let mut conn = memory_store_open(data_path)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| format!("Begin memory delete transaction failed: {err}"))?;
+
+    tx.execute("DELETE FROM memory_fts WHERE item_id=?1", params![target_id])
+        .map_err(|err| format!("Delete memory_fts failed: {err}"))?;
+    let affected = tx
+        .execute("DELETE FROM memory_record WHERE id=?1", params![target_id])
+        .map_err(|err| format!("Delete memory_record failed: {err}"))?;
+    if affected == 0 {
+        return Err("Memory not found".to_string());
+    }
+
+    tx.commit()
+        .map_err(|err| format!("Commit memory delete transaction failed: {err}"))?;
+    invalidate_memory_matcher_cache();
+    Ok(())
+}
+
 fn memory_store_import_memories(
     data_path: &PathBuf,
     incoming: &[MemoryEntry],
@@ -816,22 +837,62 @@ fn memory_store_collect_doc_texts(conn: &Connection) -> Result<StdHashMap<String
     Ok(out)
 }
 
-fn memory_store_provider_table(provider_id: &str) -> Result<String, String> {
-    let norm = memory_store_normalize_provider_id(provider_id)?;
-    Ok(format!("memory_vec_{norm}"))
+fn memory_store_normalize_model_id(raw: &str) -> Result<String, String> {
+    let mut out = String::new();
+    for ch in raw.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' {
+            out.push('_');
+        }
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    let out = out.trim_matches('_').to_string();
+    if out.is_empty() {
+        return Err("model_name is empty after normalization".to_string());
+    }
+    Ok(out)
 }
 
-fn memory_store_ensure_provider_table(conn: &Connection, provider_id: &str) -> Result<String, String> {
-    let table = memory_store_provider_table(provider_id)?;
-    conn.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS {table} (
-            chunk_id TEXT PRIMARY KEY,
-            embedding_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );"
-    ))
-    .map_err(|err| format!("Create provider table failed for {provider_id}: {err}"))?;
-    Ok(table)
+fn memory_store_model_store_db_path(data_path: &PathBuf, model_name: &str) -> Result<PathBuf, String> {
+    let norm = memory_store_normalize_model_id(model_name)?;
+    Ok(app_root_from_data_path(data_path)
+        .join("memory")
+        .join(format!("{norm}_embedding_store.db")))
+}
+
+fn memory_store_provider_table(_provider_id: &str) -> Result<String, String> {
+    Ok("memory_vector".to_string())
+}
+
+fn memory_store_open_provider_vector_db(
+    data_path: &PathBuf,
+    provider_id: &str,
+) -> Result<Connection, String> {
+    let main_conn = memory_store_open(data_path)?;
+    let model = memory_store_provider_model_name(&main_conn, provider_id)?
+        .ok_or_else(|| format!("provider '{provider_id}' has no model_name in embedding_provider"))?;
+    let path = memory_store_model_store_db_path(data_path, &model)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Create provider vector db dir failed ({}): {err}", parent.display()))?;
+    }
+    let conn = Connection::open(&path)
+        .map_err(|err| format!("Open provider vector db failed ({}): {err}", path.display()))?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA foreign_keys=ON;
+         CREATE TABLE IF NOT EXISTS memory_vector (
+           chunk_id TEXT PRIMARY KEY,
+           embedding_json TEXT NOT NULL,
+           updated_at TEXT NOT NULL
+         );",
+    )
+    .map_err(|err| format!("Init provider vector db failed ({}): {err}", path.display()))?;
+    Ok(conn)
 }
 
 fn memory_store_provider_index_ids(conn: &Connection, table: &str) -> Result<StdHashSet<String>, String> {
@@ -861,7 +922,10 @@ where
     let mut conn = memory_store_open(data_path)?;
 
     let old_provider_id = memory_store_get_runtime_state(&conn, "active_index_provider_id")?;
-    if old_provider_id.as_deref() == Some(new_provider_id.trim()) {
+    let provider_store_exists = memory_store_model_store_db_path(data_path, model_name)
+        .map(|p| p.exists())
+        .unwrap_or(false);
+    if old_provider_id.as_deref() == Some(new_provider_id.trim()) && provider_store_exists {
         return Ok(MemoryStoreProviderSyncReport {
             status: "no_op".to_string(),
             old_provider_id,
@@ -874,16 +938,41 @@ where
 
     memory_store_set_runtime_state(&conn, "rebuild_status", "running")?;
     memory_store_set_runtime_state(&conn, "rebuild_trace_id", &Uuid::new_v4().to_string())?;
+    memory_store_set_runtime_state(&conn, "rebuild_done_batches", "0")?;
+    memory_store_set_runtime_state(&conn, "rebuild_total_batches", "0")?;
+    memory_store_set_runtime_state(&conn, "rebuild_error", "")?;
 
     let sync_result = (|| {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|err| format!("Begin provider sync tx failed: {err}"))?;
 
-        let table = memory_store_ensure_provider_table(&tx, new_provider_id)?;
         let doc_map = memory_store_collect_doc_texts(&tx)?;
         let doc_ids = doc_map.keys().cloned().collect::<StdHashSet<_>>();
-        let index_ids = memory_store_provider_index_ids(&tx, &table)?;
+        let table = memory_store_provider_table(new_provider_id)?;
+        let vector_path = memory_store_model_store_db_path(data_path, model_name)?;
+        if let Some(parent) = vector_path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "Create provider vector db dir failed ({}): {err}",
+                    parent.display()
+                )
+            })?;
+        }
+        let vector_conn = Connection::open(&vector_path)
+            .map_err(|err| format!("Open provider vector db failed ({}): {err}", vector_path.display()))?;
+        vector_conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA foreign_keys=ON;
+             CREATE TABLE IF NOT EXISTS memory_vector (
+               chunk_id TEXT PRIMARY KEY,
+               embedding_json TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );",
+        )
+        .map_err(|err| format!("Init provider vector db failed ({}): {err}", vector_path.display()))?;
+        let index_ids = memory_store_provider_index_ids(&vector_conn, &table)?;
 
         let to_delete = index_ids
             .difference(&doc_ids)
@@ -894,15 +983,18 @@ where
             .cloned()
             .collect::<Vec<_>>();
         to_add.sort();
+        let effective_batch = batch_size.max(1);
+        let total_batches = if to_add.is_empty() { 0 } else { to_add.len().div_ceil(effective_batch) };
+        memory_store_set_runtime_state(&tx, "rebuild_total_batches", &total_batches.to_string())?;
 
         let mut deleted = 0usize;
         for id in &to_delete {
-            tx.execute(&format!("DELETE FROM {table} WHERE chunk_id=?1"), params![id])
+            vector_conn
+                .execute(&format!("DELETE FROM {table} WHERE chunk_id=?1"), params![id])
                 .map_err(|err| format!("Delete provider vector row failed: {err}"))?;
             deleted += 1;
         }
 
-        let effective_batch = batch_size.max(1);
         let mut added = 0usize;
         let mut batch_count = 0usize;
         let mut dimension: usize = 0;
@@ -930,7 +1022,8 @@ where
                     .ok_or_else(|| "Missing embedding row".to_string())?;
                 let embedding_json = serde_json::to_string(&embedding)
                     .map_err(|err| format!("Serialize embedding failed: {err}"))?;
-                tx.execute(
+                vector_conn
+                    .execute(
                     &format!(
                         "INSERT INTO {table}(chunk_id, embedding_json, updated_at)
                          VALUES (?1, ?2, ?3)
@@ -942,6 +1035,7 @@ where
                 added += 1;
             }
             batch_count += 1;
+            memory_store_set_runtime_state(&tx, "rebuild_done_batches", &batch_count.to_string())?;
         }
 
         tx.execute(
@@ -958,6 +1052,7 @@ where
         .map_err(|err| format!("Upsert embedding provider failed: {err}"))?;
         memory_store_set_runtime_state(&tx, "active_index_provider_id", new_provider_id.trim())?;
         memory_store_set_runtime_state(&tx, "rebuild_status", "idle")?;
+        memory_store_set_runtime_state(&tx, "rebuild_done_batches", &batch_count.to_string())?;
         tx.commit()
             .map_err(|err| format!("Commit provider sync tx failed: {err}"))?;
 
@@ -1275,6 +1370,35 @@ mod memory_store_tests {
     }
 
     #[test]
+    fn memory_store_delete_should_remove_record_and_fts() {
+        let data_path = temp_data_path("memory_store_delete");
+        let drafts = vec![MemoryDraftInput {
+            memory_type: "knowledge".to_string(),
+            judgment: "删除测试样本".to_string(),
+            reasoning: "delete".to_string(),
+            tags: vec!["删除".to_string(), "样本".to_string()],
+        }];
+        let (saved, total) = memory_store_upsert_drafts(&data_path, &drafts).expect("seed");
+        assert_eq!(total, 1);
+        let memory_id = saved[0].id.clone().expect("saved id");
+
+        memory_store_delete_memory(&data_path, &memory_id).expect("delete memory");
+
+        let memories = memory_store_list_memories(&data_path).expect("list memories");
+        assert!(memories.is_empty());
+
+        let conn = memory_store_open(&data_path).expect("open conn");
+        let fts_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(1) FROM memory_fts WHERE item_id=?1",
+                params![memory_id],
+                |row| row.get(0),
+            )
+            .expect("count memory fts");
+        assert_eq!(fts_count, 0);
+    }
+
+    #[test]
     fn provider_sync_should_rebuild_and_switch() {
         let data_path = temp_data_path("provider_sync");
         let _ = memory_store_upsert_drafts(
@@ -1483,6 +1607,38 @@ mod memory_store_tests {
         assert!(
             unique.len() >= 2,
             "bm25 appears binary/discrete for this sample: {abs_scores:?}"
+        );
+    }
+
+    #[test]
+    fn bm25_should_hit_chinese_exact_fragment() {
+        let data_path = temp_data_path("bm25_chinese_fragment");
+        let drafts = vec![
+            MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "我最喜欢的角色是遥酱，她的语气很温柔。".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["遥酱".to_string(), "偏好".to_string()],
+            },
+            MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "今天复习了Rust生命周期".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["rust".to_string()],
+            },
+        ];
+        let (saved, total) = memory_store_upsert_drafts(&data_path, &drafts).expect("seed");
+        assert_eq!(total, 2);
+        assert!(saved.iter().all(|s| s.saved));
+
+        let hits = memory_store_search_fts_bm25(&data_path, "遥酱", 10).expect("search");
+        assert!(
+            !hits.is_empty(),
+            "expected bm25 hit for exact chinese fragment, got empty"
+        );
+        assert!(
+            hits.iter().any(|(_, score)| score.abs() > 0.0),
+            "expected non-zero bm25 score for chinese fragment, got {hits:?}"
         );
     }
 

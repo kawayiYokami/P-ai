@@ -11,7 +11,7 @@
           >{{ t("appearance.themeLight") }}</button>
           <button
             class="btn"
-            :class="{ 'btn-active': currentTheme === 'forest' }"
+            :class="{ 'btn-active': currentTheme === 'dracula' }"
             @click="$emit('toggleTheme')"
           >{{ t("appearance.themeDark") }}</button>
         </div>
@@ -39,7 +39,7 @@ import { useI18n } from "vue-i18n";
 defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
-  currentTheme: "light" | "forest";
+  currentTheme: "light" | "dracula";
 }>();
 
 defineEmits<{

@@ -38,6 +38,7 @@ webp = "0.3"
 captis = "0.6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 jieba-rs = "0.7"
+tantivy = "0.22"
 
 [features]
 default = ["custom-protocol"]
