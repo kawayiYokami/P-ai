@@ -472,11 +472,20 @@ const titleText = computed(() => {
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const textCapableApiConfigs = computed(() =>
-  config.apiConfigs.filter((a) => a.enableText && a.requestFormat !== "openai_tts"),
+  config.apiConfigs.filter(
+    (a) =>
+      a.enableText
+      && (
+        a.requestFormat === "openai"
+        || a.requestFormat === "gemini"
+        || a.requestFormat === "deepseek/kimi"
+        || a.requestFormat === "anthropic"
+      ),
+  ),
 );
 const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
 const sttCapableApiConfigs = computed(() =>
-  config.apiConfigs.filter((a) => a.requestFormat === "openai_tts"),
+  config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
 );
 const activeChatApiConfigId = computed(
   () => config.chatApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
@@ -618,9 +627,13 @@ const responseStyleOptions = responseStylesJson as ResponseStyleOption[];
 const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com";
+  if (format === "gemini_embedding") return "https://generativelanguage.googleapis.com";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
   if (format === "anthropic") return "https://api.anthropic.com";
-  if (format === "openai_tts") return "https://api.openai.com/v1";
+  if (format === "openai_tts") return "https://api.openai.com/v1/audio/speech";
+  if (format === "openai_stt") return "https://api.openai.com/v1";
+  if (format === "openai_embedding") return "https://api.openai.com/v1";
+  if (format === "openai_rerank") return "https://api.openai.com/v1";
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {

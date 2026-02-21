@@ -947,9 +947,91 @@ struct ExportMemoriesToPathInput {
 struct SyncMemoryEmbeddingProviderInput {
     provider_id: String,
     #[serde(default)]
+    api_config_id: Option<String>,
+    #[serde(default)]
     model_name: Option<String>,
     #[serde(default)]
     batch_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestMemoryEmbeddingProviderInput {
+    provider_id: Option<String>,
+    #[serde(default)]
+    api_config_id: Option<String>,
+    #[serde(default)]
+    model_name: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestMemoryRerankProviderInput {
+    #[serde(default)]
+    api_config_id: Option<String>,
+    #[serde(default)]
+    model_name: Option<String>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    documents: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestMemoryEmbeddingProviderResult {
+    provider_kind: String,
+    model_name: String,
+    vector_dim: usize,
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestMemoryRerankProviderResult {
+    provider_kind: String,
+    model_name: String,
+    elapsed_ms: u128,
+    result_count: usize,
+    top_index: Option<usize>,
+    top_score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveMemoryEmbeddingBindingInput {
+    api_config_id: String,
+    #[serde(default)]
+    model_name: Option<String>,
+    #[serde(default)]
+    batch_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveMemoryRerankBindingInput {
+    api_config_id: String,
+    #[serde(default)]
+    model_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryProviderBindings {
+    #[serde(default)]
+    embedding_api_config_id: Option<String>,
+    #[serde(default)]
+    rerank_api_config_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveMemoryRerankBindingResult {
+    status: String,
+    rerank_api_config_id: String,
+    model_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1128,36 +1210,301 @@ fn sync_memory_embedding_provider(
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("deterministic-local-embedder");
+        .unwrap_or("");
     let batch_size = input.batch_size.unwrap_or(64).max(1);
+    let provider_kind = memory_provider_kind_from_id(provider_id);
+
+    if matches!(provider_kind, MemoryProviderKind::DeterministicLocal) {
+        let deterministic_model = if model_name.is_empty() {
+            "deterministic-local-embedder"
+        } else {
+            model_name
+        };
+        return memory_store_sync_provider_index(
+            &state.data_path,
+            provider_id,
+            deterministic_model,
+            batch_size,
+            |texts| {
+                let mut out = Vec::<Vec<f32>>::new();
+                for text in texts {
+                    let mut hasher = Sha256::new();
+                    hasher.update(provider_id.as_bytes());
+                    hasher.update(b"|");
+                    hasher.update(text.as_bytes());
+                    let digest = hasher.finalize();
+                    let mut vec = Vec::<f32>::new();
+                    for chunk in digest.chunks(4) {
+                        let mut bytes = [0u8; 4];
+                        for (idx, b) in chunk.iter().enumerate() {
+                            bytes[idx] = *b;
+                        }
+                        let value = u32::from_le_bytes(bytes) as f32 / u32::MAX as f32;
+                        vec.push(value);
+                    }
+                    out.push(vec);
+                }
+                Ok(out)
+            },
+        );
+    }
+
+    let app_config = read_config(&state.config_path)?;
+    let provider_cfg = memory_resolve_provider_api_config(
+        &app_config,
+        provider_kind,
+        input.api_config_id.as_deref(),
+        provider_id,
+    )
+    .ok_or_else(|| {
+        format!(
+            "No API config matches provider kind '{provider_kind:?}'. Please set apiConfigId."
+        )
+    })?;
+    let embedding_provider = memory_create_embedding_provider(
+        provider_kind,
+        &provider_cfg,
+        if model_name.is_empty() {
+            None
+        } else {
+            Some(model_name)
+        },
+    )?;
+    let model_for_report = if model_name.is_empty() {
+        provider_cfg.model.as_str()
+    } else {
+        model_name
+    };
 
     memory_store_sync_provider_index(
         &state.data_path,
         provider_id,
+        model_for_report,
+        batch_size,
+        |texts| embedding_provider.embed_batch(texts),
+    )
+}
+
+#[tauri::command]
+fn test_memory_embedding_provider(
+    input: TestMemoryEmbeddingProviderInput,
+    state: State<'_, AppState>,
+) -> Result<TestMemoryEmbeddingProviderResult, String> {
+    let started = std::time::Instant::now();
+    let provider_id = input.provider_id.as_deref().unwrap_or("openai_embedding");
+    let provider_kind = memory_provider_kind_from_id(provider_id);
+    if matches!(provider_kind, MemoryProviderKind::VllmRerank) {
+        return Err("rerank provider cannot be used as embedding provider.".to_string());
+    }
+    let app_config = read_config(&state.config_path)?;
+    let provider_cfg = memory_resolve_provider_api_config(
+        &app_config,
+        provider_kind,
+        input.api_config_id.as_deref(),
+        provider_id,
+    )
+    .ok_or_else(|| "No matching API config for embedding test.".to_string())?;
+    let model_name = input
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let provider = memory_create_embedding_provider(provider_kind, &provider_cfg, model_name)?;
+    let text = input
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("memory embedding connectivity test")
+        .to_string();
+    let vectors = provider.embed_batch(&vec![text])?;
+    let first = vectors
+        .first()
+        .ok_or_else(|| "embedding test returned empty vectors".to_string())?;
+    let dim = first.len();
+    if dim == 0 {
+        return Err("embedding test returned zero-dim vector".to_string());
+    }
+    Ok(TestMemoryEmbeddingProviderResult {
+        provider_kind: format!("{provider_kind:?}"),
+        model_name: model_name.unwrap_or(provider_cfg.model.trim()).to_string(),
+        vector_dim: dim,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+#[tauri::command]
+fn test_memory_rerank_provider(
+    input: TestMemoryRerankProviderInput,
+    state: State<'_, AppState>,
+) -> Result<TestMemoryRerankProviderResult, String> {
+    let started = std::time::Instant::now();
+    let app_config = read_config(&state.config_path)?;
+    let provider_kind = MemoryProviderKind::VllmRerank;
+    let provider_cfg = memory_resolve_provider_api_config(
+        &app_config,
+        provider_kind,
+        input.api_config_id.as_deref(),
+        "vllm_rerank",
+    )
+    .ok_or_else(|| "No matching API config for rerank test.".to_string())?;
+    let model_name = input
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let provider = memory_create_rerank_provider(provider_kind, &provider_cfg, model_name)?;
+    let query = input
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("用户偏好什么风格？")
+        .to_string();
+    let documents = input.documents.unwrap_or_else(|| {
+        vec![
+            "用户偏好简洁回答，尽量直接结论。".to_string(),
+            "用户喜欢复杂铺垫和长篇解释。".to_string(),
+            "今天主要讨论了记忆系统检索。".to_string(),
+        ]
+    });
+    let results = provider.rerank(&query, &documents, Some(3))?;
+    let top = results
+        .iter()
+        .max_by(|a, b| a.relevance_score.partial_cmp(&b.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(TestMemoryRerankProviderResult {
+        provider_kind: format!("{provider_kind:?}"),
+        model_name: model_name.unwrap_or(provider_cfg.model.trim()).to_string(),
+        elapsed_ms: started.elapsed().as_millis(),
+        result_count: results.len(),
+        top_index: top.map(|t| t.index),
+        top_score: top.map(|t| t.relevance_score),
+    })
+}
+
+fn memory_binding_provider_id(api_id: &str, request_format: &str, model: &str) -> String {
+    let norm = |raw: &str| -> String {
+        raw.trim()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' { c } else { '_' })
+            .collect::<String>()
+            .replace("__", "_")
+            .trim_matches('_')
+            .to_string()
+    };
+    let id = norm(api_id);
+    let fmt = norm(request_format);
+    let mdl = norm(model);
+    format!("{id}_{fmt}_{mdl}")
+}
+
+#[tauri::command]
+fn get_memory_provider_bindings(state: State<'_, AppState>) -> Result<MemoryProviderBindings, String> {
+    let conn = memory_store_open(&state.data_path)?;
+    Ok(MemoryProviderBindings {
+        embedding_api_config_id: memory_store_get_runtime_state(&conn, "embedding_api_config_id")?,
+        rerank_api_config_id: memory_store_get_runtime_state(&conn, "rerank_api_config_id")?,
+    })
+}
+
+#[tauri::command]
+fn save_memory_embedding_binding(
+    input: SaveMemoryEmbeddingBindingInput,
+    state: State<'_, AppState>,
+) -> Result<MemoryStoreProviderSyncReport, String> {
+    let api_id = input.api_config_id.trim();
+    if api_id.is_empty() {
+        return Err("apiConfigId is required".to_string());
+    }
+    let app_config = read_config(&state.config_path)?;
+    let api = app_config
+        .api_configs
+        .iter()
+        .find(|a| a.id == api_id)
+        .cloned()
+        .ok_or_else(|| "Selected embedding API config not found.".to_string())?;
+
+    let provider_kind = match api.request_format {
+        RequestFormat::OpenAIEmbedding => MemoryProviderKind::OpenAIEmbedding,
+        RequestFormat::GeminiEmbedding => MemoryProviderKind::GeminiEmbedding,
+        _ => {
+            return Err(format!(
+                "request_format '{}' is not embedding protocol.",
+                api.request_format
+            ))
+        }
+    };
+    let model_name = input
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(api.model.trim());
+    if model_name.is_empty() {
+        return Err("Embedding model is empty.".to_string());
+    }
+    let provider_cfg = MemoryProviderApiConfig {
+        base_url: api.base_url.clone(),
+        api_key: api.api_key.clone(),
+        model: api.model.clone(),
+    };
+    let provider = memory_create_embedding_provider(provider_kind, &provider_cfg, Some(model_name))?;
+
+    let provider_id = memory_binding_provider_id(&api.id, api.request_format.as_str(), model_name);
+    let batch_size = input.batch_size.unwrap_or(64).max(1);
+    let report = memory_store_sync_provider_index(
+        &state.data_path,
+        &provider_id,
         model_name,
         batch_size,
-        |texts| {
-            let mut out = Vec::<Vec<f32>>::new();
-            for text in texts {
-                let mut hasher = Sha256::new();
-                hasher.update(provider_id.as_bytes());
-                hasher.update(b"|");
-                hasher.update(text.as_bytes());
-                let digest = hasher.finalize();
-                let mut vec = Vec::<f32>::new();
-                for chunk in digest.chunks(4) {
-                    let mut bytes = [0u8; 4];
-                    for (idx, b) in chunk.iter().enumerate() {
-                        bytes[idx] = *b;
-                    }
-                    let value = u32::from_le_bytes(bytes) as f32 / u32::MAX as f32;
-                    vec.push(value);
-                }
-                out.push(vec);
-            }
-            Ok(out)
-        },
-    )
+        |texts| provider.embed_batch(texts),
+    )?;
+
+    let conn = memory_store_open(&state.data_path)?;
+    memory_store_set_runtime_state(&conn, "embedding_api_config_id", &api.id)?;
+    Ok(report)
+}
+
+#[tauri::command]
+fn save_memory_rerank_binding(
+    input: SaveMemoryRerankBindingInput,
+    state: State<'_, AppState>,
+) -> Result<SaveMemoryRerankBindingResult, String> {
+    let api_id = input.api_config_id.trim();
+    if api_id.is_empty() {
+        return Err("apiConfigId is required".to_string());
+    }
+    let app_config = read_config(&state.config_path)?;
+    let api = app_config
+        .api_configs
+        .iter()
+        .find(|a| a.id == api_id)
+        .cloned()
+        .ok_or_else(|| "Selected rerank API config not found.".to_string())?;
+    if !matches!(api.request_format, RequestFormat::OpenAIRerank) {
+        return Err(format!(
+            "request_format '{}' is not rerank protocol.",
+            api.request_format
+        ));
+    }
+    let model_name = input
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(api.model.trim());
+    if model_name.is_empty() {
+        return Err("Rerank model is empty.".to_string());
+    }
+
+    let conn = memory_store_open(&state.data_path)?;
+    memory_store_set_runtime_state(&conn, "rerank_api_config_id", &api.id)?;
+    Ok(SaveMemoryRerankBindingResult {
+        status: "saved".to_string(),
+        rerank_api_config_id: api.id,
+        model_name: model_name.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -1394,7 +1741,11 @@ async fn summarize_archived_conversation_with_model(
                 RequestFormat::Anthropic => {
                     call_model_anthropic_rig_style(resolved_api, &selected_api.model, prepared).await
                 }
-                RequestFormat::OpenAITts => Err(format!(
+                RequestFormat::OpenAITts
+                | RequestFormat::OpenAIStt
+                | RequestFormat::GeminiEmbedding
+                | RequestFormat::OpenAIEmbedding
+                | RequestFormat::OpenAIRerank => Err(format!(
                     "Request format '{}' is not supported for archive summary.",
                     resolved_api.request_format
                 )),

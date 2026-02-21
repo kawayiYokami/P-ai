@@ -6,16 +6,30 @@ fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
 }
 
 fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
-    if !path.exists() {
-        return Ok(AppConfig::default());
-    }
+    let resolved_path = if path.exists() {
+        path.clone()
+    } else {
+        let legacy = path.with_file_name("config.toml");
+        if legacy.exists() {
+            legacy
+        } else {
+            return Ok(AppConfig::default());
+        }
+    };
 
-    let content = fs::read_to_string(path).map_err(|err| format!("Read config failed: {err}"))?;
+    let content =
+        fs::read_to_string(&resolved_path).map_err(|err| format!("Read config failed: {err}"))?;
     let mut parsed = toml::from_str::<AppConfig>(&content).map_err(|err| {
-        eprintln!("[CONFIG] Parse config failed ({}): {err}", path.display());
-        format!("Parse config failed ({}): {err}", path.display())
+        eprintln!(
+            "[CONFIG] Parse config failed ({}): {err}",
+            resolved_path.display()
+        );
+        format!("Parse config failed ({}): {err}", resolved_path.display())
     })?;
     normalize_app_config(&mut parsed);
+    if resolved_path != *path {
+        let _ = write_config(path, &parsed);
+    }
     Ok(parsed)
 }
 
@@ -193,6 +207,19 @@ fn normalize_app_config(config: &mut AppConfig) {
 
     normalize_api_tools(config);
 
+    if let Some(stt_id) = config.stt_api_config_id.clone() {
+        if let Some(api) = config.api_configs.iter_mut().find(|a| a.id == stt_id) {
+            if matches!(api.request_format, RequestFormat::OpenAITts) {
+                api.request_format = RequestFormat::OpenAIStt;
+            }
+        }
+    }
+    for api in &mut config.api_configs {
+        if matches!(api.request_format, RequestFormat::Gemini) && !api.enable_text {
+            api.request_format = RequestFormat::GeminiEmbedding;
+        }
+    }
+
     if !config
         .api_configs
         .iter()
@@ -204,13 +231,13 @@ fn normalize_app_config(config: &mut AppConfig) {
     let chat_valid = config.api_configs.iter().any(|a| {
         a.id == config.chat_api_config_id
             && a.enable_text
-            && !a.request_format.is_openai_tts()
+            && a.request_format.is_chat_text()
     });
     if !chat_valid {
         if let Some(api) = config
             .api_configs
             .iter()
-            .find(|a| a.enable_text && !a.request_format.is_openai_tts())
+            .find(|a| a.enable_text && a.request_format.is_chat_text())
         {
             config.chat_api_config_id = api.id.clone();
         } else {
@@ -247,7 +274,7 @@ fn normalize_app_config(config: &mut AppConfig) {
             config
                 .api_configs
                 .iter()
-                .any(|a| a.id == *id && a.request_format.is_openai_tts())
+                .any(|a| a.id == *id && a.request_format.is_openai_stt())
         })
         .map(ToOwned::to_owned);
     if config.stt_api_config_id.is_none() {
@@ -329,10 +356,7 @@ fn media_base64_cache_put(key: String, value: String) {
 }
 
 fn media_storage_dir_from_data_path(data_path: &PathBuf) -> Result<PathBuf, String> {
-    let parent = data_path
-        .parent()
-        .ok_or_else(|| "App data path has no parent directory".to_string())?;
-    Ok(parent.join("media"))
+    Ok(app_root_from_data_path(data_path).join("media"))
 }
 
 fn media_extension_from_mime(mime: &str) -> &'static str {
@@ -509,84 +533,7 @@ fn materialize_chat_message_parts_from_media_refs(messages: &mut [ChatMessage], 
     }
 }
 
-fn migrate_app_data_inline_media_to_refs(data_path: &PathBuf, data: &mut AppData) -> bool {
-    let mut changed = false;
-    for conversation in &mut data.conversations {
-        for message in &mut conversation.messages {
-            changed |= externalize_message_parts_to_media_refs_lossy(&mut message.parts, data_path);
-        }
-    }
-    for archive in &mut data.archived_conversations {
-        for message in &mut archive.source_conversation.messages {
-            changed |= externalize_message_parts_to_media_refs_lossy(&mut message.parts, data_path);
-        }
-    }
-    changed
-}
-
-fn migrate_app_data_archives_into_conversations(data: &mut AppData) -> bool {
-    if data.archived_conversations.is_empty() {
-        return false;
-    }
-
-    for archive in data.archived_conversations.clone() {
-        let mut conv = archive.source_conversation;
-        if conv.id.trim().is_empty() {
-            conv.id = Uuid::new_v4().to_string();
-        }
-        if conv.summary.trim().is_empty() && !archive.summary.trim().is_empty() {
-            conv.summary = archive.summary.clone();
-        }
-        if conv.archived_at.as_deref().unwrap_or("").trim().is_empty() {
-            conv.archived_at = Some(archive.archived_at.clone());
-        }
-        if conv.status.trim() != "archived" {
-            conv.status = "archived".to_string();
-        }
-
-        if let Some(existing_idx) = data.conversations.iter().position(|c| c.id == conv.id) {
-            let should_replace = {
-                let existing = &data.conversations[existing_idx];
-                existing.summary.trim().is_empty() && !conv.summary.trim().is_empty()
-            };
-            if should_replace {
-                data.conversations[existing_idx] = conv;
-            }
-        } else {
-            data.conversations.push(conv);
-        }
-    }
-
-    data.archived_conversations.clear();
-    true
-}
-
-fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
-    if !path.exists() {
-        return Ok(AppData::default());
-    }
-
-    let content = fs::read_to_string(path).map_err(|err| format!("Read app_data failed: {err}"))?;
-    let mut parsed = serde_json::from_str::<AppData>(&content).map_err(|err| {
-        eprintln!("[CONFIG] Parse app_data failed ({}): {err}", path.display());
-        format!("Parse app_data failed ({}): {err}", path.display())
-    })?;
-    parsed.version = APP_DATA_SCHEMA_VERSION;
-    let defaults_changed = ensure_default_agent(&mut parsed);
-    let merged_archives = migrate_app_data_archives_into_conversations(&mut parsed);
-    let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
-    if defaults_changed || merged_archives || migrated {
-        write_app_data(path, &parsed)?;
-    }
-    Ok(parsed)
-}
-
-fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
-    ensure_parent_dir(path)?;
-    let body = serde_json::to_string_pretty(data)
-        .map_err(|err| format!("Serialize app_data failed: {err}"))?;
-    fs::write(path, body).map_err(|err| format!("Write app_data failed: {err}"))
-}
+// app data layout + migration logic moved to features/config/app_data_layout.rs
 
 fn candidate_debug_config_paths() -> Vec<PathBuf> {
     vec![PathBuf::from(".debug").join("api-key.json")]
