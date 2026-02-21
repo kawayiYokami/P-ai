@@ -2,6 +2,10 @@ import type { ComputedRef } from "vue";
 import { normalizeLocale } from "../../../i18n";
 import type { ApiConfigItem, AppConfig } from "../../../types/app";
 
+function isTextRequestFormat(format: string): boolean {
+  return format === "openai" || format === "gemini" || format === "deepseek/kimi" || format === "anthropic";
+}
+
 type UseConfigCoreOptions = {
   config: AppConfig;
   textCapableApiConfigs: ComputedRef<ApiConfigItem[]>;
@@ -82,7 +86,16 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   function normalizeApiBindingsLocal() {
     if (!options.config.apiConfigs.length) return;
     options.config.uiLanguage = normalizeLocale(options.config.uiLanguage);
+    if (options.config.sttApiConfigId) {
+      const sttApi = options.config.apiConfigs.find((a) => a.id === options.config.sttApiConfigId);
+      if (sttApi && sttApi.requestFormat === "openai_tts") {
+        sttApi.requestFormat = "openai_stt";
+      }
+    }
     for (const api of options.config.apiConfigs) {
+      if (api.requestFormat === "gemini" && !api.enableText) {
+        api.requestFormat = "gemini_embedding";
+      }
       api.enableAudio = false;
       api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
       api.contextWindowTokens = Math.max(
@@ -110,7 +123,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     }
     if (!options.config.apiConfigs.some((a) => a.id === options.config.chatApiConfigId && a.enableText)) {
       options.config.chatApiConfigId =
-        options.textCapableApiConfigs.value.find((a) => a.requestFormat !== "openai_tts")?.id
+        options.textCapableApiConfigs.value.find((a) => isTextRequestFormat(a.requestFormat))?.id
         ?? options.textCapableApiConfigs.value[0]?.id
         ?? options.config.apiConfigs[0].id;
     }
@@ -123,7 +136,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     options.config.sttAutoSend = !!options.config.sttAutoSend;
     if (
       options.config.sttApiConfigId &&
-      !options.config.apiConfigs.some((a) => a.id === options.config.sttApiConfigId && a.requestFormat === "openai_tts")
+      !options.config.apiConfigs.some((a) => a.id === options.config.sttApiConfigId && a.requestFormat === "openai_stt")
     ) {
       options.config.sttApiConfigId = undefined;
     }

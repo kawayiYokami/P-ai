@@ -93,11 +93,9 @@ struct MemoryLegacyMigrationReport {
 }
 
 fn memory_store_db_path(data_path: &PathBuf) -> PathBuf {
-    let parent = data_path
-        .parent()
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| PathBuf::from("."));
-    parent.join(MEMORY_DB_FILE_NAME)
+    app_root_from_data_path(data_path)
+        .join("memory")
+        .join(MEMORY_DB_FILE_NAME)
 }
 
 fn memory_store_legacy_app_data_migrated_path(data_path: &PathBuf) -> PathBuf {
@@ -209,6 +207,31 @@ fn memory_store_normalize_provider_id(raw: &str) -> Result<String, String> {
 
 fn memory_store_open(data_path: &PathBuf) -> Result<Connection, String> {
     let db_path = memory_store_db_path(data_path);
+    if !db_path.exists() {
+        let legacy_parent = data_path
+            .parent()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let legacy_db = legacy_parent.join(MEMORY_DB_FILE_NAME);
+        if legacy_db.exists() {
+            if let Some(new_parent) = db_path.parent() {
+                fs::create_dir_all(new_parent).map_err(|err| {
+                    format!("Create memory db dir failed ({}): {err}", new_parent.display())
+                })?;
+            }
+            fs::rename(&legacy_db, &db_path).or_else(|_| {
+                fs::copy(&legacy_db, &db_path)
+                    .map(|_| ())
+                    .and_then(|_| fs::remove_file(&legacy_db))
+            }).map_err(|err| {
+                format!(
+                    "Migrate legacy memory db failed ({} -> {}): {err}",
+                    legacy_db.display(),
+                    db_path.display()
+                )
+            })?;
+        }
+    }
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("Create memory db dir failed ({}): {err}", parent.display()))?;

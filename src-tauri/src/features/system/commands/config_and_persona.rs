@@ -275,11 +275,7 @@ struct AvatarDataUrlOutput {
 }
 
 fn avatar_storage_dir(state: &AppState) -> Result<PathBuf, String> {
-    let base = state
-        .data_path
-        .parent()
-        .ok_or_else(|| "App data path has no parent directory".to_string())?;
-    Ok(base.join("avatars"))
+    Ok(app_root_from_data_path(&state.data_path).join("avatars"))
 }
 
 fn sanitize_avatar_key(value: &str) -> String {

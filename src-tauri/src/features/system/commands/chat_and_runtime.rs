@@ -86,7 +86,7 @@ async fn send_chat_message(
     let state_for_run = state.clone();
     let run = async move {
     let state = state_for_run;
-    if matches!(resolved_api.request_format, RequestFormat::OpenAITts) {
+    if !resolved_api.request_format.is_chat_text() {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",
             resolved_api.request_format
@@ -106,7 +106,7 @@ async fn send_chat_message(
             if let Some(vision_api) = vision_api {
                 let vision_resolved =
                     resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
-                if matches!(vision_resolved.request_format, RequestFormat::OpenAITts) {
+                if !vision_resolved.request_format.is_chat_text() {
                     return Err(format!(
                         "Vision request format '{}' is not implemented in image conversion router yet.",
                         vision_resolved.request_format
@@ -1022,8 +1022,8 @@ async fn stt_transcribe(
         .find(|a| a.id == selected_id)
         .cloned()
         .ok_or_else(|| "Selected STT API config not found.".to_string())?;
-    if !api.request_format.is_openai_tts() {
-        return Err("Selected STT API must use request_format='openai_tts'.".to_string());
+    if !api.request_format.is_openai_stt() {
+        return Err("Selected STT API must use request_format='openai_stt'.".to_string());
     }
 
     let audio_raw = B64
@@ -1158,9 +1158,25 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
     match input.request_format {
         RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => fetch_models_openai(&input).await,
         RequestFormat::Gemini => fetch_models_gemini_native(&input).await,
+        RequestFormat::GeminiEmbedding => Err(
+            "Request format 'gemini_embedding' is for embedding and does not support model list refresh."
+                .to_string(),
+        ),
         RequestFormat::Anthropic => fetch_models_anthropic(&input).await,
         RequestFormat::OpenAITts => Err(
-            "Request format 'openai_tts' is for audio transcriptions and does not support model list refresh."
+            "Request format 'openai_tts' is for TTS and does not support model list refresh."
+                .to_string(),
+        ),
+        RequestFormat::OpenAIStt => Err(
+            "Request format 'openai_stt' is for STT and does not support model list refresh."
+                .to_string(),
+        ),
+        RequestFormat::OpenAIEmbedding => Err(
+            "Request format 'openai_embedding' is for embedding and does not support model list refresh."
+                .to_string(),
+        ),
+        RequestFormat::OpenAIRerank => Err(
+            "Request format 'openai_rerank' is for rerank and does not support model list refresh."
                 .to_string(),
         ),
     }
@@ -1344,7 +1360,11 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(&api_config, &api_config.model, prepared).await?
         }
-        RequestFormat::OpenAITts => {
+        RequestFormat::OpenAITts
+        | RequestFormat::OpenAIStt
+        | RequestFormat::GeminiEmbedding
+        | RequestFormat::OpenAIEmbedding
+        | RequestFormat::OpenAIRerank => {
             return Err(format!(
                 "Request format '{}' is not implemented in probe router yet.",
                 api_config.request_format

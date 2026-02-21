@@ -6,9 +6,6 @@
           <button class="btn btn-xs" :disabled="loading" @click="refreshMemories">{{ t("common.refresh") }}</button>
           <button class="btn btn-xs" :disabled="loading" @click="exportMemories">{{ t("memory.export") }}</button>
           <button class="btn btn-xs" :disabled="loading" @click="triggerImport">{{ t("memory.import") }}</button>
-          <button class="btn btn-xs" :disabled="loading" @click="rebuildIndexes">重建索引</button>
-          <button class="btn btn-xs" :disabled="loading" @click="healthCheck(false)">巡检</button>
-          <button class="btn btn-xs btn-warning" :disabled="loading" @click="healthCheck(true)">巡检并修复</button>
           <input ref="importInputRef" type="file" accept=".json,application/json" class="hidden" @change="handleImportFile" />
         </div>
         <div class="text-xs opacity-70 break-all">{{ opMessage }}</div>
@@ -17,26 +14,31 @@
 
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-3 space-y-2">
-        <div class="text-xs font-semibold">Embedding Provider 切换</div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-          <input v-model.trim="providerId" class="input input-bordered input-xs" placeholder="provider id" />
-          <input v-model.trim="providerModelName" class="input input-bordered input-xs" placeholder="model name" />
-          <input v-model.number="providerBatchSize" class="input input-bordered input-xs" type="number" min="1" max="512" step="1" placeholder="batch size" />
-        </div>
-        <div>
-          <button class="btn btn-xs btn-primary" :disabled="loading || !providerId" @click="syncProvider">同步 Provider 索引</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card bg-base-100 border border-base-300">
-      <div class="card-body p-3 space-y-2">
-        <div class="text-xs font-semibold">数据库备份/恢复</div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <input v-model.trim="backupPath" class="input input-bordered input-xs" placeholder="backup path, e.g. E:\\backup\\memory_store.db" />
-          <button class="btn btn-xs" :disabled="loading || !backupPath" @click="backupDb">备份数据库</button>
-          <input v-model.trim="restorePath" class="input input-bordered input-xs" placeholder="restore source path" />
-          <button class="btn btn-xs btn-warning" :disabled="loading || !restorePath" @click="restoreDb">恢复数据库</button>
+          <label class="form-control">
+            <div class="label py-0"><span class="label-text text-xs">嵌入 LLM</span></div>
+            <select v-model="embeddingApiConfigId" class="select select-bordered select-xs">
+              <option value="">无</option>
+              <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
+                {{ api.name }} ({{ api.requestFormat }})
+              </option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-0"><span class="label-text text-xs">重排 LLM</span></div>
+            <select v-model="rerankApiConfigId" class="select select-bordered select-xs">
+              <option value="">无</option>
+              <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
+                {{ api.name }} ({{ api.requestFormat }})
+              </option>
+            </select>
+          </label>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-xs" :disabled="loading" @click="testEmbeddingProvider">测试嵌入</button>
+          <button class="btn btn-xs btn-primary" :disabled="loading || !embeddingApiConfigId || !embeddingReadyToSave" @click="saveEmbeddingBinding">保存嵌入并同步</button>
+          <button class="btn btn-xs" :disabled="loading" @click="testRerankProvider">测试重排</button>
+          <button class="btn btn-xs btn-primary" :disabled="loading || !rerankApiConfigId || !rerankReadyToSave" @click="saveRerankBinding">保存重排</button>
         </div>
       </div>
     </div>
@@ -102,6 +104,28 @@ type MemoryEntry = {
   finalScore?: number;
 };
 
+type ApiRequestFormat =
+  | "openai"
+  | "openai_tts"
+  | "openai_stt"
+  | "openai_embedding"
+  | "openai_rerank"
+  | "gemini"
+  | "gemini_embedding"
+  | "deepseek/kimi"
+  | "anthropic";
+
+type ApiConfigLite = {
+  id: string;
+  name: string;
+  requestFormat: ApiRequestFormat;
+  enableText?: boolean;
+};
+
+type AppConfigLite = {
+  apiConfigs: ApiConfigLite[];
+};
+
 const { t } = useI18n();
 const MEMORY_PAGE_SIZE = 10;
 const loading = ref(false);
@@ -110,12 +134,12 @@ const memoryList = ref<MemoryEntry[]>([]);
 const memoryPage = ref(1);
 const searchQuery = ref("");
 const isSearchMode = ref(false);
-const providerId = ref("default_provider");
-const providerModelName = ref("embedding-model");
-const providerBatchSize = ref(64);
-const backupPath = ref("");
-const restorePath = ref("");
+const embeddingApiConfigId = ref("");
+const rerankApiConfigId = ref("");
+const embeddingLastPassedTestKey = ref("");
+const rerankLastPassedTestKey = ref("");
 const importInputRef = ref<HTMLInputElement | null>(null);
+const apiConfigs = ref<ApiConfigLite[]>([]);
 
 const sortedMemories = computed(() => {
   if (isSearchMode.value) {
@@ -130,6 +154,37 @@ const sortedMemories = computed(() => {
 });
 
 const memoryPageCount = computed(() => Math.max(1, Math.ceil(sortedMemories.value.length / MEMORY_PAGE_SIZE)));
+const embeddingApiConfigs = computed(() =>
+  apiConfigs.value.filter((api) =>
+    api.requestFormat === "openai_embedding"
+    || api.requestFormat === "gemini_embedding",
+  ),
+);
+const rerankApiConfigs = computed(() =>
+  apiConfigs.value.filter((api) => api.requestFormat === "openai_rerank"),
+);
+const selectedEmbeddingApiConfig = computed(() =>
+  embeddingApiConfigs.value.find((api) => api.id === embeddingApiConfigId.value) ?? null,
+);
+const selectedRerankApiConfig = computed(() =>
+  rerankApiConfigs.value.find((api) => api.id === rerankApiConfigId.value) ?? null,
+);
+const embeddingCurrentTestKey = computed(() => {
+  const cfg = selectedEmbeddingApiConfig.value;
+  if (!cfg) return "";
+  return `${cfg.id}|${cfg.model || ""}`;
+});
+const rerankCurrentTestKey = computed(() => {
+  const cfg = selectedRerankApiConfig.value;
+  if (!cfg) return "";
+  return `${cfg.id}|${cfg.model || ""}`;
+});
+const embeddingReadyToSave = computed(
+  () => !!embeddingCurrentTestKey.value && embeddingCurrentTestKey.value === embeddingLastPassedTestKey.value,
+);
+const rerankReadyToSave = computed(
+  () => !!rerankCurrentTestKey.value && rerankCurrentTestKey.value === rerankLastPassedTestKey.value,
+);
 
 const pagedMemories = computed(() => {
   const page = Math.max(1, Math.min(memoryPage.value, memoryPageCount.value));
@@ -228,54 +283,102 @@ async function handleImportFile(event: Event) {
   });
 }
 
-async function rebuildIndexes() {
-  const result = await withLoading(() => invokeTauri<{ memoryRows: number; memoryFtsRows: number; noteRows: number; noteFtsRows: number }>("memory_rebuild_indexes"));
-  if (!result) return;
-  opMessage.value = `Rebuild done: memory ${result.memoryRows}/${result.memoryFtsRows}, note ${result.noteRows}/${result.noteFtsRows}`;
-}
-
-async function healthCheck(autoRepair: boolean) {
+async function testEmbeddingProvider() {
   const result = await withLoading(() =>
-    invokeTauri<{ status: string; repaired: boolean; memoryRows: number; memoryFtsRows: number; noteRows: number; noteFtsRows: number }>(
-      "memory_health_check",
-      { input: { autoRepair } },
-    ),
-  );
-  if (!result) return;
-  opMessage.value = `Health: status=${result.status}, repaired=${result.repaired}, memory ${result.memoryRows}/${result.memoryFtsRows}, note ${result.noteRows}/${result.noteFtsRows}`;
-}
-
-async function syncProvider() {
-  const result = await withLoading(() =>
-    invokeTauri<{ status: string; oldProviderId?: string; newProviderId: string; deleted: number; added: number; batchCount: number }>(
-      "sync_memory_embedding_provider",
+    invokeTauri<{ providerKind: string; modelName: string; vectorDim: number; elapsedMs: number }>(
+      "test_memory_embedding_provider",
       {
         input: {
-          providerId: providerId.value,
-          modelName: providerModelName.value || undefined,
-          batchSize: Math.max(1, Math.min(512, Number(providerBatchSize.value || 64))),
+          apiConfigId: embeddingApiConfigId.value || undefined,
+          providerId: selectedEmbeddingApiConfig.value?.requestFormat || undefined,
+          modelName: selectedEmbeddingApiConfig.value?.model || undefined,
         },
       },
     ),
   );
   if (!result) return;
-  opMessage.value = `Provider sync ${result.status}: old=${result.oldProviderId || "-"}, new=${result.newProviderId}, add=${result.added}, del=${result.deleted}, batches=${result.batchCount}`;
+  embeddingLastPassedTestKey.value = embeddingCurrentTestKey.value;
+  opMessage.value = `嵌入测试成功: kind=${result.providerKind}, model=${result.modelName}, dim=${result.vectorDim}, ${result.elapsedMs}ms`;
 }
 
-async function backupDb() {
-  const result = await withLoading(() => invokeTauri<{ path: string; bytes: number }>("memory_backup_db", { input: { path: backupPath.value } }));
+async function testRerankProvider() {
+  const result = await withLoading(() =>
+    invokeTauri<{ providerKind: string; modelName: string; elapsedMs: number; resultCount: number; topIndex?: number; topScore?: number }>(
+      "test_memory_rerank_provider",
+      {
+        input: {
+          apiConfigId: rerankApiConfigId.value || undefined,
+          modelName: selectedRerankApiConfig.value?.model || undefined,
+        },
+      },
+    ),
+  );
   if (!result) return;
-  opMessage.value = `Backup done: ${result.path} (${result.bytes} bytes)`;
+  rerankLastPassedTestKey.value = rerankCurrentTestKey.value;
+  opMessage.value = `重排测试成功: kind=${result.providerKind}, model=${result.modelName}, count=${result.resultCount}, top=(${result.topIndex ?? "-"}, ${(result.topScore ?? 0).toFixed(4)}), ${result.elapsedMs}ms`;
 }
 
-async function restoreDb() {
-  const result = await withLoading(() => invokeTauri<{ path: string; bytes: number }>("memory_restore_db", { input: { path: restorePath.value } }));
+async function saveEmbeddingBinding() {
+  const cfg = selectedEmbeddingApiConfig.value;
+  if (!cfg) {
+    opMessage.value = "请先选择嵌入 LLM。";
+    return;
+  }
+  const result = await withLoading(() =>
+    invokeTauri<{ status: string; oldProviderId?: string; newProviderId: string; deleted: number; added: number; batchCount: number }>(
+      "save_memory_embedding_binding",
+      {
+        input: {
+          apiConfigId: cfg.id,
+          modelName: cfg.model || undefined,
+          batchSize: 64,
+        },
+      },
+    ),
+  );
   if (!result) return;
-  await refreshMemories();
-  opMessage.value = `Restore done: ${result.path} (${result.bytes} bytes)`;
+  opMessage.value = `嵌入保存并同步成功: old=${result.oldProviderId || "-"}, new=${result.newProviderId}, add=${result.added}, del=${result.deleted}, batches=${result.batchCount}`;
+}
+
+async function saveRerankBinding() {
+  const cfg = selectedRerankApiConfig.value;
+  if (!cfg) {
+    opMessage.value = "请先选择重排 LLM。";
+    return;
+  }
+  const result = await withLoading(() =>
+    invokeTauri<{ status: string; rerankApiConfigId: string; modelName: string }>(
+      "save_memory_rerank_binding",
+      {
+        input: {
+          apiConfigId: cfg.id,
+          modelName: cfg.model || undefined,
+        },
+      },
+    ),
+  );
+  if (!result) return;
+  opMessage.value = `重排保存成功: id=${result.rerankApiConfigId}, model=${result.modelName}`;
+}
+
+async function loadApiConfigs() {
+  const cfg = await withLoading(() => invokeTauri<AppConfigLite>("load_config"));
+  if (!cfg) return;
+  apiConfigs.value = Array.isArray(cfg.apiConfigs) ? cfg.apiConfigs : [];
+}
+
+async function loadBindings() {
+  const result = await withLoading(() =>
+    invokeTauri<{ embeddingApiConfigId?: string; rerankApiConfigId?: string }>("get_memory_provider_bindings"),
+  );
+  if (!result) return;
+  embeddingApiConfigId.value = result.embeddingApiConfigId || "";
+  rerankApiConfigId.value = result.rerankApiConfigId || "";
 }
 
 onMounted(() => {
+  void loadApiConfigs();
+  void loadBindings();
   void refreshMemories();
 });
 </script>

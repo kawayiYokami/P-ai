@@ -1,7 +1,11 @@
 export type ApiRequestFormat =
   | "openai"
   | "openai_tts"
+  | "openai_stt"
+  | "openai_embedding"
+  | "openai_rerank"
   | "gemini"
+  | "gemini_embedding"
   | "deepseek/kimi"
   | "anthropic";
 

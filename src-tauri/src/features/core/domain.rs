@@ -110,8 +110,16 @@ enum RequestFormat {
     OpenAI,
     #[serde(rename = "openai_tts")]
     OpenAITts,
+    #[serde(rename = "openai_stt")]
+    OpenAIStt,
+    #[serde(rename = "openai_embedding")]
+    OpenAIEmbedding,
+    #[serde(rename = "openai_rerank")]
+    OpenAIRerank,
     #[serde(rename = "gemini")]
     Gemini,
+    #[serde(rename = "gemini_embedding")]
+    GeminiEmbedding,
     #[serde(rename = "deepseek/kimi")]
     DeepSeekKimi,
     #[serde(rename = "anthropic")]
@@ -123,7 +131,11 @@ impl RequestFormat {
         match value.trim().to_ascii_lowercase().as_str() {
             "openai" => Some(Self::OpenAI),
             "openai_tts" => Some(Self::OpenAITts),
+            "openai_stt" => Some(Self::OpenAIStt),
+            "openai_embedding" => Some(Self::OpenAIEmbedding),
+            "openai_rerank" => Some(Self::OpenAIRerank),
             "gemini" => Some(Self::Gemini),
+            "gemini_embedding" => Some(Self::GeminiEmbedding),
             "deepseek/kimi" => Some(Self::DeepSeekKimi),
             "anthropic" => Some(Self::Anthropic),
             _ => None,
@@ -134,14 +146,18 @@ impl RequestFormat {
         match self {
             Self::OpenAI => "openai",
             Self::OpenAITts => "openai_tts",
+            Self::OpenAIStt => "openai_stt",
+            Self::OpenAIEmbedding => "openai_embedding",
+            Self::OpenAIRerank => "openai_rerank",
             Self::Gemini => "gemini",
+            Self::GeminiEmbedding => "gemini_embedding",
             Self::DeepSeekKimi => "deepseek/kimi",
             Self::Anthropic => "anthropic",
         }
     }
 
-    fn is_openai_tts(self) -> bool {
-        matches!(self, Self::OpenAITts)
+    fn is_openai_stt(self) -> bool {
+        matches!(self, Self::OpenAIStt)
     }
 
     fn is_gemini(self) -> bool {
@@ -158,6 +174,13 @@ impl RequestFormat {
 
     fn is_openai_style(self) -> bool {
         matches!(self, Self::OpenAI | Self::DeepSeekKimi)
+    }
+
+    fn is_chat_text(self) -> bool {
+        matches!(
+            self,
+            Self::OpenAI | Self::DeepSeekKimi | Self::Gemini | Self::Anthropic
+        )
     }
 }
 
@@ -823,14 +846,41 @@ impl AppState {
         let project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
             .ok_or_else(|| "Failed to resolve config directory".to_string())?;
         let config_dir = project_dirs.config_dir().to_path_buf();
-        let llm_workspace_path = config_dir.join("llm-workspace");
+        let app_root = config_dir
+            .parent()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| config_dir.clone());
+        for dir_name in ["avatars", "media", "exports"] {
+            let legacy = config_dir.join(dir_name);
+            let target = app_root.join(dir_name);
+            if legacy.exists() && !target.exists() {
+                fs::rename(&legacy, &target).map_err(|err| {
+                    format!(
+                        "Migrate legacy {dir_name} dir failed ({} -> {}): {err}",
+                        legacy.display(),
+                        target.display()
+                    )
+                })?;
+            }
+        }
+        let llm_workspace_path = app_root.join("llm-workspace");
+        let legacy_llm_workspace_path = config_dir.join("llm-workspace");
+        if legacy_llm_workspace_path.exists() && !llm_workspace_path.exists() {
+            fs::rename(&legacy_llm_workspace_path, &llm_workspace_path).map_err(|err| {
+                format!(
+                    "Migrate llm workspace failed ({} -> {}): {err}",
+                    legacy_llm_workspace_path.display(),
+                    llm_workspace_path.display()
+                )
+            })?;
+        }
         fs::create_dir_all(&llm_workspace_path)
             .map_err(|err| format!("Create llm workspace failed: {err}"))?;
         let terminal_shell = detect_default_terminal_shell();
 
         Ok(Self {
             app_handle: Arc::new(Mutex::new(None)),
-            config_path: config_dir.join("config.toml"),
+            config_path: config_dir.join("app_config.toml"),
             data_path: config_dir.join("app_data.json"),
             llm_workspace_path,
             terminal_shell,
@@ -840,6 +890,24 @@ impl AppState {
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
+}
+
+fn app_root_from_data_path(data_path: &PathBuf) -> PathBuf {
+    let parent = data_path
+        .parent()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let is_config_dir = parent
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(|v| v.eq_ignore_ascii_case("config"))
+        .unwrap_or(false);
+    if is_config_dir {
+        if let Some(root) = parent.parent() {
+            return root.to_path_buf();
+        }
+    }
+    parent
 }
 fn now_utc() -> OffsetDateTime {
     OffsetDateTime::now_utc()

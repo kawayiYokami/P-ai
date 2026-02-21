@@ -2501,10 +2501,18 @@ async fn describe_image_with_vision_api(
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
-        RequestFormat::OpenAITts => {
-            return Err("Vision request format 'openai_tts' is not supported.".to_string())
+        RequestFormat::OpenAITts
+        | RequestFormat::OpenAIStt
+        | RequestFormat::GeminiEmbedding
+        | RequestFormat::OpenAIEmbedding
+        | RequestFormat::OpenAIRerank => {
+            return Err(
+                format!(
+                    "Vision request format '{}' is not supported.",
+                    vision_resolved.request_format
+                ),
+            )
         }
     };
     Ok(reply.assistant_text)
 }
-

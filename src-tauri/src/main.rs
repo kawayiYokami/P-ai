@@ -44,6 +44,7 @@ include!("features/core/domain.rs");
 
 // ==================== 配置与存储 ====================
 include!("features/config/storage_and_stt.rs");
+include!("features/config/app_data_layout.rs");
 
 // ==================== 对话核心 ====================
 include!("features/chat/conversation.rs");
@@ -57,6 +58,7 @@ include!("features/system/tools.rs");
 // ==================== 记忆匹配 ====================
 include!("features/memory/store.rs");
 include!("features/memory/matcher.rs");
+include!("features/memory/providers.rs");
 
 include!("features/system/commands.rs");
 
@@ -179,6 +181,11 @@ fn main() {
             import_memories,
             search_memories_mixed,
             sync_memory_embedding_provider,
+            test_memory_embedding_provider,
+            test_memory_rerank_provider,
+            get_memory_provider_bindings,
+            save_memory_embedding_binding,
+            save_memory_rerank_binding,
             memory_rebuild_indexes,
             memory_health_check,
             memory_backup_db,
