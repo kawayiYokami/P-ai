@@ -19,6 +19,14 @@ body {
   background: hsl(var(--b2));
 }
 
+/* Avoid right white strip when daisyUI modal-open applies scrollbar compensation in desktop webview */
+:root:has(.modal.modal-open),
+body:has(.modal.modal-open) {
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+  scrollbar-gutter: auto !important;
+}
+
 .answer {
   white-space: pre-wrap;
   word-break: break-word;

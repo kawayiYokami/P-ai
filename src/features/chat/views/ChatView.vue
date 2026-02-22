@@ -10,7 +10,7 @@
     </div>
     <div
       ref="scrollContainer"
-      class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2"
+      class="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col"
       @scroll="onScroll"
       @wheel.passive="onWheel"
     >
@@ -228,6 +228,35 @@
         </div>
       </template>
 
+      <div class="flex-1 min-h-3"></div>
+
+      <div class="pt-1 pb-2">
+        <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
+          <button
+            class="btn btn-xs btn-ghost bg-base-100"
+            :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
+            :disabled="chatting || frozen || !workspaceLocked"
+            @click="$emit('unlockWorkspace')"
+          >
+            <Lock v-if="workspaceLocked" class="h-3.5 w-3.5" />
+            <LockOpen v-else class="h-3.5 w-3.5" />
+          </button>
+          <button
+            class="btn btn-xs btn-ghost bg-base-100"
+            :disabled="chatting || frozen"
+            @click="$emit('lockWorkspace')"
+          >
+            {{ currentWorkspaceName }}{{ workspaceLocked ? " (临时)" : "" }}
+          </button>
+          <button
+            class="btn btn-xs btn-ghost bg-base-100 ml-auto"
+            :disabled="chatting || frozen"
+            @click="$emit('openSkillList')"
+          >
+            技能
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-show="showJumpToBottom" class="pointer-events-none absolute inset-x-0 bottom-20 z-30 flex justify-center">
@@ -304,7 +333,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Mic, Pause, Play, RotateCcw, Square, Undo2, X } from "lucide-vue-next";
+import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Pause, Play, RotateCcw, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
@@ -337,6 +366,8 @@ const props = defineProps<{
   frozen: boolean;
   turns: ChatTurn[];
   hasMoreTurns: boolean;
+  currentWorkspaceName: string;
+  workspaceLocked: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -349,6 +380,9 @@ const emit = defineEmits<{
   (e: "loadMoreTurns"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
+  (e: "lockWorkspace"): void;
+  (e: "unlockWorkspace"): void;
+  (e: "openSkillList"): void;
 }>();
 const { t } = useI18n();
 

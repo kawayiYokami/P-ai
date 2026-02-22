@@ -152,6 +152,21 @@ fn normalize_terminal_tool_session_id(session_id: &str) -> String {
     }
 }
 
+fn terminal_session_has_locked_root(state: &AppState, session_id: &str) -> bool {
+    let normalized = normalize_terminal_tool_session_id(session_id);
+    let root_text = {
+        let guard = match state.terminal_session_roots.lock() {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        guard.get(&normalized).cloned()
+    };
+    let Some(root_text) = root_text else {
+        return false;
+    };
+    PathBuf::from(root_text).is_dir()
+}
+
 fn normalize_terminal_timeout_ms(timeout_ms: Option<u64>) -> u64 {
     let value = timeout_ms.unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS);
     value.clamp(1, TERMINAL_MAX_TIMEOUT_MS)
@@ -335,14 +350,6 @@ fn terminal_default_session_root_canonical(state: &AppState) -> Result<PathBuf, 
         .ok_or_else(|| "No terminal project root available".to_string())
 }
 
-fn terminal_target_within_allowed_project_roots(
-    state: &AppState,
-    target: &Path,
-) -> Result<bool, String> {
-    let allowed = terminal_allowed_project_roots_canonical(state)?;
-    Ok(allowed.iter().any(|root| path_is_within(root, target)))
-}
-
 fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result<PathBuf, String> {
     let default_root = terminal_default_session_root_canonical(state)?;
     let root_text = {
@@ -358,7 +365,7 @@ fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result
 
     let root = PathBuf::from(root_text);
     match root.canonicalize() {
-        Ok(path) if path.is_dir() && terminal_target_within_allowed_project_roots(state, &path)? => {
+        Ok(path) if path.is_dir() => {
             Ok(path)
         }
         _ => Ok(default_root),

@@ -102,6 +102,8 @@
         :frozen="forcingArchive"
         :turns="visibleTurns"
         :has-more-turns="hasMoreTurns"
+        :current-workspace-name="currentChatWorkspaceName"
+        :workspace-locked="chatWorkspaceLocked"
         @update:chat-input="updateChatInput"
         @remove-clipboard-image="removeClipboardImage"
         @start-recording="startRecording"
@@ -111,6 +113,9 @@
         @load-more-turns="loadMoreTurns"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
+        @lock-workspace="onLockChatWorkspace"
+        @unlock-workspace="onUnlockChatWorkspace"
+        @open-skill-list="onOpenSkillPanel"
       />
       <div
         v-if="forcingArchive"
@@ -286,6 +291,8 @@ const props = defineProps<{
   forcingArchive: boolean;
   visibleTurns: ChatTurn[];
   hasMoreTurns: boolean;
+  currentChatWorkspaceName: string;
+  chatWorkspaceLocked: boolean;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];
@@ -344,6 +351,9 @@ const props = defineProps<{
   loadMoreTurns: () => void;
   onRecallTurn: (payload: { turnId: string }) => void;
   onRegenerateTurn: (payload: { turnId: string }) => void;
+  onLockChatWorkspace: () => void;
+  onUnlockChatWorkspace: () => void;
+  onOpenSkillPanel: () => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;

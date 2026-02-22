@@ -83,6 +83,7 @@ async fn send_chat_message(
         }
     }
 
+    let tool_session_id = chat_key.clone();
     let state_for_run = state.clone();
     let run = async move {
     let state = state_for_run;
@@ -570,7 +571,7 @@ async fn send_chat_message(
         Some(&state),
         &on_delta,
         app_config.tool_max_iterations as usize,
-        &conversation_id,
+        &tool_session_id,
     )
     .await?;
     let assistant_text = model_reply.assistant_text;

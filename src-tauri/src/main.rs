@@ -216,6 +216,9 @@ fn main() {
             desktop_screenshot,
             desktop_wait,
             terminal_self_check,
+            get_chat_shell_workspace,
+            lock_chat_shell_workspace,
+            unlock_chat_shell_workspace,
             resolve_terminal_approval
         ])
         .run(tauri::generate_context!())
