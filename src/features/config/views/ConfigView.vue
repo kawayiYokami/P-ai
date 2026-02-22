@@ -1,7 +1,7 @@
 <template>
   <div class="h-full min-h-0 flex gap-3">
     <div class="w-48 shrink-0">
-      <ul class="menu bg-base-200 rounded-box">
+      <ul class="menu bg-base-200 rounded-box gap-1">
         <li>
           <a :class="{ 'active': configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
         </li>

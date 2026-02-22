@@ -1766,26 +1766,6 @@ fn merge_memory_groups_into_store(
     Ok(merged_groups)
 }
 
-fn archive_memory_id_catalog_text(memories: &[MemoryEntry], max_items: usize) -> String {
-    if memories.is_empty() || max_items == 0 {
-        return String::new();
-    }
-    let mut lines = Vec::<String>::new();
-    for memory in memories.iter().take(max_items) {
-        let tags = if memory.tags.is_empty() {
-            "无".to_string()
-        } else {
-            memory.tags.join(" ")
-        };
-        let snippet = memory.judgment.chars().take(80).collect::<String>();
-        lines.push(format!(
-            "- id={} | tags={} | judgment={}",
-            memory.id, tags, snippet
-        ));
-    }
-    lines.join("\n")
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ForceArchiveResult {
@@ -1805,6 +1785,215 @@ struct ForceArchiveResult {
     merge_groups: Option<usize>,
 }
 
+const ARCHIVE_DEBUG_LOG_ENABLED: bool = false;
+
+fn archive_endpoint_hint(format: RequestFormat) -> &'static str {
+    match format {
+        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => "/chat/completions",
+        RequestFormat::Gemini => "/models/*:generateContent",
+        RequestFormat::Anthropic => "/v1/messages",
+        RequestFormat::OpenAITts => "/audio/speech",
+        RequestFormat::OpenAIStt => "/audio/transcriptions",
+        RequestFormat::GeminiEmbedding => "/models/*:embedContent",
+        RequestFormat::OpenAIEmbedding => "/embeddings",
+        RequestFormat::OpenAIRerank => "/rerank",
+    }
+}
+
+fn archive_log_request(
+    trace_tag: &str,
+    trace_id: &str,
+    stage: &str,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    prepared: &PreparedPrompt,
+    timeout_secs: u64,
+) {
+    if !ARCHIVE_DEBUG_LOG_ENABLED {
+        return;
+    }
+    let mut user_content = vec![serde_json::json!({
+        "type": "text",
+        "text": prepared.latest_user_text,
+    })];
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_time_text,
+        }));
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_system_text,
+        }));
+    }
+    for (mime, bytes_base64) in &prepared.latest_images {
+        user_content.push(serde_json::json!({
+            "type": "image",
+            "mime": mime,
+            "bytesBase64Length": bytes_base64.len(),
+        }));
+    }
+    for (mime, bytes_base64) in &prepared.latest_audios {
+        user_content.push(serde_json::json!({
+            "type": "audio",
+            "mime": mime,
+            "bytesBase64Length": bytes_base64.len(),
+        }));
+    }
+    let payload = build_request_preview_value(selected_api, prepared, user_content);
+    let payload_pretty = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+    let history_count = prepared.history_messages.len();
+    let preamble_chars = prepared.preamble.chars().count();
+    let latest_user_chars = prepared.latest_user_text.chars().count();
+    let latest_system_chars = prepared.latest_user_system_text.chars().count();
+    eprintln!(
+        "[{}] trace={} stage={} request format={} base_url={} endpoint_hint={} model={} timeout_s={} stats={{history:{}, system_chars:{}, user_chars:{}, latest_system_chars:{}}}",
+        trace_tag,
+        trace_id,
+        stage,
+        resolved_api.request_format,
+        resolved_api.base_url,
+        archive_endpoint_hint(resolved_api.request_format),
+        selected_api.model,
+        timeout_secs,
+        history_count,
+        preamble_chars,
+        latest_user_chars,
+        latest_system_chars,
+    );
+    eprintln!(
+        "[{}] trace={} stage={} request_system_prompt={}",
+        trace_tag, trace_id, stage, prepared.preamble
+    );
+    eprintln!(
+        "[{}] trace={} stage={} request_latest_user_prompt={}",
+        trace_tag, trace_id, stage, prepared.latest_user_text
+    );
+    eprintln!(
+        "[{}] trace={} stage={} request_body_json={}",
+        trace_tag, trace_id, stage, payload_pretty
+    );
+}
+
+fn archive_log_response(
+    trace_tag: &str,
+    trace_id: &str,
+    stage: &str,
+    elapsed_ms: u128,
+    assistant_text: &str,
+) {
+    if !ARCHIVE_DEBUG_LOG_ENABLED {
+        return;
+    }
+    eprintln!(
+        "[{}] trace={} stage={} response elapsed_ms={} chars={} body={}",
+        trace_tag,
+        trace_id,
+        stage,
+        elapsed_ms,
+        assistant_text.chars().count(),
+        assistant_text
+    );
+}
+
+fn build_archive_history_messages(source_conversation: &Conversation) -> Vec<PreparedHistoryMessage> {
+    source_conversation
+        .messages
+        .iter()
+        .map(|msg| {
+            let mut text = render_message_for_context(msg);
+            if text.trim().is_empty() {
+                text = archive_message_plain_text(msg);
+            }
+            let reasoning_content = msg
+                .provider_meta
+                .as_ref()
+                .and_then(Value::as_object)
+                .and_then(|obj| obj.get("reasoningStandard").and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned);
+            PreparedHistoryMessage {
+                role: msg.role.clone(),
+                text,
+                user_time_text: if msg.role == "user" {
+                    Some(format_message_time_text(&msg.created_at))
+                } else {
+                    None
+                },
+                tool_calls: msg.tool_call.clone(),
+                tool_call_id: None,
+                reasoning_content,
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+fn archive_used_memories_block(memories: &[MemoryEntry], recall_table: &[String]) -> String {
+    if recall_table.is_empty() {
+        return "（无）".to_string();
+    }
+    let mut seen = HashSet::<String>::new();
+    let memory_map = memories
+        .iter()
+        .map(|m| (m.id.clone(), m))
+        .collect::<HashMap<String, &MemoryEntry>>();
+    let mut lines = Vec::<String>::new();
+    for memory_id in recall_table
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+    {
+        if !seen.insert(memory_id.to_string()) {
+            continue;
+        }
+        if let Some(memory) = memory_map.get(memory_id) {
+            lines.push(format!(
+                "<{}>\n判断：{}\n理由：{}\n</{}>",
+                memory_id,
+                clean_text(memory.judgment.trim()),
+                clean_text(memory.reasoning.trim()),
+                memory_id
+            ));
+        } else {
+            lines.push(format!("<{}>\n判断：\n理由：\n</{}>", memory_id, memory_id));
+        }
+    }
+    if lines.is_empty() {
+        "（无）".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn archive_example_output_block() -> &'static str {
+    r#"{
+  "summary": "string",
+  "usefulMemoryIds": ["string"],
+  "newMemories": [
+    {
+      "memoryType": "knowledge|skill|emotion|event",
+      "judgment": "string",
+      "reasoning": "string",
+      "tags": ["string"]
+    }
+  ],
+  "mergeGroups": [
+    {
+      "sourceIds": ["string", "string"],
+      "target": {
+        "memoryType": "knowledge|skill|emotion|event",
+        "judgment": "string",
+        "reasoning": "string",
+        "tags": ["string"]
+      }
+    }
+  ]
+}"#
+}
+
 async fn summarize_archived_conversation_with_model_v2(
     resolved_api: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -1813,81 +2002,69 @@ async fn summarize_archived_conversation_with_model_v2(
     source_conversation: &Conversation,
     memories: &[MemoryEntry],
     recall_table: &[String],
+    trace_tag: &str,
+    trace_id: &str,
 ) -> Result<ArchiveSummaryDraft, String> {
-    let mut transcript = String::new();
-    for msg in &source_conversation.messages {
-        transcript.push_str(&render_message_for_context(msg));
-        transcript.push('\n');
-    }
-    let search_text = conversation_search_text(source_conversation);
-    let memory_board_xml = build_memory_board_xml(memories, &search_text, "");
-    let extra_memory = memory_board_xml
-        .map(|xml| format!("\n\n[MEMORY BOARD]\n{xml}"))
-        .unwrap_or_default();
-    let memory_id_catalog = archive_memory_id_catalog_text(memories, 64);
-    let recall_id_catalog = recall_table
-        .iter()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-        .take(64)
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>();
-    let recall_text = if recall_id_catalog.is_empty() {
-        "无".to_string()
-    } else {
-        recall_id_catalog.join(", ")
-    };
-    let id_catalog_text = if memory_id_catalog.is_empty() {
-        String::new()
-    } else {
-        format!("\n\n[MEMORY ID CATALOG]\n{memory_id_catalog}")
-    };
-
-    let summary_tool_rules = if selected_api.enable_tools && tool_enabled(selected_api, "memory-save")
-    {
-        "工具规则：仅允许 memory-save，最多 3 次；达到上限后必须立刻输出 summary，不得继续工具调用。"
-    } else {
-        "工具规则：当前模型或配置不支持工具调用，禁止调用任何工具。"
-    };
+    let history_messages = build_archive_history_messages(source_conversation);
+    let used_memories = archive_used_memories_block(memories, recall_table);
 
     let instruction = format!(
         "你要做归档总结。输出严格 JSON，不要 markdown，不要代码块。\n\
-         JSON schema: {{\"summary\":\"string\",\"usefulMemoryIds\":[\"string\"],\"newMemories\":[{{\"memoryType\":\"knowledge|skill|emotion|event\",\"judgment\":\"string\",\"reasoning\":\"string\",\"tags\":[\"string\"]}}],\"mergeGroups\":[{{\"sourceIds\":[\"string\",\"string\"],\"target\":{{\"memoryType\":\"knowledge|skill|emotion|event\",\"judgment\":\"string\",\"reasoning\":\"string\",\"tags\":[\"string\"]}}}}]}}\n\
+         ## 强制要求（MUST）\n\
+         A) reasoning 必须写“支撑该 judgment 的论据/证据”，不得写流程话术。\n\
+         B) reasoning 只允许描述对话中可追溯的依据，不得写“为了归档/为了生成记忆”。\n\
+         C) reasoning 应尽量简洁具体；若没有可靠理由或证据不足，可留空字符串。\n\
+         D) judgment 必须能被 reasoning 支撑；若无法支撑，宁可不生成该条记忆。\n\
+         E) tags/judgment/reasoning 必须使用当前用户本轮语言（专有名词除外）。\n\
+         \n\
          规则:\n\
          1) summary 必填，必须按时间顺序写，语言自然、具体，不要模板化空话。\n\
          2) summary 必须覆盖并按此顺序组织：论题（讨论了什么）-> 经过（关键分歧/变化）-> 结论（已决定事项）。\n\
-         3) summary 必须单独明确两部分：悬而未定的论题；接下来建议决策（给出可执行的下一步）。\n\
-         4) 如有多个论题，必须逐个输出（按时间先后分别写清每个论题的经过与结论），禁止合并成笼统描述。\n\
-         5) summary 必须保留可追溯锚点：关键对象、关键时间点、关键数字或约束条件；不确定就写“待确认”，禁止猜测。\n\
-         6) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event（禁止 task）。\n\
-         7) usefulMemoryIds 只能从 [RECALL ID CATALOG] 里选。\n\
-         8) mergeGroups.sourceIds 只能从 [MEMORY ID CATALOG] 里选，且每组至少 2 个。\n\
-         7) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。\n\
-         8) 你是 {assistant_name}，用户称谓是 {user_name}。\n\
-         9) {tool_rules}",
+         3) summary 必须明确写出：最新的话题、用户最后的意图、接下来应该怎么做（可执行下一步）。\n\
+         4) summary 必须单独明确两部分：悬而未定的论题；接下来建议决策（给出可执行的下一步）。\n\
+         5) 如有多个论题，必须逐个输出（按时间先后分别写清每个论题的经过与结论），禁止合并成笼统描述。\n\
+         6) summary 必须保留可追溯锚点：关键对象、关键时间点、关键数字或约束条件；不确定就写“待确认”，禁止猜测。\n\
+         7) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event（禁止 task）。\n\
+         8) usefulMemoryIds 只能从“本次会话使用过的记忆”中选择。\n\
+         9) mergeGroups 不是必须，默认输出 []；仅当语义等价或高度重复且合并后不丢信息时才允许填写。\n\
+         10) mergeGroups.sourceIds 只能从“本次会话使用过的记忆”中选择，且每组至少 2 个；不确定时必须保持 []。\n\
+         11) newMemories 中的 judgment/reasoning/tags 必须使用当前用户本轮使用的语言，禁止夹杂其他语言。\n\
+         12) reasoning 定义：给出“支撑该 judgment 的论据/证据”；若没有可靠理由可以留空。\n\
+         13) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。\n\
+         14) 你是 {assistant_name}，用户称谓是 {user_name}。",
         assistant_name = agent.name,
-        user_name = user_alias,
-        tool_rules = summary_tool_rules
+        user_name = user_alias
     );
 
     let prepared = PreparedPrompt {
-        preamble: format!("[ARCHIVE TASK]\n{instruction}"),
-        history_messages: Vec::new(),
+        // Keep system/preamble stable; put archive constraints in the last user message.
+        preamble: "你是一个严格遵循用户指令的助手。".to_string(),
+        history_messages,
         latest_user_text: format!(
-            "[CONVERSATION]\n{}\n{}\n\n[RECALL ID CATALOG]\n{}\n{}",
-            transcript.trim(),
-            extra_memory.trim(),
-            recall_text,
-            id_catalog_text.trim()
+            "<压缩上下文的提示>\n{}\n</压缩上下文的提示>\n\n<本次会话使用过的记忆>\n{}\n</本次会话使用过的记忆>\n\n<示例输出>\n{}\n</示例输出>",
+            instruction,
+            used_memories,
+            archive_example_output_block()
         ),
         latest_user_time_text: String::new(),
         latest_user_system_text: String::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),
     };
+    let timeout_secs = 360u64;
+    archive_log_request(
+        trace_tag,
+        trace_id,
+        "structured",
+        resolved_api,
+        selected_api,
+        &prepared,
+        timeout_secs,
+    );
 
+    let call_started = std::time::Instant::now();
     let reply = tokio::time::timeout(
-        std::time::Duration::from_secs(40),
+        std::time::Duration::from_secs(timeout_secs),
         async {
             match resolved_api.request_format {
                 RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
@@ -1911,7 +2088,20 @@ async fn summarize_archived_conversation_with_model_v2(
         },
     )
     .await
-    .map_err(|_| "Archive summary request timed out".to_string())??;
+    .map_err(|_| {
+        format!(
+            "Archive summary request timed out (elapsed={}ms, timeout={}s)",
+            call_started.elapsed().as_millis(),
+            timeout_secs
+        )
+    })??;
+    archive_log_response(
+        trace_tag,
+        trace_id,
+        "structured",
+        call_started.elapsed().as_millis(),
+        &reply.assistant_text,
+    );
     let parsed = parse_archive_summary_draft(&reply.assistant_text).ok_or_else(|| {
         format!(
             "Parse archive summary JSON failed. raw={}",
@@ -1948,6 +2138,16 @@ fn archive_message_agent_hint(message: &ChatMessage) -> Option<String> {
 }
 
 fn choose_archive_host_agent_id(data: &AppData, source: &Conversation, fallback_agent_id: &str) -> String {
+    let fallback = fallback_agent_id.trim();
+    if !fallback.is_empty()
+        && data
+            .agents
+            .iter()
+            .any(|a| !a.is_built_in_user && a.id == fallback)
+    {
+        return fallback.to_string();
+    }
+
     let mut count_map = HashMap::<String, usize>::new();
     let mut last_idx_map = HashMap::<String, usize>::new();
     for (idx, message) in source.messages.iter().enumerate() {
@@ -1989,15 +2189,6 @@ fn choose_archive_host_agent_id(data: &AppData, source: &Conversation, fallback_
             .unwrap_or_else(|| source.agent_id.clone());
     }
 
-    let fallback = fallback_agent_id.trim();
-    if !fallback.is_empty()
-        && data
-            .agents
-            .iter()
-            .any(|a| !a.is_built_in_user && a.id == fallback)
-    {
-        return fallback.to_string();
-    }
     source.agent_id.clone()
 }
 
@@ -2036,7 +2227,7 @@ mod archive_host_selection_tests {
     }
 
     #[test]
-    fn host_should_choose_public_agent_with_most_messages() {
+    fn host_should_prefer_fallback_agent_when_valid() {
         let data = AppData {
             version: APP_DATA_SCHEMA_VERSION,
             agents: vec![mk_agent("pub-a", false), mk_agent("pub-b", false)],
@@ -2064,7 +2255,7 @@ mod archive_host_selection_tests {
             memory_recall_table: Vec::new(),
         };
         let host = choose_archive_host_agent_id(&data, &source, "pub-b");
-        assert_eq!(host, "pub-a");
+        assert_eq!(host, "pub-b");
     }
 
     #[test]
@@ -2229,9 +2420,10 @@ pub(crate) async fn run_archive_pipeline(
         source,
         &memories,
         &source.memory_recall_table,
+        trace_tag,
+        &trace_id,
     )
     .await?;
-
     let summary = parsed.summary;
     let useful_memory_ids = parsed.useful_memory_ids;
     let summary_memories = parsed.new_memories;
