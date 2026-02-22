@@ -115,14 +115,6 @@ fn sandbox_default_session_root_canonical(state: &AppState) -> Result<PathBuf, S
         .ok_or_else(|| "No sandbox root available".to_string())
 }
 
-fn sandbox_target_within_allowed_project_roots(
-    state: &AppState,
-    target: &std::path::Path,
-) -> Result<bool, String> {
-    let allowed = sandbox_allowed_project_roots_canonical(state)?;
-    Ok(allowed.iter().any(|root| sandbox_path_is_within(root, target)))
-}
-
 fn sandbox_session_root_canonical(
     state: &AppState,
     session_id: &str,
@@ -141,7 +133,7 @@ fn sandbox_session_root_canonical(
 
     let root = PathBuf::from(root_text);
     match root.canonicalize() {
-        Ok(path) if path.is_dir() && sandbox_target_within_allowed_project_roots(state, &path)? => {
+        Ok(path) if path.is_dir() => {
             Ok(path)
         }
         _ => Ok(default_root),

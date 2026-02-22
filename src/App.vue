@@ -60,6 +60,8 @@
       :hotkey-test-audio="hotkeyTestAudio"
       :user-alias="userAlias"
       :selected-persona-name="selectedPersona?.name || t('archives.roleAssistant')"
+      :current-chat-workspace-name="chatWorkspaceName"
+      :chat-workspace-locked="chatWorkspaceLocked"
       :user-avatar-url="userAvatarUrl"
       :selected-persona-avatar-url="selectedPersonaAvatarUrl"
       :latest-user-text="latestUserText"
@@ -141,6 +143,9 @@
       :load-more-turns="loadMoreTurns"
       :on-recall-turn="handleRecallTurn"
       :on-regenerate-turn="handleRegenerateTurn"
+      :on-lock-chat-workspace="lockChatWorkspaceFromPicker"
+      :on-unlock-chat-workspace="unlockChatWorkspace"
+      :on-open-skill-panel="openSkillPlaceholderDialog"
       :load-archives="loadArchives"
       :select-archive="selectArchive"
       :select-unarchived-conversation="selectUnarchivedConversation"
@@ -257,11 +262,24 @@
         <button @click.prevent="closeArchiveImportPreviewDialog">close</button>
       </form>
     </dialog>
+    <dialog class="modal" :class="{ 'modal-open': skillPlaceholderDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">Skill 列表</h3>
+        <div class="mt-2 text-sm opacity-80">预留功能，暂未实现。</div>
+        <div class="modal-action">
+          <button class="btn btn-sm btn-primary" @click="closeSkillPlaceholderDialog">{{ t("common.close") }}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeSkillPlaceholderDialog">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { open } from "@tauri-apps/plugin-dialog";
 import { invokeTauri } from "./services/tauri-api";
 import { useAppBootstrap, type TerminalApprovalRequestPayload } from "./features/shell/composables/use-app-bootstrap";
 import { useAppCore } from "./features/shell/composables/use-app-core";
@@ -365,6 +383,10 @@ const terminalApprovalResolving = ref(false);
 const archiveImportPreviewDialogOpen = ref(false);
 const archiveImportPreview = ref<ArchiveImportPreview | null>(null);
 const archiveImportRunning = ref(false);
+const skillPlaceholderDialogOpen = ref(false);
+const chatWorkspaceName = ref("默认工作空间");
+const chatWorkspaceLocked = ref(false);
+const chatWorkspacePath = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
@@ -461,6 +483,13 @@ const {
   setStatus,
   setStatusError,
 });
+
+type ChatShellWorkspaceState = {
+  sessionId: string;
+  workspaceName: string;
+  rootPath: string;
+  locked: boolean;
+};
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
@@ -890,9 +919,98 @@ watch(
   },
 );
 
+watch(
+  () => ({
+    mode: viewMode.value,
+    apiId: activeChatApiConfigId.value,
+    agentId: selectedPersonaId.value,
+  }),
+  ({ mode }) => {
+    if (mode !== "chat") return;
+    void refreshChatWorkspaceState();
+  },
+  { immediate: true },
+);
+
 function setUiLanguage(value: string) {
   if (!applyUiLanguage(value)) return;
   void saveConfig();
+}
+
+async function refreshChatWorkspaceState() {
+  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
+  const agentId = String(selectedPersonaId.value || "").trim();
+  if (!apiConfigId || !agentId) {
+    chatWorkspaceName.value = "默认工作空间";
+    chatWorkspaceLocked.value = false;
+    chatWorkspacePath.value = "";
+    return;
+  }
+  try {
+    const state = await invokeTauri<ChatShellWorkspaceState>("get_chat_shell_workspace", {
+      input: { apiConfigId, agentId },
+    });
+    chatWorkspaceName.value = String(state.workspaceName || "").trim() || "默认工作空间";
+    chatWorkspaceLocked.value = !!state.locked;
+    chatWorkspacePath.value = String(state.rootPath || "").trim();
+  } catch (error) {
+    console.warn("[SHELL] refresh chat workspace failed:", error);
+  }
+}
+
+async function lockChatWorkspaceFromPicker() {
+  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
+  const agentId = String(selectedPersonaId.value || "").trim();
+  if (!apiConfigId || !agentId) return;
+  try {
+    const picked = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: chatWorkspacePath.value || undefined,
+    });
+    if (!picked || Array.isArray(picked)) return;
+    const state = await invokeTauri<ChatShellWorkspaceState>("lock_chat_shell_workspace", {
+      input: {
+        apiConfigId,
+        agentId,
+        workspacePath: String(picked),
+      },
+    });
+    chatWorkspaceName.value = String(state.workspaceName || "").trim() || "默认工作空间";
+    chatWorkspaceLocked.value = !!state.locked;
+    chatWorkspacePath.value = String(state.rootPath || "").trim();
+    setStatus(`工作空间已锁定: ${chatWorkspaceName.value}`);
+  } catch (error) {
+    setStatusError("status.requestFailed", error);
+  }
+}
+
+async function unlockChatWorkspace() {
+  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
+  const agentId = String(selectedPersonaId.value || "").trim();
+  if (!apiConfigId || !agentId) return;
+  try {
+    const state = await invokeTauri<ChatShellWorkspaceState>("unlock_chat_shell_workspace", {
+      input: {
+        apiConfigId,
+        agentId,
+      },
+    });
+    chatWorkspaceName.value = String(state.workspaceName || "").trim() || "默认工作空间";
+    chatWorkspaceLocked.value = !!state.locked;
+    chatWorkspacePath.value = String(state.rootPath || "").trim();
+    setStatus(`工作空间已解锁: ${chatWorkspaceName.value}`);
+  } catch (error) {
+    setStatusError("status.requestFailed", error);
+  }
+}
+
+function openSkillPlaceholderDialog() {
+  skillPlaceholderDialogOpen.value = true;
+}
+
+function closeSkillPlaceholderDialog() {
+  skillPlaceholderDialogOpen.value = false;
 }
 
 function openConfigWindow() {

@@ -411,7 +411,27 @@ async fn call_model_openai_stream_text(
     ))
 }
 
-fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
+fn shell_switch_workspace_enabled_for_session(
+    selected_api: &ApiConfig,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> bool {
+    if !tool_enabled(selected_api, "shell-switch-workspace") {
+        return false;
+    }
+    if let Some(state) = app_state {
+        if terminal_session_has_locked_root(state, tool_session_id) {
+            return false;
+        }
+    }
+    true
+}
+
+fn deepseek_tool_schemas(
+    selected_api: &ApiConfig,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> Vec<Value> {
     let mut tools = Vec::<Value>::new();
     if tool_enabled(selected_api, "fetch") {
         tools.push(serde_json::json!({
@@ -523,7 +543,7 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             }
         }));
     }
-    if tool_enabled(selected_api, "shell-switch-workspace") {
+    if shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id) {
         tools.push(serde_json::json!({
             "type": "function",
             "function": {
@@ -604,7 +624,7 @@ async fn execute_builtin_tool_call(
             builtin_desktop_wait(args.ms).await
         }
         "shell_switch_workspace" | "shell-switch-workspace"
-            if tool_enabled(selected_api, "shell-switch-workspace") =>
+            if shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id) =>
         {
             let state = app_state.ok_or_else(|| {
                 "shell_switch_workspace requires app state".to_string()
@@ -967,7 +987,7 @@ async fn call_model_deepseek_with_tools_http(
     max_tool_iterations: usize,
     tool_session_id: &str,
 ) -> Result<ModelReply, String> {
-    let tools = deepseek_tool_schemas(selected_api);
+    let tools = deepseek_tool_schemas(selected_api, app_state, tool_session_id);
     if tools.is_empty() {
         return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
     }
@@ -1273,7 +1293,7 @@ async fn call_model_openai_with_tools(
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
     let has_shell_switch_workspace =
-        tool_enabled(selected_api, "shell-switch-workspace");
+        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
     let has_shell_exec = tool_enabled(selected_api, "shell-exec");
     if !has_fetch
         && !has_bing
@@ -1702,7 +1722,7 @@ async fn call_model_gemini_with_tools(
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
     let has_shell_switch_workspace =
-        tool_enabled(selected_api, "shell-switch-workspace");
+        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
     let has_shell_exec = tool_enabled(selected_api, "shell-exec");
     if !has_fetch
         && !has_bing
@@ -2049,7 +2069,7 @@ async fn call_model_anthropic_with_tools(
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
     let has_shell_switch_workspace =
-        tool_enabled(selected_api, "shell-switch-workspace");
+        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
     let has_shell_exec = tool_enabled(selected_api, "shell-exec");
     if !has_fetch
         && !has_bing
