@@ -15,7 +15,11 @@ fn tokenize_cn(jieba: &Jieba, text: &str) -> String {
         .join(" ")
 }
 
-fn run_case(case_name: &str, docs: &[&str], queries: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+fn run_case(
+    case_name: &str,
+    docs: &[&str],
+    queries: &[&str],
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut jieba = Jieba::new();
     jieba.add_word("遥酱", None, None);
 
@@ -31,7 +35,9 @@ fn run_case(case_name: &str, docs: &[&str], queries: &[&str]) -> Result<(), Box<
     let schema = schema_builder.build();
 
     let index = Index::create_in_ram(schema);
-    index.tokenizers().register("zh_ws", TextAnalyzer::from(SimpleTokenizer::default()));
+    index
+        .tokenizers()
+        .register("zh_ws", TextAnalyzer::from(SimpleTokenizer::default()));
     let mut writer = index.writer(20_000_000)?;
 
     for d in docs {
@@ -71,8 +77,8 @@ fn run_case(case_name: &str, docs: &[&str], queries: &[&str]) -> Result<(), Box<
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queries = vec![
-        "火锅底料 配方 调味",      // 无关
-        "前端 组件 开发",          // 有点关系
+        "火锅底料 配方 调味",                       // 无关
+        "前端 组件 开发",                           // 有点关系
         "遥酱擅长前端开发，能独立实现复杂组件功能", // 100%吻合
     ];
 

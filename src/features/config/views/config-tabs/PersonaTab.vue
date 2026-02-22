@@ -49,7 +49,7 @@
       <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.prompt") }}</span></div>
       <textarea
         v-model="selectedPersona.systemPrompt"
-        class="textarea textarea-bordered textarea-sm"
+        class="textarea textarea-bordered textarea-xs"
         rows="12"
         :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
       ></textarea>
