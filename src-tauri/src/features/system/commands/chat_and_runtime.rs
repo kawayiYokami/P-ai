@@ -469,12 +469,13 @@ async fn send_chat_message(
         let recall_hit_ids =
             memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
 
-        for memory_id in recall_hit_ids {
-            data.conversations[idx].memory_recall_table.push(memory_id);
+        for memory_id in &recall_hit_ids {
+            data.conversations[idx]
+                .memory_recall_table
+                .push(memory_id.clone());
         }
 
-        let latest_recall_ids =
-            latest_recall_memory_ids(&data.conversations[idx].memory_recall_table, 7);
+        let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
         let memory_board_xml =
             build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
         let last_archive_summary = data

@@ -13,6 +13,7 @@ const MEMORY_CANDIDATE_MULTIPLIER: usize = 7;
 const MEMORY_ROUTE_CANDIDATE_LIMIT: usize = MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER;
 const MEMORY_WEIGHT_BM25: f64 = 0.3;
 const MEMORY_WEIGHT_VECTOR: f64 = 0.7;
+const MEMORY_RECALL_MIN_FINAL_SCORE: f64 = 0.5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,8 +290,23 @@ fn memory_recall_hit_ids(
 ) -> Vec<String> {
     memory_mixed_ranked_items(data_path, memories, query_text, MEMORY_MATCH_MAX_ITEMS)
         .into_iter()
+        .filter(|item| item.final_score >= MEMORY_RECALL_MIN_FINAL_SCORE)
         .map(|item| item.memory_id)
         .collect::<Vec<_>>()
+}
+
+fn memory_board_ids_from_current_hits(recall_ids: &[String], max_items: usize) -> Vec<String> {
+    let mut seen = HashSet::<String>::new();
+    let mut out = Vec::<String>::new();
+    for memory_id in recall_ids {
+        if out.len() >= max_items {
+            break;
+        }
+        if seen.insert(memory_id.clone()) {
+            out.push(memory_id.clone());
+        }
+    }
+    out
 }
 
 fn memory_tantivy_bm25_scores(
@@ -775,6 +791,7 @@ fn memory_store_search_vector_scores(
     Ok(scored)
 }
 
+#[cfg(test)]
 fn latest_recall_memory_ids(recall_table: &[String], max_items: usize) -> Vec<String> {
     recall_table
         .iter()
