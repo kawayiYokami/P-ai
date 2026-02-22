@@ -41,7 +41,7 @@
               </button>
               <button
                 class="btn btn-sm btn-primary flex-1"
-                :disabled="loading || syncLocked || !embeddingApiConfigId || !embeddingReadyToSave"
+                :disabled="loading || syncLocked || (!!embeddingApiConfigId && !embeddingReadyToSave)"
                 @click="saveEmbeddingBinding"
               >
                 保存并同步
@@ -554,7 +554,16 @@ async function testRerankProvider() {
 async function saveEmbeddingBinding() {
   const cfg = selectedEmbeddingApiConfig.value;
   if (!cfg) {
-    opMessage.value = "请先选择嵌入模型";
+    const result = await withLoading(() =>
+      invokeTauri<{ status: string }>("save_memory_embedding_binding", {
+        input: {
+          apiConfigId: "",
+        },
+      }),
+    );
+    if (!result) return;
+    embeddingLastPassedTestKey.value = "";
+    opMessage.value = "嵌入已关闭";
     return;
   }
   emit("sync-lock-change", true);
@@ -590,7 +599,7 @@ async function saveRerankBinding() {
         "save_memory_rerank_binding",
         {
           input: {
-            apiConfigId: "__none__",
+            apiConfigId: "",
           },
         },
       ),

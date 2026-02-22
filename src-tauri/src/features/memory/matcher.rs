@@ -456,7 +456,7 @@ fn memory_rerank_scores(
     query_text: &str,
     candidate_memories: &[&MemoryEntry],
 ) -> Result<HashMap<String, f64>, String> {
-    if candidate_memories.is_empty() {
+    if candidate_memories.len() <= 1 {
         return Ok(HashMap::new());
     }
     let docs = candidate_memories
