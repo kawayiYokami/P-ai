@@ -284,12 +284,20 @@ async fn send_chat_message(
             Ok(result) => {
                 archived_before_send = result.archived;
                 if pending_archive_forced {
+                    let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
+                        "归档完成，已开启新对话。".to_string()
+                    } else {
+                        format!(
+                            "归档完成（降级摘要）：{}",
+                            result.warning.unwrap_or_default()
+                        )
+                    };
                     let _ = on_delta.send(AssistantDeltaEvent {
                         delta: "".to_string(),
                         kind: Some("tool_status".to_string()),
                         tool_name: Some("archive".to_string()),
                         tool_status: Some("done".to_string()),
-                        message: Some("归档完成，已开启新对话。".to_string()),
+                        message: Some(done_message),
                     });
                 }
             }

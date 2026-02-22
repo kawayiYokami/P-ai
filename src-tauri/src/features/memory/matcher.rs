@@ -1,3 +1,4 @@
+#[cfg(test)]
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use jieba_rs::Jieba;
 use sha2::{Digest, Sha256};
@@ -25,6 +26,7 @@ struct MemoryMixedRankItem {
     final_score: f64,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct CompiledMemoryMatcher {
     signature: String,
@@ -32,6 +34,7 @@ struct CompiledMemoryMatcher {
     keyword_to_memory_indices: Vec<Vec<usize>>,
 }
 
+#[cfg(test)]
 fn memory_matcher_cache() -> &'static std::sync::Mutex<Option<CompiledMemoryMatcher>> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<CompiledMemoryMatcher>>> =
         std::sync::OnceLock::new();
@@ -108,6 +111,7 @@ fn memory_tokenize_query_terms(text: &str) -> Vec<String> {
     terms
 }
 
+#[cfg(test)]
 fn memory_match_signature(memories: &[MemoryEntry]) -> String {
     let mut hasher = Sha256::new();
     for memory in memories {
@@ -126,6 +130,7 @@ fn memory_match_signature(memories: &[MemoryEntry]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+#[cfg(test)]
 fn compile_memory_matcher(memories: &[MemoryEntry]) -> CompiledMemoryMatcher {
     let signature = memory_match_signature(memories);
     let mut patterns = Vec::<String>::new();
@@ -168,6 +173,7 @@ fn compile_memory_matcher(memories: &[MemoryEntry]) -> CompiledMemoryMatcher {
     }
 }
 
+#[cfg(test)]
 fn get_or_compile_memory_matcher(memories: &[MemoryEntry]) -> CompiledMemoryMatcher {
     let signature = memory_match_signature(memories);
     let cache = memory_matcher_cache();
@@ -187,11 +193,15 @@ fn get_or_compile_memory_matcher(memories: &[MemoryEntry]) -> CompiledMemoryMatc
 }
 
 fn invalidate_memory_matcher_cache() {
-    if let Ok(mut guard) = memory_matcher_cache().lock() {
-        *guard = None;
+    #[cfg(test)]
+    {
+        if let Ok(mut guard) = memory_matcher_cache().lock() {
+            *guard = None;
+        }
     }
 }
 
+#[cfg(test)]
 fn conversation_search_text(conversation: &Conversation) -> String {
     let mut lines = Vec::<String>::new();
     for msg in &conversation.messages {
@@ -250,6 +260,7 @@ fn memory_recall_query_text(conversation: &Conversation, latest_user_text: &str)
         .join("\n")
 }
 
+#[cfg(test)]
 fn memory_match_hit_indices(memories: &[MemoryEntry], corpus: &str) -> Vec<(usize, usize)> {
     if memories.is_empty() || corpus.trim().is_empty() {
         return Vec::new();
@@ -848,6 +859,7 @@ fn build_memory_board_xml_from_recall_ids(
     Some(out)
 }
 
+#[cfg(test)]
 fn build_memory_board_xml(
     memories: &[MemoryEntry],
     search_text: &str,
