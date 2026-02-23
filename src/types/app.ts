@@ -63,6 +63,9 @@ export type AppConfig = {
   recordHotkey: string;
   minRecordSeconds: number;
   maxRecordSeconds: number;
+  backgroundRecordEnabled: boolean;
+  minRecordSecondsBackground: number;
+  sendHotkeyMode: "enter" | "ctrl_enter" | "alt_s";
   toolMaxIterations: number;
   selectedApiConfigId: string;
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).

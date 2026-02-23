@@ -43,6 +43,7 @@ type UseConfigPersistenceOptions = {
 
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
+const MIN_RECORD_SECONDS_BACKGROUND = 3;
 const DEFAULT_MAX_RECORD_SECONDS = 60;
 const MAX_RECORD_SECONDS = 600;
 
@@ -70,16 +71,21 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   function normalizeRecordSeconds(
     minValue: unknown,
     maxValue: unknown,
-  ): { minRecordSeconds: number; maxRecordSeconds: number } {
+    backgroundMinValue: unknown,
+  ): { minRecordSeconds: number; maxRecordSeconds: number; minRecordSecondsBackground: number } {
     const minRecordSeconds = Math.max(
       MIN_RECORD_SECONDS,
       Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(minValue) || MIN_RECORD_SECONDS)),
     );
     const maxRecordSeconds = Math.max(
-      minRecordSeconds,
+      Math.max(minRecordSeconds, MIN_RECORD_SECONDS_BACKGROUND),
       Math.min(MAX_RECORD_SECONDS, Math.round(Number(maxValue) || DEFAULT_MAX_RECORD_SECONDS)),
     );
-    return { minRecordSeconds, maxRecordSeconds };
+    const minRecordSecondsBackground = Math.max(
+      MIN_RECORD_SECONDS_BACKGROUND,
+      Math.min(maxRecordSeconds, Math.round(Number(backgroundMinValue) || 3)),
+    );
+    return { minRecordSeconds, maxRecordSeconds, minRecordSecondsBackground };
   }
 
   function classifySaveConfigError(error: unknown): ConfigSaveErrorInfo {
@@ -122,10 +128,18 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.hotkey = cfg.hotkey;
       options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
       options.locale.value = options.config.uiLanguage;
-      options.config.recordHotkey = cfg.recordHotkey || "Alt";
-      const normalizedRecord = normalizeRecordSeconds(cfg.minRecordSeconds, cfg.maxRecordSeconds);
+      options.config.recordHotkey = cfg.recordHotkey || "CapsLock";
+      const normalizedRecord = normalizeRecordSeconds(
+        cfg.minRecordSeconds,
+        cfg.maxRecordSeconds,
+        cfg.minRecordSecondsBackground,
+      );
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
+      options.config.backgroundRecordEnabled = cfg.backgroundRecordEnabled !== false;
+      options.config.minRecordSecondsBackground = normalizedRecord.minRecordSecondsBackground;
+      const mode = String(cfg.sendHotkeyMode || "").trim().toLowerCase();
+      options.config.sendHotkeyMode = mode === "ctrl_enter" || mode === "alt_s" ? mode : "enter";
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
       options.config.chatApiConfigId = cfg.chatApiConfigId;
@@ -185,10 +199,18 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.hotkey = saved.hotkey;
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.locale.value = options.config.uiLanguage;
-      options.config.recordHotkey = saved.recordHotkey || "Alt";
-      const normalizedRecord = normalizeRecordSeconds(saved.minRecordSeconds, saved.maxRecordSeconds);
+      options.config.recordHotkey = saved.recordHotkey || "CapsLock";
+      const normalizedRecord = normalizeRecordSeconds(
+        saved.minRecordSeconds,
+        saved.maxRecordSeconds,
+        saved.minRecordSecondsBackground,
+      );
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
+      options.config.backgroundRecordEnabled = saved.backgroundRecordEnabled !== false;
+      options.config.minRecordSecondsBackground = normalizedRecord.minRecordSecondsBackground;
+      const mode = String(saved.sendHotkeyMode || "").trim().toLowerCase();
+      options.config.sendHotkeyMode = mode === "ctrl_enter" || mode === "alt_s" ? mode : "enter";
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.chatApiConfigId = saved.chatApiConfigId;
