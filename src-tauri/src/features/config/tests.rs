@@ -36,9 +36,6 @@
             record_hotkey: "".to_string(),
             min_record_seconds: 0,
             max_record_seconds: 0,
-            background_record_enabled: true,
-            min_record_seconds_background: 0,
-            send_hotkey_mode: "".to_string(),
             tool_max_iterations: 0,
             selected_api_config_id: "a1".to_string(),
             chat_api_config_id: "a1".to_string(),
@@ -81,7 +78,7 @@
             ],
         };
         normalize_app_config(&mut cfg);
-        assert_eq!(cfg.record_hotkey, "CapsLock");
+        assert_eq!(cfg.record_hotkey, "Alt");
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.tool_max_iterations, 1);
@@ -96,9 +93,6 @@
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
-            background_record_enabled: true,
-            min_record_seconds_background: 3,
-            send_hotkey_mode: "enter".to_string(),
             tool_max_iterations: 10,
             selected_api_config_id: "edit-b".to_string(),
             chat_api_config_id: "chat-a".to_string(),
@@ -153,9 +147,6 @@
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
-            background_record_enabled: true,
-            min_record_seconds_background: 3,
-            send_hotkey_mode: "enter".to_string(),
             tool_max_iterations: 10,
             selected_api_config_id: "tts-a".to_string(),
             chat_api_config_id: "tts-a".to_string(),

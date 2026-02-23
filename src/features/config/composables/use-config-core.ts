@@ -20,7 +20,6 @@ type UseConfigCoreOptions = {
 export function useConfigCore(options: UseConfigCoreOptions) {
   const MIN_RECORD_SECONDS = 1;
   const MAX_MIN_RECORD_SECONDS = 30;
-  const MIN_RECORD_SECONDS_BACKGROUND = 3;
   const DEFAULT_MAX_RECORD_SECONDS = 60;
   const MAX_RECORD_SECONDS = 600;
 
@@ -112,22 +111,15 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       normalizeApiToolBindings(api);
     }
     const recordHotkey = String(options.config.recordHotkey || "").trim();
-    options.config.recordHotkey = recordHotkey || "CapsLock";
+    options.config.recordHotkey = recordHotkey || "Alt";
     options.config.minRecordSeconds = Math.max(
       MIN_RECORD_SECONDS,
       Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(options.config.minRecordSeconds) || MIN_RECORD_SECONDS)),
     );
     options.config.maxRecordSeconds = Math.max(
-      Math.max(options.config.minRecordSeconds, MIN_RECORD_SECONDS_BACKGROUND),
+      options.config.minRecordSeconds,
       Math.min(MAX_RECORD_SECONDS, Math.round(Number(options.config.maxRecordSeconds) || DEFAULT_MAX_RECORD_SECONDS)),
     );
-    options.config.backgroundRecordEnabled = options.config.backgroundRecordEnabled !== false;
-    options.config.minRecordSecondsBackground = Math.max(
-      MIN_RECORD_SECONDS_BACKGROUND,
-      Math.min(options.config.maxRecordSeconds, Math.round(Number(options.config.minRecordSecondsBackground) || 3)),
-    );
-    const mode = String(options.config.sendHotkeyMode || "").trim().toLowerCase();
-    options.config.sendHotkeyMode = mode === "ctrl_enter" || mode === "alt_s" ? mode : "enter";
     options.config.toolMaxIterations = Math.max(
       1,
       Math.min(100, Math.round(Number(options.config.toolMaxIterations) || 10)),
@@ -211,9 +203,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       recordHotkey: options.config.recordHotkey,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
-      backgroundRecordEnabled: options.config.backgroundRecordEnabled !== false,
-      minRecordSecondsBackground: options.config.minRecordSecondsBackground,
-      sendHotkeyMode: options.config.sendHotkeyMode,
       toolMaxIterations: options.config.toolMaxIterations,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
@@ -253,9 +242,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       recordHotkey: options.config.recordHotkey,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
-      backgroundRecordEnabled: options.config.backgroundRecordEnabled !== false,
-      minRecordSecondsBackground: options.config.minRecordSecondsBackground,
-      sendHotkeyMode: options.config.sendHotkeyMode,
       toolMaxIterations: options.config.toolMaxIterations,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,

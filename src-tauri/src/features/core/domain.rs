@@ -348,7 +348,7 @@ fn default_true() -> bool {
 }
 
 fn default_record_hotkey() -> String {
-    "CapsLock".to_string()
+    "Alt".to_string()
 }
 
 fn default_min_record_seconds() -> u32 {
@@ -357,18 +357,6 @@ fn default_min_record_seconds() -> u32 {
 
 fn default_max_record_seconds() -> u32 {
     60
-}
-
-fn default_background_record_enabled() -> bool {
-    true
-}
-
-fn default_min_record_seconds_background() -> u32 {
-    3
-}
-
-fn default_send_hotkey_mode() -> String {
-    "enter".to_string()
 }
 
 fn default_tool_max_iterations() -> u32 {
@@ -419,12 +407,6 @@ struct AppConfig {
     min_record_seconds: u32,
     #[serde(default = "default_max_record_seconds")]
     max_record_seconds: u32,
-    #[serde(default = "default_background_record_enabled")]
-    background_record_enabled: bool,
-    #[serde(default = "default_min_record_seconds_background")]
-    min_record_seconds_background: u32,
-    #[serde(default = "default_send_hotkey_mode")]
-    send_hotkey_mode: String,
     #[serde(default = "default_tool_max_iterations")]
     tool_max_iterations: u32,
     selected_api_config_id: String,
@@ -452,9 +434,6 @@ impl Default for AppConfig {
             record_hotkey: default_record_hotkey(),
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),
-            background_record_enabled: default_background_record_enabled(),
-            min_record_seconds_background: default_min_record_seconds_background(),
-            send_hotkey_mode: default_send_hotkey_mode(),
             tool_max_iterations: default_tool_max_iterations(),
             selected_api_config_id: api_config.id.clone(),
             chat_api_config_id: api_config.id.clone(),

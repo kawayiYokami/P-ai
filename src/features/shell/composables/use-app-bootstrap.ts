@@ -12,10 +12,6 @@ type ChatSettingsPayload = {
   userAlias: string;
   responseStyleId: string;
 };
-type RecordHotkeyPayload = {
-  state: "pressed" | "released";
-  background?: boolean;
-};
 
 export type TerminalApprovalRequestPayload = {
   requestId: string;
@@ -40,7 +36,6 @@ type AppBootstrapOptions = {
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
-  onRecordHotkey?: (payload: RecordHotkeyPayload) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -72,11 +67,6 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
             options.onTerminalApprovalRequested?.(event.payload);
           },
         ),
-      );
-      unlisteners.push(
-        await listen<RecordHotkeyPayload>("easy-call:record-hotkey", (event) => {
-          options.onRecordHotkey?.(event.payload);
-        }),
       );
       unlisteners.push(
         await listen<ConversationApiSettingsPayload>(
