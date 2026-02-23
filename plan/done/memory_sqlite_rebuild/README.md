@@ -7,12 +7,12 @@
 - 架构预留向量层扩展位，但本阶段不实现向量检索。
 
 ## 文档索引
-- `plan/memory_sqlite_rebuild/01_architecture_and_scope.md`
-- `plan/memory_sqlite_rebuild/02_schema_and_sql_plan.md`
-- `plan/memory_sqlite_rebuild/03_implementation_work_breakdown.md`
-- `plan/memory_sqlite_rebuild/04_cutover_and_operations.md`
-- `plan/memory_sqlite_rebuild/05_acceptance_and_test_plan.md`
-- `plan/memory_sqlite_rebuild/06_sqlite_vec_provider_switch_plan.md`
+- `plan/memory_sqlite_rebuild/20260223_01_architecture_and_scope.md`
+- `plan/memory_sqlite_rebuild/20260223_02_schema_and_sql_plan.md`
+- `plan/memory_sqlite_rebuild/20260223_03_implementation_work_breakdown.md`
+- `plan/memory_sqlite_rebuild/20260223_04_cutover_and_operations.md`
+- `plan/memory_sqlite_rebuild/20260223_05_acceptance_and_test_plan.md`
+- `plan/memory_sqlite_rebuild/20260223_06_sqlite_vec_provider_switch_plan.md`
 
 ## 执行顺序（建议）
 1. 冻结旧记忆入口，建立新模块骨架。
