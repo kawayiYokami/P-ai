@@ -130,4 +130,7 @@ struct WaitResponse {
     ok: bool,
     waited_ms: u64,
     elapsed_ms: u64,
+    elapsed_seconds: u64,
+    started_at: String,
+    finished_at: String,
 }

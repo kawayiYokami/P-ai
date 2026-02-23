@@ -953,6 +953,23 @@ fn to_local_datetime(dt: OffsetDateTime) -> OffsetDateTime {
     }
 }
 
+fn format_local_datetime_to_seconds(dt: OffsetDateTime) -> String {
+    let local = to_local_datetime(dt);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        local.year(),
+        local.month() as u8,
+        local.day(),
+        local.hour(),
+        local.minute(),
+        local.second()
+    )
+}
+
+fn now_local_time_text_seconds() -> String {
+    format_local_datetime_to_seconds(now_utc())
+}
+
 fn format_message_time_text(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
