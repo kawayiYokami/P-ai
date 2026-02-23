@@ -49,6 +49,8 @@
           @update:record-hotkey="onRecordHotkeyChanged"
           @update:min-record-seconds="onMinRecordSecondsChanged"
           @update:max-record-seconds="onMaxRecordSecondsChanged"
+          @update:min-record-seconds-background="onMinRecordSecondsBackgroundChanged"
+          @update:send-hotkey-mode="onSendHotkeyModeChanged"
         />
 
         <ApiTab
@@ -306,6 +308,7 @@ let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
+const MIN_RECORD_SECONDS_BACKGROUND = 3;
 const MAX_RECORD_SECONDS = 600;
 
 function avatarInitial(name: string): string {
@@ -434,10 +437,25 @@ function onMinRecordSecondsChanged(value: number) {
 
 function onMaxRecordSecondsChanged(value: number) {
   const next = Math.max(
-    props.config.minRecordSeconds,
+    Math.max(props.config.minRecordSeconds, MIN_RECORD_SECONDS_BACKGROUND),
     Math.min(MAX_RECORD_SECONDS, Math.round(Number(value) || props.config.minRecordSeconds)),
   );
   props.config.maxRecordSeconds = next;
+  if (props.config.minRecordSecondsBackground > next) {
+    props.config.minRecordSecondsBackground = next;
+  }
+}
+
+function onMinRecordSecondsBackgroundChanged(value: number) {
+  const next = Math.max(
+    MIN_RECORD_SECONDS_BACKGROUND,
+    Math.min(props.config.maxRecordSeconds, Math.round(Number(value) || 3)),
+  );
+  props.config.minRecordSecondsBackground = next;
+}
+
+function onSendHotkeyModeChanged(value: "enter" | "ctrl_enter" | "alt_s") {
+  props.config.sendHotkeyMode = value === "ctrl_enter" || value === "alt_s" ? value : "enter";
 }
 
 function requestTabChange(nextTab: ConfigTab) {

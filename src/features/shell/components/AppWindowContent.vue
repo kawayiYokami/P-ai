@@ -94,6 +94,7 @@
         :clipboard-images="clipboardImages"
         :chat-input="chatInput"
         :chat-input-placeholder="chatInputPlaceholder"
+        :send-hotkey-mode="config.sendHotkeyMode"
         :can-record="speechRecognitionSupported"
         :recording="recording"
         :recording-ms="recordingMs"

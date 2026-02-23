@@ -29,6 +29,9 @@
           {{ recordHotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
         </button>
       </div>
+      <div class="label py-1">
+        <span class="label-text-alt text-[11px] opacity-70">{{ t("config.hotkey.holdToRecord") }}</span>
+      </div>
     </label>
     <div class="grid grid-cols-2 gap-2">
       <label class="form-control min-w-0">
@@ -52,6 +55,32 @@
           class="input input-bordered input-sm w-full"
           @input="onMaxRecordSecondsInput"
         />
+      </label>
+    </div>
+    <div class="grid grid-cols-2 gap-2">
+      <label class="form-control min-w-0">
+        <div class="label py-1"><span class="label-text text-xs">后台最短录音(s)</span></div>
+        <input
+          :value="config.minRecordSecondsBackground"
+          type="number"
+          min="3"
+          max="600"
+          class="input input-bordered input-sm w-full"
+          @input="onMinRecordSecondsBackgroundInput"
+        />
+      </label>
+      <label class="form-control min-w-0">
+        <div class="label py-1"><span class="label-text text-xs">发送快捷键</span></div>
+        <select class="select select-bordered select-sm w-full" :value="config.sendHotkeyMode" @change="onSendHotkeyModeChange">
+          <option value="enter">Enter 发送</option>
+          <option value="ctrl_enter">Ctrl+Enter 发送</option>
+          <option value="alt_s">Alt+S 发送</option>
+        </select>
+        <div v-if="config.sendHotkeyMode === 'alt_s'" class="label py-1">
+          <span class="label-text-alt text-[11px] text-warning">
+            Alt+S 在部分系统/输入法下可能被占用；若无效，建议改用 Ctrl+Enter。
+          </span>
+        </div>
       </label>
     </div>
   </div>
@@ -101,6 +130,8 @@ const emit = defineEmits<{
   (e: "update:recordHotkey", value: string): void;
   (e: "update:minRecordSeconds", value: number): void;
   (e: "update:maxRecordSeconds", value: number): void;
+  (e: "update:minRecordSecondsBackground", value: number): void;
+  (e: "update:sendHotkeyMode", value: "enter" | "ctrl_enter" | "alt_s"): void;
 }>();
 
 const { t } = useI18n();
@@ -145,6 +176,16 @@ function onMinRecordSecondsInput(event: Event) {
 function onMaxRecordSecondsInput(event: Event) {
   const raw = Number((event.target as HTMLInputElement).value);
   emit("update:maxRecordSeconds", raw);
+}
+
+function onMinRecordSecondsBackgroundInput(event: Event) {
+  const raw = Number((event.target as HTMLInputElement).value);
+  emit("update:minRecordSecondsBackground", raw);
+}
+
+function onSendHotkeyModeChange(event: Event) {
+  const raw = String((event.target as HTMLSelectElement).value || "").trim().toLowerCase();
+  emit("update:sendHotkeyMode", raw === "ctrl_enter" || raw === "alt_s" ? raw : "enter");
 }
 
 function isModifierKey(code: string): boolean {

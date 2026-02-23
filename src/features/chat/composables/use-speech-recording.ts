@@ -20,10 +20,13 @@ type UseSpeechRecordingOptions = {
   canStart: () => boolean;
   getLanguage: () => string;
   getMaxRecordSeconds: () => number;
+  getMinRecordSecondsForeground: () => number;
+  getMinRecordSecondsBackground: () => number;
+  isBackgroundRecordEnabled: () => boolean;
   shouldUseRemoteStt: () => boolean;
   transcribeRemoteStt: (audio: { mime: string; bytesBase64: string }) => Promise<string>;
   appendRecognizedText: (text: string) => void;
-  onTranscribed?: (payload: { text: string; source: "local" | "remote" }) => void | Promise<void>;
+  onTranscribed?: (payload: { text: string; source: "local" | "remote"; background: boolean }) => void | Promise<void>;
   setStatus: (text: string) => void;
 };
 
@@ -54,6 +57,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   let remoteChunks: BlobPart[] = [];
   let recognizedText = "";
   let discardCurrent = false;
+  let currentRecordingBackground = false;
   let startedAt = 0;
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,7 +110,17 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       recording.value = false;
       clearTimers();
       stopRemoteStream();
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
       if (discardCurrent) {
+        remoteRecorder = null;
+        remoteChunks = [];
+        return;
+      }
+      const minSeconds = currentRecordingBackground
+        ? options.getMinRecordSecondsBackground()
+        : options.getMinRecordSecondsForeground();
+      if (elapsedMs < Math.max(1, minSeconds) * 1000) {
+        options.setStatus(options.t("status.noSpeechText"));
         remoteRecorder = null;
         remoteChunks = [];
         return;
@@ -134,7 +148,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
           .trim();
         if (text) {
           options.appendRecognizedText(text);
-          void options.onTranscribed?.({ text, source: "remote" });
+          void options.onTranscribed?.({ text, source: "remote", background: currentRecordingBackground });
           options.setStatus(options.t("status.recordTranscribed"));
         } else {
           options.setStatus(options.t("status.noSpeechText"));
@@ -159,9 +173,11 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
     }, options.getMaxRecordSeconds() * 1000);
   }
 
-  async function startRecording() {
+  async function startRecording(context?: { background?: boolean }) {
     if (recording.value) return;
     if (!options.canStart()) return;
+    currentRecordingBackground = !!context?.background;
+    if (currentRecordingBackground && !options.isBackgroundRecordEnabled()) return;
     if (options.shouldUseRemoteStt()) {
       try {
         discardCurrent = false;
@@ -201,15 +217,26 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       recognizer.onend = () => {
         recording.value = false;
         clearTimers();
+        const elapsedMs = Math.max(0, Date.now() - startedAt);
         if (discardCurrent) {
           recognizer = null;
+          return;
+        }
+        const minSeconds = currentRecordingBackground
+          ? options.getMinRecordSecondsBackground()
+          : options.getMinRecordSecondsForeground();
+        if (elapsedMs < Math.max(1, minSeconds) * 1000) {
+          options.setStatus(options.t("status.noSpeechText"));
+          recognizer = null;
+          recognizedText = "";
+          transcribing.value = false;
           return;
         }
         transcribing.value = true;
         const text = recognizedText.trim();
         if (text) {
           options.appendRecognizedText(text);
-          void options.onTranscribed?.({ text, source: "local" });
+          void options.onTranscribed?.({ text, source: "local", background: currentRecordingBackground });
           options.setStatus(options.t("status.recordTranscribed"));
         } else {
           options.setStatus(options.t("status.noSpeechText"));

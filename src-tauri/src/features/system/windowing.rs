@@ -83,25 +83,37 @@ fn parse_hotkey(raw: &str) -> Result<Shortcut, String> {
         .map_err(|err| format!("Parse hotkey failed: {err}"))
 }
 
+fn parse_record_hotkey(raw: &str) -> Result<Shortcut, String> {
+    let normalized = normalize_hotkey_for_parser(raw);
+    Shortcut::from_str(&normalized)
+        .or_else(|_| Shortcut::from_str(&normalize_hotkey_for_parser(&default_record_hotkey())))
+        .map_err(|err| format!("Parse record hotkey failed: {err}"))
+}
+
+fn register_hotkeys_internal(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    let summon_shortcut = parse_hotkey(&config.hotkey)?;
+    let record_shortcut = parse_record_hotkey(&config.record_hotkey)?;
+    let manager = app.global_shortcut();
+    let _ = manager.unregister_all();
+    manager
+        .register(summon_shortcut.clone())
+        .map_err(|err| format!("Register summon hotkey failed: {err}"))?;
+    if record_shortcut != summon_shortcut {
+        manager
+            .register(record_shortcut)
+            .map_err(|err| format!("Register record hotkey failed: {err}"))?;
+    }
+    Ok(())
+}
+
 fn register_default_hotkey(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let config = read_config(&state.config_path).unwrap_or_default();
-    let shortcut = parse_hotkey(&config.hotkey)?;
-
-    let manager = app.global_shortcut();
-    let _ = manager.unregister_all();
-    manager
-        .register(shortcut)
-        .map_err(|err| format!("Register hotkey failed: {err}"))
+    register_hotkeys_internal(app, &config)
 }
 
 fn register_hotkey_from_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
-    let shortcut = parse_hotkey(&config.hotkey)?;
-    let manager = app.global_shortcut();
-    let _ = manager.unregister_all();
-    manager
-        .register(shortcut)
-        .map_err(|err| format!("Register hotkey failed: {err}"))
+    register_hotkeys_internal(app, config)
 }
 
 fn default_hotkey_label() -> String {
