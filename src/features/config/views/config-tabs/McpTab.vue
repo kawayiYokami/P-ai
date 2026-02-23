@@ -1,14 +1,14 @@
 <template>
   <div class="space-y-3">
     <div class="flex items-center justify-between">
-      <div class="text-xs opacity-70">MCP Server 列表</div>
+      <div class="text-xs opacity-70">{{ t('config.mcp.serverList') }}</div>
       <div class="flex items-center gap-2">
-        <button class="btn btn-xs" type="button" @click="reloadServers" :disabled="loading">刷新</button>
-        <button class="btn btn-xs btn-primary" type="button" @click="addServer">新增</button>
+        <button class="btn btn-xs bg-base-100 border-base-300 hover:bg-base-200" type="button" @click="reloadServers" :disabled="loading">{{ t('config.mcp.refresh') }}</button>
+        <button class="btn btn-xs btn-primary" type="button" @click="addServer">{{ t('config.mcp.add') }}</button>
       </div>
     </div>
 
-    <div v-if="loading" class="text-xs opacity-70">加载中...</div>
+    <div v-if="loading" class="text-xs opacity-70">{{ t('config.mcp.loading') }}</div>
 
     <McpServerCard
       v-for="server in servers"
@@ -30,6 +30,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type {
   McpDefinitionValidateResult,
@@ -39,6 +40,8 @@ import type {
 } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
 import McpServerCard from "./mcp/McpServerCard.vue";
+
+const { t } = useI18n();
 
 type McpServerView = McpServerConfig & {
   toolItems: McpToolDescriptor[];
@@ -97,9 +100,9 @@ async function reloadServers() {
         target.lastElapsedMs = result.value.elapsedMs;
       }
     }
-    setStatus(`已加载 ${servers.value.length} 个 MCP 服务`);
+    setStatus(t('config.mcp.loadedCount', { count: servers.value.length }));
   } catch (error) {
-    setStatus(`加载 MCP 服务失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.loadFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -110,9 +113,9 @@ async function saveServer(server: McpServerView) {
   try {
     const saved = await _saveServerCore(server);
     upsertServer({ ...server, ...saved });
-    setStatus(`已保存: ${saved.name}`);
+    setStatus(t('config.mcp.saved', { name: saved.name }));
   } catch (error) {
-    setStatus(`保存失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.saveFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -141,9 +144,9 @@ async function removeServer(serverId: string) {
       input: { serverId },
     });
     servers.value = servers.value.filter((s) => s.id !== serverId);
-    setStatus(`已删除: ${serverId}`);
+    setStatus(t('config.mcp.deleted', { id: serverId }));
   } catch (error) {
-    setStatus(`删除失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.deleteFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -160,15 +163,15 @@ async function validateDefinition(server: McpServerView) {
         ? ` | ${result.details.join(" ; ")}`
         : "";
       const codeText = result.errorCode ? ` [${result.errorCode}]` : "";
-      setStatus(`校验失败${codeText}: ${result.message}${detailText}`, true);
+      setStatus(`${t('config.mcp.validateFailed')}${codeText}: ${result.message}${detailText}`, true);
       return;
     }
     if (result.migratedDefinitionJson) {
       server.definitionJson = result.migratedDefinitionJson;
     }
-    setStatus(`校验通过: transport=${result.transport || "-"}`);
+    setStatus(`${t('config.mcp.validateSuccess')}: ${t('config.mcp.transport', { transport: result.transport || "-" })}`);
   } catch (error) {
-    setStatus(`校验失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.validateFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -182,7 +185,7 @@ async function toggleDeploy(server: McpServerView) {
         input: { serverId: server.id },
       });
       upsertServer({ ...server, ...updated });
-      setStatus(`已停止: ${server.name}`);
+      setStatus(`${t('config.mcp.stopped')}: ${server.name}`);
       return;
     }
 
@@ -201,9 +204,9 @@ async function toggleDeploy(server: McpServerView) {
         lastElapsedMs: deployResult.elapsedMs,
       });
     }
-    setStatus(`部署成功: ${server.name}（tools=${deployResult.tools.length}）`);
+    setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（tools=${deployResult.tools.length}）`);
   } catch (error) {
-    setStatus(`部署失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.deployFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -233,9 +236,9 @@ async function onToggleTool(payload: { serverId: string; toolName: string; enabl
         tool.enabled = payload.enabled;
       }
     }
-    setStatus(`工具已${payload.enabled ? "启用" : "禁用"}: ${payload.toolName}`);
+    setStatus(`${payload.enabled ? t('config.mcp.toolEnabled') : t('config.mcp.toolDisabled')}: ${payload.toolName}`);
   } catch (error) {
-    setStatus(`工具开关失败: ${toErrorMessage(error)}`, true);
+    setStatus(`${t('config.mcp.toolSwitchFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }

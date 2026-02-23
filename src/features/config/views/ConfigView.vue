@@ -224,8 +224,8 @@ type AvatarTarget = { agentId: string };
 const props = defineProps<{
   config: AppConfig;
   configTab: ConfigTab;
-  uiLanguage: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
-  localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
+  uiLanguage: "zh-CN" | "en-US" | "zh-TW";
+  localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: "light" | "dracula";
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;

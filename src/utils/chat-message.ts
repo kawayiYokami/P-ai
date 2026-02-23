@@ -1,13 +1,16 @@
 import type { ChatMessage } from "../types/app";
 
+// Internal parsing marker for reasoning block - DO NOT translate or change this value
+// This is a protocol marker used for text parsing, not a user-facing UI string
+const STANDARD_REASONING_MARKER = "[标准思考]";
+
 export function parseAssistantStoredText(rawText: string): {
   assistantText: string;
   reasoningStandard: string;
   reasoningInline: string;
 } {
   const raw = rawText || "";
-  const standardMarker = "[标准思考]";
-  const standardIdx = raw.indexOf(standardMarker);
+  const standardIdx = raw.indexOf(STANDARD_REASONING_MARKER);
 
   if (standardIdx < 0) {
     return {
@@ -17,7 +20,7 @@ export function parseAssistantStoredText(rawText: string): {
     };
   }
 
-  const reasoningStandard = raw.slice(standardIdx + standardMarker.length).trim();
+  const reasoningStandard = raw.slice(standardIdx + STANDARD_REASONING_MARKER.length).trim();
 
   return {
     assistantText: raw.slice(0, standardIdx).trim(),
