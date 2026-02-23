@@ -935,7 +935,7 @@ fn upsert_memories(
         let guard = app_state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = read_app_data(&app_state.data_path)?;
         ensure_default_agent(&mut data);
         drop(guard);
@@ -1484,3 +1484,4 @@ impl Tool for BuiltinShellSwitchWorkspaceTool {
         result
     }
 }
+

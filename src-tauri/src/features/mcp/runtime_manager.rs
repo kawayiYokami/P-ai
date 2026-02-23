@@ -398,7 +398,7 @@ async fn attach_enabled_mcp_tools_for_runtime(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let cfg = read_config(&state.config_path)?;
         drop(guard);
         cfg
@@ -443,3 +443,4 @@ async fn attach_enabled_mcp_tools_for_runtime(
 
     Ok(clients)
 }
+

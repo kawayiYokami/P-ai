@@ -68,7 +68,7 @@ fn mcp_list_servers(state: State<'_, AppState>) -> Result<Vec<McpServerConfig>, 
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
     drop(guard);
@@ -124,7 +124,7 @@ fn mcp_save_server(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
 
@@ -154,7 +154,7 @@ fn mcp_remove_server(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
 
@@ -182,7 +182,7 @@ async fn mcp_list_server_tools(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut config = read_config(&state.config_path)?;
         normalize_app_config(&mut config);
         let server = config
@@ -219,7 +219,7 @@ async fn mcp_deploy_server(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut config = read_config(&state.config_path)?;
         normalize_app_config(&mut config);
         let mut server = config
@@ -246,7 +246,7 @@ async fn mcp_deploy_server(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
 
@@ -290,7 +290,7 @@ fn mcp_undeploy_server(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
 
@@ -329,7 +329,7 @@ fn mcp_set_tool_enabled(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut config = read_config(&state.config_path)?;
     normalize_app_config(&mut config);
 
@@ -361,3 +361,4 @@ fn mcp_set_tool_enabled(
 
     Ok(out)
 }
+

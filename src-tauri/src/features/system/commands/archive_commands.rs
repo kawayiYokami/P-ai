@@ -6,7 +6,7 @@ fn get_prompt_preview(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let app_config = read_config(&state.config_path)?;
     let api_config = resolve_selected_api_config(&app_config, None)
@@ -297,7 +297,7 @@ fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, Stri
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let data = read_app_data(&state.data_path)?;
     let app_config = read_config(&state.config_path)?;
@@ -331,7 +331,7 @@ fn get_archive_messages(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let data = read_app_data(&state.data_path)?;
     drop(guard);
@@ -355,7 +355,7 @@ fn get_archive_summary(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let data = read_app_data(&state.data_path)?;
     drop(guard);
@@ -378,7 +378,7 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let before = data.conversations.len();
@@ -394,3 +394,4 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
     drop(guard);
     Ok(())
 }
+

@@ -103,7 +103,7 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut result = read_config(&state.config_path)?;
     normalize_app_config(&mut result);
     ensure_default_shell_workspace_in_config(&mut result, &state);
@@ -127,7 +127,7 @@ fn save_config(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     write_config(&state.config_path, &config)?;
     register_hotkey_from_config(&app, &config)?;
@@ -140,7 +140,7 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
@@ -163,7 +163,7 @@ fn save_agents(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let previous_agents = data.agents.clone();
@@ -329,7 +329,7 @@ fn set_agent_private_memory_enabled(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
 
@@ -408,7 +408,7 @@ fn disable_agent_private_memory(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
 
@@ -452,7 +452,7 @@ fn import_agent_memories(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
     if !data
@@ -479,7 +479,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
@@ -504,7 +504,7 @@ fn save_chat_settings(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
@@ -624,7 +624,7 @@ fn save_agent_avatar(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
 
@@ -670,7 +670,7 @@ fn clear_agent_avatar(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
     let idx = data
@@ -748,7 +748,7 @@ fn sync_tray_icon(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
     if changed {
@@ -778,7 +778,7 @@ fn save_conversation_api_settings(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut config = read_config(&state.config_path)?;
     config.chat_api_config_id = input.chat_api_config_id.clone();
@@ -809,7 +809,7 @@ fn get_chat_snapshot(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let app_config = read_config(&state.config_path)?;
 
@@ -928,7 +928,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
 
@@ -990,7 +990,7 @@ fn get_unarchived_conversation_messages(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = read_app_data(&state.data_path)?;
     drop(guard);
 
@@ -1022,7 +1022,7 @@ fn delete_unarchived_conversation(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let before = data.conversations.len();
     data.conversations
@@ -1044,7 +1044,7 @@ fn get_active_conversation_messages(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let app_config = read_config(&state.config_path)?;
 
@@ -1124,7 +1124,7 @@ fn rewind_conversation_from_message(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let app_config = read_config(&state.config_path)?;
 
@@ -1199,3 +1199,4 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+

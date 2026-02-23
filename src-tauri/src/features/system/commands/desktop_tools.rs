@@ -1,4 +1,4 @@
-﻿#[tauri::command]
+#[tauri::command]
 async fn desktop_screenshot(input: ScreenshotRequest) -> Result<ScreenshotResponse, String> {
     run_screenshot_tool(input)
         .await
@@ -152,7 +152,7 @@ fn resolve_chat_tool_session_id(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let config = read_config(&state.config_path)?;
     if !config.api_configs.iter().any(|v| v.id == api_id) {
         drop(guard);
@@ -273,4 +273,5 @@ fn resolve_terminal_approval(
     let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
     Ok(())
 }
+
 

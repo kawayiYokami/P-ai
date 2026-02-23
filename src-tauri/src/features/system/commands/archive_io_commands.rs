@@ -395,7 +395,7 @@ fn export_archive_to_file(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = read_app_data(&state.data_path)?;
     drop(guard);
 
@@ -463,7 +463,7 @@ fn import_archives_from_json(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
 
     let mut index_by_conversation_id = std::collections::HashMap::<String, usize>::new();
@@ -513,3 +513,4 @@ fn import_archives_from_json(
         selected_archive_id,
     })
 }
+

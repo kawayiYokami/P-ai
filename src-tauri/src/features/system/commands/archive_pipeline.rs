@@ -175,7 +175,7 @@ async fn force_archive_current(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let app_config = read_config(&state.config_path)?;
         let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
@@ -255,7 +255,7 @@ pub(crate) async fn run_archive_pipeline(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
         let user_alias = data.user_alias.clone();
@@ -308,7 +308,7 @@ pub(crate) async fn run_archive_pipeline(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
     let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary)
@@ -361,3 +361,4 @@ pub(crate) async fn run_archive_pipeline(
         merge_groups: Some(merged_groups),
     })
 }
+
