@@ -399,7 +399,16 @@ async fn send_chat_message(
         let conversation = data.conversations[idx].clone();
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
-        let mut prepared = build_prompt(
+        let mut chat_overrides = ChatPromptOverrides::default();
+        chat_overrides.latest_user_text = Some(latest_user_text.clone());
+        chat_overrides.latest_user_time_iso = Some(now.clone());
+        if let Some(xml) = &memory_board_xml {
+            chat_overrides.latest_user_system_blocks.push(xml.clone());
+        }
+        chat_overrides.latest_images = effective_images.clone();
+        chat_overrides.latest_audios = effective_audios.clone();
+        let prepared = build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
             &conversation,
             &agent,
             &user_name,
@@ -407,28 +416,10 @@ async fn send_chat_message(
             &data.response_style_id,
             &app_config.ui_language,
             Some(&state.data_path),
+            last_archive_summary.as_deref(),
+            terminal_prompt_trusted_roots_block(&state, &selected_api),
+            Some(chat_overrides),
         );
-        if let Some(summary) = last_archive_summary {
-            prepared.preamble.push_str(
-                "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",
-            );
-            prepared.preamble.push_str(summary.trim());
-            prepared.preamble.push('\n');
-        }
-        if let Some(terminal_block) = terminal_prompt_trusted_roots_block(&state, &selected_api) {
-            prepared.preamble.push('\n');
-            prepared.preamble.push_str(&terminal_block);
-            prepared.preamble.push('\n');
-        }
-        let mut block2_parts = Vec::<String>::new();
-        if let Some(xml) = &memory_board_xml {
-            block2_parts.push(xml.clone());
-        }
-        prepared.latest_user_text = latest_user_text.clone();
-        prepared.latest_user_time_text = format_message_time_text(&now);
-        prepared.latest_user_system_text = block2_parts.join("\n\n");
-        prepared.latest_images = effective_images.clone();
-        prepared.latest_audios = effective_audios.clone();
 
         // Use persisted API config as the source of truth to avoid stale
         // frontend model overrides after editing/saving config.
@@ -1266,27 +1257,13 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         latest_audios: Vec::new(),
     };
 
-    let reply = match api_config.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
-            call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?
-        }
-        RequestFormat::Gemini => {
-            call_model_gemini_rig_style(&api_config, &api_config.model, prepared).await?
-        }
-        RequestFormat::Anthropic => {
-            call_model_anthropic_rig_style(&api_config, &api_config.model, prepared).await?
-        }
-        RequestFormat::OpenAITts
-        | RequestFormat::OpenAIStt
-        | RequestFormat::GeminiEmbedding
-        | RequestFormat::OpenAIEmbedding
-        | RequestFormat::OpenAIRerank => {
-            return Err(format!(
-                "Request format '{}' is not implemented in probe router yet.",
-                api_config.request_format
-            ))
-        }
-    };
+    let reply = invoke_model_with_policy(
+        &api_config,
+        &api_config.model,
+        prepared,
+        CallPolicy::debug_probe(),
+    )
+    .await?;
     Ok(reply.assistant_text)
 }
 

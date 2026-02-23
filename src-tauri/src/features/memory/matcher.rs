@@ -320,6 +320,15 @@ fn memory_board_ids_from_current_hits(recall_ids: &[String], max_items: usize) -
     out
 }
 
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn memory_tantivy_bm25_scores(
     memories: &[MemoryEntry],
     query_text: &str,
