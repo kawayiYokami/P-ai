@@ -319,7 +319,7 @@
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
           @input="scheduleResizeChatInput"
-          @keydown="onChatInputKeydown"
+          @keydown.enter.exact.prevent="!frozen && $emit('sendChat')"
         ></textarea>
         <button class="btn btn-xs btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
           <Square v-if="chatting" class="h-3 w-3 fill-current" />
@@ -358,7 +358,6 @@ const props = defineProps<{
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   chatInput: string;
   chatInputPlaceholder: string;
-  sendHotkeyMode: "enter" | "ctrl_enter" | "alt_s";
   canRecord: boolean;
   recording: boolean;
   recordingMs: number;
@@ -425,37 +424,6 @@ function turnAssistantAvatarUrl(turn: ChatTurn): string {
   const id = String(turn.assistantAgentId || "").trim();
   if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
   return props.assistantAvatarUrl || "";
-}
-
-function onChatInputKeydown(event: KeyboardEvent) {
-  if (props.frozen) return;
-  if (props.sendHotkeyMode === "alt_s" && event.key === "Alt") {
-    // Prevent WebView/browser menu focus from stealing the Alt+S combo.
-    event.preventDefault();
-    return;
-  }
-  if (event.key !== "Enter") {
-    if (props.sendHotkeyMode === "alt_s" && event.altKey && event.key.toLowerCase() === "s") {
-      event.preventDefault();
-      emit("sendChat");
-    }
-    return;
-  }
-  if (props.sendHotkeyMode === "enter") {
-    if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-      event.preventDefault();
-      emit("sendChat");
-    }
-    return;
-  }
-  if (props.sendHotkeyMode === "ctrl_enter") {
-    if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
-      event.preventDefault();
-      emit("sendChat");
-    }
-    return;
-  }
-  // alt_s mode: Enter always inserts newline.
 }
 
 function splitThinkText(raw: string): { visible: string; inline: string } {
