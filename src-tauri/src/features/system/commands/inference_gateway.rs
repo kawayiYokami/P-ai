@@ -32,6 +32,9 @@ async fn invoke_model_rig_by_format(
         RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
             call_model_openai_rig_style(resolved_api, model_name, prepared).await
         }
+        RequestFormat::OpenAIResponses => {
+            call_model_openai_responses_rig_style(resolved_api, model_name, prepared, None).await
+        }
         RequestFormat::Gemini => call_model_gemini_rig_style(resolved_api, model_name, prepared).await,
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(resolved_api, model_name, prepared).await

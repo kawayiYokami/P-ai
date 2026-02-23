@@ -1063,7 +1063,9 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
     }
 
     match input.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => fetch_models_openai(&input).await,
+        RequestFormat::OpenAI | RequestFormat::OpenAIResponses | RequestFormat::DeepSeekKimi => {
+            fetch_models_openai(&input).await
+        }
         RequestFormat::Gemini => fetch_models_gemini_native(&input).await,
         RequestFormat::GeminiEmbedding => Err(
             "Request format 'gemini_embedding' is for embedding and does not support model list refresh."

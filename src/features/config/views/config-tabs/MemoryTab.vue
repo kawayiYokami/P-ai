@@ -247,6 +247,7 @@ type MemoryEntry = {
 
 type ApiRequestFormat =
   | "openai"
+  | "openai_responses"
   | "openai_tts"
   | "openai_stt"
   | "openai_embedding"

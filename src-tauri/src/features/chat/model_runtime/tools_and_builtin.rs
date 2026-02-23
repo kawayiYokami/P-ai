@@ -6,37 +6,150 @@ struct ModelReply {
     tool_history_events: Vec<Value>,
 }
 
-async fn call_model_openai_rig_style(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-) -> Result<ModelReply, String> {
+fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<RigMessage>, String> {
+    let mut chat_history = Vec::<RigMessage>::new();
+    for hm in &prepared.history_messages {
+        if hm.role == "user" {
+            let mut user_blocks = vec![UserContent::text(hm.text.clone())];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    user_blocks.push(UserContent::text(time_text.clone()));
+                }
+            }
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::many(user_blocks)
+                    .map_err(|_| "Failed to build user history message".to_string())?,
+            });
+        } else if hm.role == "assistant" {
+            chat_history.push(RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::text(hm.text.clone())),
+            });
+        }
+    }
+    Ok(chat_history)
+}
+
+async fn collect_streaming_model_reply<R, S>(
+    mut stream: S,
+    on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
+) -> Result<ModelReply, String>
+where
+    S: futures_util::Stream<
+            Item = Result<StreamedAssistantContent<R>, rig::completion::CompletionError>,
+        > + Unpin,
+{
+    let mut assistant_text = String::new();
+    let mut reasoning_standard = String::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(StreamedAssistantContent::Text(text)) => {
+                assistant_text.push_str(&text.text);
+                if let Some(channel) = on_delta {
+                    let _ = channel.send(AssistantDeltaEvent {
+                        delta: text.text,
+                        kind: None,
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                }
+            }
+            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
+                let merged = reasoning.reasoning.join("\n");
+                if !merged.is_empty() {
+                    if !reasoning_standard.is_empty() {
+                        reasoning_standard.push('\n');
+                    }
+                    reasoning_standard.push_str(&merged);
+                    if let Some(channel) = on_delta {
+                        let _ = channel.send(AssistantDeltaEvent {
+                            delta: merged,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
+            }
+            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
+                if !reasoning.is_empty() {
+                    reasoning_standard.push_str(&reasoning);
+                    if let Some(channel) = on_delta {
+                        let _ = channel.send(AssistantDeltaEvent {
+                            delta: reasoning,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
+            }
+            Ok(StreamedAssistantContent::ToolCall { .. }) => {}
+            Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
+            Ok(StreamedAssistantContent::Final(_)) => {}
+            Err(err) => return Err(format!("rig streaming failed: {err}")),
+        }
+    }
+    Ok(ModelReply {
+        assistant_text,
+        reasoning_standard,
+        reasoning_inline: String::new(),
+        tool_history_events: Vec::new(),
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OpenAiRigApiKind {
+    ChatCompletions,
+    Responses,
+}
+
+fn build_openai_rig_prompt(
+    prepared: &PreparedPrompt,
+) -> Result<(Vec<RigMessage>, RigMessage), String> {
+    let chat_history = prepared_history_to_rig_messages(prepared)?;
     let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text));
+        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
     }
     if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text));
+        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
     }
     if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text));
+        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
 
-    for (mime, bytes) in prepared.latest_images {
+    for (mime, bytes) in &prepared.latest_images {
         content_items.push(UserContent::image_base64(
-            bytes,
-            image_media_type_from_mime(&mime),
+            bytes.clone(),
+            image_media_type_from_mime(mime),
             Some(ImageDetail::Auto),
         ));
     }
 
-    for (mime, bytes) in prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes, audio_media_type_from_mime(&mime)));
+    for (mime, bytes) in &prepared.latest_audios {
+        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
     }
 
-    let prompt_content = OneOrMany::many(content_items)
+    let current_prompt_content = OneOrMany::many(content_items)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+    let current_prompt = RigMessage::User {
+        content: current_prompt_content,
+    };
+    Ok((chat_history, current_prompt))
+}
 
+async fn call_model_openai_rig_style_internal(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    kind: OpenAiRigApiKind,
+    on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
+) -> Result<ModelReply, String> {
+    let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared)?;
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
     if !api_config.base_url.is_empty() {
@@ -46,26 +159,71 @@ async fn call_model_openai_rig_style(
         .build()
         .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
 
-    let agent = client
-        .completions_api()
-        .agent(model_name)
-        .preamble(&prepared.preamble)
-        .temperature(api_config.temperature)
-        .build();
-    let prompt_message = RigMessage::User {
-        content: prompt_content,
-    };
+    match kind {
+        OpenAiRigApiKind::ChatCompletions => {
+            let agent = client
+                .completions_api()
+                .agent(model_name)
+                .preamble(&prepared.preamble)
+                .temperature(api_config.temperature)
+                .build();
+            let mut stream = agent
+                .stream_completion(current_prompt, chat_history)
+                .await
+                .map_err(|err| format!("rig stream completion build failed: {err}"))?
+                .stream()
+                .await
+                .map_err(|err| format!("rig stream start failed: {err}"))?;
+            collect_streaming_model_reply(&mut stream, None).await
+        }
+        OpenAiRigApiKind::Responses => {
+            // IMPORTANT: do NOT call .completions_api() here; keep default Responses API.
+            let agent = client
+                .agent(model_name)
+                .preamble(&prepared.preamble)
+                .temperature(api_config.temperature)
+                .build();
+            let mut stream = agent
+                .stream_completion(current_prompt, chat_history)
+                .await
+                .map_err(|err| format!("rig responses stream completion build failed: {err}"))?
+                .stream()
+                .await
+                .map_err(|err| format!("rig responses stream start failed: {err}"))?;
+            collect_streaming_model_reply(&mut stream, on_delta).await
+        }
+    }
+}
 
-    let assistant_text = agent
-        .prompt(prompt_message)
-        .await
-        .map_err(|err| err.to_string())?;
-    Ok(ModelReply {
-        assistant_text,
-        reasoning_standard: String::new(),
-        reasoning_inline: String::new(),
-        tool_history_events: Vec::new(),
-    })
+async fn call_model_openai_rig_style(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    call_model_openai_rig_style_internal(
+        api_config,
+        model_name,
+        prepared,
+        OpenAiRigApiKind::ChatCompletions,
+        None,
+    )
+    .await
+}
+
+async fn call_model_openai_responses_rig_style(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
+) -> Result<ModelReply, String> {
+    call_model_openai_rig_style_internal(
+        api_config,
+        model_name,
+        prepared,
+        OpenAiRigApiKind::Responses,
+        on_delta,
+    )
+    .await
 }
 
 fn normalize_gemini_rig_base_url(raw: &str) -> String {
@@ -84,6 +242,7 @@ async fn call_model_gemini_rig_style(
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
+    let chat_history = prepared_history_to_rig_messages(&prepared)?;
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
     let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
     if !normalized_base.is_empty() {
@@ -119,46 +278,44 @@ async fn call_model_gemini_rig_style(
 
     let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text));
+        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
     }
     if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text));
+        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
     }
     if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text));
+        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
 
-    for (mime, bytes) in prepared.latest_images {
+    for (mime, bytes) in &prepared.latest_images {
         if mime.trim().eq_ignore_ascii_case("application/pdf") {
-            content_items.push(UserContent::document(bytes, Some(DocumentMediaType::PDF)));
+            content_items.push(UserContent::document(bytes.clone(), Some(DocumentMediaType::PDF)));
         } else {
             content_items.push(UserContent::image_base64(
-                bytes,
-                image_media_type_from_mime(&mime),
+                bytes.clone(),
+                image_media_type_from_mime(mime),
                 Some(ImageDetail::Auto),
             ));
         }
     }
 
-    for (mime, bytes) in prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes, audio_media_type_from_mime(&mime)));
+    for (mime, bytes) in &prepared.latest_audios {
+        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
     }
 
-    let prompt_content = OneOrMany::many(content_items)
+    let current_prompt_content = OneOrMany::many(content_items)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
-
-    let assistant_text = agent
-        .prompt(RigMessage::User {
-            content: prompt_content,
-        })
+    let current_prompt = RigMessage::User {
+        content: current_prompt_content,
+    };
+    let mut stream = agent
+        .stream_completion(current_prompt, chat_history)
         .await
-        .map_err(|err| err.to_string())?;
-    Ok(ModelReply {
-        assistant_text,
-        reasoning_standard: String::new(),
-        reasoning_inline: String::new(),
-        tool_history_events: Vec::new(),
-    })
+        .map_err(|err| format!("rig stream completion build failed: {err}"))?
+        .stream()
+        .await
+        .map_err(|err| format!("rig stream start failed: {err}"))?;
+    collect_streaming_model_reply(&mut stream, None).await
 }
 
 async fn call_model_anthropic_rig_style(
@@ -166,31 +323,35 @@ async fn call_model_anthropic_rig_style(
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
+    let chat_history = prepared_history_to_rig_messages(&prepared)?;
     let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text));
+        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
     }
     if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text));
+        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
     }
     if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text));
+        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
 
-    for (mime, bytes) in prepared.latest_images {
+    for (mime, bytes) in &prepared.latest_images {
         content_items.push(UserContent::image_base64(
-            bytes,
-            image_media_type_from_mime(&mime),
+            bytes.clone(),
+            image_media_type_from_mime(mime),
             Some(ImageDetail::Auto),
         ));
     }
 
-    for (mime, bytes) in prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes, audio_media_type_from_mime(&mime)));
+    for (mime, bytes) in &prepared.latest_audios {
+        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
     }
 
-    let prompt_content = OneOrMany::many(content_items)
+    let current_prompt_content = OneOrMany::many(content_items)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+    let current_prompt = RigMessage::User {
+        content: current_prompt_content,
+    };
 
     let mut client_builder: anthropic::ClientBuilder =
         anthropic::Client::builder().api_key(&api_config.api_key);
@@ -206,20 +367,14 @@ async fn call_model_anthropic_rig_style(
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
         .build();
-    let prompt_message = RigMessage::User {
-        content: prompt_content,
-    };
-
-    let assistant_text = agent
-        .prompt(prompt_message)
+    let mut stream = agent
+        .stream_completion(current_prompt, chat_history)
         .await
-        .map_err(|err| err.to_string())?;
-    Ok(ModelReply {
-        assistant_text,
-        reasoning_standard: String::new(),
-        reasoning_inline: String::new(),
-        tool_history_events: Vec::new(),
-    })
+        .map_err(|err| format!("rig stream completion build failed: {err}"))?
+        .stream()
+        .await
+        .map_err(|err| format!("rig stream start failed: {err}"))?;
+    collect_streaming_model_reply(&mut stream, None).await
 }
 
 fn debug_value_snippet(value: &Value, max_chars: usize) -> String {
@@ -947,12 +1102,6 @@ struct MemorySaveBatchItemArgs {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct MemorySaveBatchToolArgs {
     memories: Vec<MemorySaveBatchItemArgs>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct DesktopScreenshotToolArgs {
-    #[serde(default)]
-    webp_quality: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

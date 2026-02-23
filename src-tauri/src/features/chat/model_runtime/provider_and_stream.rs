@@ -1,463 +1,3 @@
-﻿fn openai_headers(api_key: &str) -> Result<HeaderMap, String> {
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    let auth = format!("Bearer {}", api_key.trim());
-    let auth_value = HeaderValue::from_str(&auth)
-        .map_err(|err| format!("Build authorization header failed: {err}"))?;
-    headers.insert(AUTHORIZATION, auth_value);
-    Ok(headers)
-}
-
-fn candidate_openai_chat_urls(base_url: &str) -> Vec<String> {
-    let base = base_url.trim().trim_end_matches('/');
-    if base.is_empty() {
-        return Vec::new();
-    }
-    let lower = base.to_ascii_lowercase();
-    let mut urls = Vec::new();
-    if lower.ends_with("/chat/completions") {
-        urls.push(base.to_string());
-    } else if lower.ends_with("/v1") {
-        urls.push(format!("{base}/chat/completions"));
-    } else {
-        urls.push(format!("{base}/chat/completions"));
-        urls.push(format!("{base}/v1/chat/completions"));
-    }
-    urls.sort();
-    urls.dedup();
-    urls
-}
-
-fn normalize_openai_user_content_value(content: &Value) -> Value {
-    let Value::Array(items) = content else {
-        return content.clone();
-    };
-    if items.is_empty() {
-        return Value::String(String::new());
-    }
-    let mut texts = Vec::<String>::new();
-    for item in items {
-        let Value::Object(obj) = item else {
-            return content.clone();
-        };
-        if obj.get("type").and_then(Value::as_str) != Some("text") {
-            return content.clone();
-        }
-        texts.push(
-            obj.get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        );
-    }
-    if texts.len() == 1 {
-        return Value::String(texts.remove(0));
-    }
-    content.clone()
-}
-
-fn normalize_openai_compatible_messages(messages: &mut [Value]) {
-    for message in messages.iter_mut() {
-        let Value::Object(map) = message else {
-            continue;
-        };
-        if map.get("role").and_then(Value::as_str) != Some("user") {
-            continue;
-        }
-        let Some(content) = map.get("content").cloned() else {
-            continue;
-        };
-        map.insert(
-            "content".to_string(),
-            normalize_openai_user_content_value(&content),
-        );
-    }
-}
-
-fn parse_stream_delta_text(content: &Option<Value>) -> String {
-    match content {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(|it| it.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join(""),
-        _ => String::new(),
-    }
-}
-
-fn longest_suffix_prefix_len(text: &str, token: &str) -> usize {
-    let max = std::cmp::min(text.len(), token.len().saturating_sub(1));
-    for len in (1..=max).rev() {
-        if text.ends_with(&token[..len]) {
-            return len;
-        }
-    }
-    0
-}
-
-fn extract_inline_reasoning_from_chunk(
-    chunk: &str,
-    inline_mode: &mut bool,
-    carry: &mut String,
-) -> String {
-    let mut src = String::new();
-    if !carry.is_empty() {
-        src.push_str(carry);
-        carry.clear();
-    }
-    src.push_str(chunk);
-
-    let mut inline = String::new();
-    let mut offset = 0usize;
-    const OPEN: &str = "<think>";
-    const CLOSE: &str = "</think>";
-
-    while offset < src.len() {
-        if *inline_mode {
-            if let Some(pos) = src[offset..].find(CLOSE) {
-                let end = offset + pos;
-                inline.push_str(&src[offset..end]);
-                offset = end + CLOSE.len();
-                *inline_mode = false;
-            } else {
-                let rest = &src[offset..];
-                let keep = longest_suffix_prefix_len(rest, CLOSE);
-                if keep < rest.len() {
-                    inline.push_str(&rest[..rest.len() - keep]);
-                }
-                if keep > 0 {
-                    carry.push_str(&rest[rest.len() - keep..]);
-                }
-                break;
-            }
-        } else if let Some(pos) = src[offset..].find(OPEN) {
-            let end = offset + pos;
-            offset = end + OPEN.len();
-            *inline_mode = true;
-        } else {
-            let rest = &src[offset..];
-            let keep = longest_suffix_prefix_len(rest, OPEN);
-            if keep > 0 {
-                carry.push_str(&rest[rest.len() - keep..]);
-            }
-            break;
-        }
-    }
-
-    inline
-}
-
-fn collect_reasoning_strings(value: &Value, out: &mut Vec<String>) {
-    match value {
-        Value::String(s) => {
-            if !s.trim().is_empty() {
-                out.push(s.to_string());
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_reasoning_strings(item, out);
-            }
-        }
-        Value::Object(map) => {
-            for key in ["text", "reasoning", "content"] {
-                if let Some(v) = map.get(key) {
-                    collect_reasoning_strings(v, out);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn parse_stream_delta_reasoning(delta: &OpenAIStreamDelta) -> String {
-    let mut parts = Vec::<String>::new();
-    if let Some(content) = &delta.reasoning_content {
-        if !content.trim().is_empty() {
-            parts.push(content.clone());
-        }
-    }
-    if let Some(details) = &delta.reasoning_details {
-        collect_reasoning_strings(details, &mut parts);
-    }
-    parts.join("")
-}
-
-/// 通用 OpenAI SSE 流式请求：解析文本 delta（实时推送到 on_delta）和 tool_calls 积累。
-/// 返回 (完整文本, 标准思维链, 正文思维链, 积累的 tool_calls)。
-async fn openai_stream_request(
-    client: &reqwest::Client,
-    url: &str,
-    body: Value,
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-) -> Result<(String, String, String, Vec<OpenAIToolCall>), String> {
-    openai_stream_request_with_sink(client, url, body, |kind, delta| {
-        let _ = on_delta.send(AssistantDeltaEvent {
-            delta: delta.to_string(),
-            kind: if kind == "text" {
-                None
-            } else {
-                Some(kind.to_string())
-            },
-            tool_name: None,
-            tool_status: None,
-            message: None,
-        });
-    })
-    .await
-}
-
-async fn openai_stream_request_with_sink<F>(
-    client: &reqwest::Client,
-    url: &str,
-    body: Value,
-    mut on_event: F,
-) -> Result<(String, String, String, Vec<OpenAIToolCall>), String>
-where
-    F: FnMut(&str, &str),
-{
-    let resp = client
-        .post(url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|err| format!("OpenAI stream request failed: {err}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let raw = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "OpenAI stream failed with status {status}: {}",
-            raw.chars().take(300).collect::<String>()
-        ));
-    }
-
-    let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
-    let mut output = String::new();
-    let mut reasoning_standard_output = String::new();
-    let mut reasoning_inline_output = String::new();
-    let mut inline_mode = false;
-    let mut inline_carry = String::new();
-
-    // 积累 tool_calls：按 index 分组
-    let mut tool_calls_map: std::collections::BTreeMap<usize, (String, String, String)> =
-        std::collections::BTreeMap::new(); // index -> (id, name, arguments)
-
-    while let Some(item) = stream.next().await {
-        let chunk = item.map_err(|err| format!("Read stream chunk failed: {err}"))?;
-        let text = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&text);
-
-        while let Some(pos) = buffer.find('\n') {
-            let line = buffer[..pos].trim_end_matches('\r').to_string();
-            buffer.drain(..=pos);
-
-            if !line.starts_with("data:") {
-                continue;
-            }
-            let data = line["data:".len()..].trim();
-            if data.is_empty() {
-                continue;
-            }
-            if data == "[DONE]" {
-                break;
-            }
-
-            let Ok(parsed) = serde_json::from_str::<OpenAIStreamChunk>(data) else {
-                continue;
-            };
-            if parsed.choices.is_empty() {
-                continue;
-            }
-            let choice = &parsed.choices[0];
-
-            // 处理标准思维链 delta（reasoning_content / reasoning_details）
-            let reasoning_delta = parse_stream_delta_reasoning(&choice.delta);
-            if !reasoning_delta.is_empty() {
-                on_event("reasoning_standard", &reasoning_delta);
-                reasoning_standard_output.push_str(&reasoning_delta);
-            }
-
-            // 处理文本 delta：保留原始文本（包含 <think> 标签），只额外提取正文思考事件
-            let delta_text = parse_stream_delta_text(&choice.delta.content);
-            if !delta_text.is_empty() {
-                output.push_str(&delta_text);
-                on_event("text", &delta_text);
-                let inline = extract_inline_reasoning_from_chunk(
-                    &delta_text,
-                    &mut inline_mode,
-                    &mut inline_carry,
-                );
-                if !inline.is_empty() {
-                    on_event("reasoning_inline", &inline);
-                    reasoning_inline_output.push_str(&inline);
-                }
-            }
-
-            // 处理 tool_calls delta
-            if let Some(tc_deltas) = &choice.delta.tool_calls {
-                for tc_delta in tc_deltas {
-                    let entry = tool_calls_map
-                        .entry(tc_delta.index)
-                        .or_insert_with(|| (String::new(), String::new(), String::new()));
-                    if let Some(id) = &tc_delta.id {
-                        entry.0 = id.clone();
-                    }
-                    if let Some(func) = &tc_delta.function {
-                        if let Some(name) = &func.name {
-                            entry.1.push_str(name);
-                        }
-                        if let Some(args) = &func.arguments {
-                            entry.2.push_str(args);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let tool_calls: Vec<OpenAIToolCall> = tool_calls_map
-        .into_iter()
-        .map(|(index, (id, name, arguments))| OpenAIToolCall {
-            id: if id.trim().is_empty() {
-                format!("tool_call_{index}")
-            } else {
-                id
-            },
-            function: OpenAIToolCallFunction { name, arguments },
-        })
-        .filter(|tc| !tc.function.name.trim().is_empty())
-        .collect();
-
-    Ok((
-        output,
-        reasoning_standard_output,
-        reasoning_inline_output,
-        tool_calls,
-    ))
-}
-
-async fn call_model_openai_stream_text(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: &PreparedPrompt,
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-) -> Result<ModelReply, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .default_headers(openai_headers(&api_config.api_key)?)
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-    let mut user_content = vec![serde_json::json!({
-      "type": "text",
-      "text": prepared.latest_user_text
-    })];
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        user_content.push(serde_json::json!({
-          "type": "text",
-          "text": prepared.latest_user_time_text
-        }));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        user_content.push(serde_json::json!({
-          "type": "text",
-          "text": prepared.latest_user_system_text
-        }));
-    }
-    let mut messages = Vec::<Value>::new();
-    messages.push(serde_json::json!({
-      "role": "system",
-      "content": prepared.preamble.clone()
-    }));
-    for hm in &prepared.history_messages {
-        if hm.role == "assistant" && hm.tool_calls.is_some() {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("assistant".to_string()));
-            if hm.text.trim().is_empty() {
-                msg.insert("content".to_string(), Value::Null);
-            } else {
-                msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            }
-            if let Some(reasoning) = &hm.reasoning_content {
-                if !reasoning.trim().is_empty() {
-                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
-                }
-            }
-            if let Some(calls) = &hm.tool_calls {
-                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
-            }
-            messages.push(Value::Object(msg));
-        } else if hm.role == "tool" {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("tool".to_string()));
-            msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            if let Some(call_id) = &hm.tool_call_id {
-                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
-            }
-            messages.push(Value::Object(msg));
-        } else if hm.role == "user" {
-            let mut content = vec![serde_json::json!({
-                "type": "text",
-                "text": hm.text.clone(),
-            })];
-            if let Some(time_text) = &hm.user_time_text {
-                if !time_text.trim().is_empty() {
-                    content.push(serde_json::json!({
-                        "type": "text",
-                        "text": time_text.clone(),
-                    }));
-                }
-            }
-            messages.push(serde_json::json!({
-                "role": "user",
-                "content": content,
-            }));
-        } else {
-            messages.push(serde_json::json!({
-              "role": hm.role,
-              "content": hm.text,
-            }));
-        }
-    }
-    messages.push(serde_json::json!({
-      "role": "user",
-      "content": user_content
-    }));
-    normalize_openai_compatible_messages(&mut messages);
-    let body = serde_json::json!({
-      "model": model_name,
-      "messages": messages,
-      "temperature": api_config.temperature,
-      "stream": true
-    });
-
-    let urls = candidate_openai_chat_urls(&api_config.base_url);
-    if urls.is_empty() {
-        return Err("Base URL is empty.".to_string());
-    }
-
-    let mut errors = Vec::new();
-    for url in urls {
-        match openai_stream_request(&client, &url, body.clone(), on_delta).await {
-            Ok((text, reasoning_standard, reasoning_inline, _)) => {
-                return Ok(ModelReply {
-                    assistant_text: text,
-                    reasoning_standard,
-                    reasoning_inline,
-                    tool_history_events: Vec::new(),
-                });
-            }
-            Err(err) => errors.push(format!("{url} -> {err}")),
-        }
-    }
-
-    Err(format!(
-        "OpenAI stream request failed for all candidate URLs: {}",
-        errors.join(" || ")
-    ))
-}
-
 fn shell_switch_workspace_enabled_for_session(
     selected_api: &ApiConfig,
     app_state: Option<&AppState>,
@@ -474,239 +14,7 @@ fn shell_switch_workspace_enabled_for_session(
     true
 }
 
-fn deepseek_tool_schemas(
-    selected_api: &ApiConfig,
-    app_state: Option<&AppState>,
-    tool_session_id: &str,
-) -> Vec<Value> {
-    let mut tools = Vec::<Value>::new();
-    if tool_enabled(selected_api, "fetch") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "fetch",
-                "description": "Fetch webpage text.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": { "type": "string" },
-                        "max_length": { "type": "integer", "default": 1800 }
-                    },
-                    "required": ["url"]
-                }
-            }
-        }));
-    }
-    if tool_enabled(selected_api, "bing-search") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "bing_search",
-                "description": "Search web with Bing. Query must preserve all user keywords/entities exactly; do not rewrite, summarize, or drop terms.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string" }
-                    },
-                    "required": ["query"]
-                }
-            }
-        }));
-    }
-    if tool_enabled(selected_api, "memory-save") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "memory_save",
-                "description": "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"] },
-                        "judgment": { "type": "string" },
-                        "reasoning": { "type": "string" },
-                        "tags": { "type": "array", "items": { "type": "string" } }
-                    },
-                    "required": ["memory_type", "judgment", "tags"]
-                }
-            }
-        }));
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "memory_save_batch",
-                "description": "批量保存与用户相关、长期有价值的记忆（单次最多 7 条）。禁止保存敏感信息。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "memories": {
-                            "type": "array",
-                            "maxItems": 7,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"] },
-                                    "judgment": { "type": "string" },
-                                    "reasoning": { "type": "string" },
-                                    "tags": { "type": "array", "items": { "type": "string" } }
-                                },
-                                "required": ["memory_type", "judgment", "tags"]
-                            }
-                        }
-                    },
-                    "required": ["memories"]
-                }
-            }
-        }));
-    }
-    if tool_enabled(selected_api, "desktop-screenshot") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "desktop_screenshot",
-                "description": "Capture current full desktop screenshot.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "webp_quality": { "type": "number", "minimum": 1, "maximum": 100, "default": 75 }
-                    }
-                }
-            }
-        }));
-    }
-    if tool_enabled(selected_api, "desktop-wait") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "desktop_wait",
-                "description": "Wait for specified milliseconds.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "ms": { "type": "integer", "minimum": 1, "maximum": 120000 }
-                    },
-                    "required": ["ms"]
-                }
-            }
-        }));
-    }
-    if shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id) {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "shell_switch_workspace",
-                "description": "Switch shell workspace root by workspaceName.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "workspace_name": { "type": "string", "description": "Configured workspace name." },
-                        "reason": { "type": "string" }
-                    },
-                    "required": ["workspace_name"]
-                }
-            }
-        }));
-    }
-    if tool_enabled(selected_api, "shell-exec") {
-        tools.push(serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "shell_exec",
-                "description": "Execute shell command inside current terminal root. Prefer relative cwd.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": { "type": "string" },
-                        "cwd": { "type": "string", "description": "Relative working directory under current terminal root." },
-                        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
-                    },
-                    "required": ["command"]
-                }
-            }
-        }));
-    }
-    tools
-}
-
-async fn execute_builtin_tool_call(
-    selected_api: &ApiConfig,
-    app_state: Option<&AppState>,
-    screenshot_mcp_client: Option<&ScreenshotMcpClient>,
-    tool_session_id: &str,
-    tool_name: &str,
-    args_json: &Value,
-) -> Result<Value, String> {
-    match tool_name {
-        "fetch" if tool_enabled(selected_api, "fetch") => {
-            let args: FetchToolArgs = serde_json::from_value(args_json.clone())
-                .map_err(|err| format!("Parse fetch args failed: {err}"))?;
-            builtin_fetch(&args.url, args.max_length.unwrap_or(1800)).await
-        }
-        "bing_search" | "bing-search" if tool_enabled(selected_api, "bing-search") => {
-            let args: BingSearchToolArgs = serde_json::from_value(args_json.clone())
-                .map_err(|err| format!("Parse bing_search args failed: {err}"))?;
-            builtin_bing_search(&args.query).await
-        }
-        "memory_save" | "memory-save" if tool_enabled(selected_api, "memory-save") => {
-            let state = app_state.ok_or_else(|| "memory_save requires app state".to_string())?;
-            builtin_memory_save(state, args_json.clone())
-        }
-        "memory_save_batch" | "memory-save-batch" if tool_enabled(selected_api, "memory-save") => {
-            let state =
-                app_state.ok_or_else(|| "memory_save_batch requires app state".to_string())?;
-            builtin_memory_save_batch(state, args_json.clone())
-        }
-        "desktop_screenshot" | "desktop-screenshot"
-            if tool_enabled(selected_api, "desktop-screenshot") =>
-        {
-            let args: DesktopScreenshotToolArgs = serde_json::from_value(args_json.clone())
-                .map_err(|err| format!("Parse desktop_screenshot args failed: {err}"))?;
-            let client = screenshot_mcp_client
-                .ok_or_else(|| "desktop_screenshot MCP client is not connected.".to_string())?;
-            call_desktop_screenshot_mcp_tool(client, args.webp_quality).await
-        }
-        "desktop_wait" | "desktop-wait" if tool_enabled(selected_api, "desktop-wait") => {
-            let args: DesktopWaitToolArgs = serde_json::from_value(args_json.clone())
-                .map_err(|err| format!("Parse desktop_wait args failed: {err}"))?;
-            builtin_desktop_wait(args.ms).await
-        }
-        "shell_switch_workspace" | "shell-switch-workspace"
-            if shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id) =>
-        {
-            let state = app_state.ok_or_else(|| {
-                "shell_switch_workspace requires app state".to_string()
-            })?;
-            let args: ShellSwitchWorkspaceToolArgs =
-                serde_json::from_value(args_json.clone()).map_err(|err| {
-                    format!("Parse shell_switch_workspace args failed: {err}")
-                })?;
-            builtin_shell_switch_workspace(
-                state,
-                tool_session_id,
-                &args.workspace_name,
-                args.reason.as_deref(),
-            )
-            .await
-        }
-        "shell_exec" | "shell-exec" if tool_enabled(selected_api, "shell-exec") => {
-            let state = app_state
-                .ok_or_else(|| "shell_exec requires app state".to_string())?;
-            let args: TerminalExecToolArgs = serde_json::from_value(args_json.clone())
-                .map_err(|err| format!("Parse shell_exec args failed: {err}"))?;
-            builtin_shell_exec(
-                state,
-                tool_session_id,
-                &args.command,
-                args.cwd.as_deref(),
-                args.timeout_ms,
-            )
-            .await
-        }
-        _ => Err(format!("Unsupported or disabled tool: {tool_name}")),
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ScreenshotForwardPayload {
     mime: String,
     base64: String,
@@ -994,323 +302,6 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     Ok(client)
 }
 
-async fn call_desktop_screenshot_mcp_tool(
-    client: &ScreenshotMcpClient,
-    webp_quality: Option<f32>,
-) -> Result<Value, String> {
-    let arguments = webp_quality
-        .map(|quality| serde_json::json!({ "webp_quality": quality }))
-        .and_then(|value| value.as_object().cloned());
-    let result = client
-        .call_tool(rmcp::model::CallToolRequestParam {
-            name: MCP_SCREENSHOT_TOOL_NAME.into(),
-            arguments,
-            task: None,
-        })
-        .await
-        .map_err(|err| format!("Call MCP desktop_screenshot failed: {err}"))?;
-    if result.is_error.unwrap_or(false) {
-        let detail = result
-            .clone()
-            .into_typed::<Value>()
-            .map(|value| value.to_string())
-            .unwrap_or_else(|_| {
-                serde_json::to_string(&result).unwrap_or_else(|_| "unknown error".to_string())
-            });
-        return Err(format!("MCP desktop_screenshot returned error: {detail}"));
-    }
-    result
-        .into_typed::<Value>()
-        .map_err(|err| format!("Parse MCP desktop_screenshot result failed: {err}"))
-}
-
-async fn call_model_deepseek_with_tools_http(
-    api_config: &ResolvedApiConfig,
-    selected_api: &ApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-    app_state: Option<&AppState>,
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-    max_tool_iterations: usize,
-    tool_session_id: &str,
-) -> Result<ModelReply, String> {
-    let tools = deepseek_tool_schemas(selected_api, app_state, tool_session_id);
-    if tools.is_empty() {
-        return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
-    }
-    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
-    let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
-    if has_desktop_screenshot {
-        let mut _mcp_tools_for_attach: Vec<Box<dyn ToolDyn>> = Vec::new();
-        let client = try_attach_desktop_screenshot_mcp_tool(&mut _mcp_tools_for_attach)
-            .await
-            .map_err(|err| {
-                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
-            })?;
-        _mcp_screenshot_client = Some(client);
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .default_headers(openai_headers(&api_config.api_key)?)
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-    let urls = candidate_openai_chat_urls(&api_config.base_url);
-    if urls.is_empty() {
-        return Err("Base URL is empty.".to_string());
-    }
-
-    let mut full_assistant_text = String::new();
-    let mut full_reasoning_standard = String::new();
-    let mut tool_history_events = Vec::<Value>::new();
-    let mut full_reasoning_inline = String::new();
-
-    let mut first_user_content = vec![serde_json::json!({
-      "type": "text",
-      "text": prepared.latest_user_text
-    })];
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        first_user_content.push(serde_json::json!({
-          "type": "text",
-          "text": prepared.latest_user_time_text
-        }));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        first_user_content.push(serde_json::json!({
-          "type": "text",
-          "text": prepared.latest_user_system_text
-        }));
-    }
-    let mut messages = Vec::<Value>::new();
-    messages.push(serde_json::json!({ "role": "system", "content": prepared.preamble }));
-    for hm in &prepared.history_messages {
-        if hm.role == "assistant" && hm.tool_calls.is_some() {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("assistant".to_string()));
-            if hm.text.trim().is_empty() {
-                msg.insert("content".to_string(), Value::Null);
-            } else {
-                msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            }
-            if let Some(reasoning) = &hm.reasoning_content {
-                if !reasoning.trim().is_empty() {
-                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
-                }
-            }
-            if let Some(calls) = &hm.tool_calls {
-                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
-            }
-            messages.push(Value::Object(msg));
-        } else if hm.role == "tool" {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("tool".to_string()));
-            msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            if let Some(call_id) = &hm.tool_call_id {
-                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
-            }
-            messages.push(Value::Object(msg));
-        } else if hm.role == "user" {
-            let mut content = vec![serde_json::json!({
-                "type": "text",
-                "text": hm.text.clone(),
-            })];
-            if let Some(time_text) = &hm.user_time_text {
-                if !time_text.trim().is_empty() {
-                    content.push(serde_json::json!({
-                        "type": "text",
-                        "text": time_text.clone(),
-                    }));
-                }
-            }
-            messages.push(serde_json::json!({
-                "role": "user",
-                "content": content,
-            }));
-        } else {
-            messages.push(serde_json::json!({
-                "role": hm.role,
-                "content": hm.text,
-            }));
-        }
-    }
-    messages.push(serde_json::json!({ "role": "user", "content": first_user_content }));
-    normalize_openai_compatible_messages(&mut messages);
-
-    for _ in 0..max_tool_iterations {
-        let body = serde_json::json!({
-            "model": model_name,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "temperature": api_config.temperature,
-            "stream": true
-        });
-
-        let mut errors = Vec::new();
-        let mut turn_result: Option<(String, String, String, Vec<OpenAIToolCall>)> = None;
-        for url in &urls {
-            match openai_stream_request(&client, url, body.clone(), on_delta).await {
-                Ok(v) => {
-                    turn_result = Some(v);
-                    break;
-                }
-                Err(err) => errors.push(format!("{url} -> {err}")),
-            }
-        }
-        let (turn_text, reasoning_standard, reasoning_inline, tool_calls) = turn_result.ok_or_else(|| {
-            format!(
-                "DeepSeek stream request failed for all candidate URLs: {}",
-                errors.join(" || ")
-            )
-        })?;
-
-        if !turn_text.trim().is_empty() {
-            if !full_assistant_text.trim().is_empty() {
-                full_assistant_text.push_str("\n\n");
-            }
-            full_assistant_text.push_str(&turn_text);
-        }
-        if !reasoning_standard.trim().is_empty() {
-            full_reasoning_standard.push_str(&reasoning_standard);
-        }
-        if !reasoning_inline.trim().is_empty() {
-            full_reasoning_inline.push_str(&reasoning_inline);
-        }
-
-        if tool_calls.is_empty() {
-            return Ok(ModelReply {
-                assistant_text: full_assistant_text,
-                reasoning_standard: full_reasoning_standard,
-                reasoning_inline: full_reasoning_inline,
-                tool_history_events,
-            });
-        }
-
-        let tool_calls_payload = tool_calls
-            .iter()
-            .map(|tc| {
-                serde_json::json!({
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        let assistant_tool_event = if selected_api.request_format.is_deepseek_kimi() {
-            serde_json::json!({
-                "role": "assistant",
-                "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
-                "reasoning_content": reasoning_standard,
-                "tool_calls": tool_calls_payload
-            })
-        } else {
-            serde_json::json!({
-                "role": "assistant",
-                "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
-                "tool_calls": tool_calls_payload
-            })
-        };
-        messages.push(assistant_tool_event.clone());
-        tool_history_events.push(assistant_tool_event);
-
-        for tc in tool_calls {
-            let tool_name = tc.function.name.clone();
-            send_tool_status_event(
-                on_delta,
-                &tool_name,
-                "running",
-                &format!("正在调用工具：{tool_name}"),
-            );
-            let args_json: Value = serde_json::from_str(&tc.function.arguments)
-                .map_err(|err| format!("Parse tool arguments failed: {err}"))?;
-            let tool_result = execute_builtin_tool_call(
-                selected_api,
-                app_state,
-                _mcp_screenshot_client.as_ref(),
-                tool_session_id,
-                &tool_name,
-                &args_json,
-            )
-                .await
-                .map_err(|err| {
-                    send_tool_status_event(
-                        on_delta,
-                        &tool_name,
-                        "failed",
-                        &format!("工具调用失败：{tool_name} ({err})"),
-                    );
-                    err
-                })?;
-            send_tool_status_event(
-                on_delta,
-                &tool_name,
-                "done",
-                &format!("工具调用完成：{tool_name}"),
-            );
-            let tool_result_text = tool_result.to_string();
-            let (tool_result_for_model, screenshot_forward) =
-                enrich_screenshot_tool_result_with_cache(&tool_name, &tool_result_text);
-            let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_for_model);
-            let tool_event = serde_json::json!({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": history_content
-            });
-            messages.push(tool_event.clone());
-            tool_history_events.push(tool_event);
-            if let Some((payload, artifact_id)) = screenshot_forward {
-                let notice = screenshot_forward_notice(&payload);
-                let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
-                    ScreenshotArtifactEntry {
-                        mime: payload.mime.clone(),
-                        base64: payload.base64.clone(),
-                        width: payload.width,
-                        height: payload.height,
-                        created_seq: 0,
-                    },
-                );
-                let user_forward_event = serde_json::json!({
-                    "role": "user",
-                    "content": [
-                        { "type": "text", "text": notice },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": format!("data:{};base64,{}", cached.mime, cached.base64)
-                            }
-                        }
-                    ]
-                });
-                messages.push(user_forward_event.clone());
-                tool_history_events.push(serde_json::json!({
-                    "role": "user",
-                    "content": "[desktop screenshot forwarded as user image]",
-                    "screenshotArtifactId": artifact_id,
-                    "screenshotArtifactMaxRetained": SCREENSHOT_ARTIFACT_MAX_ITEMS,
-                    "screenshotWidth": cached.width,
-                    "screenshotHeight": cached.height
-                }));
-            }
-        }
-    }
-
-    send_tool_status_event(
-        on_delta,
-        "tools",
-        "failed",
-        "工具调用达到上限，停止继续调用并立刻汇报。",
-    );
-    Ok(ModelReply {
-        assistant_text: full_assistant_text,
-        reasoning_standard: full_reasoning_standard,
-        reasoning_inline: full_reasoning_inline,
-        tool_history_events,
-    })
-}
-
 async fn call_model_openai_with_tools(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -1321,20 +312,6 @@ async fn call_model_openai_with_tools(
     max_tool_iterations: usize,
     tool_session_id: &str,
 ) -> Result<ModelReply, String> {
-    if selected_api.request_format.is_deepseek_kimi() {
-        return call_model_deepseek_with_tools_http(
-            api_config,
-            selected_api,
-            model_name,
-            prepared,
-            app_state,
-            on_delta,
-            max_tool_iterations,
-            tool_session_id,
-        )
-        .await;
-    }
-
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_bing = tool_enabled(selected_api, "bing-search");
     let has_memory = tool_enabled(selected_api, "memory-save");
@@ -1343,17 +320,6 @@ async fn call_model_openai_with_tools(
     let has_shell_switch_workspace =
         shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
     let has_shell_exec = tool_enabled(selected_api, "shell-exec");
-    if !has_fetch
-        && !has_bing
-        && !has_memory
-        && !has_desktop_screenshot
-        && !has_desktop_wait
-        && !has_shell_switch_workspace
-        && !has_shell_exec
-    {
-        return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
-    }
-
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
     if !api_config.base_url.is_empty() {
@@ -1463,7 +429,8 @@ async fn call_model_openai_with_tools(
         }
     }
 
-    for _ in 0..max_tool_iterations {
+    let max_rounds = std::cmp::max(1usize, max_tool_iterations);
+    for _ in 0..max_rounds {
         let mut stream = agent
             .stream_completion(current_prompt.clone(), chat_history.clone())
             .await
@@ -2484,6 +1451,46 @@ async fn call_model_openai_style(
         api_config.temperature,
     );
     let headers = masked_auth_headers(&api_config.api_key);
+    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+        let result =
+            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
+                .await;
+        let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        match &result {
+            Ok(reply) => {
+                push_llm_round_log(
+                    app_state,
+                    "chat",
+                    selected_api.request_format,
+                    &selected_api.name,
+                    model_name,
+                    &api_config.base_url,
+                    headers,
+                    request_log,
+                    Some(model_reply_to_log_value(reply)),
+                    None,
+                    elapsed_ms,
+                );
+            }
+            Err(err) => {
+                push_llm_round_log(
+                    app_state,
+                    "chat",
+                    selected_api.request_format,
+                    &selected_api.name,
+                    model_name,
+                    &api_config.base_url,
+                    headers,
+                    request_log,
+                    None,
+                    Some(err.clone()),
+                    elapsed_ms,
+                );
+            }
+        }
+        return result;
+    }
+
     let result = if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
@@ -2542,7 +1549,17 @@ async fn call_model_openai_style(
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
-        call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await
+        call_model_openai_with_tools(
+            api_config,
+            selected_api,
+            model_name,
+            prepared,
+            app_state,
+            on_delta,
+            max_tool_iterations,
+            tool_session_id,
+        )
+        .await
     } else {
         let original = prepared.clone();
         let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
@@ -2558,7 +1575,17 @@ async fn call_model_openai_style(
                 let mut fallback = original;
                 fallback.latest_images.clear();
                 fallback.latest_audios.clear();
-                call_model_openai_stream_text(api_config, model_name, &fallback, on_delta).await
+                call_model_openai_with_tools(
+                    api_config,
+                    selected_api,
+                    model_name,
+                    fallback,
+                    app_state,
+                    on_delta,
+                    max_tool_iterations,
+                    tool_session_id,
+                )
+                .await
             }
             Err(err) => Err(err),
         }
@@ -2625,6 +1652,15 @@ async fn describe_image_with_vision_api(
     let reply = match vision_resolved.request_format {
         RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
             call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?
+        }
+        RequestFormat::OpenAIResponses => {
+            call_model_openai_responses_rig_style(
+                vision_resolved,
+                &vision_api.model,
+                prepared,
+                None,
+            )
+            .await?
         }
         RequestFormat::Gemini => {
             call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?

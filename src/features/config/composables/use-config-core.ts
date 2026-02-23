@@ -3,7 +3,13 @@ import { normalizeLocale } from "../../../i18n";
 import type { ApiConfigItem, AppConfig } from "../../../types/app";
 
 function isTextRequestFormat(format: string): boolean {
-  return format === "openai" || format === "gemini" || format === "deepseek/kimi" || format === "anthropic";
+  return (
+    format === "openai"
+    || format === "openai_responses"
+    || format === "gemini"
+    || format === "deepseek/kimi"
+    || format === "anthropic"
+  );
 }
 
 type UseConfigCoreOptions = {
