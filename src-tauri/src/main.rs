@@ -11,11 +11,11 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
 use futures_util::{future::AbortHandle, StreamExt};
 use image::ImageFormat;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rig::{
     completion::{
         message::{AudioMediaType, DocumentMediaType, ImageDetail, ImageMediaType, UserContent},
-        Message as RigMessage, Prompt, ToolDefinition,
+        Message as RigMessage, ToolDefinition,
     },
     message::{AssistantContent, ToolResultContent},
     prelude::CompletionClient,

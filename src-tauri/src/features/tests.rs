@@ -1,6 +1,6 @@
     use super::*;
     use httpmock::{
-        Method::{GET, POST},
+        Method::GET,
         MockServer,
     };
 

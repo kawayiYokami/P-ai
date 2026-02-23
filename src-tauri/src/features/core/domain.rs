@@ -108,6 +108,8 @@ struct ApiToolConfig {
 enum RequestFormat {
     #[serde(rename = "openai")]
     OpenAI,
+    #[serde(rename = "openai_responses")]
+    OpenAIResponses,
     #[serde(rename = "openai_tts")]
     OpenAITts,
     #[serde(rename = "openai_stt")]
@@ -130,6 +132,7 @@ impl RequestFormat {
     fn from_str(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "openai" => Some(Self::OpenAI),
+            "openai_responses" => Some(Self::OpenAIResponses),
             "openai_tts" => Some(Self::OpenAITts),
             "openai_stt" => Some(Self::OpenAIStt),
             "openai_embedding" => Some(Self::OpenAIEmbedding),
@@ -145,6 +148,7 @@ impl RequestFormat {
     fn as_str(self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
+            Self::OpenAIResponses => "openai_responses",
             Self::OpenAITts => "openai_tts",
             Self::OpenAIStt => "openai_stt",
             Self::OpenAIEmbedding => "openai_embedding",
@@ -173,13 +177,17 @@ impl RequestFormat {
     }
 
     fn is_openai_style(self) -> bool {
-        matches!(self, Self::OpenAI | Self::DeepSeekKimi)
+        matches!(self, Self::OpenAI | Self::OpenAIResponses | Self::DeepSeekKimi)
     }
 
     fn is_chat_text(self) -> bool {
         matches!(
             self,
-            Self::OpenAI | Self::DeepSeekKimi | Self::Gemini | Self::Anthropic
+            Self::OpenAI
+                | Self::OpenAIResponses
+                | Self::DeepSeekKimi
+                | Self::Gemini
+                | Self::Anthropic
         )
     }
 }
@@ -597,49 +605,6 @@ struct AnthropicModelListItem {
 struct AnthropicModelListResponse {
     #[serde(default)]
     data: Vec<AnthropicModelListItem>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIStreamChunk {
-    choices: Vec<OpenAIStreamChoice>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIStreamChoice {
-    delta: OpenAIStreamDelta,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIStreamDelta {
-    content: Option<Value>,
-    reasoning_content: Option<String>,
-    reasoning_details: Option<Value>,
-    tool_calls: Option<Vec<OpenAIStreamToolCallDelta>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIStreamToolCallDelta {
-    index: usize,
-    id: Option<String>,
-    function: Option<OpenAIStreamToolCallFnDelta>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIStreamToolCallFnDelta {
-    name: Option<String>,
-    arguments: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIToolCall {
-    id: String,
-    function: OpenAIToolCallFunction,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAIToolCallFunction {
-    name: String,
-    arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
