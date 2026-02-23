@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { AppConfig } from "../../../types/app";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
@@ -36,6 +37,7 @@ type AppBootstrapOptions = {
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
+  onConfigUpdated?: (payload: AppConfig) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -83,6 +85,11 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
             options.onChatSettingsUpdated?.(event.payload);
           },
         ),
+      );
+      unlisteners.push(
+        await listen<AppConfig>("easy-call:config-updated", (event) => {
+          options.onConfigUpdated?.(event.payload);
+        }),
       );
     } catch (error) {
       unmount();

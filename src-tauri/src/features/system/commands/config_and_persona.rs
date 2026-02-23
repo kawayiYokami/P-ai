@@ -127,6 +127,7 @@ fn save_config(
     write_config(&state.config_path, &config)?;
     register_hotkey_from_config(&app, &config)?;
     drop(guard);
+    let _ = app.emit("easy-call:config-updated", &config);
     Ok(config)
 }
 
@@ -1194,4 +1195,3 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
-

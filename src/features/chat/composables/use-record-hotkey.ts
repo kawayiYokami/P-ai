@@ -1,8 +1,6 @@
 type UseRecordHotkeyOptions = {
   isActive: () => boolean;
-  getSummonHotkey: () => string;
   getRecordHotkey: () => string;
-  onConflict: () => void;
   onStartRecording: () => void | Promise<void>;
   onStopRecording: (discard: boolean) => void | Promise<void>;
   startDelayMs?: number;
@@ -15,7 +13,6 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
   let hotkeyPressed = false;
   let suppressUntil = 0;
   let blockUntilRelease = false;
-  let conflictHintShown = false;
   let recordingStarted = false;
 
   const startDelayMs = options.startDelayMs ?? 180;
@@ -72,13 +69,6 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     return { modifiers, main };
   }
 
-  function normalizeHotkey(raw: string): string {
-    const { modifiers, main } = parseHotkey(raw);
-    const orderedMods = ["CTRL", "ALT", "SHIFT", "META"].filter((mod) => modifiers.has(mod));
-    const parts = main ? [...orderedMods, main] : orderedMods;
-    return parts.join("+");
-  }
-
   function modifiersExactlyMatch(mods: Set<string>, event: KeyboardEvent): boolean {
     return (
       event.ctrlKey === mods.has("CTRL")
@@ -122,27 +112,12 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     return false;
   }
 
-  function hasHotkeyConflict(): boolean {
-    const summonHotkey = normalizeHotkey(options.getSummonHotkey());
-    const recordHotkey = normalizeHotkey(options.getRecordHotkey());
-    if (!summonHotkey || !recordHotkey) return false;
-    return summonHotkey === recordHotkey;
-  }
-
   function mount() {
     if (keydownHandler || keyupHandler) return;
 
     keydownHandler = (event: KeyboardEvent) => {
       if (!options.isActive()) return;
       if (!matchesRecordHotkey(event)) return;
-      if (hasHotkeyConflict()) {
-        if (!conflictHintShown) {
-          options.onConflict();
-          conflictHintShown = true;
-        }
-        return;
-      }
-      conflictHintShown = false;
       if (event.repeat) return;
       if (Date.now() < suppressUntil) return;
       if (blockUntilRelease) return;
@@ -159,7 +134,6 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
 
     keyupHandler = (event: KeyboardEvent) => {
       if (!options.isActive()) return;
-      if (hasHotkeyConflict()) return;
       if (!isRelevantRecordHotkeyKey(event)) return;
       if (blockUntilRelease) {
         blockUntilRelease = false;
@@ -193,7 +167,6 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     hotkeyPressed = false;
     suppressUntil = 0;
     blockUntilRelease = false;
-    conflictHintShown = false;
     recordingStarted = false;
     if (keydownHandler) {
       window.removeEventListener("keydown", keydownHandler);
