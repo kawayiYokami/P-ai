@@ -45,6 +45,7 @@
       :hotkey-test-recording-ms="hotkeyTestRecordingMs"
       :hotkey-test-audio-ready="!!hotkeyTestAudio"
       :checking-update="checkingUpdate"
+      :save-config-action="saveConfig"
       @update:config-tab="updateConfigTab"
       @update:ui-language="setUiLanguage"
       @update:persona-editor-id="updatePersonaEditorId"
@@ -327,7 +328,7 @@ const props = defineProps<{
   updateSelectedResponseStyleId: (value: string) => void;
   toggleTheme: () => void;
   refreshModels: () => void;
-  saveConfig: () => void;
+  saveConfig: () => Promise<boolean> | boolean;
   onToolsChanged: () => void;
   addApiConfig: () => void;
   removeSelectedApiConfig: () => void;

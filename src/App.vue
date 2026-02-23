@@ -614,11 +614,7 @@ const playHotkeyRecordTest = chatMedia.playHotkeyRecordTest;
 const cleanupChatMedia = chatMedia.cleanupChatMedia;
 const recordHotkey = useRecordHotkey({
   isActive: () => viewMode.value === "chat",
-  getSummonHotkey: () => config.hotkey,
   getRecordHotkey: () => config.recordHotkey,
-  onConflict: () => {
-    status.value = t("config.hotkey.conflict");
-  },
   onStartRecording: () => startRecording(),
   onStopRecording: (discard) => stopRecording(discard),
 });
@@ -927,6 +923,16 @@ const appBootstrap = useAppBootstrap({
       await refreshConversationHistory();
       visibleTurnCount.value = 1;
     }
+  },
+  onConfigUpdated: (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    config.hotkey = String(payload.hotkey || config.hotkey || "").trim() || config.hotkey;
+    config.recordHotkey = String(payload.recordHotkey || config.recordHotkey || "").trim() || config.recordHotkey;
+    config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(payload.minRecordSeconds) || config.minRecordSeconds)));
+    config.maxRecordSeconds = Math.max(
+      config.minRecordSeconds,
+      Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
+    );
   },
 });
 

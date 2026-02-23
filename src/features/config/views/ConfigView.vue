@@ -258,6 +258,7 @@ const props = defineProps<{
   hotkeyTestRecordingMs: number;
   hotkeyTestAudioReady: boolean;
   checkingUpdate: boolean;
+  saveConfigAction: () => Promise<boolean> | boolean;
 }>();
 
 const emit = defineEmits<{
@@ -418,26 +419,46 @@ function closeCropDialog() {
 
 // `config` is a shared reactive object from the root app state.
 // Direct mutation here is intentional and immediately reflected upstream.
-function onRecordHotkeyChanged(value: string) {
+async function onRecordHotkeyChanged(value: string) {
   const next = String(value || "").trim();
   if (!next) return;
+  const previous = props.config.recordHotkey;
+  if (previous === next) return;
   props.config.recordHotkey = next;
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    props.config.recordHotkey = previous;
+  }
 }
 
-function onMinRecordSecondsChanged(value: number) {
+async function onMinRecordSecondsChanged(value: number) {
+  const previousMin = props.config.minRecordSeconds;
+  const previousMax = props.config.maxRecordSeconds;
   const next = Math.max(MIN_RECORD_SECONDS, Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(value) || MIN_RECORD_SECONDS)));
   props.config.minRecordSeconds = next;
   if (props.config.maxRecordSeconds < next) {
     props.config.maxRecordSeconds = next;
   }
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    props.config.minRecordSeconds = previousMin;
+    props.config.maxRecordSeconds = previousMax;
+  }
 }
 
-function onMaxRecordSecondsChanged(value: number) {
+async function onMaxRecordSecondsChanged(value: number) {
+  const previousMin = props.config.minRecordSeconds;
+  const previousMax = props.config.maxRecordSeconds;
   const next = Math.max(
     props.config.minRecordSeconds,
     Math.min(MAX_RECORD_SECONDS, Math.round(Number(value) || props.config.minRecordSeconds)),
   );
   props.config.maxRecordSeconds = next;
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    props.config.minRecordSeconds = previousMin;
+    props.config.maxRecordSeconds = previousMax;
+  }
 }
 
 function requestTabChange(nextTab: ConfigTab) {

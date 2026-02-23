@@ -14,7 +14,6 @@
     <div class="label py-1">
       <span class="label-text-alt text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
     </div>
-    <div v-if="hotkeyRecordConflict" class="text-xs text-error mt-1">{{ t("config.hotkey.conflict") }}</div>
   </label>
   <div class="grid grid-cols-1 gap-2">
     <label class="form-control">
@@ -82,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AppConfig } from "../../../../types/app";
 
@@ -110,32 +109,6 @@ const hotkeyCaptureHint = ref(t("config.hotkey.captureDefaultHint"));
 let hotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 const recordHotkeyCapturing = ref(false);
 let recordHotkeyCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
-
-function normalizeHotkeyTokens(value: string): string[] {
-  return String(value || "")
-    .split("+")
-    .map((token) => token.trim().toUpperCase())
-    .filter((token) => token.length > 0);
-}
-
-function isTokenPrefix(shorter: string[], longer: string[]): boolean {
-  if (shorter.length === 0 || longer.length === 0) return false;
-  if (shorter.length > longer.length) return false;
-  for (let i = 0; i < shorter.length; i += 1) {
-    if (shorter[i] !== longer[i]) return false;
-  }
-  return true;
-}
-
-const hotkeyRecordConflict = computed(() => {
-  const hotkeyTokens = normalizeHotkeyTokens(props.config.hotkey);
-  const recordHotkeyTokens = normalizeHotkeyTokens(props.config.recordHotkey);
-  if (hotkeyTokens.length === 0 || recordHotkeyTokens.length === 0) return false;
-  if (hotkeyTokens.length <= recordHotkeyTokens.length) {
-    return isTokenPrefix(hotkeyTokens, recordHotkeyTokens);
-  }
-  return isTokenPrefix(recordHotkeyTokens, hotkeyTokens);
-});
 
 function onMinRecordSecondsInput(event: Event) {
   const raw = Number((event.target as HTMLInputElement).value);
