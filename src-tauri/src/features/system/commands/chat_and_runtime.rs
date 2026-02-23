@@ -1249,8 +1249,9 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     };
 
     let api_config = resolve_api_config(&app_config, None)?;
+    let local_time_text = format_message_time_text(&now_iso());
     let prepared = PreparedPrompt {
-        preamble: format!("[TIME]\nCurrent UTC time: {}", now_iso()),
+        preamble: format!("[TIME]\nCurrent local time: {}", local_time_text),
         history_messages: Vec::new(),
         latest_user_text: api_config.fixed_test_prompt.clone(),
         latest_user_time_text: String::new(),

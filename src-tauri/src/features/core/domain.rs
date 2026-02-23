@@ -941,20 +941,32 @@ fn parse_iso(value: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
+fn local_utc_offset() -> Option<UtcOffset> {
+    UtcOffset::current_local_offset().ok()
+}
+
+fn to_local_datetime(dt: OffsetDateTime) -> OffsetDateTime {
+    if let Some(offset) = local_utc_offset() {
+        dt.to_offset(offset)
+    } else {
+        dt
+    }
+}
+
 fn format_message_time_text(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
     }
     if let Some(dt) = parse_iso(trimmed) {
+        let local = to_local_datetime(dt);
         return format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            dt.year(),
-            dt.month() as u8,
-            dt.day(),
-            dt.hour(),
-            dt.minute(),
-            dt.second()
+            "{:04}-{:02}-{:02} {:02}:{:02}",
+            local.year(),
+            local.month() as u8,
+            local.day(),
+            local.hour(),
+            local.minute()
         );
     }
     let mut normalized = trimmed.replace('T', " ");
@@ -964,8 +976,8 @@ fn format_message_time_text(raw: &str) -> String {
     if normalized.ends_with('Z') {
         normalized.pop();
     }
-    if normalized.chars().count() > 19 {
-        normalized.chars().take(19).collect::<String>()
+    if normalized.chars().count() > 16 {
+        normalized.chars().take(16).collect::<String>()
     } else {
         normalized
     }
