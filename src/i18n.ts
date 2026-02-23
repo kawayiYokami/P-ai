@@ -1,10 +1,9 @@
 import { createI18n } from "vue-i18n";
 import zhCN from "./locales/zh-CN.json";
 import enUS from "./locales/en-US.json";
-import jaJP from "./locales/ja-JP.json";
-import koKR from "./locales/ko-KR.json";
+import zhTW from "./locales/zh-TW.json";
 
-export const SUPPORTED_LOCALES = ["zh-CN", "en-US", "ja-JP", "ko-KR"] as const;
+export const SUPPORTED_LOCALES = ["zh-CN", "en-US", "zh-TW"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 export function normalizeLocale(value?: string | null): SupportedLocale {
@@ -20,7 +19,6 @@ export const i18n = createI18n({
   messages: {
     "zh-CN": zhCN,
     "en-US": enUS,
-    "ja-JP": jaJP,
-    "ko-KR": koKR,
+    "zh-TW": zhTW,
   },
 });

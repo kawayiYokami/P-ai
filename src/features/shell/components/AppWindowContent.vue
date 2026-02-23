@@ -235,7 +235,7 @@ const props = defineProps<{
   viewMode: "chat" | "archives" | "config";
   config: AppConfig;
   configTab: "hotkey" | "api" | "tools" | "mcp" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about";
-  localeOptions: Array<{ value: "zh-CN" | "en-US" | "ja-JP" | "ko-KR"; label: string }>;
+  localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: "light" | "dracula";
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;

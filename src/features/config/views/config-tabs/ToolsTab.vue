@@ -8,26 +8,26 @@
       </label>
       <div class="card bg-base-100 border border-base-300">
         <div class="flex items-center justify-between gap-3 p-4">
-          <span class="text-xs font-medium">Shell 工作空间</span>
+          <span class="text-xs font-medium">{{ t('config.tools.shellWorkspace') }}</span>
           <div class="flex items-center gap-2">
-            <button class="btn btn-xs" type="button" @click="addWorkspace">新建</button>
+            <button class="btn btn-xs" type="button" @click="addWorkspace">{{ t('config.tools.newWorkspace') }}</button>
             <button class="btn btn-xs btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
-              保存
+              {{ t('config.tools.save') }}
             </button>
           </div>
         </div>
         <div class="grid gap-3 px-4 pb-4">
           <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`" class="rounded-box border border-base-300 p-3 bg-base-200">
             <div class="flex items-center gap-2 mb-3">
-              <input v-model.trim="ws.name" class="input input-bordered input-xs flex-1" placeholder="工作空间名称" />
-              <button class="btn btn-xs bg-base-100" type="button" :disabled="!!ws.builtIn" @click="pickWorkspacePath(index)">选择路径</button>
-              <button class="btn btn-xs btn-ghost" type="button" :disabled="!!ws.builtIn" @click="removeWorkspace(index)">删除</button>
+              <input v-model.trim="ws.name" class="input input-bordered input-xs flex-1" :placeholder="t('config.tools.workspaceName')" />
+              <button class="btn btn-xs bg-base-100" type="button" :disabled="!!ws.builtIn" @click="pickWorkspacePath(index)">{{ t('config.tools.selectPath') }}</button>
+              <button class="btn btn-xs btn-ghost" type="button" :disabled="!!ws.builtIn" @click="removeWorkspace(index)">{{ t('config.tools.delete') }}</button>
             </div>
-            <input v-model.trim="ws.path" class="input input-bordered input-xs w-full font-mono" placeholder="目录路径" :disabled="!!ws.builtIn" />
+            <input v-model.trim="ws.path" class="input input-bordered input-xs w-full font-mono" :placeholder="t('config.tools.directoryPath')" :disabled="!!ws.builtIn" />
           </div>
         </div>
         <div class="mt-3 px-4 pb-4 text-[11px] opacity-70">
-          仅允许切换到这些工作空间；名称必须唯一；默认工作空间不可删除。
+          {{ t('config.tools.workspaceHint') }}
         </div>
       </div>
     </div>

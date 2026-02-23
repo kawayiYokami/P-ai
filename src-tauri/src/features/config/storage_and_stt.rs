@@ -254,7 +254,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     ensure_hotkey_config_normalized(config);
     let lang = config.ui_language.trim();
     config.ui_language = match lang {
-        "zh-CN" | "en-US" | "ja-JP" | "ko-KR" => lang.to_string(),
+        "zh-CN" | "en-US" | "zh-TW" => lang.to_string(),
         _ => default_ui_language(),
     };
 

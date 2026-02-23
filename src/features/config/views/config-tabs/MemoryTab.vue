@@ -7,7 +7,7 @@
     >
       <div class="rounded-box border border-base-300 bg-base-100 px-6 py-4 shadow-lg flex flex-col items-center gap-3 min-w-72">
         <span class="loading loading-spinner loading-md text-primary"></span>
-        <div class="text-sm font-medium">嵌入同步进行中</div>
+        <div class="text-sm font-medium">{{ t('config.memory.syncing') }}</div>
         <progress class="progress progress-primary w-full" :value="syncProgressPercent" max="100"></progress>
         <div class="text-xs opacity-70">
           {{ syncProgressText }}
@@ -19,17 +19,17 @@
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-3 space-y-3">
         <div class="flex items-center justify-between">
-          <span class="text-sm font-medium">向量化配置</span>
-          <div class="text-xs opacity-60">即使无向量化也可以有非常好的回想体验</div>
+          <span class="text-sm font-medium">{{ t('config.memory.vectorization') }}</span>
+          <div class="text-xs opacity-60">{{ t('config.memory.vectorizationHint') }}</div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- 嵌入配置 -->
           <div class="flex flex-col gap-2">
             <label class="form-control">
-              <div class="label py-0"><span class="label-text text-xs">嵌入模型</span></div>
+              <div class="label py-0"><span class="label-text text-xs">{{ t('config.memory.embeddingModel') }}</span></div>
               <select v-model="embeddingApiConfigId" class="select select-bordered select-sm">
-                <option value="">未配置</option>
+                <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
                   {{ api.name }}
                 </option>
@@ -37,14 +37,14 @@
             </label>
             <div class="flex gap-2">
               <button class="btn btn-sm flex-1" :disabled="loading || !embeddingApiConfigId" @click="testEmbeddingProvider">
-                测试嵌入
+                {{ t('config.memory.testEmbedding') }}
               </button>
               <button
                 class="btn btn-sm btn-primary flex-1"
                 :disabled="loading || syncLocked || (!!embeddingApiConfigId && !embeddingReadyToSave)"
                 @click="saveEmbeddingBinding"
               >
-                保存并同步
+                {{ t('config.memory.saveAndSync') }}
               </button>
             </div>
           </div>
@@ -52,9 +52,9 @@
           <!-- 重排配置 -->
           <div class="flex flex-col gap-2">
             <label class="form-control">
-              <div class="label py-0"><span class="label-text text-xs">重排模型</span></div>
+              <div class="label py-0"><span class="label-text text-xs">{{ t('config.memory.rerankModel') }}</span></div>
               <select v-model="rerankApiConfigId" class="select select-bordered select-sm">
-                <option value="">未配置</option>
+                <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
                   {{ api.name }}
                 </option>
@@ -62,14 +62,14 @@
             </label>
             <div class="flex gap-2">
               <button class="btn btn-sm flex-1" :disabled="loading || !rerankApiConfigId" @click="testRerankProvider">
-                测试重排
+                {{ t('config.memory.testRerank') }}
               </button>
               <button
                 class="btn btn-sm flex-1"
                 :disabled="loading || syncLocked || (!!rerankApiConfigId && !rerankReadyToSave)"
                 @click="saveRerankBinding"
               >
-                保存重排
+                {{ t('config.memory.saveRerank') }}
               </button>
             </div>
           </div>
@@ -86,7 +86,7 @@
       <div class="card-body p-3 min-h-0 flex flex-col gap-3">
         <!-- 标题 + 操作 -->
         <div class="flex items-center justify-between">
-          <span class="text-sm font-medium">记忆列表</span>
+          <span class="text-sm font-medium">{{ t('config.memory.list') }}</span>
           <div class="join">
             <button class="btn btn-xs join-item" :disabled="loading" @click="refreshMemories" title="刷新">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
@@ -108,7 +108,7 @@
               <input
                 v-model.trim="searchQuery"
                 class="input input-bordered input-sm join-item flex-1"
-                placeholder="搜索记忆（混合检索）"
+                :placeholder="t('config.memory.searchPlaceholder')"
                 @keyup.enter="searchMemories"
               />
             </div>
@@ -121,7 +121,7 @@
               :disabled="loading || !searchQuery"
               @click="searchMemories"
             >
-              搜索
+              {{ t('config.memory.search') }}
             </button>
           </div>
         </div>
@@ -132,18 +132,18 @@
             :disabled="loading"
             @click="clearSearch"
           >
-            清空
+            {{ t('config.memory.clear') }}
           </button>
           <span v-if="loading" class="text-xs opacity-70">
             <span class="loading loading-spinner loading-xs"></span>
-            搜索中...
+            {{ t('config.memory.searching') }}
           </span>
         </div>
 
         <!-- 搜索结果信息 -->
         <div v-if="isSearchMode && memoryList.length > 0" class="text-xs opacity-70 flex items-center gap-2">
-          <span class="badge badge-sm badge-ghost">搜索结果</span>
-          <span>{{ memoryList.length }} 条匹配</span>
+          <span class="badge badge-sm badge-ghost">{{ t('config.memory.searchResults') }}</span>
+          <span>{{ t('config.memory.matchesCount', { count: memoryList.length }) }}</span>
         </div>
 
                 <!-- 记忆列表 -->
@@ -165,13 +165,13 @@
                             :class="memoryTypeBadgeClass(memory.memoryType)"
                           >{{ memoryTypeLabel(memory.memoryType) }}</span>
                           <span class="badge badge-sm badge-outline">
-                            {{ memory.ownerAgentId ? `私有:${ownerAgentName(memory.ownerAgentId)}` : "全局" }}
+                            {{ memory.ownerAgentId ? t('config.memory.ownerPrivate', { owner: ownerAgentName(memory.ownerAgentId) }) : t('config.memory.globalTag') }}
                           </span>
                           <span class="opacity-50">{{ formatMemoryTime(memory.updatedAt || memory.createdAt) }}</span>
                           <span v-for="(kw, idx) in memory.tags" :key="`${memory.id}-${idx}`" class="badge badge-sm badge-neutral opacity-80">
                             {{ kw }}
                           </span>
-                          <span v-if="!memory.tags.length" class="opacity-40 text-[11px]">无标签</span>
+                          <span v-if="!memory.tags.length" class="opacity-40 text-[11px]">{{ t('config.memory.noTags') }}</span>
                         </span>
                         <button
                           class="btn btn-xs btn-ghost btn-circle"
@@ -304,8 +304,8 @@ const syncProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, Math.round((syncProgressDone.value / syncProgressTotal.value) * 100)));
 });
 const syncProgressText = computed(() => {
-  if (syncProgressTotal.value <= 0) return `状态: ${syncProgressStatus.value}`;
-  return `批次 ${syncProgressDone.value}/${syncProgressTotal.value} (${syncProgressPercent.value}%)`;
+  if (syncProgressTotal.value <= 0) return t('config.memory.progressStatus', { status: syncProgressStatus.value });
+  return t('config.memory.progressBatch', { done: syncProgressDone.value, total: syncProgressTotal.value, percent: syncProgressPercent.value });
 });
 
 const sortedMemories = computed(() => {
@@ -371,18 +371,18 @@ function memoryTypeBadgeClass(type: string): string {
 
 function memoryTypeLabel(type: string): string {
   const labels: Record<string, string> = {
-    knowledge: "知识",
-    skill: "技能",
-    emotion: "情感",
-    event: "事件",
+    knowledge: t('config.memory.typeKnowledge'),
+    skill: t('config.memory.typeSkill'),
+    emotion: t('config.memory.typeEmotion'),
+    event: t('config.memory.typeEvent'),
   };
   return labels[type] || type;
 }
 
 function ownerAgentName(agentId: string): string {
   const id = String(agentId || "").trim();
-  if (!id) return "已删除人格";
-  return personaNameMap.value[id] || "已删除人格";
+  if (!id) return t('config.memory.deletedPersona');
+  return personaNameMap.value[id] || t('config.memory.deletedPersona');
 }
 
 function formatMemoryTime(iso: string): string {
@@ -397,10 +397,10 @@ function formatMemoryTime(iso: string): string {
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
-  if (seconds < 60) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  if (hours < 24) return `${hours} 小时前`;
-  if (days < 7) return `${days} 天前`;
+  if (seconds < 60) return t('config.memory.justNow');
+  if (minutes < 60) return t('config.memory.minutesAgo', { count: minutes });
+  if (hours < 24) return t('config.memory.hoursAgo', { count: hours });
+  if (days < 7) return t('config.memory.daysAgo', { count: days });
 
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -432,7 +432,7 @@ async function deleteMemory(memoryId: string) {
   );
   if (!result) return;
   await refreshMemories();
-  opMessage.value = "已删除记忆";
+  opMessage.value = t('config.memory.memoryDeleted');
 }
 
 async function refreshMemories() {
@@ -441,7 +441,7 @@ async function refreshMemories() {
   memoryList.value = result;
   memoryPage.value = 1;
   isSearchMode.value = false;
-  opMessage.value = `已加载 ${result.length} 条记忆`;
+  opMessage.value = t('config.memory.loadedCount', { count: result.length });
 }
 
 async function searchMemories() {
@@ -472,7 +472,7 @@ async function searchMemories() {
   }));
   memoryPage.value = 1;
   isSearchMode.value = true;
-  opMessage.value = `搜索完成: ${result.memories.length} 条结果, 耗时 ${result.elapsedMs}ms`;
+  opMessage.value = t('config.memory.searchCompleted', { count: result.memories.length });
 }
 
 async function clearSearch() {
@@ -483,7 +483,7 @@ async function clearSearch() {
 async function exportMemories() {
   const result = await withLoading(() => invokeTauri<{ path: string; count: number }>("export_memories_to_file"));
   if (!result) return;
-  opMessage.value = `已导出 ${result.count} 条记忆到 ${result.path}`;
+  opMessage.value = t('config.memory.exportedCount', { count: result.count });
 }
 
 function triggerImport() {
@@ -512,7 +512,7 @@ async function handleImportFile(event: Event) {
       { input: { memories } },
     );
     await refreshMemories();
-    opMessage.value = `导入完成: 新增 ${result.createdCount} 条, 合并 ${result.mergedCount} 条, 共 ${result.totalCount} 条`;
+    opMessage.value = t('config.memory.importCompleted');
   });
 }
 
@@ -531,7 +531,7 @@ async function testEmbeddingProvider() {
   );
   if (!result) return;
   embeddingLastPassedTestKey.value = embeddingCurrentTestKey.value;
-  opMessage.value = `嵌入测试成功: ${result.providerKind} · 维度 ${result.vectorDim} · 耗时 ${result.elapsedMs}ms`;
+  opMessage.value = t('config.memory.embeddingTestSuccess', { provider: result.providerKind, dim: result.vectorDim, ms: result.elapsedMs });
 }
 
 async function testRerankProvider() {
@@ -548,7 +548,7 @@ async function testRerankProvider() {
   );
   if (!result) return;
   rerankLastPassedTestKey.value = rerankCurrentTestKey.value;
-  opMessage.value = `重排测试成功: ${result.providerKind} · ${result.resultCount} 条结果 · 耗时 ${result.elapsedMs}ms`;
+  opMessage.value = t('config.memory.rerankTestSuccess', { provider: result.providerKind, count: result.resultCount, ms: result.elapsedMs });
 }
 
 async function saveEmbeddingBinding() {
@@ -563,7 +563,7 @@ async function saveEmbeddingBinding() {
     );
     if (!result) return;
     embeddingLastPassedTestKey.value = "";
-    opMessage.value = "嵌入已关闭";
+    opMessage.value = t('config.memory.embeddingClosed');
     return;
   }
   emit("sync-lock-change", true);
@@ -584,7 +584,7 @@ async function saveEmbeddingBinding() {
     ),
   );
   if (result) {
-    opMessage.value = `嵌入同步完成: 新增 ${result.added} 条, 删除 ${result.deleted} 条, 共 ${result.batchCount} 批次`;
+    opMessage.value = t('config.memory.embeddingSyncSuccess', { added: result.added, deleted: result.deleted, batchCount: result.batchCount });
   }
   await refreshSyncProgress();
   stopSyncProgressPolling();
@@ -606,7 +606,7 @@ async function saveRerankBinding() {
     );
     if (!result) return;
     rerankLastPassedTestKey.value = "";
-    opMessage.value = "重排已关闭";
+    opMessage.value = t('config.memory.rerankClosed');
     return;
   }
   const result = await withLoading(() =>
@@ -621,7 +621,7 @@ async function saveRerankBinding() {
     ),
   );
   if (!result) return;
-  opMessage.value = `重排配置已保存`;
+  opMessage.value = t('config.memory.rerankSaved');
 }
 
 async function loadApiConfigs() {

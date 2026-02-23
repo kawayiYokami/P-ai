@@ -3,8 +3,8 @@
     <div class="flex items-center justify-between">
       <div class="text-sm font-medium">调用日志（内存）</div>
       <div class="join">
-        <button class="btn btn-xs join-item" :disabled="loading" @click="reload">刷新</button>
-        <button class="btn btn-xs join-item" :disabled="loading || logs.length === 0" @click="clearAll">清空</button>
+        <button class="btn btn-xs bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading" @click="reload">刷新</button>
+        <button class="btn btn-xs bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading || logs.length === 0" @click="clearAll">清空</button>
       </div>
     </div>
 

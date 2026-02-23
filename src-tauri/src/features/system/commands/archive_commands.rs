@@ -220,8 +220,7 @@ fn archive_time_label(raw: &str) -> String {
 fn archive_no_content_label(ui_language: &str) -> String {
     match ui_language.trim() {
         "en-US" => "No content".to_string(),
-        "ja-JP" => "内容なし".to_string(),
-        "ko-KR" => "내용 없음".to_string(),
+        "zh-TW" => "無內容".to_string(),
         _ => "无内容".to_string(),
     }
 }
