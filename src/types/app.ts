@@ -97,6 +97,27 @@ export type McpListServerToolsResult = {
   elapsedMs: number;
 };
 
+export type LlmRoundLogHeader = {
+  name: string;
+  value: string;
+};
+
+export type LlmRoundLogEntry = {
+  id: string;
+  createdAt: string;
+  scene: string;
+  requestFormat: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  headers: LlmRoundLogHeader[];
+  request: unknown;
+  response?: unknown;
+  error?: string;
+  elapsedMs: number;
+  success: boolean;
+};
+
 export type PersonaProfile = {
   id: string;
   name: string;

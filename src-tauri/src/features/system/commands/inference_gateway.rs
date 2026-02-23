@@ -74,11 +74,19 @@ async fn invoke_model_with_policy(
     model_name: &str,
     prepared: PreparedPrompt,
     policy: CallPolicy,
+    app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
+    let started_at = std::time::Instant::now();
+    let request_log = prepared_prompt_to_equivalent_request_json(
+        &prepared,
+        model_name,
+        resolved_api.temperature,
+    );
+    let headers = masked_auth_headers(&resolved_api.api_key);
     if policy.json_only {
         // json_only is enforced by prompt contract + caller-side JSON parse.
     }
-    if let Some(timeout_secs) = policy.timeout_secs {
+    let result = if let Some(timeout_secs) = policy.timeout_secs {
         invoke_model_rig_by_format_with_timeout(
             resolved_api,
             model_name,
@@ -89,10 +97,45 @@ async fn invoke_model_with_policy(
         .await
     } else {
         invoke_model_rig_by_format(resolved_api, model_name, prepared).await
+    };
+    let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    match &result {
+        Ok(reply) => {
+            push_llm_round_log(
+                app_state,
+                policy.scene,
+                resolved_api.request_format,
+                policy.scene,
+                model_name,
+                &resolved_api.base_url,
+                headers,
+                request_log,
+                Some(model_reply_to_log_value(reply)),
+                None,
+                elapsed_ms,
+            );
+        }
+        Err(err) => {
+            push_llm_round_log(
+                app_state,
+                policy.scene,
+                resolved_api.request_format,
+                policy.scene,
+                model_name,
+                &resolved_api.base_url,
+                headers,
+                request_log,
+                None,
+                Some(err.clone()),
+                elapsed_ms,
+            );
+        }
     }
+    result
 }
 
 async fn call_archive_summary_model_with_timeout(
+    state: &AppState,
     resolved_api: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     prepared: PreparedPrompt,
@@ -103,6 +146,7 @@ async fn call_archive_summary_model_with_timeout(
         &selected_api.model,
         prepared,
         CallPolicy::archive_json(timeout_secs),
+        Some(state),
     )
     .await
 }

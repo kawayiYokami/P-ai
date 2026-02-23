@@ -1,0 +1,297 @@
+const LLM_ROUND_LOG_CAPACITY: usize = 10;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LlmRoundLogHeader {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LlmRoundLogEntry {
+    id: String,
+    created_at: String,
+    scene: String,
+    request_format: String,
+    provider: String,
+    model: String,
+    base_url: String,
+    headers: Vec<LlmRoundLogHeader>,
+    request: Value,
+    response: Option<Value>,
+    error: Option<String>,
+    elapsed_ms: u64,
+    success: bool,
+}
+
+fn mask_secret_keep_edges(value: &str) -> String {
+    let trimmed = value.trim();
+    let chars = trimmed.chars().collect::<Vec<_>>();
+    if chars.len() <= 4 {
+        return "****".to_string();
+    }
+    let head = chars.iter().take(2).collect::<String>();
+    let tail = chars
+        .iter()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!("{head}***{tail}")
+}
+
+fn masked_auth_headers(api_key: &str) -> Vec<LlmRoundLogHeader> {
+    let masked = mask_secret_keep_edges(api_key);
+    vec![
+        LlmRoundLogHeader {
+            name: "authorization".to_string(),
+            value: format!("Bearer {masked}"),
+        },
+        LlmRoundLogHeader {
+            name: "x-api-key".to_string(),
+            value: masked,
+        },
+    ]
+}
+
+fn prepared_prompt_to_equivalent_request_json(
+    prepared: &PreparedPrompt,
+    model_name: &str,
+    temperature: f64,
+) -> Value {
+    fn normalize_user_content(content: &Value) -> Value {
+        let Value::Array(items) = content else {
+            return content.clone();
+        };
+        if items.is_empty() {
+            return Value::String(String::new());
+        }
+        let mut texts = Vec::<String>::new();
+        for item in items {
+            let Value::Object(obj) = item else {
+                return content.clone();
+            };
+            if obj.get("type").and_then(Value::as_str) != Some("text") {
+                return content.clone();
+            }
+            texts.push(
+                obj.get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+        }
+        if texts.len() == 1 {
+            return Value::String(texts.remove(0));
+        }
+        content.clone()
+    }
+
+    fn normalize_messages(messages: &mut [Value]) {
+        for msg in messages.iter_mut() {
+            let Value::Object(obj) = msg else {
+                continue;
+            };
+            if obj.get("role").and_then(Value::as_str) != Some("user") {
+                continue;
+            }
+            let Some(content) = obj.get("content").cloned() else {
+                continue;
+            };
+            obj.insert("content".to_string(), normalize_user_content(&content));
+        }
+    }
+
+    let mut messages = Vec::<Value>::new();
+    messages.push(serde_json::json!({
+        "role": "system",
+        "content": prepared.preamble
+    }));
+
+    for hm in &prepared.history_messages {
+        if hm.role == "assistant" && hm.tool_calls.is_some() {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("assistant".to_string()));
+            if hm.text.trim().is_empty() {
+                msg.insert("content".to_string(), Value::Null);
+            } else {
+                msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+                }
+            }
+            if let Some(calls) = &hm.tool_calls {
+                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+            }
+            messages.push(Value::Object(msg));
+            continue;
+        }
+
+        if hm.role == "tool" {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("tool".to_string()));
+            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            if let Some(call_id) = &hm.tool_call_id {
+                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
+            }
+            messages.push(Value::Object(msg));
+            continue;
+        }
+
+        if hm.role == "user" {
+            let mut content = vec![serde_json::json!({
+                "type": "text",
+                "text": hm.text,
+            })];
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": time_text,
+                    }));
+                }
+            }
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": content,
+            }));
+            continue;
+        }
+
+        messages.push(serde_json::json!({
+            "role": hm.role,
+            "content": hm.text
+        }));
+    }
+
+    let mut latest_user_content = Vec::<Value>::new();
+    if !prepared.latest_user_text.trim().is_empty() {
+        latest_user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_text
+        }));
+    }
+    if !prepared.latest_user_time_text.trim().is_empty() {
+        latest_user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_time_text
+        }));
+    }
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        latest_user_content.push(serde_json::json!({
+            "type": "text",
+            "text": prepared.latest_user_system_text
+        }));
+    }
+    for (mime, bytes_base64) in &prepared.latest_images {
+        if mime.trim().eq_ignore_ascii_case("application/pdf") {
+            latest_user_content.push(serde_json::json!({
+                "type": "file",
+                "mime": mime,
+                "bytesBase64": bytes_base64
+            }));
+        } else {
+            latest_user_content.push(serde_json::json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": format!("data:{};base64,{}", mime, bytes_base64),
+                    "detail": "auto"
+                }
+            }));
+        }
+    }
+    for (mime, bytes_base64) in &prepared.latest_audios {
+        latest_user_content.push(serde_json::json!({
+            "type": "input_audio",
+            "input_audio": {
+                "data": bytes_base64,
+                "format": mime
+            }
+        }));
+    }
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": latest_user_content
+    }));
+    normalize_messages(&mut messages);
+
+    serde_json::json!({
+        "model": model_name,
+        "temperature": temperature,
+        "stream": true,
+        "messages": messages
+    })
+}
+
+fn model_reply_to_log_value(reply: &ModelReply) -> Value {
+    serde_json::json!({
+        "assistantText": reply.assistant_text,
+        "reasoningStandard": reply.reasoning_standard,
+        "reasoningInline": reply.reasoning_inline,
+        "toolHistoryEvents": reply.tool_history_events
+    })
+}
+
+fn push_llm_round_log(
+    state: Option<&AppState>,
+    scene: &str,
+    request_format: RequestFormat,
+    provider_name: &str,
+    model_name: &str,
+    base_url: &str,
+    headers: Vec<LlmRoundLogHeader>,
+    request: Value,
+    response: Option<Value>,
+    error: Option<String>,
+    elapsed_ms: u64,
+) {
+    let Some(app_state) = state else {
+        return;
+    };
+    let success = error.is_none();
+    let Ok(mut logs) = app_state.llm_round_logs.lock() else {
+        return;
+    };
+    logs.push_back(LlmRoundLogEntry {
+        id: Uuid::new_v4().to_string(),
+        created_at: now_iso(),
+        scene: scene.to_string(),
+        request_format: request_format.as_str().to_string(),
+        provider: provider_name.to_string(),
+        model: model_name.to_string(),
+        base_url: base_url.to_string(),
+        headers,
+        request,
+        response,
+        error: error.filter(|v| !v.trim().is_empty()),
+        elapsed_ms,
+        success,
+    });
+    while logs.len() > LLM_ROUND_LOG_CAPACITY {
+        let _ = logs.pop_front();
+    }
+}
+
+#[tauri::command]
+fn list_recent_llm_round_logs(state: State<'_, AppState>) -> Result<Vec<LlmRoundLogEntry>, String> {
+    let logs = state
+        .llm_round_logs
+        .lock()
+        .map_err(|_| "Failed to lock llm round logs".to_string())?;
+    Ok(logs.iter().cloned().collect::<Vec<_>>())
+}
+
+#[tauri::command]
+fn clear_recent_llm_round_logs(state: State<'_, AppState>) -> Result<bool, String> {
+    let mut logs = state
+        .llm_round_logs
+        .lock()
+        .map_err(|_| "Failed to lock llm round logs".to_string())?;
+    logs.clear();
+    Ok(true)
+}

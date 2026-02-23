@@ -4,6 +4,9 @@ include!("commands/config_and_persona.rs");
 // ==================== 提示词组装层 ====================
 include!("commands/prompt_assembly.rs");
 
+// ==================== 调试日志命令 ====================
+include!("commands/debug_log_commands.rs");
+
 // ==================== 归档提示词协议层 ====================
 include!("commands/archive_prompt_contract.rs");
 

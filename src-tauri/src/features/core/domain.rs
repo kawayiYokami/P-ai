@@ -890,6 +890,7 @@ struct AppState {
     terminal_session_roots: Arc<Mutex<std::collections::HashMap<String, String>>>,
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    llm_round_logs: Arc<Mutex<std::collections::VecDeque<LlmRoundLogEntry>>>,
 }
 
 impl AppState {
@@ -939,6 +940,7 @@ impl AppState {
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
         })
     }
 }

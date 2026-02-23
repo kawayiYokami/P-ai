@@ -215,6 +215,8 @@ fn main() {
             get_image_text_cache_stats,
             clear_image_text_cache,
             send_debug_probe,
+            list_recent_llm_round_logs,
+            clear_recent_llm_round_logs,
             desktop_screenshot,
             desktop_wait,
             terminal_self_check,

@@ -103,6 +103,7 @@ struct ForceArchiveResult {
 }
 
 async fn summarize_archived_conversation_with_model_v2(
+    state: &AppState,
     resolved_api: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     agent: &AgentProfile,
@@ -134,8 +135,14 @@ async fn summarize_archived_conversation_with_model_v2(
         build_archive_latest_user_text(&instruction, &used_memories, archive_example_output_block());
     let timeout_secs = 360u64;
 
-    let reply =
-        call_archive_summary_model_with_timeout(resolved_api, selected_api, prepared, timeout_secs).await?;
+    let reply = call_archive_summary_model_with_timeout(
+        state,
+        resolved_api,
+        selected_api,
+        prepared,
+        timeout_secs,
+    )
+    .await?;
     let parsed = parse_archive_summary_draft(&reply.assistant_text).ok_or_else(|| {
         format!(
             "Parse archive summary JSON failed. raw={}",
@@ -281,6 +288,7 @@ pub(crate) async fn run_archive_pipeline(
     );
 
     let parsed = summarize_archived_conversation_with_model_v2(
+        state,
         resolved_api,
         selected_api,
         &host_agent,

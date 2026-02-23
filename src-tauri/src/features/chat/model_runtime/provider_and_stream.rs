@@ -28,6 +28,52 @@ fn candidate_openai_chat_urls(base_url: &str) -> Vec<String> {
     urls
 }
 
+fn normalize_openai_user_content_value(content: &Value) -> Value {
+    let Value::Array(items) = content else {
+        return content.clone();
+    };
+    if items.is_empty() {
+        return Value::String(String::new());
+    }
+    let mut texts = Vec::<String>::new();
+    for item in items {
+        let Value::Object(obj) = item else {
+            return content.clone();
+        };
+        if obj.get("type").and_then(Value::as_str) != Some("text") {
+            return content.clone();
+        }
+        texts.push(
+            obj.get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        );
+    }
+    if texts.len() == 1 {
+        return Value::String(texts.remove(0));
+    }
+    content.clone()
+}
+
+fn normalize_openai_compatible_messages(messages: &mut [Value]) {
+    for message in messages.iter_mut() {
+        let Value::Object(map) = message else {
+            continue;
+        };
+        if map.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        let Some(content) = map.get("content").cloned() else {
+            continue;
+        };
+        map.insert(
+            "content".to_string(),
+            normalize_openai_user_content_value(&content),
+        );
+    }
+}
+
 fn parse_stream_delta_text(content: &Option<Value>) -> String {
     match content {
         Some(Value::String(s)) => s.clone(),
@@ -378,6 +424,7 @@ async fn call_model_openai_stream_text(
       "role": "user",
       "content": user_content
     }));
+    normalize_openai_compatible_messages(&mut messages);
     let body = serde_json::json!({
       "model": model_name,
       "messages": messages,
@@ -1087,6 +1134,7 @@ async fn call_model_deepseek_with_tools_http(
         }
     }
     messages.push(serde_json::json!({ "role": "user", "content": first_user_content }));
+    normalize_openai_compatible_messages(&mut messages);
 
     for _ in 0..max_tool_iterations {
         let body = serde_json::json!({
@@ -2422,12 +2470,26 @@ async fn call_model_openai_style(
     max_tool_iterations: usize,
     tool_session_id: &str,
 ) -> Result<ModelReply, String> {
-    if selected_api.request_format.is_gemini() {
+    let mut prepared = prepared;
+    if !selected_api.enable_image && !prepared.latest_images.is_empty() {
+        prepared.latest_images.clear();
+    }
+    if !selected_api.enable_audio && !prepared.latest_audios.is_empty() {
+        prepared.latest_audios.clear();
+    }
+    let started_at = std::time::Instant::now();
+    let request_log = prepared_prompt_to_equivalent_request_json(
+        &prepared,
+        model_name,
+        api_config.temperature,
+    );
+    let headers = masked_auth_headers(&api_config.api_key);
+    let result = if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
             && prepared.latest_audios.is_empty()
         {
-            return call_model_gemini_with_tools(
+            call_model_gemini_with_tools(
                 api_config,
                 selected_api,
                 model_name,
@@ -2437,16 +2499,16 @@ async fn call_model_openai_style(
                 max_tool_iterations,
                 tool_session_id,
             )
-            .await;
+            .await
+        } else {
+            call_model_gemini_rig_style(api_config, model_name, prepared).await
         }
-        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
-    }
-    if selected_api.request_format.is_anthropic() {
+    } else if selected_api.request_format.is_anthropic() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
             && prepared.latest_audios.is_empty()
         {
-            return call_model_anthropic_with_tools(
+            call_model_anthropic_with_tools(
                 api_config,
                 selected_api,
                 model_name,
@@ -2456,18 +2518,16 @@ async fn call_model_openai_style(
                 max_tool_iterations,
                 tool_session_id,
             )
-            .await;
+            .await
+        } else {
+            call_model_anthropic_rig_style(api_config, model_name, prepared).await
         }
-        return call_model_anthropic_rig_style(api_config, model_name, prepared).await;
-    }
-
-    // 优先使用工具调用（如果启用）
-    if selected_api.enable_tools
+    } else if selected_api.enable_tools
         && is_openai_style_request_format(selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
-        return call_model_openai_with_tools(
+        call_model_openai_with_tools(
             api_config,
             selected_api,
             model_name,
@@ -2477,36 +2537,66 @@ async fn call_model_openai_style(
             max_tool_iterations,
             tool_session_id,
         )
-        .await;
-    }
-
-    // 纯文本流式传输（无论工具是否启用，只要没有工具调用就走流式）
-    if is_openai_style_request_format(selected_api.request_format)
+        .await
+    } else if is_openai_style_request_format(selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
-        return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
-    }
-
-    // 回退到 rig（支持多模态）
-    let original = prepared.clone();
-    let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
-    match rig_result {
-        Ok(reply) => Ok(reply),
-        Err(err)
-            if !original.latest_images.is_empty() && is_image_unsupported_error(&err) =>
-        {
-            eprintln!(
-                "[CHAT] Model rejected image input, fallback to text-only request. error={}",
-                err
-            );
-            let mut fallback = original;
-            fallback.latest_images.clear();
-            fallback.latest_audios.clear();
-            call_model_openai_stream_text(api_config, model_name, &fallback, on_delta).await
+        call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await
+    } else {
+        let original = prepared.clone();
+        let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
+        match rig_result {
+            Ok(reply) => Ok(reply),
+            Err(err)
+                if !original.latest_images.is_empty() && is_image_unsupported_error(&err) =>
+            {
+                eprintln!(
+                    "[CHAT] Model rejected image input, fallback to text-only request. error={}",
+                    err
+                );
+                let mut fallback = original;
+                fallback.latest_images.clear();
+                fallback.latest_audios.clear();
+                call_model_openai_stream_text(api_config, model_name, &fallback, on_delta).await
+            }
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
+    };
+    let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    match &result {
+        Ok(reply) => {
+            push_llm_round_log(
+                app_state,
+                "chat",
+                selected_api.request_format,
+                &selected_api.name,
+                model_name,
+                &api_config.base_url,
+                headers,
+                request_log,
+                Some(model_reply_to_log_value(reply)),
+                None,
+                elapsed_ms,
+            );
+        }
+        Err(err) => {
+            push_llm_round_log(
+                app_state,
+                "chat",
+                selected_api.request_format,
+                &selected_api.name,
+                model_name,
+                &api_config.base_url,
+                headers,
+                request_log,
+                None,
+                Some(err.clone()),
+                elapsed_ms,
+            );
+        }
     }
+    result
 }
 
 async fn describe_image_with_vision_api(

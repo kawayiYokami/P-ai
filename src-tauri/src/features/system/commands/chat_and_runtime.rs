@@ -1262,6 +1262,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         &api_config.model,
         prepared,
         CallPolicy::debug_probe(),
+        Some(&state),
     )
     .await?;
     Ok(reply.assistant_text)

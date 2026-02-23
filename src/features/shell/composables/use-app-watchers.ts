@@ -5,7 +5,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 type UseAppWatchersOptions = {
   config: AppConfig;
-  configTab: Ref<"hotkey" | "api" | "tools" | "mcp" | "persona" | "chatSettings" | "memory" | "appearance" | "about">;
+  configTab: Ref<"hotkey" | "api" | "tools" | "mcp" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about">;
   viewMode: Ref<"chat" | "archives" | "config">;
   personas: Ref<PersonaProfile[]>;
   userPersona: ComputedRef<PersonaProfile | null>;
