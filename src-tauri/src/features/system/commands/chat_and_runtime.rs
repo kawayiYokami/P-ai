@@ -1,4 +1,4 @@
-﻿fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
+fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
     format!("{}::{}", api_config_id.trim(), agent_id.trim())
 }
 
@@ -25,7 +25,7 @@ async fn send_chat_message(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let app_config = read_config(&state.config_path)?;
         let selected_api = if let Some(api_id) = requested_api_id.as_deref() {
             app_config
@@ -121,7 +121,7 @@ async fn send_chat_message(
                         let guard = state
                             .state_lock
                             .lock()
-                            .map_err(|_| "Failed to lock state mutex".to_string())?;
+                            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
                         let data = read_app_data(&state.data_path)?;
                         drop(guard);
                         find_image_text_cache(&data, &hash, &vision_api.id)
@@ -144,7 +144,7 @@ async fn send_chat_message(
                     let guard = state
                         .state_lock
                         .lock()
-                        .map_err(|_| "Failed to lock state mutex".to_string())?;
+                        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
                     let mut data = read_app_data(&state.data_path)?;
                     let mapped = if let Some(existing) =
                         find_image_text_cache(&data, &hash, &vision_api.id)
@@ -224,7 +224,7 @@ async fn send_chat_message(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
         let _agent = data
@@ -320,7 +320,7 @@ async fn send_chat_message(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
 
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
@@ -476,7 +476,7 @@ async fn send_chat_message(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
 
         let mut data = read_app_data(&state.data_path)?;
         if let Some(conversation) = data
@@ -585,7 +585,7 @@ async fn stop_chat_message(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let app_config = read_config(&state.config_path)?;
     let selected_api = app_config
         .api_configs
@@ -910,7 +910,7 @@ async fn stt_transcribe(
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let cfg = read_config(&state.config_path)?;
         drop(guard);
         cfg
@@ -1099,7 +1099,7 @@ fn check_tools_status(
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut config = read_config(&state.config_path)?;
     normalize_api_tools(&mut config);
     drop(guard);
@@ -1195,7 +1195,7 @@ fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCac
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = read_app_data(&state.data_path)?;
     drop(guard);
 
@@ -1223,7 +1223,7 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
     let guard = state
         .state_lock
         .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = read_app_data(&state.data_path)?;
     data.image_text_cache.clear();
     write_app_data(&state.data_path, &data)?;
@@ -1242,7 +1242,7 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         let guard = state
             .state_lock
             .lock()
-            .map_err(|_| "Failed to lock state mutex".to_string())?;
+            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let cfg = read_config(&state.config_path)?;
         drop(guard);
         cfg
@@ -1270,4 +1270,6 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     .await?;
     Ok(reply.assistant_text)
 }
+
+
 

@@ -374,12 +374,46 @@ fn memory_tantivy_bm25_scores(
         return Ok(Vec::new());
     }
     let qp = QueryParser::for_index(&index, vec![content_field]);
-    let query = qp
-        .parse_query(&query_tokens)
-        .map_err(|err| format!("Parse tantivy query failed: {err}"))?;
-    let hits = searcher
-        .search(&query, &TopDocs::with_limit(limit))
-        .map_err(|err| format!("Search tantivy bm25 failed: {err}"))?;
+    // Build explicit fielded query to avoid tantivy grammar panics on field-less special syntax.
+    let fielded_query = memory_tokenize_query_terms(query_text)
+        .into_iter()
+        .map(|token| {
+            let escaped = token
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            format!("content:\"{}\"", escaped)
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let parse_target = if fielded_query.trim().is_empty() {
+        query_tokens
+    } else {
+        fielded_query
+    };
+    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| qp.parse_query(&parse_target)));
+    let query = match parsed {
+        Ok(Ok(query)) => query,
+        Ok(Err(err)) => return Err(format!("Parse tantivy query failed: {err}")),
+        Err(_) => {
+            return Err(
+                "Parse tantivy query panicked (invalid grammar input); query was rejected safely."
+                    .to_string(),
+            )
+        }
+    };
+    let searched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        searcher.search(&query, &TopDocs::with_limit(limit))
+    }));
+    let hits = match searched {
+        Ok(Ok(hits)) => hits,
+        Ok(Err(err)) => return Err(format!("Search tantivy bm25 failed: {err}")),
+        Err(_) => {
+            return Err(
+                "Search tantivy bm25 panicked unexpectedly; search was aborted safely."
+                    .to_string(),
+            )
+        }
+    };
 
     let max_score = hits
         .iter()

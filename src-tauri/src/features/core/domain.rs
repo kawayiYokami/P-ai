@@ -872,6 +872,7 @@ struct AppState {
     llm_workspace_path: PathBuf,
     terminal_shell: TerminalShellProfile,
     state_lock: Arc<Mutex<()>>,
+    last_panic_snapshot: Arc<Mutex<Option<String>>>,
     inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
     terminal_session_roots: Arc<Mutex<std::collections::HashMap<String, String>>>,
     terminal_pending_approvals:
@@ -923,6 +924,7 @@ impl AppState {
             llm_workspace_path,
             terminal_shell,
             state_lock: Arc::new(Mutex::new(())),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -972,6 +974,38 @@ fn to_local_datetime(dt: OffsetDateTime) -> OffsetDateTime {
     } else {
         dt
     }
+}
+
+static LAST_PANIC_SNAPSHOT_SLOT: OnceLock<Arc<Mutex<Option<String>>>> = OnceLock::new();
+
+fn init_last_panic_snapshot_slot(slot: Arc<Mutex<Option<String>>>) {
+    let _ = LAST_PANIC_SNAPSHOT_SLOT.set(slot);
+}
+
+fn last_panic_snapshot_text() -> String {
+    LAST_PANIC_SNAPSHOT_SLOT
+        .get()
+        .and_then(|slot| slot.lock().ok().and_then(|v| v.clone()))
+        .unwrap_or_default()
+}
+
+fn state_lock_error_with_panic(
+    file: &str,
+    line: u32,
+    module_path: &str,
+    err: &dyn std::fmt::Display,
+) -> String {
+    let panic_snapshot = last_panic_snapshot_text();
+    if panic_snapshot.trim().is_empty() {
+        return format!(
+            "Failed to lock state mutex at {}:{} {}: {err}",
+            file, line, module_path
+        );
+    }
+    format!(
+        "Failed to lock state mutex at {}:{} {}: {err}; last panic: {}",
+        file, line, module_path, panic_snapshot
+    )
 }
 
 fn format_local_datetime_to_seconds(dt: OffsetDateTime) -> String {

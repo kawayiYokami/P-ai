@@ -79,6 +79,35 @@ fn main() {
             return;
         }
     };
+    init_last_panic_snapshot_slot(state.last_panic_snapshot.clone());
+    {
+        let panic_slot = state.last_panic_snapshot.clone();
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown panic payload".to_string()
+            };
+            let location = info
+                .location()
+                .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+                .unwrap_or_else(|| "unknown location".to_string());
+            let thread_name = std::thread::current().name().unwrap_or("unnamed").to_string();
+            let snapshot = format!(
+                "{} thread={} payload={}",
+                location.trim(),
+                thread_name.trim(),
+                payload.trim()
+            );
+            if let Ok(mut slot) = panic_slot.lock() {
+                *slot = Some(snapshot);
+            }
+            previous_hook(info);
+        }));
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -139,7 +168,7 @@ fn main() {
             let guard = app_state
                 .state_lock
                 .lock()
-                .map_err(|_| "Failed to lock state mutex".to_string())?;
+                .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
             let mut data = read_app_data(&app_state.data_path).unwrap_or_default();
             let changed = ensure_default_agent(&mut data);
             if changed {
