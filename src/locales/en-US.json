@@ -35,7 +35,7 @@
       "label": "Summon Hotkey",
       "recordButton": "Record Hotkey",
       "recording": "Listening...",
-      "captureDefaultHint": "Click \"Record Hotkey\", then press a combo (e.g. Alt+·). Esc to cancel.",
+      "captureDefaultHint": "Click \"Record Hotkey\", then press the combo used to summon the AI window (e.g. Alt+·). Esc to cancel.",
       "captureListeningHint": "Press a key combination...",
       "captureCancelledHint": "Capture cancelled.",
       "captureNeedMainKeyHint": "Press one non-modifier key as well.",
@@ -435,4 +435,6 @@
     "github": "GitHub Repository"
   }
 }
+
+
 

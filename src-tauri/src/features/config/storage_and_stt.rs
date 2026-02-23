@@ -307,6 +307,24 @@ fn normalize_app_config(config: &mut AppConfig) {
     if config.max_record_seconds < config.min_record_seconds {
         config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
     }
+    if config.max_record_seconds < default_min_record_seconds_background() {
+        config.max_record_seconds = default_min_record_seconds_background();
+    }
+    if config.min_record_seconds_background == 0 {
+        config.min_record_seconds_background = default_min_record_seconds_background();
+    }
+    if config.min_record_seconds_background < default_min_record_seconds_background() {
+        config.min_record_seconds_background = default_min_record_seconds_background();
+    }
+    if config.min_record_seconds_background > config.max_record_seconds {
+        config.min_record_seconds_background = config.max_record_seconds.max(1);
+    }
+    if !matches!(
+        config.send_hotkey_mode.trim(),
+        "enter" | "ctrl_enter" | "alt_s"
+    ) {
+        config.send_hotkey_mode = default_send_hotkey_mode();
+    }
     config.tool_max_iterations = config.tool_max_iterations.clamp(1, 100);
 
     config.vision_api_config_id = config

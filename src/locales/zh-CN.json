@@ -35,7 +35,7 @@
       "label": "呼唤热键",
       "recordButton": "录制热键",
       "recording": "按键中...",
-      "captureDefaultHint": "点击「录制热键」，然后按下组合键（如 Alt+·）。Esc 取消。",
+      "captureDefaultHint": "点击「录制热键」，然后按下用于唤起 AI 窗口的组合键（如 Alt+·）。Esc 取消。",
       "captureListeningHint": "请按下组合键...",
       "captureCancelledHint": "已取消录制。",
       "captureNeedMainKeyHint": "请再按一个非修饰键。",

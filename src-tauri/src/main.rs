@@ -84,7 +84,34 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
+                    let state = app.state::<AppState>();
+                    let config = read_config(&state.config_path).unwrap_or_default();
+                    let summon_shortcut = parse_hotkey(&config.hotkey).ok();
+                    let record_shortcut = parse_record_hotkey(&config.record_hotkey).ok();
+                    let is_record = record_shortcut.as_ref().map(|s| s == shortcut).unwrap_or(false)
+                        && summon_shortcut.as_ref().map(|s| s != shortcut).unwrap_or(true);
+                    if is_record {
+                        let main_window = app.get_webview_window("main");
+                        let is_background = if let Some(window) = &main_window {
+                            let visible = window.is_visible().ok().unwrap_or(false);
+                            let focused = window.is_focused().ok().unwrap_or(false);
+                            !(visible && focused)
+                        } else {
+                            true
+                        };
+                        let payload = serde_json::json!({
+                            "state": match event.state() {
+                                ShortcutState::Pressed => "pressed",
+                                ShortcutState::Released => "released",
+                            },
+                            "background": is_background
+                        });
+                        if let Some(window) = main_window {
+                            let _ = window.emit("easy-call:record-hotkey", payload);
+                        }
+                        return;
+                    }
                     if event.state() == ShortcutState::Pressed {
                         let _ = toggle_window(app, "chat");
                     }
@@ -155,6 +182,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             show_main_window,
+            show_chat_window,
             check_github_update,
             load_config,
             save_config,

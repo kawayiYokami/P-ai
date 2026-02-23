@@ -337,9 +337,12 @@ const { currentTheme, applyTheme, restoreThemeFromStorage, toggleTheme } = useAp
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
-  recordHotkey: "Alt",
+  recordHotkey: "CapsLock",
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
+  backgroundRecordEnabled: true,
+  minRecordSecondsBackground: 3,
+  sendHotkeyMode: "enter",
   toolMaxIterations: 10,
   selectedApiConfigId: "",
   chatApiConfigId: "",
@@ -553,6 +556,9 @@ const {
   canStart: () => !chatting.value && !forcingArchive.value,
   getLanguage: () => normalizeLocale(config.uiLanguage),
   getMaxRecordSeconds: () => config.maxRecordSeconds,
+  getMinRecordSecondsForeground: () => config.minRecordSeconds,
+  getMinRecordSecondsBackground: () => config.minRecordSecondsBackground,
+  isBackgroundRecordEnabled: () => config.backgroundRecordEnabled !== false,
   shouldUseRemoteStt: () => shouldUseRemoteStt.value,
   transcribeRemoteStt: async (audio) => {
     const sttApiConfigId = activeSttApiConfig.value?.id;
@@ -569,7 +575,10 @@ const {
   appendRecognizedText: (text) => {
     chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
   },
-  onTranscribed: ({ source }) => {
+  onTranscribed: ({ source, background }) => {
+    if (background) {
+      void invokeTauri("show_chat_window");
+    }
     if (source !== "remote") return;
     if (!config.sttAutoSend) return;
     if (chatting.value || forcingArchive.value) return;
@@ -619,7 +628,7 @@ const recordHotkey = useRecordHotkey({
   onConflict: () => {
     status.value = t("config.hotkey.conflict");
   },
-  onStartRecording: () => startRecording(),
+  onStartRecording: () => startRecording({ background: false }),
   onStopRecording: (discard) => stopRecording(discard),
 });
 const userPersona = computed(
@@ -894,6 +903,16 @@ const appBootstrap = useAppBootstrap({
     locale.value = lang;
   },
   onRefreshSignal: handleWindowRefreshSignal,
+  onRecordHotkey: (payload) => {
+    if (!payload?.background || config.backgroundRecordEnabled === false) return;
+    if (payload.state === "pressed") {
+      void startRecording({ background: true });
+      return;
+    }
+    if (payload.state === "released") {
+      void stopRecording(false);
+    }
+  },
   onTerminalApprovalRequested: (payload) => {
     enqueueTerminalApprovalRequest(payload);
   },
