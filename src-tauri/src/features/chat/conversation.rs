@@ -348,7 +348,7 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
 }
 
 fn sanitize_memory_block_xml(raw: &str) -> String {
-    if !raw.contains("<memory_board") {
+    if !raw.contains("<memory_board") && !raw.contains("[MemoryBoard]") {
         return raw.to_string();
     }
     raw.lines()

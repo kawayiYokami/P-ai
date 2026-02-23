@@ -51,11 +51,6 @@
         }
     }
 
-    fn count_xml_tag(xml: &str, tag: &str) -> usize {
-        let needle = format!("<{}>", tag);
-        xml.match_indices(&needle).count()
-    }
-
     include!("config/tests.rs");
     include!("chat/tests.rs");
     include!("system/tests.rs");

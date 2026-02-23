@@ -37,7 +37,7 @@
 
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should have one hit");
-        assert!(xml.contains("<content>user-hit</content>"));
+        assert!(xml.contains("user-hit"));
         assert!(!xml.contains("assistant-only-hit"));
     }
 
@@ -173,9 +173,9 @@
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should produce board");
 
-        assert_eq!(count_xml_tag(&xml, "memory"), 7);
-        assert!(xml.contains("<content>rank-8</content>"));
-        assert!(xml.contains("<content>rank-2</content>"));
+        assert_eq!(xml.matches("\n> ").count(), 7);
+        assert!(xml.contains("rank-8"));
+        assert!(xml.contains("rank-2"));
         assert!(!xml.contains("rank-1"));
 
         let idx_rank_8 = xml.find("rank-8").expect("rank-8 index");
@@ -204,8 +204,8 @@
         }];
 
         let xml = build_memory_board_xml(&memories, &search_text, "简洁").expect("should produce board");
-        assert!(xml.contains("<content>用户偏好简洁回答</content>"));
-        assert!(xml.contains("<reasoning>用户多次要求简短</reasoning>"));
+        assert!(xml.contains("用户偏好简洁回答"));
+        assert!(xml.contains("> 用户多次要求简短"));
     }
 
     #[test]
@@ -229,7 +229,7 @@
         }];
 
         let xml = build_memory_board_xml(&memories, &search_text, "记忆").expect("should produce board");
-        assert!(xml.contains("<reasoning>无</reasoning>"));
+        assert!(xml.contains("> 无"));
     }
 
     #[test]

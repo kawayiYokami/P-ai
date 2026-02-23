@@ -320,15 +320,6 @@ fn memory_board_ids_from_current_hits(recall_ids: &[String], max_items: usize) -
     out
 }
 
-fn xml_escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
 fn memory_tantivy_bm25_scores(
     memories: &[MemoryEntry],
     query_text: &str,
@@ -846,26 +837,17 @@ fn build_memory_board_xml_from_recall_ids(
     }
 
     let mut out = String::new();
-    out.push_str("<memory_board>\n");
-    out.push_str("  <note>这是最新回忆表（最多 7 条），请按需参考，不要编造未命中的记忆。</note>\n");
-    out.push_str("  <memories>\n");
+    out.push_str("[MemoryBoard]\n\n");
     for memory in ordered_memories {
-        out.push_str("    <memory>\n");
-        out.push_str(&format!(
-            "      <content>{}</content>\n",
-            xml_escape(&memory.judgment)
-        ));
+        out.push_str(memory.judgment.trim());
+        out.push('\n');
         let reasoning = memory.reasoning.trim();
         let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
-        out.push_str(&format!(
-            "      <reasoning>{}</reasoning>\n",
-            xml_escape(display_reasoning)
-        ));
-        out.push_str("    </memory>\n");
+        out.push_str("> ");
+        out.push_str(display_reasoning);
+        out.push_str("\n\n");
     }
-    out.push_str("  </memories>\n");
-    out.push_str("</memory_board>");
-    Some(out)
+    Some(out.trim_end().to_string())
 }
 
 #[cfg(test)]
