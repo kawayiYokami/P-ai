@@ -279,7 +279,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, reactive, ref, shallowRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeTauri } from "./services/tauri-api";
@@ -547,6 +547,7 @@ const {
   transcribing,
   startRecording,
   stopRecording,
+  prewarmMicrophone,
   cleanup: cleanupSpeechRecording,
 } = useSpeechRecording({
   t: tr,
@@ -581,6 +582,13 @@ const {
     status.value = text;
   },
 });
+
+async function tryPrewarmChatMic() {
+  if (viewMode.value !== "chat") return;
+  if (document.visibilityState === "hidden") return;
+  if (!document.hasFocus()) return;
+  await prewarmMicrophone();
+}
 const chatMedia = useChatMedia({
   t: tr,
   setStatus: (text) => {
@@ -889,7 +897,10 @@ const appBootstrap = useAppBootstrap({
     config.uiLanguage = lang;
     locale.value = lang;
   },
-  onRefreshSignal: handleWindowRefreshSignal,
+  onRefreshSignal: async () => {
+    await handleWindowRefreshSignal();
+    void tryPrewarmChatMic();
+  },
   onTerminalApprovalRequested: (payload) => {
     enqueueTerminalApprovalRequest(payload);
   },
@@ -936,6 +947,25 @@ const appBootstrap = useAppBootstrap({
   },
 });
 
+function handleWindowFocusForMicPrewarm() {
+  void tryPrewarmChatMic();
+}
+
+function handleVisibilityForMicPrewarm() {
+  if (document.visibilityState !== "visible") return;
+  void tryPrewarmChatMic();
+}
+
+onMounted(() => {
+  window.addEventListener("focus", handleWindowFocusForMicPrewarm);
+  document.addEventListener("visibilitychange", handleVisibilityForMicPrewarm);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("focus", handleWindowFocusForMicPrewarm);
+  document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
+});
+
 watch(
   () => ({
     apiId: activeChatApiConfigId.value,
@@ -960,6 +990,14 @@ watch(
     void refreshChatWorkspaceState();
   },
   { immediate: true },
+);
+
+watch(
+  () => viewMode.value,
+  (mode) => {
+    if (mode !== "chat") return;
+    void tryPrewarmChatMic();
+  },
 );
 
 function setUiLanguage(value: string) {
