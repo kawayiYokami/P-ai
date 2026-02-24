@@ -65,6 +65,7 @@ export type McpServerConfig = {
 export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
+  uiFont: string;
   recordHotkey: string;
   minRecordSeconds: number;
   maxRecordSeconds: number;

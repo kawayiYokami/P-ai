@@ -433,6 +433,18 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "language": "UI Language",
+    "font": "Font",
+    "fontAuto": "Auto (language-aware)",
+    "fontOptions": {
+      "auto": "Auto (language-aware)",
+      "system": "System Default",
+      "segoeUi": "Segoe UI",
+      "pingFang": "PingFang",
+      "microsoftYaHei": "Microsoft YaHei",
+      "notoSans": "Noto Sans",
+      "serif": "Serif",
+      "monospace": "Monospace"
+    },
     "themeNames": {
       "light": "light",
       "dark": "dark",

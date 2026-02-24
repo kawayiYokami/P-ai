@@ -208,6 +208,7 @@ fn main() {
             show_main_window,
             check_github_update,
             load_config,
+            list_system_fonts,
             save_config,
             load_agents,
             save_agents,

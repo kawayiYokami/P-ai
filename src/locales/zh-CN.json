@@ -433,6 +433,18 @@
     "themeLight": "浅色",
     "themeDark": "深色",
     "language": "界面语言",
+    "font": "字体",
+    "fontAuto": "自动（随语言推荐）",
+    "fontOptions": {
+      "auto": "自动（随语言推荐）",
+      "system": "系统默认",
+      "segoeUi": "Segoe UI",
+      "pingFang": "苹方（PingFang）",
+      "microsoftYaHei": "微软雅黑",
+      "notoSans": "Noto Sans",
+      "serif": "衬线（Serif）",
+      "monospace": "等宽（Monospace）"
+    },
     "themeNames": {
       "light": "浅色",
       "dark": "深色",

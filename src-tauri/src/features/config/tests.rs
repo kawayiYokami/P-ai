@@ -33,6 +33,7 @@
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
+            ui_font: default_ui_font(),
             record_hotkey: "".to_string(),
             min_record_seconds: 0,
             max_record_seconds: 0,
@@ -90,6 +91,7 @@
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
+            ui_font: default_ui_font(),
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
@@ -144,6 +146,7 @@
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
+            ui_font: default_ui_font(),
             record_hotkey: "Alt".to_string(),
             min_record_seconds: 1,
             max_record_seconds: 60,
@@ -222,5 +225,4 @@
             r"E:\__easy_call_ai_path_norm_test__\repo".to_string()
         );
     }
-
 

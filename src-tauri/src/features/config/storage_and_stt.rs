@@ -273,6 +273,12 @@ fn normalize_app_config(config: &mut AppConfig) {
         "zh-CN" | "en-US" | "zh-TW" => lang.to_string(),
         _ => default_ui_language(),
     };
+    let ui_font = config.ui_font.trim();
+    config.ui_font = if ui_font.is_empty() {
+        default_ui_font()
+    } else {
+        ui_font.chars().take(128).collect::<String>()
+    };
 
     normalize_api_tools(config);
 

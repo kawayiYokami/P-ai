@@ -12,6 +12,7 @@
       :config="config"
       :config-tab="configTab"
       :ui-language="config.uiLanguage"
+      :ui-font="config.uiFont"
       :locale-options="localeOptions"
       :current-theme="currentTheme"
       :selected-api-config="selectedApiConfig"
@@ -48,6 +49,7 @@
       :save-config-action="saveConfig"
       @update:config-tab="updateConfigTab"
       @update:ui-language="setUiLanguage"
+      @update:ui-font="setUiFont"
       @update:persona-editor-id="updatePersonaEditorId"
       @update:selected-persona-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
@@ -323,6 +325,7 @@ const props = defineProps<{
   setPromptPreviewDialogRef: (el: Element | null) => void;
   updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
+  setUiFont: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;

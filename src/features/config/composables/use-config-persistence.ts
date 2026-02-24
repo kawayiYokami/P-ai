@@ -121,6 +121,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const cfg = await invokeTauri<AppConfig>("load_config");
       options.config.hotkey = cfg.hotkey;
       options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
+      options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = cfg.recordHotkey || "Alt";
       const normalizedRecord = normalizeRecordSeconds(cfg.minRecordSeconds, cfg.maxRecordSeconds);
@@ -189,6 +190,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const saved = await invokeTauri<AppConfig>("save_config", { config: options.buildConfigPayload() });
       options.config.hotkey = saved.hotkey;
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
+      options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = saved.recordHotkey || "Alt";
       const normalizedRecord = normalizeRecordSeconds(saved.minRecordSeconds, saved.maxRecordSeconds);

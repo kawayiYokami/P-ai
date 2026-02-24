@@ -51,6 +51,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       values: {},
     },
   ] as const;
+  function normalizeUiFont(value: unknown): string {
+    const text = String(value || "").trim();
+    if (!text) return "auto";
+    return text.length > 128 ? (text.slice(0, 128).trim() || "auto") : text;
+  }
 
   function defaultApiTools() {
     return BUILTIN_TOOL_DEFAULTS.map((tool) => ({
@@ -99,6 +104,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   function normalizeApiBindingsLocal() {
     if (!options.config.apiConfigs.length) return;
     options.config.uiLanguage = normalizeLocale(options.config.uiLanguage);
+    options.config.uiFont = normalizeUiFont(options.config.uiFont);
     if (options.config.sttApiConfigId) {
       const sttApi = options.config.apiConfigs.find((a) => a.id === options.config.sttApiConfigId);
       if (sttApi && sttApi.requestFormat === "openai_tts") {
@@ -214,6 +220,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return {
       hotkey: options.config.hotkey,
       uiLanguage: options.config.uiLanguage,
+      uiFont: normalizeUiFont(options.config.uiFont),
       recordHotkey: options.config.recordHotkey,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
@@ -263,6 +270,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return JSON.stringify({
       hotkey: options.config.hotkey,
       uiLanguage: options.config.uiLanguage,
+      uiFont: normalizeUiFont(options.config.uiFont),
       recordHotkey: options.config.recordHotkey,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,

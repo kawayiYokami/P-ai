@@ -139,9 +139,11 @@
         <AppearanceTab
           v-else-if="props.configTab === 'appearance'"
           :ui-language="uiLanguage"
+          :ui-font="uiFont"
           :locale-options="localeOptions"
           :current-theme="currentTheme"
           @update:ui-language="$emit('update:uiLanguage', $event)"
+          @update:ui-font="$emit('update:uiFont', $event)"
           @set-theme="$emit('setTheme', $event)"
         />
 
@@ -235,6 +237,7 @@ const props = defineProps<{
   config: AppConfig;
   configTab: ConfigTab;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
+  uiFont: string;
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;
@@ -274,6 +277,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:uiLanguage", value: string): void;
+  (e: "update:uiFont", value: string): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "update:selectedPersonaId", value: string): void;
   (e: "update:responseStyleId", value: string): void;

@@ -382,6 +382,10 @@ fn default_ui_language() -> String {
     "zh-CN".to_string()
 }
 
+fn default_ui_font() -> String {
+    "auto".to_string()
+}
+
 fn default_api_temperature() -> f64 {
     1.0
 }
@@ -416,6 +420,8 @@ struct AppConfig {
     hotkey: String,
     #[serde(default = "default_ui_language")]
     ui_language: String,
+    #[serde(default = "default_ui_font")]
+    ui_font: String,
     #[serde(default = "default_record_hotkey")]
     record_hotkey: String,
     #[serde(default = "default_min_record_seconds")]
@@ -446,6 +452,7 @@ impl Default for AppConfig {
         Self {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
+            ui_font: default_ui_font(),
             record_hotkey: default_record_hotkey(),
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),

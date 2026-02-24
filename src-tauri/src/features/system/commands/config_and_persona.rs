@@ -107,6 +107,16 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
+fn list_system_fonts() -> Result<Vec<String>, String> {
+    let mut families = font_kit::source::SystemSource::new()
+        .all_families()
+        .map_err(|err| format!("List system fonts failed: {err}"))?;
+    families.sort_by_key(|name| name.to_ascii_lowercase());
+    families.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    Ok(families)
+}
+
+#[tauri::command]
 fn save_config(
     config: AppConfig,
     app: AppHandle,

@@ -112,6 +112,7 @@
       :set-prompt-preview-dialog-ref="setPromptPreviewDialogRef"
       :update-config-tab="(value) => { configTab = value; }"
       :set-ui-language="setUiLanguage"
+      :set-ui-font="setUiFont"
       :update-persona-editor-id="(value) => { personaEditorId = value; }"
       :update-selected-persona-id="(value) => { selectedPersonaId = value; }"
       :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
@@ -337,6 +338,7 @@ const { currentTheme, applyTheme, setTheme, restoreThemeFromStorage } = useAppTh
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
+  uiFont: "auto",
   recordHotkey: "Alt",
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
@@ -937,6 +939,7 @@ const appBootstrap = useAppBootstrap({
   onConfigUpdated: (payload) => {
     if (!payload || typeof payload !== "object") return;
     config.hotkey = String(payload.hotkey || config.hotkey || "").trim() || config.hotkey;
+    config.uiFont = normalizeUiFont(String(payload.uiFont || config.uiFont || "").trim() || config.uiFont);
     config.recordHotkey = String(payload.recordHotkey || config.recordHotkey || "").trim() || config.recordHotkey;
     config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(payload.minRecordSeconds) || config.minRecordSeconds)));
     config.maxRecordSeconds = Math.max(
@@ -999,8 +1002,50 @@ watch(
   },
 );
 
+watch(
+  () => ({ uiFont: config.uiFont, uiLanguage: config.uiLanguage }),
+  ({ uiFont, uiLanguage }) => {
+    applyUiFont(uiFont, uiLanguage);
+  },
+  { immediate: true },
+);
+
 function setUiLanguage(value: string) {
   if (!applyUiLanguage(value)) return;
+  void saveConfig();
+}
+
+function normalizeUiFont(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) return "auto";
+  if (text.length > 128) return text.slice(0, 128).trim() || "auto";
+  return text;
+}
+
+function resolveUiFontFamily(uiFont: string, uiLanguage: string): string {
+  const normalized = normalizeUiFont(uiFont);
+  if (normalized === "auto") {
+    if (uiLanguage === "zh-CN") {
+      return "\"Microsoft YaHei\", \"PingFang SC\", \"Noto Sans CJK SC\", \"Segoe UI\", system-ui, sans-serif";
+    }
+    if (uiLanguage === "zh-TW") {
+      return "\"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Segoe UI\", system-ui, sans-serif";
+    }
+    return "\"Segoe UI\", \"SF Pro Text\", system-ui, -apple-system, Roboto, \"Helvetica Neue\", Arial, sans-serif";
+  }
+  const escaped = normalized.replace(/"/g, '\\"');
+  return `"${escaped}", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+}
+
+function applyUiFont(uiFont: string, uiLanguage: string) {
+  const family = resolveUiFontFamily(uiFont, uiLanguage);
+  document.documentElement.style.setProperty("--app-font-family", family);
+}
+
+function setUiFont(value: string) {
+  const next = normalizeUiFont(value);
+  if (config.uiFont === next) return;
+  config.uiFont = next;
   void saveConfig();
 }
 
