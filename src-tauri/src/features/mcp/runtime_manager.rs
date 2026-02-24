@@ -1,5 +1,18 @@
 type DynamicMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 
+struct CachedMcpClient {
+    definition_json: String,
+    client: DynamicMcpClient,
+}
+
+fn mcp_client_cache(
+) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, CachedMcpClient>> {
+    static CACHE: OnceLock<
+        tokio::sync::Mutex<std::collections::HashMap<String, CachedMcpClient>>,
+    > = OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 #[derive(Clone)]
 struct CustomStreamableHttpClient {
     client: reqwest::Client,
@@ -290,11 +303,55 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
     match parsed.transport {
         McpTransportKind::Stdio => {
             let cmd = mcp_connect_stdio_command(parsed)?;
-            let transport = rmcp::transport::TokioChildProcess::new(cmd)
+            let (transport, stderr_opt) = rmcp::transport::TokioChildProcess::builder(cmd)
+                .stderr(std::process::Stdio::piped())
+                .spawn()
                 .map_err(|err| format!("Start MCP stdio child process failed: {err}"))?;
-            ().serve(transport)
-                .await
-                .map_err(|err| format!("Connect MCP stdio server failed: {err}"))
+
+            let stderr_cache = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<u8>::new()));
+            if let Some(mut stderr_pipe) = stderr_opt {
+                let cache = stderr_cache.clone();
+                tokio::spawn(async move {
+                    const STDERR_MAX_BYTES: usize = 4096;
+                    let mut chunk = [0u8; 1024];
+                    loop {
+                        let read = tokio::io::AsyncReadExt::read(&mut stderr_pipe, &mut chunk).await;
+                        let Ok(n) = read else {
+                            break;
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        let mut guard = cache.lock().await;
+                        guard.extend_from_slice(&chunk[..n]);
+                        if guard.len() > STDERR_MAX_BYTES {
+                            let drain = guard.len().saturating_sub(STDERR_MAX_BYTES);
+                            guard.drain(0..drain);
+                        }
+                    }
+                });
+            }
+
+            match ().serve(transport).await {
+                Ok(client) => Ok(client),
+                Err(err) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                    let stderr_text = {
+                        let guard = stderr_cache.lock().await;
+                        String::from_utf8_lossy(&guard)
+                            .trim()
+                            .replace('\r', "")
+                    };
+                    if stderr_text.is_empty() {
+                        Err(format!("Connect MCP stdio server failed: {err}"))
+                    } else {
+                        Err(format!(
+                            "Connect MCP stdio server failed: {err} | child stderr: {}",
+                            stderr_text
+                        ))
+                    }
+                }
+            }
         }
         McpTransportKind::StreamableHttp => {
             let url = parsed
@@ -359,20 +416,73 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
     }
 }
 
-async fn mcp_list_tools_with_client(
-    parsed: &ParsedMcpServerDefinition,
-) -> Result<(DynamicMcpClient, Vec<rmcp::model::Tool>), String> {
-    let client = mcp_connect_client(parsed).await?;
-    let tools = client
+async fn mcp_get_or_connect_client(server: &McpServerConfig) -> Result<(), String> {
+    {
+        let cache = mcp_client_cache();
+        let guard = cache.lock().await;
+        if let Some(hit) = guard.get(&server.id) {
+            if hit.definition_json == server.definition_json {
+                return Ok(());
+            }
+        }
+    }
+
+    let parsed = parse_mcp_server_definition_from_config(server)?;
+    let client = mcp_connect_client(&parsed).await?;
+    let mut old_to_cancel: Option<DynamicMcpClient> = None;
+
+    let cache = mcp_client_cache();
+    let mut guard = cache.lock().await;
+    if let Some(old) = guard.remove(&server.id) {
+        old_to_cancel = Some(old.client);
+    }
+    guard.insert(
+        server.id.clone(),
+        CachedMcpClient {
+            definition_json: server.definition_json.clone(),
+            client,
+        },
+    );
+    drop(guard);
+    if let Some(old) = old_to_cancel {
+        let _ = old.cancel().await;
+    }
+    Ok(())
+}
+
+async fn mcp_disconnect_cached_client(server_id: &str) {
+    let mut old_to_cancel: Option<DynamicMcpClient> = None;
+    let cache = mcp_client_cache();
+    let mut guard = cache.lock().await;
+    if let Some(old) = guard.remove(server_id) {
+        old_to_cancel = Some(old.client);
+    }
+    drop(guard);
+    if let Some(old) = old_to_cancel {
+        let _ = old.cancel().await;
+    }
+}
+
+async fn mcp_list_tools_with_peer(
+    server: &McpServerConfig,
+) -> Result<(rmcp::service::Peer<rmcp::RoleClient>, Vec<rmcp::model::Tool>), String> {
+    mcp_get_or_connect_client(server).await?;
+    let cache = mcp_client_cache();
+    let guard = cache.lock().await;
+    let cached = guard
+        .get(&server.id)
+        .ok_or_else(|| format!("MCP runtime cache missing server '{}'", server.id))?;
+    let peer = cached.client.peer().clone();
+    let tools = cached
+        .client
         .list_all_tools()
         .await
         .map_err(|err| format!("List MCP tools failed: {err}"))?;
-    Ok((client, tools))
+    Ok((peer, tools))
 }
 
 async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<McpToolDescriptor>, String> {
-    let parsed = parse_mcp_server_definition_from_config(server)?;
-    let (_client, tools) = mcp_list_tools_with_client(&parsed).await?;
+    let (_peer, tools) = mcp_list_tools_with_peer(server).await?;
 
     let mut out = Vec::<McpToolDescriptor>::new();
     for def in tools {
@@ -404,27 +514,23 @@ async fn attach_enabled_mcp_tools_for_runtime(
         cfg
     };
 
-    let mut clients = Vec::<DynamicMcpClient>::new();
+    let clients = Vec::<DynamicMcpClient>::new();
     for server in &config.mcp_servers {
         if !server.enabled {
             continue;
         }
-        let parsed = match parse_mcp_server_definition_from_config(server) {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("[MCP] skip server={} parse failed: {err}", server.id);
-                continue;
-            }
-        };
+        if let Err(err) = parse_mcp_server_definition_from_config(server) {
+            eprintln!("[MCP] skip server={} parse failed: {err}", server.id);
+            continue;
+        }
 
-        let (client, defs) = match mcp_list_tools_with_client(&parsed).await {
+        let (peer, defs) = match mcp_list_tools_with_peer(server).await {
             Ok(v) => v,
             Err(err) => {
                 eprintln!("[MCP] skip server={} connect/list failed: {}", server.id, err);
                 continue;
             }
         };
-        let sink = client.peer().clone();
         for def in defs {
             let tool_name = def.name.to_string();
             if !mcp_policy_enabled_for_tool(server, &tool_name) {
@@ -435,12 +541,10 @@ async fn attach_enabled_mcp_tools_for_runtime(
             }
             tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
                 def,
-                sink.clone(),
+                peer.clone(),
             )));
         }
-        clients.push(client);
     }
 
     Ok(clients)
 }
-

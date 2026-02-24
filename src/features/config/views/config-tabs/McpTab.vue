@@ -1,7 +1,19 @@
 <template>
   <div class="space-y-3">
     <div class="flex items-center justify-between">
-      <div class="text-xs opacity-70">{{ t('config.mcp.serverList') }}</div>
+      <div class="flex items-center gap-2">
+        <div class="text-xs opacity-70">{{ t('config.mcp.serverList') }}</div>
+        <select
+          v-if="servers.length > 0"
+          v-model="selectedServerId"
+          class="select select-bordered select-xs w-[clamp(14rem,40vw,34rem)] max-w-full"
+          :disabled="loading"
+        >
+          <option v-for="server in servers" :key="server.id" :value="server.id">
+            {{ server.name || server.id }}
+          </option>
+        </select>
+      </div>
       <div class="flex items-center gap-2">
         <button class="btn btn-xs bg-base-100 border-base-300 hover:bg-base-200" type="button" @click="reloadServers" :disabled="loading">{{ t('config.mcp.refresh') }}</button>
         <button class="btn btn-xs btn-primary" type="button" @click="addServer">{{ t('config.mcp.add') }}</button>
@@ -11,15 +23,15 @@
     <div v-if="loading" class="text-xs opacity-70">{{ t('config.mcp.loading') }}</div>
 
     <McpServerCard
-      v-for="server in servers"
-      :key="server.id"
-      :server="server"
+      v-if="selectedServer"
+      :key="selectedServer.id"
+      :server="selectedServer"
       :disabled="loading"
-      @save="saveServer"
       @remove="removeServer"
       @validate="validateDefinition"
       @toggle-deploy="toggleDeploy"
       @toggle-tool="onToggleTool"
+      @refresh-tools="refreshTools"
     />
 
     <div v-if="statusText" class="text-xs" :class="statusError ? 'text-error' : 'opacity-70'">
@@ -29,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type {
@@ -46,12 +58,19 @@ const { t } = useI18n();
 type McpServerView = McpServerConfig & {
   toolItems: McpToolDescriptor[];
   lastElapsedMs: number;
+  isDraft: boolean;
+  isDirty: boolean;
 };
 
 const loading = ref(false);
 const statusText = ref("");
 const statusError = ref(false);
 const servers = ref<McpServerView[]>([]);
+const selectedServerId = ref("");
+
+const selectedServer = computed(() =>
+  servers.value.find((s) => s.id === selectedServerId.value) ?? null,
+);
 
 function setStatus(text: string, isError = false) {
   statusText.value = text;
@@ -63,6 +82,8 @@ function toView(server: McpServerConfig): McpServerView {
     ...server,
     toolItems: [],
     lastElapsedMs: 0,
+    isDraft: false,
+    isDirty: false,
   };
 }
 
@@ -76,6 +97,17 @@ function upsertServer(local: McpServerView) {
     return;
   }
   servers.value.unshift(local);
+  ensureSelectedServer();
+}
+
+function ensureSelectedServer() {
+  if (servers.value.length === 0) {
+    selectedServerId.value = "";
+    return;
+  }
+  if (!servers.value.some((s) => s.id === selectedServerId.value)) {
+    selectedServerId.value = servers.value[0].id;
+  }
 }
 
 async function reloadServers() {
@@ -83,6 +115,7 @@ async function reloadServers() {
   try {
     const list = await invokeTauri<McpServerConfig[]>("mcp_list_servers");
     servers.value = list.map(toView);
+    ensureSelectedServer();
     const enabledServers = servers.value.filter((s) => s.enabled);
     if (enabledServers.length > 0) {
       const results = await Promise.allSettled(
@@ -108,22 +141,9 @@ async function reloadServers() {
   }
 }
 
-async function saveServer(server: McpServerView) {
-  loading.value = true;
-  try {
-    const saved = await _saveServerCore(server);
-    upsertServer({ ...server, ...saved });
-    setStatus(t('config.mcp.saved', { name: saved.name }));
-  } catch (error) {
-    setStatus(`${t('config.mcp.saveFailed')}: ${toErrorMessage(error)}`, true);
-  } finally {
-    loading.value = false;
-  }
-}
-
 function addServer() {
   const seed = Date.now();
-  servers.value.unshift({
+  const next: McpServerView = {
     id: `mcp-${seed}`,
     name: `MCP ${servers.value.length + 1}`,
     enabled: false,
@@ -134,7 +154,11 @@ function addServer() {
     updatedAt: "",
     toolItems: [],
     lastElapsedMs: 0,
-  });
+    isDraft: true,
+    isDirty: true,
+  };
+  servers.value.unshift(next);
+  selectedServerId.value = next.id;
 }
 
 async function removeServer(serverId: string) {
@@ -144,6 +168,7 @@ async function removeServer(serverId: string) {
       input: { serverId },
     });
     servers.value = servers.value.filter((s) => s.id !== serverId);
+    ensureSelectedServer();
     setStatus(t('config.mcp.deleted', { id: serverId }));
   } catch (error) {
     setStatus(`${t('config.mcp.deleteFailed')}: ${toErrorMessage(error)}`, true);
@@ -239,6 +264,25 @@ async function onToggleTool(payload: { serverId: string; toolName: string; enabl
     setStatus(`${payload.enabled ? t('config.mcp.toolEnabled') : t('config.mcp.toolDisabled')}: ${payload.toolName}`);
   } catch (error) {
     setStatus(`${t('config.mcp.toolSwitchFailed')}: ${toErrorMessage(error)}`, true);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function refreshTools(serverId: string) {
+  loading.value = true;
+  try {
+    const result = await invokeTauri<McpListServerToolsResult>("mcp_list_server_tools", {
+      input: { serverId },
+    });
+    const server = servers.value.find((s) => s.id === serverId);
+    if (server) {
+      server.toolItems = result.tools;
+      server.lastElapsedMs = result.elapsedMs;
+    }
+    setStatus(t('config.mcp.loadedCount', { count: servers.value.length }));
+  } catch (error) {
+    setStatus(`${t('config.mcp.loadFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }

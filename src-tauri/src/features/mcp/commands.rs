@@ -7,15 +7,12 @@ fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, 
     if id.is_empty() {
         return Err("MCP server id is required".to_string());
     }
-    let mut name = input.name.trim().to_string();
-    if name.is_empty() {
-        name = id.clone();
-    }
+    let _input_name = input.name.trim().to_string();
     let definition_json = input.definition_json.trim().to_string();
     if definition_json.is_empty() {
         return Err("MCP definition JSON is required".to_string());
     }
-    let (normalized_value, migrated) =
+    let (_normalized_value, _migrated) =
         normalize_mcp_definition_for_validation(&definition_json).map_err(|err| {
             let detail = if err.details.is_empty() {
                 String::new()
@@ -24,20 +21,14 @@ fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, 
             };
             format!("{} ({}){}", err.message, err.code, detail)
         })?;
-    let normalized_definition_json = migrated.unwrap_or_else(|| {
-        serde_json::to_string_pretty(&normalized_value)
-            .unwrap_or_else(|_| definition_json.clone())
-    });
-    let (parsed_name, _parsed) = parse_mcp_server_definition(&normalized_definition_json)?;
-    if name.trim().is_empty() {
-        name = parsed_name;
-    }
+    let (parsed_name, _parsed) = parse_mcp_server_definition(&definition_json)?;
+    let name = parsed_name;
 
     Ok(McpServerConfig {
         id,
         name,
         enabled: input.enabled,
-        definition_json: normalized_definition_json,
+        definition_json,
         tool_policies: Vec::new(),
         last_status: "saved".to_string(),
         last_error: String::new(),
@@ -85,20 +76,17 @@ fn mcp_validate_definition(
             let normalized_text = serde_json::to_string(&normalized_value)
                 .map_err(|err| format!("Serialize normalized MCP definition failed: {err}"))?;
             let (name, parsed) = parse_mcp_server_definition(&normalized_text)?;
-            let message = if migrated.is_some() {
-                "MCP definition is valid and was auto-migrated to version 1.0".to_string()
-            } else {
-                "MCP definition is valid".to_string()
-            };
+            let _ = migrated;
+            let message = "MCP definition is valid".to_string();
             Ok(McpDefinitionValidateResult {
                 ok: true,
                 transport: Some(parsed.transport.as_str().to_string()),
                 server_name: Some(name),
                 message,
-                schema_version: Some(MCP_SPEC_VERSION_SUPPORTED.to_string()),
+                schema_version: None,
                 error_code: None,
                 details: Vec::new(),
-                migrated_definition_json: migrated,
+                migrated_definition_json: None,
             })
         }
         Err(err) => Ok(McpDefinitionValidateResult {
@@ -106,7 +94,7 @@ fn mcp_validate_definition(
             transport: None,
             server_name: None,
             message: err.message,
-            schema_version: Some(MCP_SPEC_VERSION_SUPPORTED.to_string()),
+            schema_version: None,
             error_code: Some(err.code),
             details: err.details,
             migrated_definition_json: None,
@@ -143,7 +131,7 @@ fn mcp_save_server(
 }
 
 #[tauri::command]
-fn mcp_remove_server(
+async fn mcp_remove_server(
     input: McpServerIdInput,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
@@ -165,6 +153,9 @@ fn mcp_remove_server(
         write_config(&state.config_path, &config)?;
     }
     drop(guard);
+    if removed {
+        mcp_disconnect_cached_client(server_id).await;
+    }
     Ok(removed)
 }
 
@@ -278,7 +269,7 @@ async fn mcp_deploy_server(
 }
 
 #[tauri::command]
-fn mcp_undeploy_server(
+async fn mcp_undeploy_server(
     input: McpServerIdInput,
     state: State<'_, AppState>,
 ) -> Result<McpServerConfig, String> {
@@ -308,6 +299,7 @@ fn mcp_undeploy_server(
     let updated = config.mcp_servers[pos].clone();
     write_config(&state.config_path, &config)?;
     drop(guard);
+    mcp_disconnect_cached_client(server_id).await;
 
     Ok(updated)
 }
@@ -361,4 +353,3 @@ fn mcp_set_tool_enabled(
 
     Ok(out)
 }
-

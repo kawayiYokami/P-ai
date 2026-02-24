@@ -1,40 +1,47 @@
 <template>
-  <div class="card bg-base-100 border border-base-300">
-    <div class="card-body p-3 gap-2">
+  <div>
+    <div class="space-y-3">
       <div class="flex items-center gap-2">
-        <input v-model.trim="draft.name" class="input input-bordered input-xs flex-1" :placeholder="t('config.mcpServerCard.displayNamePlaceholder')" />
-        <button class="btn btn-xs" type="button" :disabled="disabled" @click="emitSave">{{ t('config.mcpServerCard.save') }}</button>
-        <button class="btn btn-xs btn-ghost" type="button" :disabled="disabled" @click="$emit('remove', draft.id)">{{ t('config.mcpServerCard.delete') }}</button>
+        <button class="btn btn-xs bg-base-100" type="button" :disabled="disabled" @click="emitValidate">{{ t('config.mcpServerCard.validate') }}</button>
+        <button
+          class="btn btn-xs"
+          :class="draft.enabled ? 'btn-warning' : 'btn-success'"
+          type="button"
+          :disabled="disabled"
+          @click="emitToggleDeploy"
+        >
+          {{ draft.enabled ? t('config.mcpServerCard.stop') : t('config.mcpServerCard.deploy') }}
+        </button>
+        <div class="flex-1 rounded-md border border-base-300 bg-base-100 px-3 py-1.5 text-sm leading-5">
+          {{ draft.name || t('config.mcpServerCard.displayNamePlaceholder') }}
+        </div>
+        <button class="btn btn-xs btn-warning" type="button" :disabled="disabled" @click="$emit('remove', draft.id)">{{ t('config.mcpServerCard.delete') }}</button>
       </div>
 
-      <details class="collapse bg-base-200 border-base-300 border">
-        <summary class="collapse-title min-h-0 py-1 px-2 text-xs font-medium">{{ t('config.mcpServerCard.configJson') }}</summary>
-        <div class="collapse-content py-1 px-2">
+      <div class="collapse collapse-arrow bg-base-100 border-base-300 border">
+        <input type="checkbox" />
+        <div class="collapse-title font-semibold">{{ t('config.mcpServerCard.configJson') }}</div>
+        <div class="collapse-content">
           <textarea
             v-model="draft.definitionJson"
-            class="textarea textarea-bordered textarea-xs font-mono min-h-40 w-full"
+            class="textarea textarea-xs font-mono min-h-40 w-full bg-transparent border-0 focus:outline-none resize-none"
             :placeholder="t('config.mcpServerCard.configPlaceholder')"
+            @input="emitChange"
           ></textarea>
         </div>
-      </details>
+      </div>
 
       <div class="flex items-center justify-between gap-2">
-        <div class="text-[11px] opacity-70 break-all">
-          {{ t('config.mcpServerCard.status') }} {{ draft.lastStatus || "-" }}
-          <span v-if="draft.lastError" class="text-error"> | {{ draft.lastError }}</span>
+        <div class="flex items-center gap-2 text-[11px]">
+          <span class="opacity-70">{{ t('config.mcpServerCard.status') }}</span>
+          <span v-if="draft.lastStatus === 'deployed'" class="badge badge-xs badge-success">已部署</span>
+          <span v-else-if="draft.lastStatus === 'stopped'" class="badge badge-xs badge-neutral">已停止</span>
+          <span v-else-if="draft.lastStatus === 'deploying'" class="badge badge-xs badge-warning">部署中</span>
+          <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-xs badge-error">失败</span>
+          <span v-else class="badge badge-xs badge-ghost">{{ draft.lastStatus || "-" }}</span>
+          <span v-if="draft.lastError" class="text-error truncate max-w-[200px]" :title="draft.lastError"> | {{ draft.lastError }}</span>
         </div>
-        <div class="flex items-center gap-2">
-          <button class="btn btn-xs" type="button" :disabled="disabled" @click="emitValidate">{{ t('config.mcpServerCard.validate') }}</button>
-          <button
-            class="btn btn-xs"
-            :class="draft.enabled ? 'btn-warning' : 'btn-success'"
-            type="button"
-            :disabled="disabled"
-            @click="emitToggleDeploy"
-          >
-            {{ draft.enabled ? t('config.mcpServerCard.stop') : t('config.mcpServerCard.deploy') }}
-          </button>
-        </div>
+        <div></div>
       </div>
 
       <McpToolList
@@ -42,6 +49,7 @@
         :elapsed-ms="draft.lastElapsedMs"
         :disabled="disabled"
         @toggle-tool="(payload) => $emit('toggleTool', { serverId: draft.id, ...payload })"
+        @refresh-tools="$emit('refreshTools', draft.id)"
       />
     </div>
   </div>
@@ -58,6 +66,8 @@ const { t } = useI18n();
 type McpServerView = McpServerConfig & {
   toolItems: McpToolDescriptor[];
   lastElapsedMs: number;
+  isDraft: boolean;
+  isDirty: boolean;
 };
 
 const props = defineProps<{
@@ -66,11 +76,12 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "save", server: McpServerView): void;
+  (e: "change", server: McpServerView): void;
   (e: "remove", serverId: string): void;
   (e: "validate", server: McpServerView): void;
   (e: "toggleDeploy", server: McpServerView): void;
   (e: "toggleTool", payload: { serverId: string; toolName: string; enabled: boolean }): void;
+  (e: "refreshTools", serverId: string): void;
 }>();
 
 const draft = reactive<McpServerView>({ ...props.server });
@@ -83,8 +94,8 @@ watch(
   { deep: true },
 );
 
-function emitSave() {
-  emit("save", { ...draft });
+function emitChange() {
+  emit("change", { ...draft });
 }
 
 function emitValidate() {

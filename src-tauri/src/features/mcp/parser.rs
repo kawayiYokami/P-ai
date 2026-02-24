@@ -1,13 +1,15 @@
-const MCP_SPEC_VERSION_SUPPORTED: &str = "1.0";
-
 fn mcp_definition_json_schema() -> Value {
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Easy Call AI MCP Definition",
         "type": "object",
-        "required": ["version", "mcpServers"],
+        "anyOf": [
+            { "required": ["mcpServers"] },
+            { "required": ["command"] },
+            { "required": ["url"] },
+            { "minProperties": 1 }
+        ],
         "properties": {
-            "version": { "type": "string", "const": MCP_SPEC_VERSION_SUPPORTED },
             "mcpServers": {
                 "type": "object",
                 "minProperties": 1,
@@ -44,35 +46,11 @@ struct McpDefinitionValidationError {
 }
 
 fn validate_mcp_servers_schema(value: &Value) -> Result<(), Vec<String>> {
-    let mut errors = Vec::<String>::new();
-    let Some(root) = value.as_object() else {
-        return Err(vec!["root must be JSON object".to_string()]);
-    };
-    match root.get("version").and_then(Value::as_str) {
-        Some(v) if v == MCP_SPEC_VERSION_SUPPORTED => {}
-        Some(v) => errors.push(format!(
-            "version must be '{}' (got '{}')",
-            MCP_SPEC_VERSION_SUPPORTED, v
-        )),
-        None => errors.push("missing required field: version".to_string()),
-    }
-    let servers = match root.get("mcpServers").and_then(Value::as_object) {
-        Some(v) if !v.is_empty() => v,
-        Some(_) => {
-            errors.push("mcpServers is empty".to_string());
-            return Err(errors);
-        }
-        None => {
-            errors.push("missing required field: mcpServers".to_string());
-            return Err(errors);
-        }
-    };
-
-    for (name, node) in servers {
-        let Some(server_obj) = node.as_object() else {
-            errors.push(format!("mcpServers.{name} must be object"));
-            continue;
-        };
+    fn validate_server_obj(
+        server_obj: &serde_json::Map<String, Value>,
+        path: &str,
+        errors: &mut Vec<String>,
+    ) {
         let has_command = server_obj
             .get("command")
             .and_then(Value::as_str)
@@ -85,32 +63,86 @@ fn validate_mcp_servers_schema(value: &Value) -> Result<(), Vec<String>> {
             .unwrap_or(false);
         if !has_command && !has_url {
             errors.push(format!(
-                "mcpServers.{name} must include either non-empty command or url"
+                "{path} must include either non-empty command or url"
             ));
         }
         if let Some(args) = server_obj.get("args") {
             if !args.is_array() {
-                errors.push(format!("mcpServers.{name}.args must be array"));
+                errors.push(format!("{path}.args must be array"));
             } else if args
                 .as_array()
                 .map(|items| items.iter().any(|v| !v.is_string()))
                 .unwrap_or(false)
             {
-                errors.push(format!("mcpServers.{name}.args must be string array"));
+                errors.push(format!("{path}.args must be string array"));
             }
         }
         for map_key in ["env", "httpHeaders", "envHttpHeaders"] {
             if let Some(map_value) = server_obj.get(map_key) {
                 let Some(map) = map_value.as_object() else {
-                    errors.push(format!("mcpServers.{name}.{map_key} must be object"));
+                    errors.push(format!("{path}.{map_key} must be object"));
                     continue;
                 };
                 if map.values().any(|v| !v.is_string()) {
                     errors.push(format!(
-                        "mcpServers.{name}.{map_key} values must be strings"
+                        "{path}.{map_key} values must be strings"
                     ));
                 }
             }
+        }
+    }
+
+    let mut errors = Vec::<String>::new();
+    let Some(root) = value.as_object() else {
+        return Err(vec!["root must be JSON object".to_string()]);
+    };
+
+    if let Some(servers) = root.get("mcpServers").and_then(Value::as_object) {
+        if servers.is_empty() {
+            errors.push("mcpServers is empty".to_string());
+            return Err(errors);
+        }
+        if servers.len() > 1 {
+            errors.push("only one MCP server is allowed per card (mcpServers must contain exactly one entry)".to_string());
+            return Err(errors);
+        }
+        for (name, node) in servers {
+            let Some(server_obj) = node.as_object() else {
+                errors.push(format!("mcpServers.{name} must be object"));
+                continue;
+            };
+            validate_server_obj(server_obj, &format!("mcpServers.{name}"), &mut errors);
+        }
+    } else {
+        // Backward-compatible single-server format:
+        // { "transport": "...", "command": "...", "args": [...] }
+        // or named single-server format:
+        // { "server-name": { "command": "...", "args": [...] } }
+        let has_direct_command_or_url = root
+            .get("command")
+            .and_then(Value::as_str)
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+            || root
+                .get("url")
+                .and_then(Value::as_str)
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+        if has_direct_command_or_url {
+            validate_server_obj(root, "root", &mut errors);
+        } else if root.len() == 1 {
+            if let Some((name, node)) = root.iter().next() {
+                if let Some(server_obj) = node.as_object() {
+                    validate_server_obj(server_obj, &format!("root.{name}"), &mut errors);
+                } else {
+                    errors.push(format!("root.{name} must be object"));
+                }
+            }
+        } else {
+            errors.push(
+                "root must include command/url, or mcpServers, or a single named MCP server entry"
+                    .to_string(),
+            );
         }
     }
 
@@ -129,58 +161,11 @@ fn normalize_mcp_definition_for_validation(
         message: format!("MCP definition JSON parse failed: {err}"),
         details: vec!["input must be valid JSON object".to_string()],
     })?;
-    let mut root = parsed.as_object().cloned().ok_or_else(|| McpDefinitionValidationError {
+    let root = parsed.as_object().cloned().ok_or_else(|| McpDefinitionValidationError {
         code: "invalid_root".to_string(),
         message: "MCP definition must be a JSON object".to_string(),
         details: vec!["root JSON type must be object".to_string()],
     })?;
-    let mut migrated: Option<String> = None;
-
-    match root.get("version").and_then(Value::as_str) {
-        Some(v) if v == MCP_SPEC_VERSION_SUPPORTED => {}
-        Some(v) if v.starts_with("0.") => {
-            root.insert(
-                "version".to_string(),
-                Value::String(MCP_SPEC_VERSION_SUPPORTED.to_string()),
-            );
-            let migrated_value = Value::Object(root.clone());
-            migrated = Some(
-                serde_json::to_string_pretty(&migrated_value).unwrap_or_else(|_| definition_json.to_string()),
-            );
-        }
-        Some(v) => {
-            return Err(McpDefinitionValidationError {
-                code: "unsupported_version".to_string(),
-                message: format!(
-                    "Unsupported MCP definition version '{}', expected '{}'",
-                    v, MCP_SPEC_VERSION_SUPPORTED
-                ),
-                details: vec![
-                    "upgrade definition to the supported version".to_string(),
-                    "or provide a v0.x format that can be auto-migrated".to_string(),
-                ],
-            });
-        }
-        None => {
-            root.insert(
-                "version".to_string(),
-                Value::String(MCP_SPEC_VERSION_SUPPORTED.to_string()),
-            );
-            if !root.contains_key("mcpServers") {
-                let server_name = value_get_string(&Value::Object(root.clone()), "name")
-                    .unwrap_or_else(|| "mcp-server".to_string());
-                let mut legacy_server = root.clone();
-                legacy_server.remove("version");
-                let mut servers_map = serde_json::Map::new();
-                servers_map.insert(server_name, Value::Object(legacy_server));
-                root.insert("mcpServers".to_string(), Value::Object(servers_map));
-            }
-            let migrated_value = Value::Object(root.clone());
-            migrated = Some(
-                serde_json::to_string_pretty(&migrated_value).unwrap_or_else(|_| definition_json.to_string()),
-            );
-        }
-    }
 
     let normalized = Value::Object(root);
     if let Err(details) = validate_mcp_servers_schema(&normalized) {
@@ -191,7 +176,7 @@ fn normalize_mcp_definition_for_validation(
         });
     }
 
-    Ok((normalized, migrated))
+    Ok((normalized, None))
 }
 
 fn value_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
@@ -271,11 +256,25 @@ fn parse_mcp_root_object(definition_json: &str) -> Result<(String, Value), Strin
         if servers.is_empty() {
             return Err("mcpServers is empty".to_string());
         }
+        if servers.len() > 1 {
+            return Err(
+                "only one MCP server is allowed per card (mcpServers must contain exactly one entry)"
+                    .to_string(),
+            );
+        }
         let (name, node) = servers
             .iter()
             .next()
             .ok_or_else(|| "mcpServers is empty".to_string())?;
         return Ok((name.clone(), node.clone()));
+    }
+
+    if object.len() == 1 {
+        if let Some((name, node)) = object.iter().next() {
+            if node.is_object() {
+                return Ok((name.clone(), node.clone()));
+            }
+        }
     }
 
     let name = value_get_string(&parsed, "name").unwrap_or_else(|| "mcp-server".to_string());
