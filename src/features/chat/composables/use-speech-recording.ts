@@ -57,6 +57,8 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   let startedAt = 0;
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
+  let prewarmInFlight: Promise<boolean> | null = null;
+  let lastPrewarmAt = 0;
 
   function clearTimers() {
     if (tickTimer) {
@@ -157,6 +159,32 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       void stopRecording(false);
       options.setStatus(options.t("status.recordAutoStopped", { seconds: options.getMaxRecordSeconds() }));
     }, options.getMaxRecordSeconds() * 1000);
+  }
+
+  async function prewarmMicrophone(): Promise<boolean> {
+    // Only prewarm when remote STT path uses MediaRecorder/getUserMedia permission.
+    if (!options.shouldUseRemoteStt()) return false;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
+    if (recording.value || transcribing.value) return false;
+    const now = Date.now();
+    if (now - lastPrewarmAt < 15_000) return false;
+    if (prewarmInFlight) return prewarmInFlight;
+    prewarmInFlight = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        lastPrewarmAt = Date.now();
+        return true;
+      } catch {
+        // Keep this silent: prewarm is best-effort and should not pollute UX.
+        return false;
+      } finally {
+        prewarmInFlight = null;
+      }
+    })();
+    return prewarmInFlight;
   }
 
   async function startRecording() {
@@ -274,6 +302,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
     transcribing,
     startRecording,
     stopRecording,
+    prewarmMicrophone,
     cleanup,
   };
 }
