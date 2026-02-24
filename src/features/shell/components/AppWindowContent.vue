@@ -4,8 +4,8 @@
     :class="viewMode === 'chat'
       ? 'flex flex-col min-h-0 overflow-hidden'
       : viewMode === 'config'
-        ? 'p-3 min-h-0 overflow-hidden'
-        : 'p-3 overflow-auto'"
+        ? 'p-0 min-h-0 overflow-hidden'
+        : 'p-2 overflow-auto'"
   >
     <ConfigView
       v-if="viewMode === 'config'"
@@ -51,7 +51,7 @@
       @update:persona-editor-id="updatePersonaEditorId"
       @update:selected-persona-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
-      @toggle-theme="toggleTheme"
+      @set-theme="setTheme"
       @refresh-models="refreshModels"
       @tool-switch-changed="onToolsChanged"
       @save-api-config="saveConfig"
@@ -237,7 +237,7 @@ const props = defineProps<{
   config: AppConfig;
   configTab: "hotkey" | "api" | "tools" | "mcp" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
-  currentTheme: "light" | "dracula";
+  currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -326,7 +326,7 @@ const props = defineProps<{
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
-  toggleTheme: () => void;
+  setTheme: (value: string) => void;
   refreshModels: () => void;
   saveConfig: () => Promise<boolean> | boolean;
   onToolsChanged: () => void;

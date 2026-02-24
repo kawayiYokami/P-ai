@@ -1,7 +1,41 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes: light --default, dracula --prefersdark;
-  exclude: scrollbar;
+  themes:
+    light --default,
+    dark --prefersdark,
+    cupcake,
+    bumblebee,
+    emerald,
+    corporate,
+    synthwave,
+    retro,
+    cyberpunk,
+    valentine,
+    halloween,
+    garden,
+    forest,
+    aqua,
+    lofi,
+    pastel,
+    fantasy,
+    wireframe,
+    black,
+    luxury,
+    dracula,
+    cmyk,
+    autumn,
+    business,
+    acid,
+    lemonade,
+    night,
+    coffee,
+    winter,
+    dim,
+    nord,
+    sunset,
+    caramellatte,
+    abyss,
+    silk;
 }
 
 html,
@@ -16,14 +50,6 @@ body {
   margin: 0;
   overflow: hidden;
   background: hsl(var(--b2));
-}
-
-/* Avoid right white strip when daisyUI modal-open applies scrollbar compensation in desktop webview */
-:root:has(.modal.modal-open),
-body:has(.modal.modal-open) {
-  padding-right: 0 !important;
-  margin-right: 0 !important;
-  scrollbar-gutter: auto !important;
 }
 
 .answer {
@@ -41,25 +67,6 @@ body:has(.modal.modal-open) {
 .window-content {
   flex: 1;
   min-height: 0;
-}
-
-/* 自定义滚动条样式 */
-.window-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.window-content::-webkit-scrollbar-track {
-  background: hsl(var(--b2));
-  border-radius: 4px;
-}
-
-.window-content::-webkit-scrollbar-thumb {
-  background: hsl(var(--bc) / 0.3);
-  border-radius: 4px;
-}
-
-.window-content::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--bc) / 0.5);
 }
 
 :where(

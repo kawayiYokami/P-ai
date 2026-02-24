@@ -19,7 +19,7 @@
       <template v-if="viewMode === 'chat'">
         <div class="tooltip tooltip-bottom" :data-tip="forceArchiveTip">
           <button
-            class="btn btn-ghost btn-xs ml-2"
+            class="btn btn-xs bg-base-100 ml-2"
             :disabled="forcingArchive || chatting"
             @mousedown.stop
             @click.stop="$emit('force-archive')"
@@ -41,7 +41,7 @@
           <Pin class="h-3.5 w-3.5" />
         </button>
         <button
-          class="btn btn-xs btn-ghost hover:bg-error/20"
+          class="btn btn-xs btn-ghost hover:bg-error"
           :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"
@@ -51,7 +51,7 @@
       </template>
       <template v-else>
         <button
-          class="btn btn-xs hover:bg-error/20"
+          class="btn btn-xs btn-ghost hover:bg-error"
           :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"

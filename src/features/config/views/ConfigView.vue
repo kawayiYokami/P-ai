@@ -136,7 +136,7 @@
           :locale-options="localeOptions"
           :current-theme="currentTheme"
           @update:ui-language="$emit('update:uiLanguage', $event)"
-          @toggle-theme="$emit('toggleTheme')"
+          @set-theme="$emit('setTheme', $event)"
         />
 
         <AboutTab
@@ -229,7 +229,7 @@ const props = defineProps<{
   configTab: ConfigTab;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
-  currentTheme: "light" | "dracula";
+  currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -270,7 +270,7 @@ const emit = defineEmits<{
   (e: "update:personaEditorId", value: string): void;
   (e: "update:selectedPersonaId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
-  (e: "toggleTheme"): void;
+  (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;
   (e: "toolSwitchChanged"): void;
   (e: "openMemoryViewer"): void;

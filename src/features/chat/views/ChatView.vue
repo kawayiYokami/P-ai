@@ -95,7 +95,7 @@
               </div>
             </details>
           </div>
-          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300 assistant-markdown">
+          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
             <details
               v-if="resolvedTurnInlineReasoning(turn)"
               class="collapse border border-base-content/10 bg-base-200/50 mb-2"
@@ -194,7 +194,7 @@
               </div>
             </details>
           </div>
-          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300 assistant-markdown">
+          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
             <details
               v-if="latestInlineReasoningText"
               class="collapse border border-base-content/10 bg-base-200/50 mb-2"
@@ -506,10 +506,10 @@ function firstLinePreview(raw: string): string {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const first = lines.length ? lines[0] : raw.trim();
-  if (!first) return "";
-  const chars = Array.from(first);
-  if (chars.length <= 20) return first;
+  const last = lines.length ? lines[lines.length - 1] : raw.trim();
+  if (!last) return "";
+  const chars = Array.from(last);
+  if (chars.length <= 20) return last;
   return chars.slice(0, 20).join("") + "...";
 }
 

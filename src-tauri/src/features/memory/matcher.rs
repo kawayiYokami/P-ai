@@ -15,6 +15,7 @@ const MEMORY_ROUTE_CANDIDATE_LIMIT: usize = MEMORY_MATCH_MAX_ITEMS * MEMORY_CAND
 const MEMORY_WEIGHT_BM25: f64 = 0.3;
 const MEMORY_WEIGHT_VECTOR: f64 = 0.7;
 const MEMORY_RECALL_MIN_FINAL_SCORE: f64 = 0.5;
+const MEMORY_RECALL_TOP_SCORE_RATIO: f64 = 0.9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -299,9 +300,18 @@ fn memory_recall_hit_ids(
     memories: &[MemoryEntry],
     query_text: &str,
 ) -> Vec<String> {
-    memory_mixed_ranked_items(data_path, memories, query_text, MEMORY_MATCH_MAX_ITEMS)
+    let ranked = memory_mixed_ranked_items(data_path, memories, query_text, MEMORY_MATCH_MAX_ITEMS);
+    let top_score = ranked
+        .first()
+        .map(|item| item.final_score)
+        .filter(|score| score.is_finite())
+        .unwrap_or(0.0);
+    let dynamic_threshold = (top_score * MEMORY_RECALL_TOP_SCORE_RATIO).clamp(0.0, 1.0);
+    let effective_threshold = MEMORY_RECALL_MIN_FINAL_SCORE.max(dynamic_threshold);
+
+    ranked
         .into_iter()
-        .filter(|item| item.final_score >= MEMORY_RECALL_MIN_FINAL_SCORE)
+        .filter(|item| item.final_score >= effective_threshold)
         .map(|item| item.memory_id)
         .collect::<Vec<_>>()
 }

@@ -2,24 +2,6 @@
   <div class="grid gap-2">
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
-        <h3 class="card-title text-base">{{ t("appearance.theme") }}</h3>
-        <div class="flex items-center gap-2">
-          <button
-            class="btn"
-            :class="{ 'btn-active': currentTheme === 'light' }"
-            @click="$emit('toggleTheme')"
-          >{{ t("appearance.themeLight") }}</button>
-          <button
-            class="btn"
-            :class="{ 'btn-active': currentTheme === 'dracula' }"
-            @click="$emit('toggleTheme')"
-          >{{ t("appearance.themeDark") }}</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card bg-base-100 border border-base-300">
-      <div class="card-body p-4">
         <h3 class="card-title text-base">{{ t("appearance.language") }}</h3>
         <select
           class="select select-bordered w-full max-w-xs"
@@ -30,22 +12,32 @@
         </select>
       </div>
     </div>
+
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base">{{ t("appearance.theme") }}</h3>
+        <ThemePreviewGrid :themes="themes" :current-theme="currentTheme" @select="$emit('setTheme', $event)" />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
+import { APP_THEMES } from "../../../shell/composables/use-app-theme";
+import ThemePreviewGrid from "../../components/ThemePreviewGrid.vue";
 
 defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
-  currentTheme: "light" | "dracula";
+  currentTheme: string;
 }>();
 
 defineEmits<{
   (e: "update:uiLanguage", value: string): void;
-  (e: "toggleTheme"): void;
+  (e: "setTheme", value: string): void;
 }>();
 
 const { t } = useI18n();
+const themes = [...APP_THEMES];
 </script>

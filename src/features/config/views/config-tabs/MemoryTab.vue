@@ -576,7 +576,7 @@ async function saveEmbeddingBinding() {
       {
         input: {
           apiConfigId: cfg.id,
-          modelName: cfg.name || undefined,
+          modelName: cfg.model || undefined,
           batchSize: 64,
         },
       },
@@ -614,7 +614,7 @@ async function saveRerankBinding() {
       {
         input: {
           apiConfigId: cfg.id,
-          modelName: cfg.name || undefined,
+          modelName: cfg.model || undefined,
         },
       },
     ),

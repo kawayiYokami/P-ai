@@ -115,7 +115,7 @@
       :update-persona-editor-id="(value) => { personaEditorId = value; }"
       :update-selected-persona-id="(value) => { selectedPersonaId = value; }"
       :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
-      :toggle-theme="toggleTheme"
+      :set-theme="setTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
       :save-config="saveConfig"
@@ -332,7 +332,7 @@ const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => (params ? t(key, params) : t(key));
 const { windowReady, alwaysOnTop, initWindow, syncAlwaysOnTop, closeWindow, startDrag, toggleAlwaysOnTop } =
   useWindowShell();
-const { currentTheme, applyTheme, restoreThemeFromStorage, toggleTheme } = useAppTheme();
+const { currentTheme, applyTheme, setTheme, restoreThemeFromStorage } = useAppTheme();
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
@@ -889,9 +889,7 @@ const appBootstrap = useAppBootstrap({
   },
   initWindowMode: () => initWindow(),
   onThemeChanged: (theme) => {
-    if (theme === "light" || theme === "dracula") {
-      applyTheme(theme);
-    }
+    applyTheme(theme);
   },
   onLocaleChanged: (payload) => {
     const lang = normalizeLocale(payload);
