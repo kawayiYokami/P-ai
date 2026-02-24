@@ -553,6 +553,7 @@ const {
   t: tr,
   canStart: () => !chatting.value && !forcingArchive.value,
   getLanguage: () => normalizeLocale(config.uiLanguage),
+  getMinRecordSeconds: () => config.minRecordSeconds,
   getMaxRecordSeconds: () => config.maxRecordSeconds,
   shouldUseRemoteStt: () => shouldUseRemoteStt.value,
   transcribeRemoteStt: async (audio) => {
