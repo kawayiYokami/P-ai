@@ -158,8 +158,8 @@ fn archive_used_memories_block(memories: &[MemoryEntry], recall_table: &[String]
 }
 
 fn archive_example_output_block() -> &'static str {
-    r#"{
-  "summary": "string",
+    r###"{
+  "summary": "## Current Progress\n- 已完成事项（仅已落地）\n\n## Current State\n- 当前代码/工作区状态（是否已提交、是否有未提交改动）\n\n## User Decisions\n- 用户已明确同意/否决的决策\n\n## Open Issue (Root Cause)\n- 现存问题（含根因）\n\n## What Changed\n- 本轮实际改动（无则写“无”）\n\n## What Remains\n1. 下一步动作1\n2. 下一步动作2\n\n## Constraints / Preferences\n- 用户偏好与约束\n\n## Quick References\n- 关键文件路径或关键对象",
   "usefulMemoryIds": ["string"],
   "newMemories": [
     {
@@ -180,7 +180,7 @@ fn archive_example_output_block() -> &'static str {
       }
     }
   ]
-}"#
+}"###
 }
 
 fn enrich_prepared_prompt_with_common_preamble(
