@@ -112,6 +112,7 @@ export type LlmRoundLogEntry = {
   model: string;
   baseUrl: string;
   headers: LlmRoundLogHeader[];
+  tools?: unknown;
   request: unknown;
   response?: unknown;
   error?: string;

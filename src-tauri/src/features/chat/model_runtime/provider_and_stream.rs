@@ -265,6 +265,253 @@ fn sanitize_tool_result_for_history(tool_name: &str, tool_result: &str) -> Strin
 
 type ScreenshotMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 
+struct RuntimeToolAssembly {
+    tools: Vec<Box<dyn ToolDyn>>,
+    tool_manifest: Vec<Value>,
+    _mcp_screenshot_client: Option<ScreenshotMcpClient>,
+    _dynamic_mcp_clients: Vec<DynamicMcpClient>,
+}
+
+fn tool_manifest_item(
+    source: &str,
+    name: &str,
+    enabled: bool,
+    attached: bool,
+    reason: Option<String>,
+) -> Value {
+    serde_json::json!({
+        "source": source,
+        "name": name,
+        "enabled": enabled,
+        "attached": attached,
+        "reason": reason
+    })
+}
+
+async fn assemble_runtime_tools(
+    selected_api: &ApiConfig,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> Result<RuntimeToolAssembly, String> {
+    let has_fetch = tool_enabled(selected_api, "fetch");
+    let has_bing = tool_enabled(selected_api, "bing-search");
+    let has_memory = tool_enabled(selected_api, "memory-save");
+    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
+    let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
+    let has_shell_switch_workspace =
+        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
+    let has_shell_exec = tool_enabled(selected_api, "shell-exec");
+
+    let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+    let mut tool_manifest = Vec::<Value>::new();
+
+    tool_manifest.push(tool_manifest_item(
+        "builtin",
+        "fetch",
+        has_fetch,
+        has_fetch,
+        if has_fetch {
+            None
+        } else {
+            Some("disabled in api tools config".to_string())
+        },
+    ));
+    if has_fetch {
+        tools.push(Box::new(BuiltinFetchTool));
+    }
+
+    tool_manifest.push(tool_manifest_item(
+        "builtin",
+        "bing-search",
+        has_bing,
+        has_bing,
+        if has_bing {
+            None
+        } else {
+            Some("disabled in api tools config".to_string())
+        },
+    ));
+    if has_bing {
+        tools.push(Box::new(BuiltinBingSearchTool));
+    }
+
+    if has_memory {
+        let state = app_state
+            .ok_or_else(|| "memory_save requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemorySaveTool {
+            app_state: state.clone(),
+        }));
+        tools.push(Box::new(BuiltinMemorySaveBatchTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "memory-save",
+            true,
+            true,
+            None,
+        ));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "memory-save-batch",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "memory-save",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "memory-save-batch",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
+    if has_desktop_screenshot {
+        let client = try_attach_desktop_screenshot_mcp_tool(&mut tools)
+            .await
+            .map_err(|err| {
+                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
+            })?;
+        mcp_screenshot_client = Some(client);
+        tool_manifest.push(tool_manifest_item(
+            "builtin_mcp",
+            "desktop-screenshot",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin_mcp",
+            "desktop-screenshot",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    let dynamic_mcp_clients = match attach_enabled_mcp_tools_for_runtime(&mut tools, app_state).await {
+        Ok((clients, names)) => {
+            if names.is_empty() {
+                tool_manifest.push(tool_manifest_item(
+                    "mcp_runtime",
+                    "(none)",
+                    true,
+                    false,
+                    Some("no enabled MCP tools attached".to_string()),
+                ));
+            } else {
+                for name in names {
+                    tool_manifest.push(tool_manifest_item(
+                        "mcp_runtime",
+                        &name,
+                        true,
+                        true,
+                        None,
+                    ));
+                }
+            }
+            clients
+        }
+        Err(err) => {
+            tool_manifest.push(tool_manifest_item(
+                "mcp_runtime",
+                "(attach)",
+                true,
+                false,
+                Some(err.clone()),
+            ));
+            eprintln!("[MCP] attach runtime tools skipped: {err}");
+            Vec::new()
+        }
+    };
+
+    if has_desktop_wait {
+        tools.push(Box::new(BuiltinDesktopWaitTool));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "desktop-wait",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "desktop-wait",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    if has_shell_switch_workspace {
+        let state = app_state
+            .ok_or_else(|| "shell_switch_workspace requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinShellSwitchWorkspaceTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "shell-switch-workspace",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "shell-switch-workspace",
+            false,
+            false,
+            Some("disabled in api tools config or locked workspace".to_string()),
+        ));
+    }
+
+    if has_shell_exec {
+        let state = app_state
+            .ok_or_else(|| "shell_exec requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTerminalExecTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "shell-exec",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "shell-exec",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    Ok(RuntimeToolAssembly {
+        tools,
+        tool_manifest,
+        _mcp_screenshot_client: mcp_screenshot_client,
+        _dynamic_mcp_clients: dynamic_mcp_clients,
+    })
+}
+
 async fn try_attach_desktop_screenshot_mcp_tool(
     tools: &mut Vec<Box<dyn ToolDyn>>,
 ) -> Result<ScreenshotMcpClient, String> {
@@ -307,19 +554,10 @@ async fn call_model_openai_with_tools(
     selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
-    app_state: Option<&AppState>,
+    mut tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
-    tool_session_id: &str,
 ) -> Result<ModelReply, String> {
-    let has_fetch = tool_enabled(selected_api, "fetch");
-    let has_bing = tool_enabled(selected_api, "bing-search");
-    let has_memory = tool_enabled(selected_api, "memory-save");
-    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
-    let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
-    let has_shell_switch_workspace =
-        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
-    let has_shell_exec = tool_enabled(selected_api, "shell-exec");
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
     if !api_config.base_url.is_empty() {
@@ -328,62 +566,7 @@ async fn call_model_openai_with_tools(
     let client = client_builder
         .build()
         .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
-
-    let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
-    if has_fetch {
-        tools.push(Box::new(BuiltinFetchTool));
-    }
-    if has_bing {
-        tools.push(Box::new(BuiltinBingSearchTool));
-    }
-    if has_memory {
-        let state = app_state
-            .ok_or_else(|| "memory_save requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinMemorySaveTool { app_state: state }));
-        let state = app_state
-            .ok_or_else(|| "memory_save_batch requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinMemorySaveBatchTool { app_state: state }));
-    }
-    let mut _mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
-    if has_desktop_screenshot {
-        let client = try_attach_desktop_screenshot_mcp_tool(&mut tools)
-            .await
-            .map_err(|err| {
-                format!("desktop_screenshot MCP tool is unavailable (no builtin fallback): {err}")
-            })?;
-        _mcp_screenshot_client = Some(client);
-    }
-    let _dynamic_mcp_clients = match attach_enabled_mcp_tools_for_runtime(&mut tools, app_state).await {
-        Ok(v) => v,
-        Err(err) => {
-            eprintln!("[MCP] attach runtime tools skipped: {err}");
-            Vec::new()
-        }
-    };
-    if has_desktop_wait {
-        tools.push(Box::new(BuiltinDesktopWaitTool));
-    }
-    if has_shell_switch_workspace {
-        let state = app_state
-            .ok_or_else(|| "shell_switch_workspace requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinShellSwitchWorkspaceTool {
-            app_state: state,
-            session_id: tool_session_id.to_string(),
-        }));
-    }
-    if has_shell_exec {
-        let state = app_state
-            .ok_or_else(|| "shell_exec requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinTerminalExecTool {
-            app_state: state,
-            session_id: tool_session_id.to_string(),
-        }));
-    }
-
+    let tools = std::mem::take(&mut tool_assembly.tools);
     let agent = client
         .clone()
         .completions_api()
@@ -392,7 +575,53 @@ async fn call_model_openai_with_tools(
         .temperature(api_config.temperature)
         .tools(tools)
         .build();
+    run_openai_tool_loop(
+        agent,
+        prepared,
+        on_delta,
+        max_tool_iterations,
+        selected_api.request_format.is_deepseek_kimi(),
+    )
+    .await
+}
 
+async fn call_model_openai_responses_with_tools(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    mut tool_assembly: RuntimeToolAssembly,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
+) -> Result<ModelReply, String> {
+    let mut client_builder: openai::ClientBuilder =
+        openai::Client::builder().api_key(&api_config.api_key);
+    if !api_config.base_url.is_empty() {
+        client_builder = client_builder.base_url(&api_config.base_url);
+    }
+    let client = client_builder
+        .build()
+        .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
+    let tools = std::mem::take(&mut tool_assembly.tools);
+    let agent = client
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
+        .tools(tools)
+        .build();
+    run_openai_tool_loop(agent, prepared, on_delta, max_tool_iterations, false).await
+}
+
+async fn run_openai_tool_loop<M>(
+    agent: rig::agent::Agent<M>,
+    prepared: PreparedPrompt,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
+    include_reasoning_before_tool_calls: bool,
+) -> Result<ModelReply, String>
+where
+    M: rig::completion::CompletionModel,
+    <M as rig::completion::CompletionModel>::StreamingResponse: rig::completion::GetTokenUsage,
+{
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
@@ -404,7 +633,7 @@ async fn call_model_openai_with_tools(
         prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
     }
     let current_prompt_content = OneOrMany::many(prompt_blocks)
-    .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
     let mut current_prompt: RigMessage = RigMessage::User {
         content: current_prompt_content,
     };
@@ -467,12 +696,6 @@ async fn call_model_openai_with_tools(
                     let tool_call_id = tool_call.id.clone();
                     let tool_name = tool_call.function.name.clone();
                     let tool_args_value = tool_call.function.arguments.clone();
-                    eprintln!(
-                        "[TOOL-DEBUG] tool_call id={} name={} args={}",
-                        tool_call_id,
-                        tool_name,
-                        tool_args_value
-                    );
                     send_tool_status_event(
                         on_delta,
                         &tool_name,
@@ -480,37 +703,40 @@ async fn call_model_openai_with_tools(
                         &format!("正在调用工具：{}", tool_name),
                     );
                     let tool_args = match &tool_args_value {
-                        // Some providers return arguments as JSON string payload.
-                        // Passing `to_string()` here would double-encode into "\"{...}\"".
                         Value::String(raw) => raw.clone(),
                         other => other.to_string(),
                     };
-                    let tool_result = agent
+                    let tool_result = match agent
                         .tool_server_handle
                         .call_tool(&tool_name, &tool_args)
                         .await
-                        .map_err(|err| {
+                    {
+                        Ok(output) => {
+                            send_tool_status_event(
+                                on_delta,
+                                &tool_name,
+                                "done",
+                                &format!("工具调用完成：{}", tool_name),
+                            );
+                            output
+                        }
+                        Err(err) => {
+                            let err_text = err.to_string();
                             send_tool_status_event(
                                 on_delta,
                                 &tool_name,
                                 "failed",
-                                &format!("工具调用失败：{} ({err})", tool_name),
+                                &format!("工具调用失败：{} ({})", tool_name, err_text),
                             );
-                            format!("Tool call '{}' failed: {err}", tool_name)
-                        })?;
-                    eprintln!(
-                        "[TOOL-DEBUG] tool_result id={} name={} content={}",
-                        tool_call_id,
-                        tool_name,
-                        tool_result.chars().take(240).collect::<String>()
-                    );
-                    send_tool_status_event(
-                        on_delta,
-                        &tool_name,
-                        "done",
-                        &format!("工具调用完成：{}", tool_name),
-                    );
-                    let assistant_tool_event = serde_json::json!({
+                            serde_json::json!({
+                                "ok": false,
+                                "tool": tool_name,
+                                "error": err_text
+                            })
+                            .to_string()
+                        }
+                    };
+                    tool_history_events.push(serde_json::json!({
                         "role": "assistant",
                         "content": Value::Null,
                         "tool_calls": [
@@ -523,15 +749,13 @@ async fn call_model_openai_with_tools(
                                 }
                             }
                         ]
-                    });
-                    tool_history_events.push(assistant_tool_event);
+                    }));
                     let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result);
-                    let tool_event = serde_json::json!({
+                    tool_history_events.push(serde_json::json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
                         "content": history_content
-                    });
-                    tool_history_events.push(tool_event);
+                    }));
 
                     tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
                     tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
@@ -590,8 +814,7 @@ async fn call_model_openai_with_tools(
 
         if !tool_calls.is_empty() {
             let mut assistant_items = Vec::<AssistantContent>::new();
-            if selected_api.request_format.is_deepseek_kimi() {
-                // DeepSeek thinking mode + tool calls requires reasoning_content in assistant message.
+            if include_reasoning_before_tool_calls {
                 assistant_items.push(AssistantContent::reasoning(turn_reasoning.clone()));
             }
             assistant_items.extend(tool_calls);
@@ -657,69 +880,6 @@ async fn call_model_openai_with_tools(
         "failed",
         "工具调用达到上限，停止继续调用并立刻汇报。",
     );
-    let final_instruction = "工具调用次数达到上限，必须立刻汇报。禁止继续调用任何工具。请基于已有信息直接给出结论，并明确不确定性。";
-    current_prompt = final_instruction.into();
-    let final_agent = client
-        .completions_api()
-        .agent(model_name)
-        .preamble(&prepared.preamble)
-        .temperature(api_config.temperature)
-        .build();
-    let mut final_stream = final_agent
-        .stream_completion(current_prompt.clone(), chat_history.clone())
-        .await
-        .map_err(|err| format!("rig final stream build failed: {err}"))?
-        .stream()
-        .await
-        .map_err(|err| format!("rig final stream start failed: {err}"))?;
-    let mut final_text = String::new();
-    while let Some(chunk) = final_stream.next().await {
-        match chunk {
-            Ok(StreamedAssistantContent::Text(text)) => {
-                let _ = on_delta.send(AssistantDeltaEvent {
-                    delta: text.text.clone(),
-                    kind: None,
-                    tool_name: None,
-                    tool_status: None,
-                    message: None,
-                });
-                final_text.push_str(&text.text);
-            }
-            Ok(StreamedAssistantContent::Final(_)) => {}
-            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                let merged = reasoning.reasoning.join("\n");
-                if !merged.is_empty() {
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: merged,
-                        kind: Some("reasoning_standard".to_string()),
-                        tool_name: None,
-                        tool_status: None,
-                        message: None,
-                    });
-                }
-            }
-            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
-                if !reasoning.is_empty() {
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: reasoning,
-                        kind: Some("reasoning_standard".to_string()),
-                        tool_name: None,
-                        tool_status: None,
-                        message: None,
-                    });
-                }
-            }
-            Ok(StreamedAssistantContent::ToolCall { .. }) => {}
-            Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
-            Err(err) => return Err(format!("rig final streaming failed: {err}")),
-        }
-    }
-    if !final_text.trim().is_empty() {
-        if !full_assistant_text.trim().is_empty() {
-            full_assistant_text.push_str("\n\n");
-        }
-        full_assistant_text.push_str(&final_text);
-    }
     Ok(ModelReply {
         assistant_text: full_assistant_text,
         reasoning_standard: full_reasoning_standard,
@@ -793,7 +953,7 @@ async fn call_model_gemini_with_tools(
         _mcp_screenshot_client = Some(client);
     }
     let _dynamic_mcp_clients = match attach_enabled_mcp_tools_for_runtime(&mut tools, app_state).await {
-        Ok(v) => v,
+        Ok((v, _)) => v,
         Err(err) => {
             eprintln!("[MCP] attach runtime tools skipped: {err}");
             Vec::new()
@@ -1147,7 +1307,7 @@ async fn call_model_anthropic_with_tools(
         _mcp_screenshot_client = Some(client);
     }
     let _dynamic_mcp_clients = match attach_enabled_mcp_tools_for_runtime(&mut tools, app_state).await {
-        Ok(v) => v,
+        Ok((v, _)) => v,
         Err(err) => {
             eprintln!("[MCP] attach runtime tools skipped: {err}");
             Vec::new()
@@ -1451,46 +1611,7 @@ async fn call_model_openai_style(
         api_config.temperature,
     );
     let headers = masked_auth_headers(&api_config.api_key);
-    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
-        let result =
-            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
-                .await;
-        let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        match &result {
-            Ok(reply) => {
-                push_llm_round_log(
-                    app_state,
-                    "chat",
-                    selected_api.request_format,
-                    &selected_api.name,
-                    model_name,
-                    &api_config.base_url,
-                    headers,
-                    request_log,
-                    Some(model_reply_to_log_value(reply)),
-                    None,
-                    elapsed_ms,
-                );
-            }
-            Err(err) => {
-                push_llm_round_log(
-                    app_state,
-                    "chat",
-                    selected_api.request_format,
-                    &selected_api.name,
-                    model_name,
-                    &api_config.base_url,
-                    headers,
-                    request_log,
-                    None,
-                    Some(err.clone()),
-                    elapsed_ms,
-                );
-            }
-        }
-        return result;
-    }
-
+    let mut tool_manifest_for_log: Option<Value> = None;
     let result = if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
@@ -1529,40 +1650,50 @@ async fn call_model_openai_style(
         } else {
             call_model_anthropic_rig_style(api_config, model_name, prepared).await
         }
-    } else if selected_api.enable_tools
-        && is_openai_style_request_format(selected_api.request_format)
-        && prepared.latest_images.is_empty()
-        && prepared.latest_audios.is_empty()
-    {
-        call_model_openai_with_tools(
-            api_config,
-            selected_api,
-            model_name,
-            prepared,
-            app_state,
-            on_delta,
-            max_tool_iterations,
-            tool_session_id,
-        )
-        .await
     } else if is_openai_style_request_format(selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
-        call_model_openai_with_tools(
-            api_config,
-            selected_api,
-            model_name,
-            prepared,
-            app_state,
-            on_delta,
-            max_tool_iterations,
-            tool_session_id,
-        )
-        .await
+        if selected_api.enable_tools {
+            let tool_assembly =
+                assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+            tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+            if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                call_model_openai_responses_with_tools(
+                    api_config,
+                    model_name,
+                    prepared,
+                    tool_assembly,
+                    on_delta,
+                    max_tool_iterations,
+                )
+                .await
+            } else {
+                call_model_openai_with_tools(
+                    api_config,
+                    selected_api,
+                    model_name,
+                    prepared,
+                    tool_assembly,
+                    on_delta,
+                    max_tool_iterations,
+                )
+                .await
+            }
+        } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
+                .await
+        } else {
+            call_model_openai_rig_style(api_config, model_name, prepared).await
+        }
     } else {
         let original = prepared.clone();
-        let rig_result = call_model_openai_rig_style(api_config, model_name, prepared).await;
+        let rig_result = if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
+                .await
+        } else {
+            call_model_openai_rig_style(api_config, model_name, prepared).await
+        };
         match rig_result {
             Ok(reply) => Ok(reply),
             Err(err)
@@ -1575,17 +1706,43 @@ async fn call_model_openai_style(
                 let mut fallback = original;
                 fallback.latest_images.clear();
                 fallback.latest_audios.clear();
-                call_model_openai_with_tools(
-                    api_config,
-                    selected_api,
-                    model_name,
-                    fallback,
-                    app_state,
-                    on_delta,
-                    max_tool_iterations,
-                    tool_session_id,
-                )
-                .await
+                if selected_api.enable_tools {
+                    let tool_assembly =
+                        assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+                    tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+                    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                        call_model_openai_responses_with_tools(
+                            api_config,
+                            model_name,
+                            fallback,
+                            tool_assembly,
+                            on_delta,
+                            max_tool_iterations,
+                        )
+                        .await
+                    } else {
+                        call_model_openai_with_tools(
+                            api_config,
+                            selected_api,
+                            model_name,
+                            fallback,
+                            tool_assembly,
+                            on_delta,
+                            max_tool_iterations,
+                        )
+                        .await
+                    }
+                } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                    call_model_openai_responses_rig_style(
+                        api_config,
+                        model_name,
+                        fallback,
+                        Some(on_delta),
+                    )
+                    .await
+                } else {
+                    call_model_openai_rig_style(api_config, model_name, fallback).await
+                }
             }
             Err(err) => Err(err),
         }
@@ -1601,6 +1758,7 @@ async fn call_model_openai_style(
                 model_name,
                 &api_config.base_url,
                 headers,
+                tool_manifest_for_log.clone(),
                 request_log,
                 Some(model_reply_to_log_value(reply)),
                 None,
@@ -1616,6 +1774,7 @@ async fn call_model_openai_style(
                 model_name,
                 &api_config.base_url,
                 headers,
+                tool_manifest_for_log,
                 request_log,
                 None,
                 Some(err.clone()),

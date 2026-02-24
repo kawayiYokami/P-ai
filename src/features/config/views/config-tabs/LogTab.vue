@@ -41,6 +41,13 @@
           </details>
 
           <details class="collapse collapse-arrow bg-base-200 border border-base-300">
+            <summary class="collapse-title text-xs py-2 min-h-0">Tools</summary>
+            <div class="collapse-content text-xs">
+              <pre class="whitespace-pre-wrap break-all">{{ toPretty(entry.tools ?? null) }}</pre>
+            </div>
+          </details>
+
+          <details class="collapse collapse-arrow bg-base-200 border border-base-300">
             <summary class="collapse-title text-xs py-2 min-h-0">Request</summary>
             <div class="collapse-content text-xs">
               <pre class="whitespace-pre-wrap break-all">{{ toPretty(entry.request) }}</pre>
@@ -97,6 +104,7 @@ async function reload() {
         baseUrl: "",
         headers: [],
         request: null,
+        tools: null,
         response: null,
         error: toErrorMessage(error),
         elapsedMs: 0,

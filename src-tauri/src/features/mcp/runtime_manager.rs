@@ -500,9 +500,9 @@ async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<M
 async fn attach_enabled_mcp_tools_for_runtime(
     tools: &mut Vec<Box<dyn ToolDyn>>,
     app_state: Option<&AppState>,
-) -> Result<Vec<DynamicMcpClient>, String> {
+) -> Result<(Vec<DynamicMcpClient>, Vec<String>), String> {
     let Some(state) = app_state else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let config = {
         let guard = state
@@ -515,6 +515,7 @@ async fn attach_enabled_mcp_tools_for_runtime(
     };
 
     let clients = Vec::<DynamicMcpClient>::new();
+    let mut attached_tool_names = Vec::<String>::new();
     for server in &config.mcp_servers {
         if !server.enabled {
             continue;
@@ -543,8 +544,9 @@ async fn attach_enabled_mcp_tools_for_runtime(
                 def,
                 peer.clone(),
             )));
+            attached_tool_names.push(format!("{}::{}", server.name, tool_name));
         }
     }
 
-    Ok(clients)
+    Ok((clients, attached_tool_names))
 }
