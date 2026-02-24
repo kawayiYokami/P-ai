@@ -4,12 +4,4 @@ module.exports = {
   theme: {
     extend: {},
   },
-  plugins: [
-    require("daisyui", {
-      exclude: ["scrollbar"],
-    }),
-  ],
-  daisyui: {
-    themes: ["light", "dracula"],
-  },
 };

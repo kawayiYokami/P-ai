@@ -1,6 +1,6 @@
 <template>
-  <label class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.title") }}</span></div>
+  <label class="flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.title") }}</span></div>
     <div class="flex gap-1">
       <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
         <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : "" }}</option>
@@ -21,8 +21,8 @@
   <div class="divider my-0"></div>
 
   <div v-if="selectedPersona" class="grid gap-2">
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.name") }}</span></div>
+    <label class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.name") }}</span></div>
       <div class="flex items-center gap-2">
         <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.persona.name')" />
         <button
@@ -43,13 +43,13 @@
           </div>
         </button>
       </div>
-      <div v-if="avatarError" class="label py-1"><span class="label-text-alt text-error break-all">{{ avatarError }}</span></div>
+      <div v-if="avatarError" class="flex items-center justify-between py-1"><span class="text-error break-all">{{ avatarError }}</span></div>
     </label>
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-xs">{{ t("config.persona.prompt") }}</span></div>
+    <label class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.prompt") }}</span></div>
       <textarea
         v-model="selectedPersona.systemPrompt"
-        class="textarea textarea-bordered textarea-xs"
+        class="textarea textarea-bordered textarea-xs w-full"
         rows="12"
         :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
       ></textarea>

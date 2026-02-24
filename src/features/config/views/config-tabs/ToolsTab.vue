@@ -34,41 +34,25 @@
     <div class="mt-4"></div>
     <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">{{ t("config.tools.disabledHint") }}</div>
     <div v-else class="grid gap-2">
-      <div v-for="tool in toolApiConfig.tools" :key="tool.id" class="card card-compact bg-base-100 border border-base-300 relative">
-        <div class="absolute left-2 top-2 w-2.5 h-2.5 rounded-full" :class="statusDotClass(tool.id)" :title="statusText(tool.id)"></div>
-        <div v-if="isToolRunning(tool.id)" class="absolute left-6 top-[3px]">
-          <span class="loading loading-spinner loading-xs"></span>
-        </div>
-        <div class="card-body py-2 px-3">
-          <div class="flex items-center justify-between gap-2">
-            <div class="min-w-0">
-              <div class="text-xs font-medium pl-3">{{ tool.id }}</div>
-              <div class="text-[11px] opacity-70 pl-3">{{ toolDescription(tool.id) }}</div>
-              <div v-if="isImageBoundTool(tool.id) && !toolApiConfig.enableImage" class="text-[11px] text-warning pl-3 mt-1">
-                {{ t("config.tools.imageCapabilityRequired") }}
-              </div>
-              <div v-if="showGitInstallLink(tool.id)" class="text-[11px] text-warning pl-3 mt-1 flex items-center gap-2">
-                <span>{{ t("config.tools.gitRequiredHint") }}</span>
-                <button class="btn btn-xs btn-ghost bg-base-100" @click="openGitDownloadLink">
-                  {{ t("config.tools.installGit") }}
-                </button>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <label class="label cursor-pointer py-0 gap-2">
-                <span class="label-text text-[11px] opacity-70">{{ t("config.tools.toolEnabled") }}</span>
-                <input
-                  v-model="tool.enabled"
-                  type="checkbox"
-                  class="toggle toggle-xs"
-                  :disabled="toolSwitchDisabled(tool.id)"
-                  @change="$emit('toolSwitchChanged')"
-                />
-              </label>
-              <button v-if="tool.id === 'memory-save'" class="btn btn-xs btn-ghost bg-base-100" @click="$emit('openMemoryViewer')">{{ t("config.tools.viewMemory") }}</button>
-            </div>
+      <ToolListCard
+        :title="t('config.mcpToolList.toolList')"
+        :items="toolListItems"
+        :no-description-text="t('config.mcpToolList.noDescription')"
+        @toggle-item="onToggleToolItem"
+      >
+        <template #item-extra="{ item }">
+          <div v-if="isImageBoundTool(item.id) && !toolApiConfig.enableImage" class="text-[11px] text-warning mt-1">
+            {{ t("config.tools.imageCapabilityRequired") }}
           </div>
-          <div v-if="tool.id === 'desktop-screenshot'" class="mt-2 pl-3">
+          <div v-if="showGitInstallLink(item.id)" class="text-[11px] text-warning mt-1 flex items-center gap-2">
+            <span>{{ t("config.tools.gitRequiredHint") }}</span>
+            <button class="btn btn-xs bg-base-100" @click="openGitDownloadLink">
+              {{ t("config.tools.installGit") }}
+            </button>
+          </div>
+        </template>
+        <template #item-debug="{ item }">
+          <div v-if="item.id === 'desktop-screenshot'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
               <button class="btn btn-xs btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage" @click="runDesktopScreenshot">
@@ -77,7 +61,7 @@
             </div>
             <div v-if="screenshotResult" class="mt-2 text-[11px] opacity-80 break-all">{{ screenshotResult }}</div>
           </div>
-          <div v-if="tool.id === 'desktop-wait'" class="mt-2 pl-3">
+          <div v-if="item.id === 'desktop-wait'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
               <div class="flex items-center gap-2">
@@ -89,7 +73,7 @@
             </div>
             <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
           </div>
-          <div v-if="tool.id === 'shell-exec'" class="mt-2 pl-3">
+          <div v-if="item.id === 'shell-exec'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
               <button class="btn btn-xs btn-primary" :disabled="terminalSelfCheckRunning" @click="runTerminalSelfCheck">
@@ -101,8 +85,8 @@
               class="mt-2 text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono bg-base-200 border border-base-300 rounded p-2"
             >{{ terminalSelfCheckResult }}</pre>
           </div>
-        </div>
-      </div>
+        </template>
+      </ToolListCard>
     </div>
   </template>
   <dialog ref="screenshotDialogRef" class="modal">
@@ -125,6 +109,7 @@ import type { ApiConfigItem, AppConfig, ToolLoadStatus } from "../../../../types
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { open } from "@tauri-apps/plugin-dialog";
+import ToolListCard, { type ToolListItem } from "../../components/ToolListCard.vue";
 
 type TerminalSelfCheckStep = {
   name: string;
@@ -155,7 +140,7 @@ const props = defineProps<{
   savingConfig: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "openMemoryViewer"): void;
   (e: "toolSwitchChanged"): void;
   (e: "saveApiConfig"): void;
@@ -253,6 +238,26 @@ function isToolRunning(id: string): boolean {
   return false;
 }
 
+const toolListItems = computed<ToolListItem[]>(() =>
+  (props.toolApiConfig?.tools ?? []).map((tool) => ({
+    id: tool.id,
+    name: tool.id,
+    description: toolDescription(tool.id),
+    enabled: !!tool.enabled,
+    toggleDisabled: toolSwitchDisabled(tool.id),
+    running: isToolRunning(tool.id),
+    statusClass: statusDotClass(tool.id),
+    statusTitle: statusText(tool.id),
+  })),
+);
+
+function onToggleToolItem(payload: { id: string; enabled: boolean }) {
+  const target = props.toolApiConfig?.tools.find((tool) => tool.id === payload.id);
+  if (!target) return;
+  target.enabled = payload.enabled;
+  emit("toolSwitchChanged");
+}
+
 function showGitInstallLink(id: string): boolean {
   if (id !== "shell-exec") return false;
   const status = toolStatusById(id);
@@ -269,37 +274,30 @@ function normalizeOutputText(value: unknown): string {
 }
 
 function formatTerminalSelfCheckResult(payload: TerminalSelfCheckResult): string {
-  const lines: string[] = [];
-  lines.push(`${t("config.tools.lastResult")}: ${payload.ok ? "OK" : "FAILED"}`);
-  if (payload.blockedReason) lines.push(`blockedReason=${payload.blockedReason}`);
-  if (payload.message) lines.push(`message=${payload.message}`);
-  if (payload.sessionId) lines.push(`sessionId=${payload.sessionId}`);
-  if (payload.shellKind) lines.push(`shellKind=${payload.shellKind}`);
-  if (payload.shellPath) lines.push(`shellPath=${payload.shellPath}`);
-  if (payload.rootPath) lines.push(`rootPath=${payload.rootPath}`);
-  if (payload.cwd) lines.push(`cwd=${payload.cwd}`);
-  if (Array.isArray(payload.allowedProjectRoots)) {
-    lines.push("allowedProjectRoots:");
-    if (payload.allowedProjectRoots.length === 0) {
-      lines.push("(empty)");
-    } else {
-      for (const root of payload.allowedProjectRoots) {
-        lines.push(`- ${root}`);
-      }
-    }
+  if (payload.ok) {
+    return `${t("config.tools.lastResult")}: OK`;
   }
+
+  const reasons: string[] = [];
+  if (payload.message) reasons.push(`message=${payload.message}`);
+  if (payload.blockedReason) reasons.push(`blockedReason=${payload.blockedReason}`);
+
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
-  if (steps.length === 0) {
-    lines.push("steps: (none)");
-  } else {
-    lines.push("steps:");
-    for (const [index, step] of steps.entries()) {
-      lines.push(`[${index + 1}] ${step.name} | ok=${step.ok} | exit=${step.exitCode} | ${step.durationMs}ms`);
-      lines.push(`stdout:\n${normalizeOutputText(step.stdout)}`);
-      lines.push(`stderr:\n${normalizeOutputText(step.stderr)}`);
+  for (const step of steps) {
+    if (step.ok) continue;
+    reasons.push(`${step.name}: exit=${step.exitCode}`);
+    if (String(step.stderr || "").trim()) {
+      reasons.push(`stderr=${normalizeOutputText(step.stderr)}`);
+    } else if (String(step.stdout || "").trim()) {
+      reasons.push(`stdout=${normalizeOutputText(step.stdout)}`);
     }
+    break;
   }
-  return lines.join("\n");
+
+  if (reasons.length === 0) {
+    reasons.push("unknown error");
+  }
+  return `${t("config.tools.lastResult")}: FAILED | ${reasons.join(" | ")}`;
 }
 
 async function runTerminalSelfCheck() {

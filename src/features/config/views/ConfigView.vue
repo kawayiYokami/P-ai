@@ -1,43 +1,44 @@
 <template>
   <div class="h-full min-h-0 flex gap-3">
-    <div class="w-48 shrink-0">
-      <ul class="menu bg-base-200 rounded-box gap-1">
+    <div class="w-36 shrink-0">
+      <ul class="menu bg-base-200 rounded-box gap-1 [&>li>a]:min-w-30 [&>li>a]:w-full">
         <li>
-          <a :class="{ 'active': configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
+          <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">{{ t("config.tabs.api") }}</a>
+          <a :class="{ 'active': props.configTab === 'api', 'menu-active': props.configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">{{ t("config.tabs.api") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">{{ t("config.tabs.tools") }}</a>
+          <a :class="{ 'active': props.configTab === 'tools', 'menu-active': props.configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">{{ t("config.tabs.tools") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'mcp', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('mcp')">MCP</a>
+          <a :class="{ 'active': props.configTab === 'mcp', 'menu-active': props.configTab === 'mcp', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('mcp')">MCP</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">{{ t("config.tabs.persona") }}</a>
+          <a :class="{ 'active': props.configTab === 'persona', 'menu-active': props.configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">{{ t("config.tabs.persona") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
+          <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
+          <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">{{ t("config.tabs.logs") }}</a>
+          <a :class="{ 'active': props.configTab === 'logs', 'menu-active': props.configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">{{ t("config.tabs.logs") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">{{ t("config.tabs.appearance") }}</a>
+          <a :class="{ 'active': props.configTab === 'appearance', 'menu-active': props.configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">{{ t("config.tabs.appearance") }}</a>
         </li>
         <li>
-          <a :class="{ 'active': configTab === 'about', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('about')">{{ t("config.tabs.about") }}</a>
+          <a :class="{ 'active': props.configTab === 'about', 'menu-active': props.configTab === 'about', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('about')">{{ t("config.tabs.about") }}</a>
         </li>
       </ul>
     </div>
 
     <div class="flex-1 min-w-0 overflow-y-auto">
+      <SettingsContentContainer>
         <HotkeyTab
-          v-if="configTab === 'hotkey'"
+          v-if="props.configTab === 'hotkey'"
           :config="config"
           :hotkey-test-recording="hotkeyTestRecording"
           :hotkey-test-recording-ms="hotkeyTestRecordingMs"
@@ -52,7 +53,7 @@
         />
 
         <ApiTab
-          v-else-if="configTab === 'api'"
+          v-else-if="props.configTab === 'api'"
           :config="config"
           :selected-api-config="selectedApiConfig"
           :base-url-reference="baseUrlReference"
@@ -69,7 +70,7 @@
         />
 
         <ToolsTab
-          v-else-if="configTab === 'tools'"
+          v-else-if="props.configTab === 'tools'"
           :config="config"
           :tool-api-config="toolApiConfig"
           :tool-statuses="toolStatuses"
@@ -79,11 +80,11 @@
           @open-memory-viewer="$emit('update:configTab', 'memory')"
         />
         <McpTab
-          v-else-if="configTab === 'mcp'"
+          v-else-if="props.configTab === 'mcp'"
         />
 
         <PersonaTab
-          v-else-if="configTab === 'persona'"
+          v-else-if="props.configTab === 'persona'"
           :personas="personas"
           :assistant-personas="assistantPersonas"
           :persona-editor-id="personaEditorId"
@@ -99,7 +100,7 @@
         />
 
         <ChatSettingsTab
-          v-else-if="configTab === 'chatSettings'"
+          v-else-if="props.configTab === 'chatSettings'"
           :config="config"
           :text-capable-api-configs="textCapableApiConfigs"
           :image-capable-api-configs="imageCapableApiConfigs"
@@ -120,17 +121,17 @@
         />
 
         <MemoryTab
-          v-else-if="configTab === 'memory'"
+          v-else-if="props.configTab === 'memory'"
           :sync-locked="memorySyncLocked"
           @sync-lock-change="onMemorySyncLockChange"
         />
 
         <LogTab
-          v-else-if="configTab === 'logs'"
+          v-else-if="props.configTab === 'logs'"
         />
 
         <AppearanceTab
-          v-else-if="configTab === 'appearance'"
+          v-else-if="props.configTab === 'appearance'"
           :ui-language="uiLanguage"
           :locale-options="localeOptions"
           :current-theme="currentTheme"
@@ -139,11 +140,12 @@
         />
 
         <AboutTab
-          v-else-if="configTab === 'about'"
+          v-else-if="props.configTab === 'about'"
           :checking-update="checkingUpdate"
           @check-update="$emit('checkUpdate')"
           @open-github="$emit('openGithub')"
         />
+      </SettingsContentContainer>
       </div>
 
     <!-- Dialogs -->
@@ -207,6 +209,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import Cropper from "cropperjs";
+import SettingsContentContainer from "../components/SettingsContentContainer.vue";
 import HotkeyTab from "./config-tabs/HotkeyTab.vue";
 import ApiTab from "./config-tabs/ApiTab.vue";
 import ToolsTab from "./config-tabs/ToolsTab.vue";

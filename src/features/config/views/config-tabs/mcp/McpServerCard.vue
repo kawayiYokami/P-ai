@@ -24,7 +24,7 @@
         <div class="collapse-content">
           <textarea
             v-model="draft.definitionJson"
-            class="textarea textarea-xs font-mono min-h-40 w-full bg-transparent border-0 focus:outline-none resize-none"
+            class="textarea textarea-xs font-mono min-h-40 w-full bg-base-100"
             :placeholder="t('config.mcpServerCard.configPlaceholder')"
             @input="emitChange"
           ></textarea>
@@ -39,7 +39,7 @@
           <span v-else-if="draft.lastStatus === 'deploying'" class="badge badge-xs badge-warning">部署中</span>
           <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-xs badge-error">失败</span>
           <span v-else class="badge badge-xs badge-ghost">{{ draft.lastStatus || "-" }}</span>
-          <span v-if="draft.lastError" class="text-error truncate max-w-[200px]" :title="draft.lastError"> | {{ draft.lastError }}</span>
+          <span v-if="draft.lastError" class="text-error truncate max-w-50" :title="draft.lastError"> | {{ draft.lastError }}</span>
         </div>
         <div></div>
       </div>

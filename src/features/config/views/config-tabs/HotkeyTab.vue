@@ -1,6 +1,6 @@
 <template>
-  <label class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.label") }}</span></div>
+  <label class="flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.label") }}</span></div>
     <div class="flex items-center gap-2">
       <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
       <button
@@ -11,13 +11,13 @@
         {{ hotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
       </button>
     </div>
-    <div class="label py-1">
-      <span class="label-text-alt text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
+    <div class="flex items-center justify-between py-1">
+      <span class="text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
     </div>
   </label>
   <div class="grid grid-cols-1 gap-2">
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordKey") }}</span></div>
+    <label class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.recordKey") }}</span></div>
       <div class="flex items-center gap-1">
         <input :value="config.recordHotkey" class="input input-bordered input-sm flex-1" readonly />
         <button
@@ -30,8 +30,8 @@
       </div>
     </label>
     <div class="grid grid-cols-2 gap-2">
-      <label class="form-control min-w-0">
-        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
+      <label class="flex min-w-0 flex-col gap-1">
+        <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
         <input
           :value="config.minRecordSeconds"
           type="number"
@@ -41,8 +41,8 @@
           @input="onMinRecordSecondsInput"
         />
       </label>
-      <label class="form-control min-w-0">
-        <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
+      <label class="flex min-w-0 flex-col gap-1">
+        <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
         <input
           :value="config.maxRecordSeconds"
           type="number"
@@ -54,11 +54,11 @@
       </label>
     </div>
   </div>
-  <div class="form-control">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.hotkey.recordTest") }}</span></div>
+  <div class="flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.recordTest") }}</span></div>
     <div class="flex flex-wrap items-center gap-2">
       <button
-        class="btn btn-sm btn-ghost bg-base-100 shrink-0"
+        class="btn btn-sm bg-base-100 shrink-0"
         :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
         :title="hotkeyTestRecording ? t('config.hotkey.releaseToStop') : t('config.hotkey.holdToRecord')"
         @mousedown.prevent="$emit('startHotkeyRecordTest')"
@@ -70,7 +70,7 @@
         {{ hotkeyTestRecording ? t("chat.recording", { seconds: Math.max(1, Math.round(hotkeyTestRecordingMs / 1000)) }) : t("config.hotkey.holdRecordButton") }}
       </button>
       <button
-        class="btn btn-sm btn-ghost bg-base-100 shrink-0"
+        class="btn btn-sm bg-base-100 shrink-0"
         :disabled="!hotkeyTestAudioReady"
         @click="$emit('playHotkeyRecordTest')"
       >
@@ -267,3 +267,4 @@ onBeforeUnmount(() => {
   stopRecordHotkeyCapture();
 });
 </script>
+

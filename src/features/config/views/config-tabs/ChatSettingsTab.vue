@@ -1,26 +1,26 @@
 <template>
-  <label class="form-control mb-3">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.chatLlmProvider") }}</span></div>
+  <label class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.chatSettings.chatLlmProvider") }}</span></div>
     <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
       <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
     </select>
   </label>
-  <label class="form-control mb-3">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.visionApi") }}</span></div>
+  <label class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.chatSettings.visionApi") }}</span></div>
     <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)">
       <option value="">{{ t("config.chatSettings.noVision") }}</option>
       <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
     </select>
   </label>
-  <label class="form-control mb-3">
-    <div class="label py-1"><span class="label-text text-xs">语音转写（STT）</span></div>
+  <label class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">语音转写（STT）</span></div>
     <div class="flex items-center gap-2">
       <select :value="config.sttApiConfigId ?? ''" class="select select-bordered select-sm flex-1" @change="onSttSelectChange">
         <option value="">本地（Web Speech）</option>
         <option v-for="a in sttCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
       </select>
-      <label class="label cursor-pointer gap-1 py-0">
-        <span class="label-text text-xs">完成后发送</span>
+      <label class="inline-flex cursor-pointer items-center gap-1 py-0">
+        <span class="text-xs">完成后发送</span>
         <input
           :checked="!!config.sttAutoSend"
           type="checkbox"
@@ -31,20 +31,20 @@
       </label>
     </div>
   </label>
-  <label class="form-control mb-3">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.assistantPersona") }}</span></div>
+  <label class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.chatSettings.assistantPersona") }}</span></div>
     <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
       <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
     </select>
   </label>
-  <div class="form-control mb-3">
-    <div class="label py-1"><span class="label-text text-xs">{{ t("config.chatSettings.responseStyle") }}</span></div>
+  <div class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.chatSettings.responseStyle") }}</span></div>
     <div class="join w-full">
       <button
         v-for="style in responseStyleOptions"
         :key="style.id"
         class="btn btn-sm join-item flex-1"
-        :class="responseStyleId === style.id ? 'btn-primary' : 'btn-ghost bg-base-100'"
+        :class="responseStyleId === style.id ? 'btn-primary' : 'bg-base-100'"
         @click="$emit('update:responseStyleId', style.id)"
       >
         {{ t(`responseStyle.${style.id}`) }}
@@ -117,3 +117,4 @@ function onSttAutoSendChange(event: Event) {
   props.config.sttAutoSend = (event.target as HTMLInputElement).checked;
 }
 </script>
+

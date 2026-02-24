@@ -26,8 +26,8 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- 嵌入配置 -->
           <div class="flex flex-col gap-2">
-            <label class="form-control">
-              <div class="label py-0"><span class="label-text text-xs">{{ t('config.memory.embeddingModel') }}</span></div>
+            <label class="flex w-full flex-col gap-1">
+              <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t('config.memory.embeddingModel') }}</span></div>
               <select v-model="embeddingApiConfigId" class="select select-bordered select-sm">
                 <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
@@ -51,8 +51,8 @@
 
           <!-- 重排配置 -->
           <div class="flex flex-col gap-2">
-            <label class="form-control">
-              <div class="label py-0"><span class="label-text text-xs">{{ t('config.memory.rerankModel') }}</span></div>
+            <label class="flex w-full flex-col gap-1">
+              <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t('config.memory.rerankModel') }}</span></div>
               <select v-model="rerankApiConfigId" class="select select-bordered select-sm">
                 <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
@@ -103,15 +103,13 @@
 
         <!-- 搜索栏 -->
         <div class="join">
-          <div>
-            <div>
-              <input
-                v-model.trim="searchQuery"
-                class="input input-bordered input-sm join-item flex-1"
-                :placeholder="t('config.memory.searchPlaceholder')"
-                @keyup.enter="searchMemories"
-              />
-            </div>
+          <div class="flex-auto">
+            <input
+              v-model.trim="searchQuery"
+              class="input input-bordered input-sm join-item w-full"
+              :placeholder="t('config.memory.searchPlaceholder')"
+              @keyup.enter="searchMemories"
+            />
           </div>
           <div class="indicator">
             <span v-if="isSearchMode" class="indicator-item badge badge-secondary badge-xs">结果</span>
@@ -157,7 +155,17 @@
                     class="card bg-base-200 card-border border-base-300 card-sm"
                   >
                     <div class="card-body gap-2 p-3">
-                      <!-- 标题：类型 + 时间 + 标签 + 删除 -->
+                      <!-- 内容 -->
+                      <div class="whitespace-pre-wrap break-words leading-relaxed text-sm font-bold">{{ memory.judgment }}</div>
+
+                      <!-- 推理 -->
+                      <div v-if="memory.reasoning" class="py-2">
+                        <div class="pl-2 border-l-2 border-base-300 opacity-70 whitespace-pre-wrap break-words italic text-xs">
+                          {{ memory.reasoning }}
+                        </div>
+                      </div>
+
+                      <!-- 标签行：类型 + 时间 + 标签 + 删除 -->
                       <h2 class="flex items-center justify-between m-0 p-0">
                         <span class="flex flex-wrap items-center gap-2 font-semibold text-xs">
                           <span
@@ -180,16 +188,6 @@
                           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                         </button>
                       </h2>
-
-                      <!-- 内容 -->
-                      <div class="whitespace-pre-wrap break-words leading-relaxed text-xs">{{ memory.judgment }}</div>
-
-                      <!-- 推理 -->
-                      <div v-if="memory.reasoning" class="py-2">
-                        <div class="pl-2 border-l-2 border-base-300 opacity-70 whitespace-pre-wrap break-words italic text-xs">
-                          {{ memory.reasoning }}
-                        </div>
-                      </div>
 
                       <!-- 搜索分数 -->
                       <div v-if="isSearchMode" class="pt-2">

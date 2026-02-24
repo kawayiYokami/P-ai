@@ -59,7 +59,7 @@
               <button
                 v-for="(aud, idx) in turn.userAudios"
                 :key="`${turn.id}-aud-${idx}`"
-                class="btn btn-xs btn-ghost bg-base-100/70 w-fit"
+                class="btn btn-xs bg-base-100/70 w-fit"
                 @click="toggleAudioPlayback(`${turn.id}-aud-${idx}`, aud)"
               >
                 <Pause v-if="playingAudioId === `${turn.id}-aud-${idx}`" class="h-3 w-3" />
@@ -233,7 +233,7 @@
       <div class="pt-1 pb-2">
         <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
           <button
-            class="btn btn-xs btn-ghost bg-base-100"
+            class="btn btn-xs bg-base-100"
             :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
             :disabled="chatting || frozen || !workspaceLocked"
             @click="$emit('unlockWorkspace')"
@@ -242,14 +242,14 @@
             <LockOpen v-else class="h-3.5 w-3.5" />
           </button>
           <button
-            class="btn btn-xs btn-ghost bg-base-100"
+            class="btn btn-xs bg-base-100"
             :disabled="chatting || frozen"
             @click="$emit('lockWorkspace')"
           >
             {{ currentWorkspaceName }}{{ workspaceLocked ? " (临时)" : "" }}
           </button>
           <button
-            class="btn btn-xs btn-ghost bg-base-100 ml-auto"
+            class="btn btn-xs bg-base-100 ml-auto"
             :disabled="chatting || frozen"
             @click="$emit('openSkillList')"
           >
@@ -300,7 +300,7 @@
       <div class="flex flex-row items-center gap-2">
         <button
           class="btn btn-xs btn-circle shrink-0"
-          :class="recording ? 'btn-error' : 'btn-ghost bg-base-100'"
+          :class="recording ? 'btn-error' : 'bg-base-100'"
           :disabled="!canRecord || chatting || frozen"
           :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
           @mousedown.prevent="$emit('startRecording')"
@@ -314,7 +314,7 @@
         <textarea
           ref="chatInputRef"
           v-model="localChatInput"
-          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden chat-input-no-focus"
+          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden chat-input-no-focus min-h-[50px]"
           rows="1"
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
@@ -810,3 +810,4 @@ watch(
 }
 
 </style>
+

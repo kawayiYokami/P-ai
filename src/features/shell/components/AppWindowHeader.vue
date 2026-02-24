@@ -41,7 +41,7 @@
           <Pin class="h-3.5 w-3.5" />
         </button>
         <button
-          class="btn btn-ghost btn-xs hover:bg-error/20"
+          class="btn btn-xs btn-ghost hover:bg-error/20"
           :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"
@@ -51,7 +51,7 @@
       </template>
       <template v-else>
         <button
-          class="btn btn-ghost btn-xs hover:bg-error/20"
+          class="btn btn-xs hover:bg-error/20"
           :title="closeTitle || 'Close'"
           @click.stop="$emit('close-window')"
           :disabled="!windowReady"

@@ -1,9 +1,8 @@
-@tailwind base;
+@import "tailwindcss";
 @plugin "daisyui" {
+  themes: light --default, dracula --prefersdark;
   exclude: scrollbar;
 }
-@tailwind components;
-@tailwind utilities;
 
 html,
 body,

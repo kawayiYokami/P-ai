@@ -6,7 +6,7 @@
         <select
           v-if="servers.length > 0"
           v-model="selectedServerId"
-          class="select select-bordered select-xs w-[clamp(14rem,40vw,34rem)] max-w-full"
+          class="select select-bordered select w-[clamp(14rem,40vw,34rem)] max-w-full"
           :disabled="loading"
         >
           <option v-for="server in servers" :key="server.id" :value="server.id">

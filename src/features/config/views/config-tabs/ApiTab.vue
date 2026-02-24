@@ -1,13 +1,13 @@
 <template>
-  <div v-if="props.selectedApiConfig" class="grid gap-2">
-    <div class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">能力分组</span></div>
+  <div v-if="props.selectedApiConfig" class="grid w-full gap-2">
+    <div class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-sm font-medium">能力分组</span></div>
       <div class="join w-full">
         <button
           v-for="tab in capabilityTabs"
           :key="tab.id"
           class="btn btn-sm join-item flex-1"
-          :class="activeCapability === tab.id ? 'btn-primary' : 'btn-ghost bg-base-100'"
+          :class="activeCapability === tab.id ? 'btn-primary' : 'bg-base-100'"
           @click="switchCapabilityTab(tab.id)"
         >
           {{ tab.label }}
@@ -15,25 +15,25 @@
       </div>
     </div>
 
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">LLM配置</span></div>
-      <div class="flex gap-1">
+    <label class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-sm font-medium">LLM配置</span></div>
+      <div class="flex w-full min-w-0 gap-1">
         <select
           :value="activeCapabilitySelectedId"
-          class="select select-bordered select-sm flex-1"
+          class="select select-bordered select-sm flex-1 min-w-0"
           @change="switchCapabilityConfig"
         >
           <option v-for="a in capabilityScopedConfigsWithFallback" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
-        <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.addConfig')" @click="handleAddApiConfig">
+        <button class="btn btn-sm btn-square bg-base-100" :title="t('config.api.addConfig')" @click="handleAddApiConfig">
           <Plus class="h-3.5 w-3.5" />
         </button>
-        <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.removeConfig')" :disabled="props.config.apiConfigs.length <= 1" @click="$emit('removeSelectedApiConfig')">
+        <button class="btn btn-sm btn-square bg-base-100" :title="t('config.api.removeConfig')" :disabled="props.config.apiConfigs.length <= 1" @click="$emit('removeSelectedApiConfig')">
           <Trash2 class="h-3.5 w-3.5" />
         </button>
         <button
           class="btn btn-sm btn-square"
-          :class="props.configDirty ? 'btn-primary' : 'btn-ghost bg-base-100'"
+          :class="props.configDirty ? 'btn-primary' : 'bg-base-100'"
           :disabled="!props.configDirty || props.savingConfig"
           :title="props.savingConfig ? t('config.api.saving') : props.configDirty ? t('config.api.saveConfig') : t('config.api.saved')"
           @click="$emit('saveApiConfig')"
@@ -44,25 +44,29 @@
       </div>
     </label>
 
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.configName") }}</span></div>
-      <input v-model="props.selectedApiConfig.name" class="input input-bordered input-sm" :placeholder="t('config.api.configName')" />
-    </label>
+    <div class="divider my-0"></div>
 
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.requestFormat") }}</span></div>
-      <select v-model="props.selectedApiConfig.requestFormat" class="select select-bordered select-sm">
+    <div class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.configName") }}</span>
+      <input v-model="props.selectedApiConfig.name" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="t('config.api.configName')" />
+    </div>
+
+    <div class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.requestFormat") }}</span>
+      <select v-model="props.selectedApiConfig.requestFormat" class="select select-bordered select-sm min-w-0 flex-1">
         <option v-for="item in currentProtocolOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
       </select>
-    </label>
+    </div>
 
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.baseUrl") }}</span></div>
-      <div class="flex gap-1">
-        <input v-model="props.selectedApiConfig.baseUrl" class="input input-bordered input-sm flex-1" :placeholder="props.baseUrlReference" />
-        <button class="btn btn-sm btn-square btn-ghost bg-base-100" :title="t('config.api.linkHelper')" @click="baseUrlHelperOpen = !baseUrlHelperOpen">
-          <WandSparkles class="h-3.5 w-3.5" />
-        </button>
+    <div class="flex w-full flex-col gap-1">
+      <div class="flex w-full items-center gap-2">
+        <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.baseUrl") }}</span>
+        <div class="flex min-w-0 flex-1 gap-1">
+          <input v-model="props.selectedApiConfig.baseUrl" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="props.baseUrlReference" />
+          <button class="btn btn-sm btn-square bg-base-100" :title="t('config.api.linkHelper')" @click="baseUrlHelperOpen = !baseUrlHelperOpen">
+            <WandSparkles class="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <div v-if="baseUrlHelperOpen" class="mt-1 rounded-box border border-base-300 bg-base-100 p-2">
         <div class="mb-2 text-xs opacity-70">{{ t("config.api.linkHelperHint") }}</div>
@@ -70,7 +74,7 @@
           <div v-for="preset in filteredProviderPresets" :key="preset.id" class="join shadow-sm rounded-btn">
             <button
               class="btn btn-sm join-item relative overflow-visible"
-              :class="selectedProviderId === preset.id ? 'btn-primary' : 'btn-ghost bg-base-200'"
+              :class="selectedProviderId === preset.id ? 'btn-primary' : 'bg-base-200'"
               @click="selectedProviderId = preset.id"
             >
               <span
@@ -90,10 +94,10 @@
             </button>
           </div>
         </div>
-        <label class="form-control mt-2">
-          <div class="label py-0"><span class="label-text text-xs">{{ t("config.api.generatedLink") }}</span></div>
-          <div class="flex gap-1">
-            <input :value="generatedBaseUrl" class="input input-bordered input-xs flex-1" readonly />
+        <label class="mt-2 flex w-full flex-col gap-1">
+          <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t("config.api.generatedLink") }}</span></div>
+          <div class="flex w-full min-w-0 gap-1">
+            <input :value="generatedBaseUrl" class="input input-bordered input-xs flex-1 min-w-0" readonly />
             <button class="btn btn-xs btn-primary" :disabled="!generatedBaseUrl" @click="applyGeneratedBaseUrl">
               <Link class="h-3 w-3" />
               <span>{{ t("config.api.fillBaseUrl") }}</span>
@@ -101,84 +105,89 @@
           </div>
         </label>
       </div>
-    </label>
+    </div>
 
-    <label class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">API Key</span></div>
-      <input v-model="props.selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
-    </label>
+    <div class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">API Key</span>
+      <input v-model="props.selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm min-w-0 flex-1" placeholder="api key" />
+    </div>
 
-    <label class="form-control">
-      <div class="label py-1">
-        <span class="label-text text-sm font-medium">{{ t("config.api.model") }}</span>
-        <span class="label-text-alt text-[11px] text-error min-h-4">{{ props.modelRefreshError || " " }}</span>
-      </div>
-      <div class="flex gap-1">
-        <input v-model="props.selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
-        <div v-if="isTextMode" class="dropdown dropdown-end">
-          <button
-            tabindex="0"
-            class="btn btn-sm btn-square"
-            :class="props.modelRefreshOk ? 'btn-primary' : 'btn-ghost bg-base-100'"
-            :disabled="props.modelOptions.length === 0"
-            :title="t('config.api.pickModel')"
-          >
-            <ChevronsUpDown class="h-3.5 w-3.5" />
-          </button>
-          <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[280px] max-h-72 overflow-hidden">
-            <input
-              v-model="modelSearch"
-              type="text"
-              :placeholder="t('config.api.searchModel')"
-              class="input input-sm input-bordered rounded-none border-x-0 border-t-0 focus:outline-none"
-              @click.stop
-            />
-            <ul class="menu flex-col flex-nowrap flex-1 min-h-0 overflow-auto p-1">
-              <li v-for="modelName in filteredModels" :key="modelName">
-                <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
-              </li>
-              <li v-if="filteredModels.length === 0" class="text-center text-xs opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
-            </ul>
+    <div class="flex w-full flex-col gap-1">
+      <div class="flex w-full items-center gap-2">
+        <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.model") }}</span>
+        <div class="flex min-w-0 flex-1 gap-1">
+          <input v-model="props.selectedApiConfig.model" class="input input-bordered input-sm min-w-0 flex-1" placeholder="model" />
+          <div v-if="isTextMode" class="dropdown dropdown-end">
+            <button
+              tabindex="0"
+              class="btn btn-sm btn-square"
+              :class="props.modelRefreshOk ? 'btn-primary' : 'bg-base-100'"
+              :disabled="props.modelOptions.length === 0"
+              :title="t('config.api.pickModel')"
+            >
+              <ChevronsUpDown class="h-3.5 w-3.5" />
+            </button>
+            <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[280px] max-h-72 overflow-hidden">
+              <input
+                v-model="modelSearch"
+                type="text"
+                :placeholder="t('config.api.searchModel')"
+                class="input input-sm input-bordered h-8 min-h-8 w-full rounded-none border-x-0 border-t-0 focus:outline-none"
+                @click.stop
+              />
+              <ul class="menu flex-col flex-nowrap flex-1 min-h-0 overflow-auto p-1">
+                <li v-for="modelName in filteredModels" :key="modelName">
+                  <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
+                </li>
+                <li v-if="filteredModels.length === 0" class="text-center text-xs opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
+              </ul>
+            </div>
           </div>
+          <button v-if="isTextMode" class="btn btn-sm btn-square bg-base-100" :class="{ loading: props.refreshingModels }" :disabled="props.refreshingModels" :title="t('config.api.refreshModels')" @click="$emit('refreshModels')">
+            <RefreshCw class="h-3.5 w-3.5" />
+          </button>
         </div>
-        <button v-if="isTextMode" class="btn btn-sm btn-square btn-ghost bg-base-100" :class="{ loading: props.refreshingModels }" :disabled="props.refreshingModels" :title="t('config.api.refreshModels')" @click="$emit('refreshModels')">
-          <RefreshCw class="h-3.5 w-3.5" />
-        </button>
       </div>
-    </label>
+      <div class="flex w-full items-center justify-between pl-[6.5rem]">
+        <span class="text-[11px] text-error min-h-4">{{ props.modelRefreshError || " " }}</span>
+      </div>
+    </div>
 
-    <label v-if="isTextMode" class="form-control">
-      <div class="label py-1">
-        <span class="label-text text-sm font-medium">{{ t("config.api.temperature") }}</span>
-        <span class="label-text-alt text-xs opacity-70">{{ Number(props.selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
+    <div v-if="isTextMode" class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.temperature") }}</span>
+      <div class="min-w-0 flex-1">
+        <div class="mb-1 flex items-center justify-end">
+        <span class="text-xs opacity-70">{{ Number(props.selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
+        </div>
+        <input v-model.number="props.selectedApiConfig.temperature" type="range" min="0" max="2" step="0.1" class="range range-xs w-full" />
+        <div class="mt-1 flex justify-between text-[10px] opacity-60">
+          <span>0.0</span>
+          <span>1.0</span>
+          <span>2.0</span>
+        </div>
       </div>
-      <input v-model.number="props.selectedApiConfig.temperature" type="range" min="0" max="2" step="0.1" class="range range-xs" />
-      <div class="mt-1 flex justify-between text-[10px] opacity-60">
-        <span>0.0</span>
-        <span>1.0</span>
-        <span>2.0</span>
-      </div>
-    </label>
+    </div>
 
-    <label v-if="isTextMode" class="form-control">
-      <div class="label py-1">
-        <span class="label-text text-sm font-medium">{{ t("config.api.contextWindow") }}</span>
-        <span class="label-text-alt text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.contextWindowTokens ?? 128000)) }}</span>
+    <div v-if="isTextMode" class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.contextWindow") }}</span>
+      <div class="min-w-0 flex-1">
+        <div class="mb-1 flex items-center justify-end">
+        <span class="text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.contextWindowTokens ?? 128000)) }}</span>
+        </div>
+        <input v-model.number="props.selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-xs w-full" />
+        <div class="mt-1 flex justify-between text-[10px] opacity-60">
+          <span>16K</span>
+          <span>100K</span>
+          <span>200K</span>
+        </div>
       </div>
-      <input v-model.number="props.selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-xs" />
-      <div class="mt-1 flex justify-between text-[10px] opacity-60">
-        <span>16K</span>
-        <span>100K</span>
-        <span>200K</span>
-      </div>
-    </label>
+    </div>
 
-    <div v-if="isTextMode" class="form-control">
-      <div class="label py-1"><span class="label-text text-sm font-medium">{{ t("config.api.capabilities") }}</span></div>
-      <div class="flex gap-2">
-        <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capText") }}</span><input v-model="props.selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
-        <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capImage") }}</span><input v-model="props.selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-        <label class="label cursor-pointer gap-1"><span class="label-text text-xs">{{ t("config.api.capTools") }}</span><input v-model="props.selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
+    <div v-if="isTextMode" class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-sm font-medium">{{ t("config.api.capabilities") }}</span></div>
+      <div class="flex w-full gap-2">
+        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-xs">{{ t("config.api.capImage") }}</span><input v-model="props.selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
+        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-xs">{{ t("config.api.capTools") }}</span><input v-model="props.selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
       </div>
     </div>
   </div>
@@ -347,6 +356,17 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => props.selectedApiConfig,
+  (cfg) => {
+    if (!cfg) return;
+    if (capabilityFromConfig(cfg) === "text" && !cfg.enableText) {
+      cfg.enableText = true;
+    }
+  },
+  { immediate: true, deep: true },
+);
+
 const filteredModels = computed(() => {
   const search = modelSearch.value.trim().toLowerCase();
   if (!search) return props.modelOptions;
@@ -486,3 +506,4 @@ async function openProviderSite(preset: ProviderPreset) {
   }
 }
 </script>
+

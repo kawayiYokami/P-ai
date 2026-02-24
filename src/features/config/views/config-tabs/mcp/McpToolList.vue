@@ -1,44 +1,23 @@
 <template>
-  <div v-if="tools.length > 0" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-    <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300/70">
-      <div class="font-medium">{{ t('config.mcpToolList.toolList') }}（{{ tools.length }}）</div>
-      <div class="ml-auto flex items-center gap-2">
-        <span class="text-[11px] opacity-70">{{ t('config.mcpToolList.recentElapsed') }}: {{ elapsedMs }}ms</span>
-        <button
-          type="button"
-          class="btn btn-xs btn-ghost"
-          :disabled="disabled"
-          @click="emit('refreshTools')"
-        >
-          {{ t('config.mcp.refresh') }}
-        </button>
-      </div>
-    </div>
-    <div class="divide-y divide-base-300/60">
-      <div
-        v-for="tool in tools"
-        :key="tool.toolName"
-        class="flex items-start gap-3 px-3 py-2"
-      >
-        <input
-          type="checkbox"
-          class="toggle toggle-xs mt-1 shrink-0"
-          :checked="tool.enabled"
-          :disabled="disabled"
-          @change="onToggle($event, tool.toolName)"
-        />
-        <div class="min-w-0 flex-1">
-          <div class="font-medium">{{ tool.toolName }}</div>
-          <div class="text-[11px] opacity-60">{{ tool.description || t('config.mcpToolList.noDescription') }}</div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <ToolListCard
+    :title="t('config.mcpToolList.toolList')"
+    :items="toolItems"
+    :disabled="disabled"
+    :refreshable="true"
+    :refresh-label="t('config.mcp.refresh')"
+    :no-description-text="t('config.mcpToolList.noDescription')"
+    :elapsed-label="t('config.mcpToolList.recentElapsed')"
+    :elapsed-ms="elapsedMs"
+    @toggle-item="onToggleItem"
+    @refresh="emit('refreshTools')"
+  />
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type { McpToolDescriptor } from "../../../../../types/app";
+import ToolListCard, { type ToolListItem } from "../../../components/ToolListCard.vue";
 
 const { t } = useI18n();
 
@@ -53,11 +32,21 @@ const emit = defineEmits<{
   (e: "refreshTools"): void;
 }>();
 
-function onToggle(event: Event, toolName: string) {
-  const target = event.target as HTMLInputElement | null;
+const toolItems = computed<ToolListItem[]>(() =>
+  props.tools.map((tool) => ({
+    id: tool.toolName,
+    name: tool.toolName,
+    description: tool.description,
+    enabled: tool.enabled,
+    statusClass: tool.enabled ? "bg-success" : "bg-base-content/30",
+    statusTitle: tool.enabled ? t("config.mcp.toolEnabled") : t("config.mcp.toolDisabled"),
+  })),
+);
+
+function onToggleItem(payload: { id: string; enabled: boolean }) {
   emit("toggleTool", {
-    toolName,
-    enabled: !!target?.checked,
+    toolName: payload.id,
+    enabled: payload.enabled,
   });
 }
 </script>
