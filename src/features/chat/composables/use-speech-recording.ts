@@ -19,6 +19,7 @@ type UseSpeechRecordingOptions = {
   t: TranslateFn;
   canStart: () => boolean;
   getLanguage: () => string;
+  getMinRecordSeconds: () => number;
   getMaxRecordSeconds: () => number;
   shouldUseRemoteStt: () => boolean;
   transcribeRemoteStt: (audio: { mime: string; bytesBase64: string }) => Promise<string>;
@@ -26,6 +27,8 @@ type UseSpeechRecordingOptions = {
   onTranscribed?: (payload: { text: string; source: "local" | "remote" }) => void | Promise<void>;
   setStatus: (text: string) => void;
 };
+
+const REMOTE_STT_MIN_RMS_DBFS = -52;
 
 function getSpeechRecognitionCtor():
   | (new () => SpeechRecognitionLike)
@@ -88,6 +91,44 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
     });
   }
 
+  async function computeAudioRmsDbfs(blob: Blob): Promise<number | null> {
+    const AudioCtx = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
+    if (!AudioCtx) return null;
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = new AudioCtx();
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const channels = audioBuffer.numberOfChannels;
+      const frames = audioBuffer.length;
+      if (channels <= 0 || frames <= 0) return null;
+      let sumSquares = 0;
+      let count = 0;
+      for (let c = 0; c < channels; c += 1) {
+        const data = audioBuffer.getChannelData(c);
+        for (let i = 0; i < data.length; i += 1) {
+          const s = data[i];
+          sumSquares += s * s;
+        }
+        count += data.length;
+      }
+      if (count <= 0) return null;
+      const rms = Math.sqrt(sumSquares / count);
+      if (!Number.isFinite(rms) || rms <= 0) return -120;
+      return 20 * Math.log10(rms);
+    } catch {
+      return null;
+    } finally {
+      if (ctx) {
+        try {
+          await ctx.close();
+        } catch {
+          // ignore close error
+        }
+      }
+    }
+  }
+
   async function startRemoteRecording() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       options.setStatus("当前环境不支持录音。");
@@ -108,7 +149,15 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       recording.value = false;
       clearTimers();
       stopRemoteStream();
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
       if (discardCurrent) {
+        remoteRecorder = null;
+        remoteChunks = [];
+        return;
+      }
+      const minMs = Math.max(1, options.getMinRecordSeconds()) * 1000;
+      if (elapsedMs < minMs) {
+        options.setStatus(options.t("status.noSpeechText"));
         remoteRecorder = null;
         remoteChunks = [];
         return;
@@ -120,6 +169,12 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       }
       const blob = new Blob(remoteChunks, { type: remoteRecorder?.mimeType || "audio/webm" });
       remoteChunks = [];
+      const rmsDbfs = await computeAudioRmsDbfs(blob);
+      if (rmsDbfs !== null && rmsDbfs < REMOTE_STT_MIN_RMS_DBFS) {
+        options.setStatus(options.t("status.noSpeechText"));
+        remoteRecorder = null;
+        return;
+      }
       try {
         transcribing.value = true;
         options.setStatus("正在转写语音...");
