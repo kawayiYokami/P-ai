@@ -263,7 +263,7 @@
       "save": "Save",
       "delete": "Delete",
       "configJson": "MCP Config JSON",
-      "configPlaceholder": "Enter MCP JSON, e.g. {\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@upstash/context7-mcp\"]}",
+      "configPlaceholder": "Enter MCP JSON, for example with transport, command, and args fields",
       "status": "Status:",
       "validate": "Validate",
       "stop": "Disable and Stop",

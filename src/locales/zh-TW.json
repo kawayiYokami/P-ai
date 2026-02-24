@@ -263,7 +263,7 @@
       "save": "儲存",
       "delete": "刪除",
       "configJson": "MCP 配置 JSON",
-      "configPlaceholder": "輸入 MCP JSON，例如 {\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@upstash/context7-mcp\"]}",
+      "configPlaceholder": "輸入 MCP JSON，例如包含 transport、command、args 欄位",
       "status": "狀態:",
       "validate": "校驗",
       "stop": "停用並停止",
