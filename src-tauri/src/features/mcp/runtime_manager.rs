@@ -380,6 +380,11 @@ fn mcp_connect_stdio_command(parsed: &ParsedMcpServerDefinition) -> Result<tokio
         c.args(&parsed.args);
         c
     };
+    #[cfg(target_os = "windows")]
+    {
+        // 0x08000000 = CREATE_NO_WINDOW, keep MCP child processes headless.
+        cmd.creation_flags(0x08000000);
+    }
 
     if let Some(cwd) = &parsed.cwd {
         let path = std::path::PathBuf::from(cwd);
