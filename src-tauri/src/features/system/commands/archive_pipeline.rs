@@ -143,15 +143,42 @@ async fn summarize_archived_conversation_with_model_v2(
         timeout_secs,
     )
     .await?;
-    let parsed = parse_archive_summary_draft(&reply.assistant_text).ok_or_else(|| {
-        format!(
-            "Parse archive summary JSON failed. raw={}",
-            reply.assistant_text.chars().take(240).collect::<String>()
-        )
-    })?;
+    let parsed = match parse_archive_summary_draft(&reply.assistant_text) {
+        Some(parsed) => parsed,
+        None => {
+            let fallback_summary = clean_text(reply.assistant_text.trim());
+            if fallback_summary.is_empty() {
+                return Err("Archive summary is empty".to_string());
+            }
+            eprintln!(
+                "[ARCHIVE-PIPELINE] parse archive JSON failed; fallback to raw summary and skip memory generation. raw={}",
+                reply.assistant_text.chars().take(240).collect::<String>()
+            );
+            return Ok(ArchiveSummaryDraft {
+                summary: fallback_summary,
+                useful_memory_ids: Vec::new(),
+                new_memories: Vec::new(),
+                merge_groups: Vec::new(),
+            });
+        }
+    };
     let summary = clean_text(parsed.summary.trim());
     if summary.is_empty() {
-        return Err("Archive summary is empty".to_string());
+        let fallback_summary = clean_text(reply.assistant_text.trim());
+        if fallback_summary.is_empty() {
+            return Err("Archive summary is empty".to_string());
+        }
+        return Ok(ArchiveSummaryDraft {
+            summary: fallback_summary,
+            useful_memory_ids: parsed
+                .useful_memory_ids
+                .into_iter()
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+                .collect::<Vec<_>>(),
+            new_memories: parsed.new_memories.into_iter().take(7).collect::<Vec<_>>(),
+            merge_groups: parsed.merge_groups.into_iter().take(7).collect::<Vec<_>>(),
+        });
     }
     Ok(ArchiveSummaryDraft {
         summary,
@@ -361,4 +388,3 @@ pub(crate) async fn run_archive_pipeline(
         merge_groups: Some(merged_groups),
     })
 }
-
