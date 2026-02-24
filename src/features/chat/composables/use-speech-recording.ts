@@ -146,33 +146,35 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
       options.setStatus("录音失败，请重试。");
     };
     remoteRecorder.onstop = async () => {
+      const finishEarly = (statusText?: string) => {
+        if (statusText) {
+          options.setStatus(statusText);
+        }
+        remoteRecorder = null;
+        remoteChunks = [];
+      };
       recording.value = false;
       clearTimers();
       stopRemoteStream();
       const elapsedMs = Math.max(0, Date.now() - startedAt);
       if (discardCurrent) {
-        remoteRecorder = null;
-        remoteChunks = [];
+        finishEarly();
         return;
       }
       const minMs = Math.max(1, options.getMinRecordSeconds()) * 1000;
       if (elapsedMs < minMs) {
-        options.setStatus(options.t("status.noSpeechText"));
-        remoteRecorder = null;
-        remoteChunks = [];
+        finishEarly(options.t("status.noSpeechText"));
         return;
       }
       if (remoteChunks.length === 0) {
-        options.setStatus(options.t("status.noSpeechText"));
-        remoteRecorder = null;
+        finishEarly(options.t("status.noSpeechText"));
         return;
       }
       const blob = new Blob(remoteChunks, { type: remoteRecorder?.mimeType || "audio/webm" });
       remoteChunks = [];
       const rmsDbfs = await computeAudioRmsDbfs(blob);
       if (rmsDbfs !== null && rmsDbfs < REMOTE_STT_MIN_RMS_DBFS) {
-        options.setStatus(options.t("status.noSpeechText"));
-        remoteRecorder = null;
+        finishEarly(options.t("status.noSpeechText"));
         return;
       }
       try {
