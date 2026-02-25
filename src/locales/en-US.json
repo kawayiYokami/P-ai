@@ -36,7 +36,7 @@
       "label": "Summon Hotkey",
       "recordButton": "Record Hotkey",
       "callNowButton": "Summon AI",
-      "callNowHint": "If the hotkey misses, click here to open the chat window directly.",
+      "callNowHint": "This app has a tray icon. You can open chat from the tray menu.",
       "recording": "Listening...",
       "captureDefaultHint": "Click \"Record Hotkey\", then press a combo (e.g. Alt+·). Esc to cancel.",
       "captureListeningHint": "Press a key combination...",
