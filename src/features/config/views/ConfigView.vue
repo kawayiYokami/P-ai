@@ -50,6 +50,7 @@
           @stop-hotkey-record-test="$emit('stopHotkeyRecordTest')"
           @play-hotkey-record-test="$emit('playHotkeyRecordTest')"
           @capture-hotkey="$emit('captureHotkey', $event)"
+          @summon-chat-now="$emit('summonChatNow')"
           @update:record-hotkey="onRecordHotkeyChanged"
           @update:min-record-seconds="onMinRecordSecondsChanged"
           @update:max-record-seconds="onMaxRecordSecondsChanged"
@@ -300,6 +301,7 @@ const emit = defineEmits<{
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
   (e: "captureHotkey", value: string): void;
+  (e: "summonChatNow"): void;
   (e: "saveAgentAvatar", value: { agentId: string; mime: string; bytesBase64: string }): void;
   (e: "clearAgentAvatar", value: { agentId: string }): void;
   (e: "checkUpdate"): void;

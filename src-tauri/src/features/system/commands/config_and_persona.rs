@@ -3,6 +3,11 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
     show_window(&app, "main")
 }
 
+#[tauri::command]
+fn show_chat_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "chat")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GithubUpdateInfo {

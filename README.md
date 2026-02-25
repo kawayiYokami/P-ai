@@ -68,6 +68,32 @@ Easy Call AI 是一个面向日常电脑场景的桌面 AI 助手。
 
 </details>
 
+## Arch Linux 安装（yay）
+
+如果你在 Arch Linux / Manjaro 上，希望从本项目仓库直接安装：
+
+```bash
+git clone https://github.com/kawayiYokami/Easy-call-ai.git
+cd Easy-call-ai/packaging/arch
+chmod +x install-with-yay.sh
+./install-with-yay.sh
+```
+
+脚本会自动更新 `PKGBUILD` 的 `pkgver` 到最新 release，并执行 `yay -Bi` 构建与安装。
+
+安装后主要文件位置：
+
+- 可执行文件：`/usr/bin/easy-call-ai`
+- 桌面启动项：`/usr/share/applications/easy-call-ai.desktop`
+- 图标：`/usr/share/pixmaps/easy-call-ai.png`
+
+应用数据默认保存在：
+
+- `~/.config/easy-call-ai/`
+
+> 注意：此安装方式会按 `PKGBUILD` 的 `source=` 从 GitHub release tag 拉取源码构建，
+> 不是直接用你当前工作目录里的未提交改动。
+
 ## 隐私与数据
 
 - 你的 API Key 和本地配置保存在本机
