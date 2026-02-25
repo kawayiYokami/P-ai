@@ -51,6 +51,7 @@ include!("features/chat/model_runtime.rs");
 
 // ==================== 系统窗口与命令 ====================
 include!("features/system/windowing.rs");
+include!("features/system/record_hotkey_probe.rs");
 include!("features/system/sandbox.rs");
 include!("features/system/tools.rs");
 
@@ -114,10 +115,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        let _ = toggle_window(app, "chat");
-                    }
+                .with_handler(|app, shortcut, event| {
+                    handle_global_shortcut_probe(app, shortcut, event.state());
                 })
                 .build(),
         )
@@ -134,6 +133,12 @@ fn main() {
             }
             if let Err(err) = register_default_hotkey(&app_handle) {
                 eprintln!("[BOOT] register_default_hotkey failed: {err}");
+            }
+            if let Err(err) = start_record_hotkey_probe(
+                app_handle.clone(),
+                app_handle.state::<AppState>().config_path.clone(),
+            ) {
+                eprintln!("[BOOT] start_record_hotkey_probe failed: {err}");
             }
             if let Err(err) = build_tray(&app_handle) {
                 eprintln!("[BOOT] build_tray failed: {err}");

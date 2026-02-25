@@ -33,6 +33,16 @@
         >
           {{ recordHotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
         </button>
+        <button
+          type="button"
+          class="btn btn-sm shrink-0"
+          :class="config.recordBackgroundWakeEnabled ? 'btn-success text-success-content' : 'btn-ghost border border-base-300'"
+          :title="t('config.hotkey.backgroundWakeHint')"
+          :aria-pressed="config.recordBackgroundWakeEnabled ? 'true' : 'false'"
+          @click="$emit('update:recordBackgroundWakeEnabled', !config.recordBackgroundWakeEnabled)"
+        >
+          {{ config.recordBackgroundWakeEnabled ? t("config.hotkey.backgroundWakeOn") : t("config.hotkey.backgroundWakeOff") }}
+        </button>
       </div>
     </label>
     <div class="grid grid-cols-2 gap-2">
@@ -105,6 +115,7 @@ const emit = defineEmits<{
   (e: "playHotkeyRecordTest"): void;
   (e: "captureHotkey", value: string): void;
   (e: "update:recordHotkey", value: string): void;
+  (e: "update:recordBackgroundWakeEnabled", value: boolean): void;
   (e: "update:minRecordSeconds", value: number): void;
   (e: "update:maxRecordSeconds", value: number): void;
 }>();

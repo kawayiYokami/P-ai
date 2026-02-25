@@ -38,6 +38,7 @@ type AppBootstrapOptions = {
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
   onConfigUpdated?: (payload: AppConfig) => void;
+  onRecordHotkeyProbe?: (state: "pressed" | "released") => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -89,6 +90,14 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       unlisteners.push(
         await listen<AppConfig>("easy-call:config-updated", (event) => {
           options.onConfigUpdated?.(event.payload);
+        }),
+      );
+      unlisteners.push(
+        await listen<string>("easy-call:record-hotkey-probe", (event) => {
+          const text = String(event.payload || "").trim().toLowerCase();
+          if (text === "pressed" || text === "released") {
+            options.onRecordHotkeyProbe?.(text);
+          }
         }),
       );
     } catch (error) {

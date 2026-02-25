@@ -384,6 +384,10 @@ fn default_failure_retry_count() -> u32 {
     0
 }
 
+fn default_record_background_wake_enabled() -> bool {
+    true
+}
+
 fn default_ui_language() -> String {
     "zh-CN".to_string()
 }
@@ -431,6 +435,8 @@ struct AppConfig {
     ui_font: String,
     #[serde(default = "default_record_hotkey")]
     record_hotkey: String,
+    #[serde(default = "default_record_background_wake_enabled")]
+    record_background_wake_enabled: bool,
     #[serde(default = "default_min_record_seconds")]
     min_record_seconds: u32,
     #[serde(default = "default_max_record_seconds")]
@@ -461,6 +467,7 @@ impl Default for AppConfig {
             ui_language: default_ui_language(),
             ui_font: default_ui_font(),
             record_hotkey: default_record_hotkey(),
+            record_background_wake_enabled: default_record_background_wake_enabled(),
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),
             tool_max_iterations: default_tool_max_iterations(),

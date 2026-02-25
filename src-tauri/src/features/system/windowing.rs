@@ -86,22 +86,22 @@ fn parse_hotkey(raw: &str) -> Result<Shortcut, String> {
 fn register_default_hotkey(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let config = read_config(&state.config_path).unwrap_or_default();
-    let shortcut = parse_hotkey(&config.hotkey)?;
-
-    let manager = app.global_shortcut();
-    let _ = manager.unregister_all();
-    manager
-        .register(shortcut)
-        .map_err(|err| format!("Register hotkey failed: {err}"))
+    register_hotkeys_from_config(app, &config)
 }
 
 fn register_hotkey_from_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
-    let shortcut = parse_hotkey(&config.hotkey)?;
+    register_hotkeys_from_config(app, config)
+}
+
+fn register_hotkeys_from_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    let summon_shortcut = parse_hotkey(&config.hotkey)?;
     let manager = app.global_shortcut();
-    let _ = manager.unregister_all();
     manager
-        .register(shortcut)
-        .map_err(|err| format!("Register hotkey failed: {err}"))
+        .unregister_all()
+        .map_err(|err| format!("Unregister hotkeys failed: {err}"))?;
+    manager
+        .register(summon_shortcut)
+        .map_err(|err| format!("Register summon hotkey failed: {err}"))
 }
 
 fn default_hotkey_label() -> String {

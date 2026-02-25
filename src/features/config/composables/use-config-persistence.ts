@@ -124,6 +124,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = cfg.recordHotkey || "Alt";
+      options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
       const normalizedRecord = normalizeRecordSeconds(cfg.minRecordSeconds, cfg.maxRecordSeconds);
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
@@ -193,6 +194,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = saved.recordHotkey || "Alt";
+      options.config.recordBackgroundWakeEnabled = !!saved.recordBackgroundWakeEnabled;
       const normalizedRecord = normalizeRecordSeconds(saved.minRecordSeconds, saved.maxRecordSeconds);
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;

@@ -340,6 +340,7 @@ const config = reactive<AppConfig>({
   uiLanguage: "zh-CN",
   uiFont: "auto",
   recordHotkey: "Alt",
+  recordBackgroundWakeEnabled: true,
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
   toolMaxIterations: 10,
@@ -574,6 +575,9 @@ const {
     chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
   },
   onTranscribed: ({ source }) => {
+    void invokeTauri("show_chat_window").catch((error) => {
+      console.warn("[AUDIO] show_chat_window failed:", error);
+    });
     if (source !== "remote") return;
     if (!config.sttAutoSend) return;
     if (chatting.value || forcingArchive.value) return;
@@ -624,7 +628,7 @@ const stopHotkeyRecordTest = chatMedia.stopHotkeyRecordTest;
 const playHotkeyRecordTest = chatMedia.playHotkeyRecordTest;
 const cleanupChatMedia = chatMedia.cleanupChatMedia;
 const recordHotkey = useRecordHotkey({
-  isActive: () => viewMode.value === "chat" && document.visibilityState === "visible" && document.hasFocus(),
+  isActive: () => viewMode.value === "chat",
   getRecordHotkey: () => config.recordHotkey,
   onStartRecording: () => startRecording(),
   onStopRecording: (discard) => stopRecording(discard),
@@ -942,11 +946,23 @@ const appBootstrap = useAppBootstrap({
     config.hotkey = String(payload.hotkey || config.hotkey || "").trim() || config.hotkey;
     config.uiFont = normalizeUiFont(String(payload.uiFont || config.uiFont || "").trim() || config.uiFont);
     config.recordHotkey = String(payload.recordHotkey || config.recordHotkey || "").trim() || config.recordHotkey;
+    config.recordBackgroundWakeEnabled = !!payload.recordBackgroundWakeEnabled;
     config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(payload.minRecordSeconds) || config.minRecordSeconds)));
     config.maxRecordSeconds = Math.max(
       config.minRecordSeconds,
       Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
     );
+  },
+  onRecordHotkeyProbe: (state) => {
+    if (viewMode.value !== "chat") return;
+    if (!config.recordBackgroundWakeEnabled) return;
+    if (state === "pressed") {
+      void startRecording();
+      return;
+    }
+    if (state === "released") {
+      void stopRecording(false);
+    }
   },
 });
 

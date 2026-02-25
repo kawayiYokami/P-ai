@@ -133,6 +133,7 @@ fn save_config(
     let mut config = config;
     normalize_app_config(&mut config);
     ensure_default_shell_workspace_in_config(&mut config, &state);
+    set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
     let guard = state
         .state_lock

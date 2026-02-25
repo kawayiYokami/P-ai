@@ -68,6 +68,7 @@ export type AppConfig = {
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont: string;
   recordHotkey: string;
+  recordBackgroundWakeEnabled: boolean;
   minRecordSeconds: number;
   maxRecordSeconds: number;
   toolMaxIterations: number;

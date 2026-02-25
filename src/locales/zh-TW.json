@@ -28,7 +28,7 @@
     },
     "language": {
       "label": "界面语言",
-      "zhCN": "简体中文",
+      "zhCN": "簡體中文",
       "enUS": "English",
       "zhTW": "繁體中文"
     },
@@ -47,6 +47,9 @@
       "captureCapturedHint": "已捕获：{combo}",
       "conflict": "呼唤热键与录音键冲突，键盘录音触发将被禁用，请改用录音按钮或调整按键。",
       "recordKey": "录音键",
+      "backgroundWakeHint": "開啟後支援背景語音喚醒（按住錄音鍵）",
+      "backgroundWakeOn": "背景喚醒: 開",
+      "backgroundWakeOff": "背景喚醒: 關",
       "minRecordSeconds": "最短录音(s)",
       "maxRecordSeconds": "最长录音(s)",
       "recordTest": "录音测试",

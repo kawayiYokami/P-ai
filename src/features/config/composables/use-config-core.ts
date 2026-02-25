@@ -136,6 +136,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     }
     const recordHotkey = String(options.config.recordHotkey || "").trim();
     options.config.recordHotkey = recordHotkey || "Alt";
+    options.config.recordBackgroundWakeEnabled = !!options.config.recordBackgroundWakeEnabled;
     options.config.minRecordSeconds = Math.max(
       MIN_RECORD_SECONDS,
       Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(options.config.minRecordSeconds) || MIN_RECORD_SECONDS)),
@@ -233,6 +234,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: normalizeUiFont(options.config.uiFont),
       recordHotkey: options.config.recordHotkey,
+      recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
@@ -284,6 +286,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: normalizeUiFont(options.config.uiFont),
       recordHotkey: options.config.recordHotkey,
+      recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,

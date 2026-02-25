@@ -52,6 +52,7 @@
           @capture-hotkey="$emit('captureHotkey', $event)"
           @summon-chat-now="$emit('summonChatNow')"
           @update:record-hotkey="onRecordHotkeyChanged"
+          @update:record-background-wake-enabled="onRecordBackgroundWakeChanged"
           @update:min-record-seconds="onMinRecordSecondsChanged"
           @update:max-record-seconds="onMaxRecordSecondsChanged"
         />
@@ -440,6 +441,17 @@ async function onRecordHotkeyChanged(value: string) {
   const saved = await Promise.resolve(props.saveConfigAction());
   if (!saved) {
     props.config.recordHotkey = previous;
+  }
+}
+
+async function onRecordBackgroundWakeChanged(value: boolean) {
+  const previous = !!props.config.recordBackgroundWakeEnabled;
+  const next = !!value;
+  if (previous === next) return;
+  props.config.recordBackgroundWakeEnabled = next;
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    props.config.recordBackgroundWakeEnabled = previous;
   }
 }
 
