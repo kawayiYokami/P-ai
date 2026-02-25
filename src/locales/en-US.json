@@ -81,6 +81,8 @@
       "refreshModels": "Refresh Model List",
       "temperature": "Temperature",
       "contextWindow": "Context Window",
+      "emptyReplyRetryCount": "Failure Retry Count",
+      "emptyReplyRetryHint": "Only retries empty replies and HTTP 429, with progressively longer delay each time (0 disables).",
       "capabilities": "Capabilities",
       "capText": "Text",
       "capImage": "Image",
@@ -89,8 +91,6 @@
     "tools": {
       "noChatLlmProvider": "Chat LLM provider is not configured",
       "maxIterations": "Max tool iterations",
-      "emptyReplyRetryCount": "Empty reply retries",
-      "emptyReplyRetryHint": "Auto-retry count when model reply is empty (0 disables retry, default 10).",
       "terminalProjectRoots": "Trusted Terminal Project Roots",
       "terminalProjectRootsPlaceholder": "One directory per line, e.g.:\nD:\\work\\repo-a\nE:\\github\\repo-b",
       "terminalProjectRootsHint": "Terminal root switching is only allowed inside these directories and their subdirectories.",

@@ -38,7 +38,6 @@
             min_record_seconds: 0,
             max_record_seconds: 0,
             tool_max_iterations: 0,
-            empty_reply_retry_count: 999,
             selected_api_config_id: "a1".to_string(),
             chat_api_config_id: "a1".to_string(),
             vision_api_config_id: None,
@@ -61,6 +60,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    empty_reply_retry_count: 999,
                 },
                 ApiConfig {
                     id: "a2".to_string(),
@@ -76,6 +76,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    empty_reply_retry_count: 0,
                 },
             ],
         };
@@ -84,7 +85,7 @@
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.tool_max_iterations, 1);
-        assert_eq!(cfg.empty_reply_retry_count, 20);
+        assert_eq!(cfg.api_configs[0].empty_reply_retry_count, 20);
         assert!(!cfg.stt_auto_send);
     }
 
@@ -98,7 +99,6 @@
             min_record_seconds: 1,
             max_record_seconds: 60,
             tool_max_iterations: 10,
-            empty_reply_retry_count: 10,
             selected_api_config_id: "edit-b".to_string(),
             chat_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
@@ -121,6 +121,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    empty_reply_retry_count: 0,
                 },
                 ApiConfig {
                     id: "edit-b".to_string(),
@@ -136,6 +137,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    empty_reply_retry_count: 0,
                 },
             ],
         };
@@ -154,7 +156,6 @@
             min_record_seconds: 1,
             max_record_seconds: 60,
             tool_max_iterations: 10,
-            empty_reply_retry_count: 10,
             selected_api_config_id: "tts-a".to_string(),
             chat_api_config_id: "tts-a".to_string(),
             vision_api_config_id: Some("tts-a".to_string()),
@@ -176,6 +177,7 @@
                 model: "m".to_string(),
                 temperature: 1.0,
                 context_window_tokens: 128_000,
+                empty_reply_retry_count: 0,
             }],
         };
         normalize_app_config(&mut cfg);

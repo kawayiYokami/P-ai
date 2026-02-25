@@ -8,6 +8,11 @@ fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
         || !reply.reasoning_inline.trim().is_empty()
 }
 
+fn is_retryable_model_error(error: &str) -> bool {
+    let normalized = error.trim().to_ascii_lowercase();
+    normalized.contains("429") || normalized.contains("too many requests")
+}
+
 #[tauri::command]
 async fn send_chat_message(
     input: SendChatRequest,
@@ -451,10 +456,10 @@ async fn send_chat_message(
         )
     };
 
-    let max_empty_reply_retries = app_config.empty_reply_retry_count as usize;
+    let max_failure_retries = selected_api.empty_reply_retry_count as usize;
     let mut model_reply: Option<ModelReply> = None;
-    for attempt in 0..=max_empty_reply_retries {
-        let reply = call_model_openai_style(
+    for attempt in 0..=max_failure_retries {
+        let reply_result = call_model_openai_style(
             &resolved_api,
             &selected_api,
             &model_name,
@@ -464,29 +469,48 @@ async fn send_chat_message(
             app_config.tool_max_iterations as usize,
             &tool_session_id,
         )
-        .await?;
-        if model_reply_has_visible_content(&reply) {
-            model_reply = Some(reply);
-            break;
-        }
-        if attempt < max_empty_reply_retries {
+        .await;
+
+        let (reason_text, final_error_text) = match reply_result {
+            Ok(reply) => {
+                if model_reply_has_visible_content(&reply) {
+                    model_reply = Some(reply);
+                    break;
+                }
+                (
+                    "Model returned an empty reply".to_string(),
+                    "Model kept returning empty replies. Stopped retrying. Please try again later or switch model."
+                        .to_string(),
+                )
+            }
+            Err(error) => {
+                if !is_retryable_model_error(&error) {
+                    return Err(error);
+                }
+                (
+                    "Model request was rate-limited (429)".to_string(),
+                    format!("Model remained rate-limited (429) after retries: {error}"),
+                )
+            }
+        };
+
+        if attempt < max_failure_retries {
+            let retry_index = attempt + 1;
+            let wait_seconds = (retry_index as u64) * 5;
             let _ = on_delta.send(AssistantDeltaEvent {
                 delta: "".to_string(),
                 kind: Some("tool_status".to_string()),
                 tool_name: None,
                 tool_status: Some("running".to_string()),
                 message: Some(format!(
-                    "模型回覆為空，正在重試 ({}/{})...",
-                    attempt + 1,
-                    max_empty_reply_retries
+                    "{reason_text}. Retrying ({retry_index}/{max_failure_retries}) in {wait_seconds}s..."
                 )),
             });
+            tokio::time::sleep(std::time::Duration::from_secs(wait_seconds)).await;
             continue;
         }
-        let total_attempts = max_empty_reply_retries + 1;
-        let final_error = format!(
-            "模型連續 {total_attempts} 次空回覆，已停止。請稍後重試或更換模型。"
-        );
+        let total_attempts = max_failure_retries + 1;
+        let final_error = format!("{final_error_text} (attempted {total_attempts} times)");
         let _ = on_delta.send(AssistantDeltaEvent {
             delta: "".to_string(),
             kind: Some("tool_status".to_string()),
@@ -497,7 +521,7 @@ async fn send_chat_message(
         return Err(final_error);
     }
     let model_reply =
-        model_reply.ok_or_else(|| "模型回覆異常：未取得有效回覆。".to_string())?;
+        model_reply.ok_or_else(|| "Model reply was invalid: no usable content received.".to_string())?;
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;

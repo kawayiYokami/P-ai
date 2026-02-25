@@ -23,6 +23,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   const DEFAULT_MAX_RECORD_SECONDS = 60;
   const MAX_RECORD_SECONDS = 600;
   const MAX_EMPTY_REPLY_RETRY_COUNT = 20;
+  function normalizeFailureRetryCount(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(parsed)));
+  }
 
   const BUILTIN_TOOL_DEFAULTS = [
     {
@@ -99,6 +104,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       model: "gpt-4o-mini",
       temperature: 1,
       contextWindowTokens: 128000,
+      emptyReplyRetryCount: 0,
     };
   }
 
@@ -122,6 +128,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         16000,
         Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))),
       );
+      api.emptyReplyRetryCount = Math.max(
+        0,
+        normalizeFailureRetryCount(api.emptyReplyRetryCount),
+      );
       normalizeApiToolBindings(api);
     }
     const recordHotkey = String(options.config.recordHotkey || "").trim();
@@ -137,10 +147,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     options.config.toolMaxIterations = Math.max(
       1,
       Math.min(100, Math.round(Number(options.config.toolMaxIterations) || 10)),
-    );
-    options.config.emptyReplyRetryCount = Math.max(
-      0,
-      Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(Number(options.config.emptyReplyRetryCount) || 10)),
     );
     if (!options.config.apiConfigs.some((a) => a.id === options.config.selectedApiConfigId)) {
       options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
@@ -230,7 +236,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
-      emptyReplyRetryCount: options.config.emptyReplyRetryCount,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
@@ -268,6 +273,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: Number(a.temperature ?? 1),
         contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
+        emptyReplyRetryCount: normalizeFailureRetryCount(a.emptyReplyRetryCount),
       })),
     };
   }
@@ -281,7 +287,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
-      emptyReplyRetryCount: options.config.emptyReplyRetryCount,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
@@ -309,6 +314,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: a.temperature,
         contextWindowTokens: a.contextWindowTokens,
+        emptyReplyRetryCount: normalizeFailureRetryCount(a.emptyReplyRetryCount),
       })),
     });
   }

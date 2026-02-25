@@ -356,6 +356,8 @@ struct ApiConfig {
     temperature: f64,
     #[serde(default = "default_context_window_tokens")]
     context_window_tokens: u32,
+    #[serde(default = "default_empty_reply_retry_count")]
+    empty_reply_retry_count: u32,
 }
 
 fn default_true() -> bool {
@@ -379,7 +381,7 @@ fn default_tool_max_iterations() -> u32 {
 }
 
 fn default_empty_reply_retry_count() -> u32 {
-    10
+    0
 }
 
 fn default_ui_language() -> String {
@@ -414,6 +416,7 @@ impl Default for ApiConfig {
             model: "gpt-4o-mini".to_string(),
             temperature: default_api_temperature(),
             context_window_tokens: default_context_window_tokens(),
+            empty_reply_retry_count: default_empty_reply_retry_count(),
         }
     }
 }
@@ -434,8 +437,6 @@ struct AppConfig {
     max_record_seconds: u32,
     #[serde(default = "default_tool_max_iterations")]
     tool_max_iterations: u32,
-    #[serde(default = "default_empty_reply_retry_count")]
-    empty_reply_retry_count: u32,
     selected_api_config_id: String,
     #[serde(default)]
     chat_api_config_id: String,
@@ -463,7 +464,6 @@ impl Default for AppConfig {
             min_record_seconds: default_min_record_seconds(),
             max_record_seconds: default_max_record_seconds(),
             tool_max_iterations: default_tool_max_iterations(),
-            empty_reply_retry_count: default_empty_reply_retry_count(),
             selected_api_config_id: api_config.id.clone(),
             chat_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,

@@ -32,6 +32,7 @@ export type ApiConfigItem = {
   model: string;
   temperature: number;
   contextWindowTokens: number;
+  emptyReplyRetryCount?: number;
 };
 
 export type ShellWorkspace = {
@@ -70,7 +71,6 @@ export type AppConfig = {
   minRecordSeconds: number;
   maxRecordSeconds: number;
   toolMaxIterations: number;
-  emptyReplyRetryCount: number;
   selectedApiConfigId: string;
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).
   chatApiConfigId: string;

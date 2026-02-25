@@ -81,6 +81,8 @@
       "refreshModels": "刷新模型列表",
       "temperature": "温度",
       "contextWindow": "上下文窗口",
+      "emptyReplyRetryCount": "失敗重試",
+      "emptyReplyRetryHint": "目前僅對空回覆與 429 重試；每次等待時間遞增。0 代表關閉。",
       "capabilities": "能力开关",
       "capText": "文本",
       "capImage": "图片",
@@ -89,8 +91,6 @@
     "tools": {
       "noChatLlmProvider": "未配置对话LLM供应商",
       "maxIterations": "工具最大调用轮次",
-      "emptyReplyRetryCount": "空回覆重試次數",
-      "emptyReplyRetryHint": "當模型回覆為空時，自動重試次數（0 代表不重試，預設 10）。",
       "terminalProjectRoots": "终端可用项目目录",
       "terminalProjectRootsPlaceholder": "每行一个目录，例如:\nD:\\work\\repo-a\nE:\\github\\repo-b",
       "terminalProjectRootsHint": "仅允许在这些目录（及其子目录）内切换终端根目录。",

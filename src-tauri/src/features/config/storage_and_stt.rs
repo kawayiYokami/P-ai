@@ -45,6 +45,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.enable_audio = false;
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 200_000);
+        api.empty_reply_retry_count = api.empty_reply_retry_count.clamp(0, 20);
         if api.enable_tools {
             if api.tools.is_empty() {
                 api.tools = default_api_tools();
@@ -330,7 +331,6 @@ fn normalize_app_config(config: &mut AppConfig) {
         config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
     }
     config.tool_max_iterations = config.tool_max_iterations.clamp(1, 100);
-    config.empty_reply_retry_count = config.empty_reply_retry_count.clamp(0, 20);
 
     config.vision_api_config_id = config
         .vision_api_config_id
