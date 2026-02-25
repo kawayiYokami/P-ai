@@ -102,14 +102,6 @@ fn bgra_to_rgb(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-fn rgba_to_bgra(bytes: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(bytes.len());
-    for px in bytes.chunks_exact(4) {
-        out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
-    }
-    out
-}
-
 fn normalize_region_crop(
     region: &ScreenBounds,
     frame_width: u32,
