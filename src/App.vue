@@ -135,6 +135,7 @@
       :stop-hotkey-record-test="stopHotkeyRecordTest"
       :play-hotkey-record-test="playHotkeyRecordTest"
       :capture-hotkey="captureHotkey"
+      :summon-chat-now="summonChatWindowFromConfig"
       :save-agent-avatar="saveAgentAvatar"
       :clear-agent-avatar="clearAgentAvatar"
       :update-chat-input="(value) => { chatInput = value; }"
@@ -1127,6 +1128,10 @@ function closeSkillPlaceholderDialog() {
 
 function openConfigWindow() {
   void invokeTauri("show_main_window");
+}
+
+function summonChatWindowFromConfig() {
+  void invokeTauri("show_chat_window");
 }
 
 function openGithubRepository() {

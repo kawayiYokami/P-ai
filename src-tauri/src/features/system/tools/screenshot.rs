@@ -102,6 +102,14 @@ fn bgra_to_rgb(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+fn rgba_to_bgra(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    for px in bytes.chunks_exact(4) {
+        out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+    }
+    out
+}
+
 fn normalize_region_crop(
     region: &ScreenBounds,
     frame_width: u32,
@@ -278,12 +286,124 @@ fn capture_once_windows(input: &ScreenshotRequest) -> DesktopToolResult<(Vec<u8>
 }
 
 #[cfg(not(target_os = "windows"))]
+fn is_wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE")
+        .map(|v| v.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || std::env::var("WAYLAND_DISPLAY")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn monitor_from_request_linux(input: &ScreenshotRequest) -> DesktopToolResult<xcap::Monitor> {
+    let monitors = xcap::Monitor::all().map_err(|err| {
+        DesktopToolError::internal_error(format!("list monitors failed: {err}"))
+    })?;
+    if monitors.is_empty() {
+        return Err(DesktopToolError::internal_error("no monitor detected"));
+    }
+
+    if matches!(input.mode, ScreenshotMode::Monitor) {
+        let monitor_id = input
+            .monitor_id
+            .ok_or_else(|| DesktopToolError::invalid_params("monitor_id is required"))?;
+
+        if let Some(m) = monitors.get(monitor_id as usize).cloned() {
+            return Ok(m);
+        }
+        if monitor_id > 0 {
+            if let Some(m) = monitors.get((monitor_id - 1) as usize).cloned() {
+                return Ok(m);
+            }
+        }
+        if let Some(m) = monitors
+            .iter()
+            .find(|m| m.id().ok() == Some(monitor_id))
+            .cloned()
+        {
+            return Ok(m);
+        }
+
+        return Err(DesktopToolError::invalid_params(format!(
+            "monitor_id not found: {monitor_id}"
+        )));
+    }
+
+    if let Some(m) = monitors
+        .iter()
+        .find(|m| m.is_primary().unwrap_or(false))
+        .cloned()
+    {
+        return Ok(m);
+    }
+    Ok(monitors[0].clone())
+}
+
+#[cfg(not(target_os = "windows"))]
 fn capture_once_windows(
-    _input: &ScreenshotRequest,
+    input: &ScreenshotRequest,
 ) -> DesktopToolResult<(Vec<u8>, u32, u32, ScreenBounds, u64)> {
-    Err(DesktopToolError::internal_error(
-        "windows-capture is only available on Windows",
-    ))
+    let started = Instant::now();
+    let is_wayland = is_wayland_session();
+    let backend = if is_wayland { "Wayland" } else { "X11" };
+
+    let monitor = monitor_from_request_linux(input)?;
+    let monitor_width = monitor.width().map_err(|err| {
+        DesktopToolError::internal_error(format!("read monitor width failed: {err}"))
+    })?;
+    let monitor_height = monitor.height().map_err(|err| {
+        DesktopToolError::internal_error(format!("read monitor height failed: {err}"))
+    })?;
+
+    let (rgba, width, height, bounds) = if matches!(input.mode, ScreenshotMode::Region) {
+        let region = input
+            .region
+            .as_ref()
+            .ok_or_else(|| DesktopToolError::invalid_params("region is required"))?;
+        let (sx, sy, ex, ey) = normalize_region_crop(region, monitor_width, monitor_height)?;
+        let crop_width = ex - sx;
+        let crop_height = ey - sy;
+        let image = monitor.capture_region(sx, sy, crop_width, crop_height).map_err(|err| {
+            DesktopToolError::internal_error(format!("capture region via {backend} failed: {err}"))
+        })?;
+        (
+            image.into_raw(),
+            crop_width,
+            crop_height,
+            ScreenBounds {
+                x: region.x.max(0),
+                y: region.y.max(0),
+                width: crop_width,
+                height: crop_height,
+            },
+        )
+    } else {
+        let image = monitor.capture_image().map_err(|err| {
+            let hint = if is_wayland {
+                "; ensure xdg-desktop-portal is running and grant screen-capture permission"
+            } else {
+                ""
+            };
+            DesktopToolError::internal_error(format!("capture desktop via {backend} failed: {err}{hint}"))
+        })?;
+        let width = image.width();
+        let height = image.height();
+        (
+            image.into_raw(),
+            width,
+            height,
+            ScreenBounds {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+        )
+    };
+
+    let bgra = rgba_to_bgra(&rgba);
+    Ok((bgra, width, height, bounds, started.elapsed().as_millis() as u64))
 }
 
 async fn run_screenshot_tool(input: ScreenshotRequest) -> DesktopToolResult<ScreenshotResponse> {
