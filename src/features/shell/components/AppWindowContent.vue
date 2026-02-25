@@ -72,6 +72,7 @@
       @stop-hotkey-record-test="stopHotkeyRecordTest"
       @play-hotkey-record-test="playHotkeyRecordTest"
       @capture-hotkey="captureHotkey"
+      @summon-chat-now="summonChatNow"
       @save-agent-avatar="saveAgentAvatar"
       @clear-agent-avatar="clearAgentAvatar"
       @check-update="checkUpdate"
@@ -348,6 +349,7 @@ const props = defineProps<{
   stopHotkeyRecordTest: () => void;
   playHotkeyRecordTest: () => void;
   captureHotkey: (value: string) => void;
+  summonChatNow: () => void;
   saveAgentAvatar: (input: { agentId: string; mime: string; bytesBase64: string }) => void;
   clearAgentAvatar: (input: { agentId: string }) => void;
   updateChatInput: (value: string) => void;

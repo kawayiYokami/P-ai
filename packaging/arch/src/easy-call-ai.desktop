@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Easy Call AI
+Comment=Desktop AI assistant
+Exec=easy-call-ai
+Icon=easy-call-ai
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true

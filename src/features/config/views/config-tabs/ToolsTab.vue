@@ -6,6 +6,11 @@
         <div class="label py-1"><span class="label-text text-xs">{{ t("config.tools.maxIterations") }}</span></div>
         <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm" />
       </label>
+      <label class="form-control">
+        <div class="label py-1"><span class="label-text text-xs">{{ t("config.tools.emptyReplyRetryCount") }}</span></div>
+        <input v-model.number="config.emptyReplyRetryCount" type="number" min="0" max="20" step="1" class="input input-bordered input-sm" />
+        <div class="label py-1"><span class="label-text-alt text-[11px] opacity-70">{{ t("config.tools.emptyReplyRetryHint") }}</span></div>
+      </label>
       <div class="card bg-base-100 border border-base-300">
         <div class="flex items-center justify-between gap-3 p-4">
           <span class="text-xs font-medium">{{ t('config.tools.shellWorkspace') }}</span>

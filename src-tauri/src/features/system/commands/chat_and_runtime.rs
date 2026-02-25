@@ -2,6 +2,12 @@ fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
     format!("{}::{}", api_config_id.trim(), agent_id.trim())
 }
 
+fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
+    !reply.assistant_text.trim().is_empty()
+        || !reply.reasoning_standard.trim().is_empty()
+        || !reply.reasoning_inline.trim().is_empty()
+}
+
 #[tauri::command]
 async fn send_chat_message(
     input: SendChatRequest,
@@ -445,17 +451,53 @@ async fn send_chat_message(
         )
     };
 
-    let model_reply = call_model_openai_style(
-        &resolved_api,
-        &selected_api,
-        &model_name,
-        prepared_prompt,
-        Some(&state),
-        &on_delta,
-        app_config.tool_max_iterations as usize,
-        &tool_session_id,
-    )
-    .await?;
+    let max_empty_reply_retries = app_config.empty_reply_retry_count as usize;
+    let mut model_reply: Option<ModelReply> = None;
+    for attempt in 0..=max_empty_reply_retries {
+        let reply = call_model_openai_style(
+            &resolved_api,
+            &selected_api,
+            &model_name,
+            prepared_prompt.clone(),
+            Some(&state),
+            &on_delta,
+            app_config.tool_max_iterations as usize,
+            &tool_session_id,
+        )
+        .await?;
+        if model_reply_has_visible_content(&reply) {
+            model_reply = Some(reply);
+            break;
+        }
+        if attempt < max_empty_reply_retries {
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: "".to_string(),
+                kind: Some("tool_status".to_string()),
+                tool_name: None,
+                tool_status: Some("running".to_string()),
+                message: Some(format!(
+                    "模型回覆為空，正在重試 ({}/{})...",
+                    attempt + 1,
+                    max_empty_reply_retries
+                )),
+            });
+            continue;
+        }
+        let total_attempts = max_empty_reply_retries + 1;
+        let final_error = format!(
+            "模型連續 {total_attempts} 次空回覆，已停止。請稍後重試或更換模型。"
+        );
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: "".to_string(),
+            kind: Some("tool_status".to_string()),
+            tool_name: None,
+            tool_status: Some("failed".to_string()),
+            message: Some(final_error.clone()),
+        });
+        return Err(final_error);
+    }
+    let model_reply =
+        model_reply.ok_or_else(|| "模型回覆異常：未取得有效回覆。".to_string())?;
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
@@ -1277,4 +1319,3 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     .await?;
     Ok(reply.assistant_text)
 }
-

@@ -4,16 +4,20 @@
     <div class="flex items-center gap-2">
       <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
       <button
-        class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200"
+        class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 shrink-0"
         :class="{ 'btn-primary': hotkeyCapturing }"
         @click="toggleHotkeyCapture"
       >
         {{ hotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
       </button>
+      <button class="btn btn-sm btn-primary shrink-0" @click="$emit('summonChatNow')">
+        {{ t("config.hotkey.callNowButton") }}
+      </button>
     </div>
     <div class="flex items-center justify-between py-1">
       <span class="text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
     </div>
+    <div class="py-1 text-[11px] opacity-60">{{ t("config.hotkey.callNowHint") }}</div>
   </label>
   <div class="grid grid-cols-1 gap-2">
     <label class="flex w-full flex-col gap-1">
@@ -93,6 +97,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (e: "summonChatNow"): void;
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
@@ -267,4 +272,3 @@ onBeforeUnmount(() => {
   stopRecordHotkeyCapture();
 });
 </script>
-

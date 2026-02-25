@@ -35,6 +35,8 @@
     "hotkey": {
       "label": "呼唤热键",
       "recordButton": "录制热键",
+      "callNowButton": "呼叫 AI",
+      "callNowHint": "热键偶尔失效时，可点这里直接打开聊天窗口。",
       "recording": "按键中...",
       "captureDefaultHint": "点击「录制热键」，然后按下组合键（如 Alt+·）。Esc 取消。",
       "captureListeningHint": "请按下组合键...",
@@ -87,6 +89,8 @@
     "tools": {
       "noChatLlmProvider": "未配置对话LLM供应商",
       "maxIterations": "工具最大调用轮次",
+      "emptyReplyRetryCount": "空回复重试次数",
+      "emptyReplyRetryHint": "当模型回复为空时自动重试的次数（0 表示不重试，默认 10）。",
       "terminalProjectRoots": "终端可用项目目录",
       "terminalProjectRootsPlaceholder": "每行一个目录，例如:\nD:\\\\work\\\\repo-a\nE:\\\\github\\\\repo-b",
       "terminalProjectRootsHint": "仅允许在这些目录（及其子目录）内切换终端根目录。",

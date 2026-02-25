@@ -1,0 +1,68 @@
+pkgname=easy-call-ai
+pkgver=0.2.11
+pkgrel=1
+pkgdesc='Desktop AI assistant with global hotkey (Tauri + Vue)'
+arch=('x86_64')
+url='https://github.com/kawayiYokami/Easy-call-ai'
+license=('GPL-3.0-or-later')
+depends=('gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'librsvg')
+makedepends=('git' 'nodejs' 'pnpm' 'rust' 'cargo' 'clang' 'pkgconf')
+provides=('easy-call-ai')
+conflicts=('easy-call-ai-bin')
+source=("${pkgname}::git+${url}.git#tag=v${pkgver}")
+b2sums=('SKIP')
+
+prepare() {
+  cd "${srcdir}/${pkgname}"
+
+  # Fix Linux build: keep windows-capture only under Windows target dependencies.
+  sed -i '/^windows-capture = "1.5.0"$/d' src-tauri/Cargo.toml
+  if ! awk '
+    BEGIN{in_win=0;found=0}
+    /^\[target.\x27cfg\(target_os = "windows"\)\x27.dependencies\]$/ {in_win=1; next}
+    /^\[/ {in_win=0}
+    in_win && /^windows-capture = "1.5.0"$/ {found=1}
+    END {exit(found ? 0 : 1)}
+  ' src-tauri/Cargo.toml; then
+    sed -i "/^\\[target.'cfg(target_os = \"windows\")'.dependencies\\]/a windows-capture = \"1.5.0\"" src-tauri/Cargo.toml
+  fi
+
+  # Fix Linux build: provide minimal RGBA icon required by tauri::generate_context!.
+  if [[ ! -f src-tauri/icons/icon.png ]]; then
+    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==' \
+      | base64 -d > src-tauri/icons/icon.png
+  fi
+}
+
+build() {
+  cd "${srcdir}/${pkgname}"
+  export CARGO_TARGET_DIR="${srcdir}/target"
+  export CARGO_PROFILE_RELEASE_DEBUG=false
+  export CARGO_PROFILE_RELEASE_STRIP=symbols
+
+  pnpm install --frozen-lockfile
+  pnpm build
+  cargo build --release --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "${srcdir}/${pkgname}"
+
+  install -Dm755 "${srcdir}/target/release/easy-call-ai" "${pkgdir}/usr/bin/easy-call-ai"
+  install -Dm644 src-tauri/icons/icon.png "${pkgdir}/usr/share/pixmaps/easy-call-ai.png"
+
+  cat > "${srcdir}/easy-call-ai.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Easy Call AI
+Comment=Desktop AI assistant
+Exec=easy-call-ai
+Icon=easy-call-ai
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true
+EOF
+  install -Dm644 "${srcdir}/easy-call-ai.desktop" "${pkgdir}/usr/share/applications/easy-call-ai.desktop"
+
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

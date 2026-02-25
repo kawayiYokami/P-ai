@@ -45,6 +45,7 @@ const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
 const DEFAULT_MAX_RECORD_SECONDS = 60;
 const MAX_RECORD_SECONDS = 600;
+const MAX_EMPTY_REPLY_RETRY_COUNT = 20;
 
 export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   function extractHttpStatus(error: unknown): number | null {
@@ -128,6 +129,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
+      options.config.emptyReplyRetryCount = Math.max(
+        0,
+        Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(Number(cfg.emptyReplyRetryCount ?? 10) || 10)),
+      );
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
       options.config.chatApiConfigId = cfg.chatApiConfigId;
       options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
@@ -197,6 +202,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
+      options.config.emptyReplyRetryCount = Math.max(
+        0,
+        Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(Number(saved.emptyReplyRetryCount ?? 10) || 10)),
+      );
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.chatApiConfigId = saved.chatApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;

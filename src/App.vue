@@ -135,6 +135,7 @@
       :stop-hotkey-record-test="stopHotkeyRecordTest"
       :play-hotkey-record-test="playHotkeyRecordTest"
       :capture-hotkey="captureHotkey"
+      :summon-chat-now="summonChatWindowFromConfig"
       :save-agent-avatar="saveAgentAvatar"
       :clear-agent-avatar="clearAgentAvatar"
       :update-chat-input="(value) => { chatInput = value; }"
@@ -343,6 +344,7 @@ const config = reactive<AppConfig>({
   minRecordSeconds: 1,
   maxRecordSeconds: 60,
   toolMaxIterations: 10,
+  emptyReplyRetryCount: 10,
   selectedApiConfigId: "",
   chatApiConfigId: "",
   visionApiConfigId: undefined,
@@ -946,6 +948,10 @@ const appBootstrap = useAppBootstrap({
       config.minRecordSeconds,
       Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
     );
+    config.emptyReplyRetryCount = Math.max(
+      0,
+      Math.min(20, Math.round(Number(payload.emptyReplyRetryCount) || config.emptyReplyRetryCount)),
+    );
   },
 });
 
@@ -1127,6 +1133,10 @@ function closeSkillPlaceholderDialog() {
 
 function openConfigWindow() {
   void invokeTauri("show_main_window");
+}
+
+function summonChatWindowFromConfig() {
+  void invokeTauri("show_chat_window");
 }
 
 function openGithubRepository() {

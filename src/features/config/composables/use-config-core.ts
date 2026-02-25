@@ -22,6 +22,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   const MAX_MIN_RECORD_SECONDS = 30;
   const DEFAULT_MAX_RECORD_SECONDS = 60;
   const MAX_RECORD_SECONDS = 600;
+  const MAX_EMPTY_REPLY_RETRY_COUNT = 20;
 
   const BUILTIN_TOOL_DEFAULTS = [
     {
@@ -137,6 +138,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       1,
       Math.min(100, Math.round(Number(options.config.toolMaxIterations) || 10)),
     );
+    options.config.emptyReplyRetryCount = Math.max(
+      0,
+      Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(Number(options.config.emptyReplyRetryCount) || 10)),
+    );
     if (!options.config.apiConfigs.some((a) => a.id === options.config.selectedApiConfigId)) {
       options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
     }
@@ -225,6 +230,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
+      emptyReplyRetryCount: options.config.emptyReplyRetryCount,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
@@ -275,6 +281,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       minRecordSeconds: options.config.minRecordSeconds,
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
+      emptyReplyRetryCount: options.config.emptyReplyRetryCount,
       selectedApiConfigId: options.config.selectedApiConfigId,
       chatApiConfigId: options.config.chatApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,

@@ -330,6 +330,7 @@ fn normalize_app_config(config: &mut AppConfig) {
         config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
     }
     config.tool_max_iterations = config.tool_max_iterations.clamp(1, 100);
+    config.empty_reply_retry_count = config.empty_reply_retry_count.clamp(0, 20);
 
     config.vision_api_config_id = config
         .vision_api_config_id
