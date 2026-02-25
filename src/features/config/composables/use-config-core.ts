@@ -104,7 +104,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       model: "gpt-4o-mini",
       temperature: 1,
       contextWindowTokens: 128000,
-      emptyReplyRetryCount: 0,
+      failureRetryCount: 0,
     };
   }
 
@@ -128,9 +128,9 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         16000,
         Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))),
       );
-      api.emptyReplyRetryCount = Math.max(
+      api.failureRetryCount = Math.max(
         0,
-        normalizeFailureRetryCount(api.emptyReplyRetryCount),
+        normalizeFailureRetryCount(api.failureRetryCount),
       );
       normalizeApiToolBindings(api);
     }
@@ -273,7 +273,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: Number(a.temperature ?? 1),
         contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
-        emptyReplyRetryCount: normalizeFailureRetryCount(a.emptyReplyRetryCount),
+        failureRetryCount: normalizeFailureRetryCount(a.failureRetryCount),
       })),
     };
   }
@@ -314,7 +314,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: a.temperature,
         contextWindowTokens: a.contextWindowTokens,
-        emptyReplyRetryCount: normalizeFailureRetryCount(a.emptyReplyRetryCount),
+        failureRetryCount: normalizeFailureRetryCount(a.failureRetryCount),
       })),
     });
   }

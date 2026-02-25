@@ -456,7 +456,7 @@ async fn send_chat_message(
         )
     };
 
-    let max_failure_retries = selected_api.empty_reply_retry_count as usize;
+    let max_failure_retries = selected_api.failure_retry_count as usize;
     let mut model_reply: Option<ModelReply> = None;
     for attempt in 0..=max_failure_retries {
         let reply_result = call_model_openai_style(

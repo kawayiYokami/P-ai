@@ -356,8 +356,8 @@ struct ApiConfig {
     temperature: f64,
     #[serde(default = "default_context_window_tokens")]
     context_window_tokens: u32,
-    #[serde(default = "default_empty_reply_retry_count")]
-    empty_reply_retry_count: u32,
+    #[serde(default = "default_failure_retry_count")]
+    failure_retry_count: u32,
 }
 
 fn default_true() -> bool {
@@ -380,7 +380,7 @@ fn default_tool_max_iterations() -> u32 {
     10
 }
 
-fn default_empty_reply_retry_count() -> u32 {
+fn default_failure_retry_count() -> u32 {
     0
 }
 
@@ -416,7 +416,7 @@ impl Default for ApiConfig {
             model: "gpt-4o-mini".to_string(),
             temperature: default_api_temperature(),
             context_window_tokens: default_context_window_tokens(),
-            empty_reply_retry_count: default_empty_reply_retry_count(),
+            failure_retry_count: default_failure_retry_count(),
         }
     }
 }

@@ -32,7 +32,7 @@ export type ApiConfigItem = {
   model: string;
   temperature: number;
   contextWindowTokens: number;
-  emptyReplyRetryCount?: number;
+  failureRetryCount?: number;
 };
 
 export type ShellWorkspace = {

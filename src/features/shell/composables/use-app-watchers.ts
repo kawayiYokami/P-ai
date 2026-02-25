@@ -45,7 +45,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       enableTools: a.enableTools,
       temperature: a.temperature,
       contextWindowTokens: a.contextWindowTokens,
-      emptyReplyRetryCount: a.emptyReplyRetryCount,
+      failureRetryCount: a.failureRetryCount,
     })),
     () => options.normalizeApiBindingsLocal(),
     { deep: true },

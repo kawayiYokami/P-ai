@@ -60,7 +60,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
-                    empty_reply_retry_count: 999,
+                    failure_retry_count: 999,
                 },
                 ApiConfig {
                     id: "a2".to_string(),
@@ -76,7 +76,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
-                    empty_reply_retry_count: 0,
+                    failure_retry_count: 0,
                 },
             ],
         };
@@ -85,7 +85,7 @@
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.tool_max_iterations, 1);
-        assert_eq!(cfg.api_configs[0].empty_reply_retry_count, 20);
+        assert_eq!(cfg.api_configs[0].failure_retry_count, 20);
         assert!(!cfg.stt_auto_send);
     }
 
@@ -121,7 +121,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
-                    empty_reply_retry_count: 0,
+                    failure_retry_count: 0,
                 },
                 ApiConfig {
                     id: "edit-b".to_string(),
@@ -137,7 +137,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
-                    empty_reply_retry_count: 0,
+                    failure_retry_count: 0,
                 },
             ],
         };
@@ -177,7 +177,7 @@
                 model: "m".to_string(),
                 temperature: 1.0,
                 context_window_tokens: 128_000,
-                empty_reply_retry_count: 0,
+                failure_retry_count: 0,
             }],
         };
         normalize_app_config(&mut cfg);

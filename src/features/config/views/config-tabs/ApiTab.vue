@@ -184,13 +184,13 @@
     </div>
 
     <div v-if="isTextMode" class="flex w-full items-center gap-2">
-      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.emptyReplyRetryCount") }}</span>
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.failureRetryCount") }}</span>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center justify-end">
-          <span class="text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.emptyReplyRetryCount ?? 0)) }}</span>
+          <span class="text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.failureRetryCount ?? 0)) }}</span>
         </div>
         <input
-          v-model.number="props.selectedApiConfig.emptyReplyRetryCount"
+          v-model.number="props.selectedApiConfig.failureRetryCount"
           type="range"
           min="0"
           max="20"
@@ -202,7 +202,7 @@
           <span>10</span>
           <span>20</span>
         </div>
-        <div class="mt-1 text-[11px] opacity-70">{{ t("config.api.emptyReplyRetryHint") }}</div>
+        <div class="mt-1 text-[11px] opacity-70">{{ t("config.api.failureRetryHint") }}</div>
       </div>
     </div>
 
