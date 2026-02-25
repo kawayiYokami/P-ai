@@ -35,6 +35,8 @@
     "hotkey": {
       "label": "Summon Hotkey",
       "recordButton": "Record Hotkey",
+      "callNowButton": "Summon AI",
+      "callNowHint": "This app has a tray icon. You can open chat from the tray menu.",
       "recording": "Listening...",
       "captureDefaultHint": "Click \"Record Hotkey\", then press a combo (e.g. Alt+·). Esc to cancel.",
       "captureListeningHint": "Press a key combination...",
@@ -79,6 +81,8 @@
       "refreshModels": "Refresh Model List",
       "temperature": "Temperature",
       "contextWindow": "Context Window",
+      "failureRetryCount": "Failure Retry Count",
+      "failureRetryHint": "Only retries empty replies and HTTP 429, with progressively longer delay each time (0 disables).",
       "capabilities": "Capabilities",
       "capText": "Text",
       "capImage": "Image",

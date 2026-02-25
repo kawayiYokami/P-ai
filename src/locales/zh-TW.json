@@ -35,6 +35,8 @@
     "hotkey": {
       "label": "呼唤热键",
       "recordButton": "录制热键",
+      "callNowButton": "呼叫 AI",
+      "callNowHint": "本軟體支援系統匣，可透過系統匣選單開啟聊天視窗。",
       "recording": "按键中...",
       "captureDefaultHint": "点击「录制热键」，然后按下组合键（如 Alt+·）。Esc 取消。",
       "captureListeningHint": "请按下组合键...",
@@ -79,6 +81,8 @@
       "refreshModels": "刷新模型列表",
       "temperature": "温度",
       "contextWindow": "上下文窗口",
+      "failureRetryCount": "失敗重試",
+      "failureRetryHint": "目前僅對空回覆與 429 重試；每次等待時間遞增。0 代表關閉。",
       "capabilities": "能力开关",
       "capText": "文本",
       "capImage": "图片",
