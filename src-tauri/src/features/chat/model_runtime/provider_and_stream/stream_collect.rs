@@ -24,7 +24,7 @@ where
                 }
             }
             Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                let merged = reasoning.reasoning.join("\n");
+                let merged = reasoning.display_text();
                 if !merged.is_empty() {
                     if !reasoning_standard.is_empty() {
                         reasoning_standard.push('\n');

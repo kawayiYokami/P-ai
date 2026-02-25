@@ -1,3 +1,40 @@
+fn latest_assistant_reasoning_since_last_user(chat_history: &[RigMessage]) -> Option<String> {
+    for msg in chat_history.iter().rev() {
+        match msg {
+            RigMessage::User { .. } => break,
+            RigMessage::Assistant { content, .. } => {
+                let mut merged = String::new();
+                for item in content.iter() {
+                    if let AssistantContent::Reasoning(reasoning) = item {
+                        let text = reasoning.display_text();
+                        if !text.trim().is_empty() {
+                            if !merged.is_empty() {
+                                merged.push('\n');
+                            }
+                            merged.push_str(&text);
+                        }
+                    }
+                }
+                if !merged.trim().is_empty() {
+                    return Some(merged);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn resolve_reasoning_for_tool_history(turn_reasoning: &str, chat_history: &[RigMessage]) -> String {
+    let turn = turn_reasoning.trim();
+    if !turn.is_empty() {
+        return turn_reasoning.to_string();
+    }
+    if let Some(inherited) = latest_assistant_reasoning_since_last_user(chat_history) {
+        return inherited;
+    }
+    " ".to_string()
+}
+
 async fn run_unified_tool_loop<M>(
     agent: rig::agent::Agent<M>,
     prepared: PreparedPrompt,
@@ -118,7 +155,7 @@ where
                 }
                 Ok(StreamedAssistantContent::Final(_)) => {}
                 Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                    let merged = reasoning.reasoning.join("\n");
+                    let merged = reasoning.display_text();
                     if !merged.is_empty() {
                         if !turn_reasoning.is_empty() {
                             turn_reasoning.push('\n');
@@ -174,7 +211,9 @@ where
         if !tool_calls.is_empty() {
             let mut assistant_items = Vec::<AssistantContent>::new();
             if include_reasoning_before_tool_calls {
-                assistant_items.push(AssistantContent::reasoning(turn_reasoning.clone()));
+                let reasoning_for_history =
+                    resolve_reasoning_for_tool_history(&turn_reasoning, &chat_history);
+                assistant_items.push(AssistantContent::reasoning(reasoning_for_history));
             }
             assistant_items.extend(tool_calls);
             chat_history.push(RigMessage::Assistant {
@@ -245,4 +284,66 @@ where
         reasoning_inline: String::new(),
         tool_history_events,
     })
+}
+
+#[cfg(test)]
+mod tool_loop_tests {
+    use super::*;
+
+    fn assistant_with_reasoning(text: &str) -> RigMessage {
+        RigMessage::Assistant {
+            id: None,
+            content: OneOrMany::many(vec![AssistantContent::reasoning(text.to_string())])
+                .expect("assistant content"),
+        }
+    }
+
+    fn assistant_with_tool_only() -> RigMessage {
+        RigMessage::Assistant {
+            id: None,
+            content: OneOrMany::one(AssistantContent::tool_call(
+                "call_1".to_string(),
+                "noop".to_string(),
+                serde_json::json!({}),
+            )),
+        }
+    }
+
+    fn user_text(text: &str) -> RigMessage {
+        RigMessage::User {
+            content: OneOrMany::one(UserContent::text(text.to_string())),
+        }
+    }
+
+    #[test]
+    fn deepseek_reasoning_prefers_current_turn_reasoning() {
+        let chat_history = vec![assistant_with_reasoning("old-reasoning")];
+        let chosen = resolve_reasoning_for_tool_history("new-reasoning", &chat_history);
+        assert_eq!(chosen, "new-reasoning");
+    }
+
+    #[test]
+    fn deepseek_reasoning_inherits_assistant_reasoning_without_user_boundary() {
+        let chat_history = vec![assistant_with_reasoning("r1"), assistant_with_tool_only()];
+        let chosen = resolve_reasoning_for_tool_history("", &chat_history);
+        assert_eq!(chosen, "r1");
+    }
+
+    #[test]
+    fn deepseek_reasoning_must_not_cross_user_boundary() {
+        let chat_history = vec![
+            assistant_with_reasoning("r-before-user"),
+            user_text("new question"),
+            assistant_with_tool_only(),
+        ];
+        let chosen = resolve_reasoning_for_tool_history("", &chat_history);
+        assert_eq!(chosen, " ");
+    }
+
+    #[test]
+    fn deepseek_reasoning_fallback_is_space_when_none_available() {
+        let chat_history = vec![user_text("first question"), assistant_with_tool_only()];
+        let chosen = resolve_reasoning_for_tool_history("   ", &chat_history);
+        assert_eq!(chosen, " ");
+    }
 }

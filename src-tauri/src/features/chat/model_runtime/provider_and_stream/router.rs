@@ -132,6 +132,8 @@ async fn call_model_openai_style(
                 max_tool_iterations,
             )
             .await
+        } else if selected_api.request_format.is_deepseek_kimi() {
+            call_model_deepseek_rig_style(api_config, model_name, prepared, Some(on_delta)).await
         } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
             call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
                 .await
@@ -140,7 +142,9 @@ async fn call_model_openai_style(
         }
     } else {
         let original = prepared.clone();
-        let rig_result = if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+        let rig_result = if selected_api.request_format.is_deepseek_kimi() {
+            call_model_deepseek_rig_style(api_config, model_name, prepared, Some(on_delta)).await
+        } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
             call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
                 .await
         } else {
@@ -177,6 +181,9 @@ async fn call_model_openai_style(
                         max_tool_iterations,
                     )
                     .await
+                } else if selected_api.request_format.is_deepseek_kimi() {
+                    call_model_deepseek_rig_style(api_config, model_name, fallback, Some(on_delta))
+                        .await
                 } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
                     call_model_openai_responses_rig_style(
                         api_config,
