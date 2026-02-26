@@ -331,6 +331,7 @@ import { normalizeLocale } from "./i18n";
 const viewMode = ref<"chat" | "archives" | "config">("config");
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => (params ? t(key, params) : t(key));
+const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(window.navigator.platform || "");
 const { windowReady, alwaysOnTop, initWindow, syncAlwaysOnTop, closeWindow, startDrag, toggleAlwaysOnTop } =
   useWindowShell();
 const { currentTheme, applyTheme, setTheme, restoreThemeFromStorage } = useAppTheme();
@@ -339,7 +340,7 @@ const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
   uiFont: "auto",
-  recordHotkey: "Alt",
+  recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
   recordBackgroundWakeEnabled: true,
   minRecordSeconds: 1,
   maxRecordSeconds: 60,

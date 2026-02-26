@@ -28,6 +28,12 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     return token === "CTRL" || token === "ALT" || token === "SHIFT" || token === "META";
   }
 
+  function normalizeToken(token: string): string {
+    if (token === "OPTION") return "ALT";
+    if (token === "COMMAND") return "META";
+    return token;
+  }
+
   function eventMainToken(event: KeyboardEvent): string {
     const code = (event.code || "").toUpperCase();
     if (code === "BACKQUOTE") return "·";
@@ -52,7 +58,7 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
   function parseHotkey(raw: string): { modifiers: Set<string>; main: string | null } {
     const tokens = String(raw || "")
       .split("+")
-      .map((token) => token.trim().toUpperCase())
+      .map((token) => normalizeToken(token.trim().toUpperCase()))
       .filter((token) => !!token);
     const modifiers = new Set<string>();
     let main: string | null = null;
