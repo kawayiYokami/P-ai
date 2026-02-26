@@ -671,9 +671,6 @@ fn resolve_api_config(
                     .temperature
                     .unwrap_or(default_api_temperature())
                     .clamp(0.0, 2.0),
-                fixed_test_prompt: debug_cfg
-                    .fixed_test_prompt
-                    .unwrap_or_else(|| "EASY_CALL_AI_CACHE_TEST_V1".to_string()),
             });
         }
     }
@@ -694,7 +691,6 @@ fn resolve_api_config(
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),
         temperature: selected.temperature.clamp(0.0, 2.0),
-        fixed_test_prompt: "EASY_CALL_AI_CACHE_TEST_V1".to_string(),
     })
 }
 

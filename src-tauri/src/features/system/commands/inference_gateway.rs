@@ -14,13 +14,6 @@ impl CallPolicy {
         }
     }
 
-    fn debug_probe() -> Self {
-        Self {
-            scene: "Debug probe",
-            timeout_secs: None,
-            json_only: false,
-        }
-    }
 }
 
 async fn invoke_model_rig_by_format(

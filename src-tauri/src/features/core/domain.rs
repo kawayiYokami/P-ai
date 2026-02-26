@@ -491,7 +491,6 @@ struct DebugApiConfig {
     api_key: String,
     model: String,
     temperature: Option<f64>,
-    fixed_test_prompt: Option<String>,
     enabled: Option<bool>,
 }
 
@@ -855,7 +854,6 @@ struct ResolvedApiConfig {
     api_key: String,
     model: String,
     temperature: f64,
-    fixed_test_prompt: String,
 }
 
 #[derive(Debug, Clone)]

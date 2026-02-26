@@ -1308,38 +1308,3 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
         latest_updated_at: None,
     })
 }
-
-#[tauri::command]
-async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> {
-    let app_config = {
-        let guard = state
-            .state_lock
-            .lock()
-            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-        let cfg = read_config(&state.config_path)?;
-        drop(guard);
-        cfg
-    };
-
-    let api_config = resolve_api_config(&app_config, None)?;
-    let local_time_text = format_message_time_text(&now_iso());
-    let prepared = PreparedPrompt {
-        preamble: format!("[TIME]\nCurrent local time: {}", local_time_text),
-        history_messages: Vec::new(),
-        latest_user_text: api_config.fixed_test_prompt.clone(),
-        latest_user_time_text: String::new(),
-        latest_user_system_text: String::new(),
-        latest_images: Vec::new(),
-        latest_audios: Vec::new(),
-    };
-
-    let reply = invoke_model_with_policy(
-        &api_config,
-        &api_config.model,
-        prepared,
-        CallPolicy::debug_probe(),
-        Some(&state),
-    )
-    .await?;
-    Ok(reply.assistant_text)
-}
