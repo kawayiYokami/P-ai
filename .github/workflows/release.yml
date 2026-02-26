@@ -7,6 +7,17 @@ on:
         description: "发布版本号（例如 v0.2.8），仅发布时必填"
         required: false
         type: string
+      target_os:
+        description: "构建目标平台"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - linux-macos
+          - linux
+          - macos
+          - windows
       publish_release:
         description: "是否发布到 GitHub Release"
         required: true
@@ -29,7 +40,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
+        os: ${{ fromJSON(
+          inputs.target_os == 'linux-macos' && '["ubuntu-24.04","macos-latest"]' ||
+          inputs.target_os == 'linux' && '["ubuntu-24.04"]' ||
+          inputs.target_os == 'macos' && '["macos-latest"]' ||
+          inputs.target_os == 'windows' && '["windows-latest"]' ||
+          '["ubuntu-24.04","windows-latest","macos-latest"]'
+        ) }}
 
     steps:
       - name: Checkout
