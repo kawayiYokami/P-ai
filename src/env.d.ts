@@ -9,6 +9,7 @@ declare module "*.vue" {
 declare module "markdown-it" {
   interface MarkdownIt {
     render(src: string, env?: unknown): string;
+    use(...plugins: any[]): this;
   }
   interface MarkdownItConstructor {
     new (options?: Record<string, unknown>): MarkdownIt;
@@ -16,4 +17,9 @@ declare module "markdown-it" {
   }
   const MarkdownIt: MarkdownItConstructor;
   export default MarkdownIt;
+}
+
+declare module "markdown-it-katex" {
+  const plugin: any;
+  export default plugin;
 }

@@ -2,6 +2,7 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import "./style.css";
 import "cropperjs/dist/cropper.css";
+import "katex/dist/katex.min.css";
 import { i18n } from "./i18n";
 
 window.addEventListener("error", (event) => {
