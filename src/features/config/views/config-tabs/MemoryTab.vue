@@ -9,7 +9,7 @@
         <span class="loading loading-spinner loading-md text-primary"></span>
         <div class="text-sm font-medium">{{ t('config.memory.syncing') }}</div>
         <progress class="progress progress-primary w-full" :value="syncProgressPercent" max="100"></progress>
-        <div class="text-xs opacity-70">
+        <div class="text-sm opacity-70">
           {{ syncProgressText }}
         </div>
       </div>
@@ -20,14 +20,14 @@
       <div class="card-body p-3 space-y-3">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{{ t('config.memory.vectorization') }}</span>
-          <div class="text-xs opacity-60">{{ t('config.memory.vectorizationHint') }}</div>
+          <div class="text-sm opacity-60">{{ t('config.memory.vectorizationHint') }}</div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- 嵌入配置 -->
           <div class="flex flex-col gap-2">
             <label class="flex w-full flex-col gap-1">
-              <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t('config.memory.embeddingModel') }}</span></div>
+              <div class="flex items-center justify-between py-0"><span class="text-sm">{{ t('config.memory.embeddingModel') }}</span></div>
               <select v-model="embeddingApiConfigId" class="select select-bordered select-sm">
                 <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in embeddingApiConfigs" :key="api.id" :value="api.id">
@@ -52,7 +52,7 @@
           <!-- 重排配置 -->
           <div class="flex flex-col gap-2">
             <label class="flex w-full flex-col gap-1">
-              <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t('config.memory.rerankModel') }}</span></div>
+              <div class="flex items-center justify-between py-0"><span class="text-sm">{{ t('config.memory.rerankModel') }}</span></div>
               <select v-model="rerankApiConfigId" class="select select-bordered select-sm">
                 <option value="">{{ t('config.memory.notConfigured') }}</option>
                 <option v-for="api in rerankApiConfigs" :key="api.id" :value="api.id">
@@ -75,7 +75,7 @@
           </div>
         </div>
 
-        <div v-if="opMessage" class="text-xs break-all rounded-box bg-base-200/50 px-2 py-1.5">
+        <div v-if="opMessage" class="text-sm break-all rounded-box bg-base-200/50 px-2 py-1.5">
           {{ opMessage }}
         </div>
       </div>
@@ -88,13 +88,13 @@
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{{ t('config.memory.list') }}</span>
           <div class="join">
-            <button class="btn btn-xs join-item" :disabled="loading" @click="refreshMemories" title="刷新">
+            <button class="btn btn-sm join-item" :disabled="loading" @click="refreshMemories" title="刷新">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
             </button>
-            <button class="btn btn-xs join-item" :disabled="loading" @click="exportMemories" title="导出">
+            <button class="btn btn-sm join-item" :disabled="loading" @click="exportMemories" title="导出">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             </button>
-            <button class="btn btn-xs join-item" :disabled="loading" @click="triggerImport" title="导入">
+            <button class="btn btn-sm join-item" :disabled="loading" @click="triggerImport" title="导入">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
             </button>
           </div>
@@ -112,7 +112,7 @@
             />
           </div>
           <div class="indicator">
-            <span v-if="isSearchMode" class="indicator-item badge badge-secondary badge-xs">结果</span>
+            <span v-if="isSearchMode" class="indicator-item badge badge-secondary badge-sm">结果</span>
             <button
               class="btn btn-sm join-item"
               :class="searchQuery ? 'btn-primary' : 'btn-ghost'"
@@ -126,20 +126,20 @@
         <div class="flex items-center gap-2">
           <button
             v-if="isSearchMode"
-            class="btn btn-xs btn-ghost"
+            class="btn btn-sm btn-ghost"
             :disabled="loading"
             @click="clearSearch"
           >
             {{ t('config.memory.clear') }}
           </button>
-          <span v-if="loading" class="text-xs opacity-70">
-            <span class="loading loading-spinner loading-xs"></span>
+          <span v-if="loading" class="text-sm opacity-70">
+            <span class="loading loading-spinner loading-sm"></span>
             {{ t('config.memory.searching') }}
           </span>
         </div>
 
         <!-- 搜索结果信息 -->
-        <div v-if="isSearchMode && memoryList.length > 0" class="text-xs opacity-70 flex items-center gap-2">
+        <div v-if="isSearchMode && memoryList.length > 0" class="text-sm opacity-70 flex items-center gap-2">
           <span class="badge badge-sm badge-ghost">{{ t('config.memory.searchResults') }}</span>
           <span>{{ t('config.memory.matchesCount', { count: memoryList.length }) }}</span>
         </div>
@@ -160,14 +160,14 @@
 
                       <!-- 推理 -->
                       <div v-if="memory.reasoning" class="py-2">
-                        <div class="pl-2 border-l-2 border-base-300 opacity-70 whitespace-pre-wrap break-words italic text-xs">
+                        <div class="pl-2 border-l-2 border-base-300 opacity-70 whitespace-pre-wrap break-words italic text-sm">
                           {{ memory.reasoning }}
                         </div>
                       </div>
 
                       <!-- 标签行：类型 + 时间 + 标签 + 删除 -->
                       <h2 class="flex items-center justify-between m-0 p-0">
-                        <span class="flex flex-wrap items-center gap-2 font-semibold text-xs">
+                        <span class="flex flex-wrap items-center gap-2 font-semibold text-sm">
                           <span
                             class="badge badge-sm"
                             :class="memoryTypeBadgeClass(memory.memoryType)"
@@ -182,7 +182,7 @@
                           <span v-if="!memory.tags.length" class="opacity-40 text-[11px]">{{ t('config.memory.noTags') }}</span>
                         </span>
                         <button
-                          class="btn btn-xs btn-ghost btn-circle"
+                          class="btn btn-sm btn-ghost btn-circle"
                           @click="deleteMemory(memory.id)"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
@@ -209,11 +209,11 @@
         <!-- 分页 -->
         <div v-if="memoryList.length > 0" class="flex justify-center border-t border-base-300 pt-3">
           <div class="join">
-            <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="memoryPage--">
+            <button class="btn btn-sm join-item" :disabled="memoryPage <= 1" @click="memoryPage--">
               ‹
             </button>
-            <button class="btn btn-xs join-item btn-active">{{ memoryPage }} / {{ memoryPageCount }}</button>
-            <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">
+            <button class="btn btn-sm join-item btn-active">{{ memoryPage }} / {{ memoryPageCount }}</button>
+            <button class="btn btn-sm join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">
               ›
             </button>
           </div>

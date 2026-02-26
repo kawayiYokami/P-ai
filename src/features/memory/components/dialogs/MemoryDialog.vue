@@ -8,7 +8,7 @@
       class="hidden"
       @change="$emit('importFile', $event)"
     />
-    <div v-if="memoryList.length === 0" class="flex-1 min-h-0 text-xs opacity-70">{{ emptyText }}</div>
+    <div v-if="memoryList.length === 0" class="flex-1 min-h-0 text-sm opacity-70">{{ emptyText }}</div>
     <div v-else class="flex flex-1 min-h-0 flex-col space-y-2">
       <div class="min-h-0 flex-1 overflow-auto space-y-2 pr-1">
         <div
@@ -16,7 +16,7 @@
           :key="memory.id"
           class="card card-compact bg-base-100 border border-base-300 shadow-md"
         >
-          <div class="card-body text-xs p-3">
+          <div class="card-body text-sm p-3">
             <div class="badge badge-sm">{{ memory.memoryType }}</div>
             <div class="mt-1 whitespace-pre-wrap break-words">{{ memory.judgment }}</div>
             <div v-if="memory.reasoning" class="mt-1 opacity-80 whitespace-pre-wrap break-words">{{ memory.reasoning }}</div>
@@ -34,10 +34,10 @@
         </div>
       </div>
       <div class="shrink-0 flex items-center justify-between border-t border-base-300 pt-2">
-        <span class="text-xs opacity-70">{{ pageText }}</span>
+        <span class="text-sm opacity-70">{{ pageText }}</span>
         <div class="join">
-          <button class="btn btn-xs join-item" :disabled="memoryPage <= 1" @click="$emit('prevPage')">{{ prevPageText }}</button>
-          <button class="btn btn-xs join-item" :disabled="memoryPage >= memoryPageCount" @click="$emit('nextPage')">{{ nextPageText }}</button>
+          <button class="btn btn-sm join-item" :disabled="memoryPage <= 1" @click="$emit('prevPage')">{{ prevPageText }}</button>
+          <button class="btn btn-sm join-item" :disabled="memoryPage >= memoryPageCount" @click="$emit('nextPage')">{{ nextPageText }}</button>
         </div>
       </div>
     </div>

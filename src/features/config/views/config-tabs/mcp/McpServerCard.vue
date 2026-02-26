@@ -24,7 +24,7 @@
         <div class="collapse-content">
           <textarea
             v-model="draft.definitionJson"
-            class="textarea textarea-xs font-mono min-h-40 w-full bg-base-100"
+            class="textarea textarea-sm font-mono min-h-40 w-full bg-base-100"
             :placeholder="t('config.mcpServerCard.configPlaceholder')"
             @input="emitChange"
           ></textarea>
@@ -34,11 +34,11 @@
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 text-[11px]">
           <span class="opacity-70">{{ t('config.mcpServerCard.status') }}</span>
-          <span v-if="draft.lastStatus === 'deployed'" class="badge badge-xs badge-success">已部署</span>
-          <span v-else-if="draft.lastStatus === 'stopped'" class="badge badge-xs badge-neutral">已停止</span>
-          <span v-else-if="draft.lastStatus === 'deploying'" class="badge badge-xs badge-warning">部署中</span>
-          <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-xs badge-error">失败</span>
-          <span v-else class="badge badge-xs badge-ghost">{{ draft.lastStatus || "-" }}</span>
+          <span v-if="draft.lastStatus === 'deployed'" class="badge badge-sm badge-success">已部署</span>
+          <span v-else-if="draft.lastStatus === 'stopped'" class="badge badge-sm badge-neutral">已停止</span>
+          <span v-else-if="draft.lastStatus === 'deploying'" class="badge badge-sm badge-warning">部署中</span>
+          <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-sm badge-error">失败</span>
+          <span v-else class="badge badge-sm badge-ghost">{{ draft.lastStatus || "-" }}</span>
           <span v-if="draft.lastError" class="text-error truncate max-w-50" :title="draft.lastError"> | {{ draft.lastError }}</span>
         </div>
         <div></div>

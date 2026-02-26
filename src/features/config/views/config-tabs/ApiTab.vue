@@ -39,7 +39,7 @@
           @click="$emit('saveApiConfig')"
         >
           <Save v-if="!props.savingConfig" class="h-3.5 w-3.5" />
-          <span v-else class="loading loading-spinner loading-xs"></span>
+          <span v-else class="loading loading-spinner loading-sm"></span>
         </button>
       </div>
     </label>
@@ -69,7 +69,7 @@
         </div>
       </div>
       <div v-if="baseUrlHelperOpen" class="mt-1 rounded-box border border-base-300 bg-base-100 p-2">
-        <div class="mb-2 text-xs opacity-70">{{ t("config.api.linkHelperHint") }}</div>
+        <div class="mb-2 text-sm opacity-70">{{ t("config.api.linkHelperHint") }}</div>
         <div class="flex flex-wrap gap-1">
           <div v-for="preset in filteredProviderPresets" :key="preset.id" class="join shadow-sm rounded-btn">
             <button
@@ -79,7 +79,7 @@
             >
               <span
                 v-if="preset.hasFreeQuota"
-                class="badge badge-secondary badge-xs text-[9px] leading-none absolute -top-2 left-1"
+                class="badge badge-secondary badge-sm text-[9px] leading-none absolute -top-2 left-1"
               >
                 {{ t("config.api.freeBadge") }}
               </span>
@@ -95,10 +95,10 @@
           </div>
         </div>
         <label class="mt-2 flex w-full flex-col gap-1">
-          <div class="flex items-center justify-between py-0"><span class="text-xs">{{ t("config.api.generatedLink") }}</span></div>
+          <div class="flex items-center justify-between py-0"><span class="text-sm">{{ t("config.api.generatedLink") }}</span></div>
           <div class="flex w-full min-w-0 gap-1">
-            <input :value="generatedBaseUrl" class="input input-bordered input-xs flex-1 min-w-0" readonly />
-            <button class="btn btn-xs btn-primary" :disabled="!generatedBaseUrl" @click="applyGeneratedBaseUrl">
+            <input :value="generatedBaseUrl" class="input input-bordered input-sm flex-1 min-w-0" readonly />
+            <button class="btn btn-sm btn-primary" :disabled="!generatedBaseUrl" @click="applyGeneratedBaseUrl">
               <Link class="h-3 w-3" />
               <span>{{ t("config.api.fillBaseUrl") }}</span>
             </button>
@@ -139,7 +139,7 @@
                 <li v-for="modelName in filteredModels" :key="modelName">
                   <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
                 </li>
-                <li v-if="filteredModels.length === 0" class="text-center text-xs opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
+                <li v-if="filteredModels.length === 0" class="text-center text-sm opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
               </ul>
             </div>
           </div>
@@ -157,9 +157,9 @@
       <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.temperature") }}</span>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center justify-end">
-        <span class="text-xs opacity-70">{{ Number(props.selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
+        <span class="text-sm opacity-70">{{ Number(props.selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
         </div>
-        <input v-model.number="props.selectedApiConfig.temperature" type="range" min="0" max="2" step="0.1" class="range range-xs w-full" />
+        <input v-model.number="props.selectedApiConfig.temperature" type="range" min="0" max="2" step="0.1" class="range range-sm w-full" />
         <div class="mt-1 flex justify-between text-[10px] opacity-60">
           <span>0.0</span>
           <span>1.0</span>
@@ -172,9 +172,9 @@
       <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.contextWindow") }}</span>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center justify-end">
-        <span class="text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.contextWindowTokens ?? 128000)) }}</span>
+        <span class="text-sm opacity-70">{{ Math.round(Number(props.selectedApiConfig.contextWindowTokens ?? 128000)) }}</span>
         </div>
-        <input v-model.number="props.selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-xs w-full" />
+        <input v-model.number="props.selectedApiConfig.contextWindowTokens" type="range" min="16000" max="200000" step="1000" class="range range-sm w-full" />
         <div class="mt-1 flex justify-between text-[10px] opacity-60">
           <span>16K</span>
           <span>100K</span>
@@ -187,7 +187,7 @@
       <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.failureRetryCount") }}</span>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center justify-end">
-          <span class="text-xs opacity-70">{{ Math.round(Number(props.selectedApiConfig.failureRetryCount ?? 0)) }}</span>
+          <span class="text-sm opacity-70">{{ Math.round(Number(props.selectedApiConfig.failureRetryCount ?? 0)) }}</span>
         </div>
         <input
           v-model.number="props.selectedApiConfig.failureRetryCount"
@@ -195,7 +195,7 @@
           min="0"
           max="20"
           step="1"
-          class="range range-xs w-full"
+          class="range range-sm w-full"
         />
         <div class="mt-1 flex justify-between text-[10px] opacity-60">
           <span>0</span>
@@ -209,8 +209,8 @@
     <div v-if="isTextMode" class="flex w-full flex-col gap-1">
       <div class="flex items-center justify-between py-1"><span class="text-sm font-medium">{{ t("config.api.capabilities") }}</span></div>
       <div class="flex w-full gap-2">
-        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-xs">{{ t("config.api.capImage") }}</span><input v-model="props.selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
-        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-xs">{{ t("config.api.capTools") }}</span><input v-model="props.selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
+        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-sm">{{ t("config.api.capImage") }}</span><input v-model="props.selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
+        <label class="flex flex-1 cursor-pointer items-center justify-between rounded-md border border-base-300 bg-base-100 px-2 py-1"><span class="text-sm">{{ t("config.api.capTools") }}</span><input v-model="props.selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
       </div>
     </div>
   </div>

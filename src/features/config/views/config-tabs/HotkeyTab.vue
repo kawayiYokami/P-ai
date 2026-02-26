@@ -1,6 +1,6 @@
 <template>
   <label class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.label") }}</span></div>
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.label") }}</span></div>
     <div class="flex items-center gap-2">
       <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
       <button
@@ -23,7 +23,7 @@
   </label>
   <div class="grid grid-cols-1 gap-2">
     <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.recordKey") }}</span></div>
+      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.recordKey") }}</span></div>
       <div class="flex items-center gap-1">
         <input :value="config.recordHotkey" class="input input-bordered input-sm flex-1" readonly />
         <button
@@ -47,7 +47,7 @@
     </label>
     <div class="grid grid-cols-2 gap-2">
       <label class="flex min-w-0 flex-col gap-1">
-        <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
+        <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
         <input
           :value="config.minRecordSeconds"
           type="number"
@@ -58,7 +58,7 @@
         />
       </label>
       <label class="flex min-w-0 flex-col gap-1">
-        <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
+        <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
         <input
           :value="config.maxRecordSeconds"
           type="number"
@@ -71,7 +71,7 @@
     </div>
   </div>
   <div class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.hotkey.recordTest") }}</span></div>
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.recordTest") }}</span></div>
     <div class="flex flex-wrap items-center gap-2">
       <button
         class="btn btn-sm bg-base-100 shrink-0"

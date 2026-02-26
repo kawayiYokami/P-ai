@@ -174,14 +174,14 @@
               <span>{{ avatarInitial(avatarEditorName) }}</span>
             </div>
           </div>
-          <div class="text-xs opacity-70 break-all">{{ avatarEditorName }}</div>
+          <div class="text-sm opacity-70 break-all">{{ avatarEditorName }}</div>
         </div>
         <div class="mt-3 flex gap-2">
-          <button class="btn btn-xs" :disabled="!avatarEditorTargetId || avatarSaving" @click="openAvatarPickerForEditor">{{ t("config.persona.uploadAvatar") }}</button>
-          <button class="btn btn-xs btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">{{ t("config.persona.clearAvatar") }}</button>
+          <button class="btn btn-sm" :disabled="!avatarEditorTargetId || avatarSaving" @click="openAvatarPickerForEditor">{{ t("config.persona.uploadAvatar") }}</button>
+          <button class="btn btn-sm btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">{{ t("config.persona.clearAvatar") }}</button>
         </div>
         <div class="mt-2 text-[11px] opacity-60">{{ t("config.persona.pasteImageHint") }}</div>
-        <div v-if="avatarError" class="mt-2 text-xs text-error break-all">{{ avatarError }}</div>
+        <div v-if="avatarError" class="mt-2 text-sm text-error break-all">{{ avatarError }}</div>
       </div>
       <div class="modal-action mt-2">
         <button class="btn btn-sm btn-ghost" @click="closeAvatarEditor">{{ t("common.close") }}</button>
@@ -197,7 +197,7 @@
       <div class="rounded border border-base-300 bg-base-100 p-2 min-h-64">
         <img ref="cropImageEl" :src="cropSource" alt="crop source" class="max-w-full block" />
       </div>
-      <div v-if="localCropError || avatarError" class="mt-2 text-xs text-error break-all">{{ localCropError || avatarError }}</div>
+      <div v-if="localCropError || avatarError" class="mt-2 text-sm text-error break-all">{{ localCropError || avatarError }}</div>
       <div class="modal-action mt-2">
         <button class="btn btn-sm btn-ghost" @click="closeCropDialog">{{ t("common.cancel") }}</button>
         <button class="btn btn-sm btn-primary" :disabled="!cropperReady || avatarSaving" @click="confirmCrop">

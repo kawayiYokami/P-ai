@@ -216,7 +216,7 @@
           {{ terminalApprovalDialogTitle }}
         </h3>
         <pre class="mt-2 whitespace-pre-wrap text-sm text-base-content">{{ terminalApprovalDialogBody }}</pre>
-        <div v-if="terminalApprovalQueue.length > 1" class="text-xs opacity-70 mt-2">
+        <div v-if="terminalApprovalQueue.length > 1" class="text-sm opacity-70 mt-2">
           {{ t("status.terminalApprovalQueueHint", { count: terminalApprovalQueue.length }) }}
         </div>
         <div class="modal-action">
@@ -250,7 +250,7 @@
           <div>{{ t("archives.importPreviewTotal", { count: archiveImportPreview.total }) }}</div>
           <div>{{ t("archives.importPreviewAdd", { count: archiveImportPreview.imported }) }}</div>
           <div>{{ t("archives.importPreviewReplace", { count: archiveImportPreview.replaced }) }}</div>
-          <div class="text-xs opacity-70 mt-2">{{ t("archives.importPreviewHint") }}</div>
+          <div class="text-sm opacity-70 mt-2">{{ t("archives.importPreviewHint") }}</div>
         </div>
         <div class="modal-action">
           <button class="btn btn-sm" :disabled="archiveImportRunning" @click="closeArchiveImportPreviewDialog">

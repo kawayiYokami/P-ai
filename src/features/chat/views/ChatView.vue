@@ -59,7 +59,7 @@
               <button
                 v-for="(aud, idx) in turn.userAudios"
                 :key="`${turn.id}-aud-${idx}`"
-                class="btn btn-xs bg-base-100/70 w-fit"
+                class="btn btn-sm bg-base-100/70 w-fit"
                 @click="toggleAudioPlayback(`${turn.id}-aud-${idx}`, aud)"
               >
                 <Pause v-if="playingAudioId === `${turn.id}-aud-${idx}`" class="h-3 w-3" />
@@ -85,12 +85,12 @@
               v-if="turn.assistantReasoningStandard"
               class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
             >
-              <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center">
+              <summary class="collapse-title py-2 px-3 min-h-0 text-sm italic flex items-center">
                 <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">
                   {{ firstLinePreview(turn.assistantReasoningStandard) || "..." }}
                 </span>
               </summary>
-              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/80">
+              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-sm leading-relaxed text-base-content/80">
                 {{ turn.assistantReasoningStandard }}
               </div>
             </details>
@@ -185,11 +185,11 @@
               v-if="latestReasoningStandardText"
               class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
             >
-              <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center gap-1">
+              <summary class="collapse-title py-2 px-3 min-h-0 text-sm italic flex items-center gap-1">
                 <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
-                <span class="loading loading-dots loading-xs opacity-60"></span>
+                <span class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
-              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/80">
+              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-sm leading-relaxed text-base-content/80">
                 {{ latestReasoningStandardText }}
               </div>
             </details>
@@ -201,7 +201,7 @@
             >
               <summary class="collapse-title py-1.5 px-2.5 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
                 <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">{{ firstLinePreview(latestInlineReasoningText) || "..." }}</span>
-                <span class="loading loading-dots loading-xs opacity-60"></span>
+                <span class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
               <div class="collapse-content max-w-full px-2.5 pb-1.5 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
                 {{ latestInlineReasoningText }}
@@ -213,7 +213,7 @@
               <span v-else-if="chatting" class="inline-block w-1.5 h-4 bg-base-content animate-pulse"></span>
             </div>
             <div v-if="toolStatusText" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
-              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-xs"></span>
+              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-sm"></span>
               <span
                 v-else-if="toolStatusState === 'failed'"
                 class="inline-block w-1.5 h-1.5 rounded-full bg-error"
@@ -233,7 +233,7 @@
       <div class="pt-1 pb-2">
         <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
           <button
-            class="btn btn-xs bg-base-100"
+            class="btn btn-sm bg-base-100"
             :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
             :disabled="chatting || frozen || !workspaceLocked"
             @click="$emit('unlockWorkspace')"
@@ -242,14 +242,14 @@
             <LockOpen v-else class="h-3.5 w-3.5" />
           </button>
           <button
-            class="btn btn-xs bg-base-100"
+            class="btn btn-sm bg-base-100"
             :disabled="chatting || frozen"
             @click="$emit('lockWorkspace')"
           >
             {{ currentWorkspaceName }}{{ workspaceLocked ? " (临时)" : "" }}
           </button>
           <button
-            class="btn btn-xs bg-base-100 ml-auto"
+            class="btn btn-sm bg-base-100 ml-auto"
             :disabled="chatting || frozen"
             @click="$emit('openSkillList')"
           >
@@ -272,13 +272,13 @@
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
       <div
         v-if="linkOpenErrorText"
-        class="alert alert-warning mb-2 py-2 px-3 text-xs whitespace-pre-wrap break-all max-h-24 overflow-auto"
+        class="alert alert-warning mb-2 py-2 px-3 text-sm whitespace-pre-wrap break-all max-h-24 overflow-auto"
       >
         <span>{{ linkOpenErrorText }}</span>
       </div>
       <div
         v-if="chatErrorText"
-        class="alert alert-error mb-2 py-2 px-3 text-xs whitespace-pre-wrap break-all max-h-28 overflow-auto"
+        class="alert alert-error mb-2 py-2 px-3 text-sm whitespace-pre-wrap break-all max-h-28 overflow-auto"
       >
         <span>{{ chatErrorText }}</span>
       </div>
@@ -288,20 +288,20 @@
           <FileText v-else-if="isPdfMime(img.mime)" class="h-3.5 w-3.5" />
           <ImageIcon v-else class="h-3.5 w-3.5" />
           <span class="text-[11px]">{{ isPdfMime(img.mime) ? `PDF ${idx + 1}` : t("chat.image", { index: idx + 1 }) }}</span>
-          <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting || frozen" @click="$emit('removeClipboardImage', idx)">
+          <button class="btn btn-ghost btn-sm btn-square" :disabled="chatting || frozen" @click="$emit('removeClipboardImage', idx)">
             <X class="h-3 w-3" />
           </button>
         </div>
       </div>
       <div v-if="transcribing" class="mb-1 text-[11px] opacity-80 flex items-center gap-1">
-        <span class="loading loading-spinner loading-xs"></span>
+        <span class="loading loading-spinner loading-sm"></span>
         <span>语音转写中...</span>
       </div>
       <div class="flex flex-row items-center gap-2">
         <textarea
           ref="chatInputRef"
           v-model="localChatInput"
-          class="flex-1 textarea textarea-xs resize-none overflow-y-hidden chat-input-no-focus min-h-12.5"
+          class="flex-1 textarea textarea-sm resize-none overflow-y-hidden chat-input-no-focus min-h-12.5"
           rows="1"
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
@@ -310,7 +310,7 @@
         ></textarea>
         <div class="flex flex-col gap-2 mt-auto">
           <button
-            class="btn btn-xs btn-circle shrink-0"
+            class="btn btn-sm btn-circle shrink-0"
             :class="recording ? 'btn-error' : 'bg-base-100'"
             :disabled="!canRecord || chatting || frozen"
             :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
@@ -322,7 +322,7 @@
           >
             <Mic class="h-3.5 w-3.5" />
           </button>
-          <button class="btn btn-xs btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
+          <button class="btn btn-sm btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
                     <Square v-if="chatting" class="h-3 w-3 fill-current" />
                     <Send v-else class="h-3.5 w-3.5" />
                   </button>        </div>

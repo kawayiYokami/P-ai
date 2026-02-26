@@ -49,7 +49,7 @@
             @click="$emit('selectUnarchivedConversation', c.conversationId)"
           >
             <div class="font-medium truncate text-sm">{{ c.title }}</div>
-            <div class="text-xs opacity-70 truncate">{{ formatDate(c.lastMessageAt || c.updatedAt) }}</div>
+            <div class="text-sm opacity-70 truncate">{{ formatDate(c.lastMessageAt || c.updatedAt) }}</div>
           </div>
         </div>
         <div v-else class="flex flex-col gap-2">
@@ -61,25 +61,25 @@
             @click="$emit('selectArchive', a.archiveId)"
           >
             <div class="font-medium truncate text-sm">{{ a.title }}</div>
-            <div v-if="a.archivedAt" class="text-xs opacity-70 truncate">{{ formatDate(a.archivedAt) }}</div>
+            <div v-if="a.archivedAt" class="text-sm opacity-70 truncate">{{ formatDate(a.archivedAt) }}</div>
           </div>
         </div>
       </div>
       <div class="flex-1 overflow-auto space-y-2">
-        <div class="text-xs opacity-70 sticky top-0 z-10 bg-base-200/90 backdrop-blur px-1 py-1">
+        <div class="text-sm opacity-70 sticky top-0 z-10 bg-base-200/90 backdrop-blur px-1 py-1">
           {{ viewMode === "current" ? t("archives.currentUnarchived") : t("archives.archivedMessages") }}
         </div>
         <div
           v-if="viewMode === 'archive' && archiveSummaryText"
           class="border border-primary/20 rounded p-3 bg-primary/5"
         >
-          <div class="text-xs opacity-70 mb-1">{{ t("archives.summary") }}</div>
+          <div class="text-sm opacity-70 mb-1">{{ t("archives.summary") }}</div>
           <div class="whitespace-pre-wrap wrap-break-word text-sm">{{ archiveSummaryText }}</div>
         </div>
         <div v-for="m in visibleMessages" :key="m.id" class="border border-base-300 rounded p-3 bg-base-100">
           <div class="flex items-center justify-between mb-1">
             <div class="badge badge-primary badge-sm">{{ roleLabel(m.role) }}</div>
-            <div class="opacity-60 text-xs">{{ formatDate(m.createdAt) }}</div>
+            <div class="opacity-60 text-sm">{{ formatDate(m.createdAt) }}</div>
           </div>
           <div v-if="messageText(m)" class="whitespace-pre-wrap wrap-break-word">{{ messageText(m) }}</div>
           <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">

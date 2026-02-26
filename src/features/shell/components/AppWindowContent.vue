@@ -128,7 +128,7 @@
         <div class="rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm flex flex-col items-center gap-1">
           <span class="loading loading-spinner loading-sm"></span>
           <div class="text-sm">{{ t("chat.archiving") }}</div>
-          <div class="text-xs opacity-70">{{ t("chat.archivingLock") }}</div>
+          <div class="text-sm opacity-70">{{ t("chat.archivingLock") }}</div>
         </div>
       </div>
     </div>

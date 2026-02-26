@@ -2,7 +2,7 @@
   <div class="space-y-3">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <div class="text-xs opacity-70">SKILL 列表</div>
+        <div class="text-sm opacity-70">SKILL 列表</div>
         <select
           v-if="skills.length > 0"
           v-model="selectedSkillPath"
@@ -15,20 +15,20 @@
         </select>
       </div>
       <div class="flex items-center gap-2">
-        <button class="btn btn-xs bg-base-100 border-base-300 hover:bg-base-200" type="button" @click="reload" :disabled="loading">刷新</button>
-        <button class="btn btn-xs btn-primary" type="button" @click="openSkillsDir" :disabled="loading">打开目录</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" type="button" @click="reload" :disabled="loading">刷新</button>
+        <button class="btn btn-sm btn-primary" type="button" @click="openSkillsDir" :disabled="loading">打开目录</button>
       </div>
     </div>
 
-    <div v-if="loading" class="text-xs opacity-70">加载中...</div>
+    <div v-if="loading" class="text-sm opacity-70">加载中...</div>
 
     <div v-if="selectedSkill" class="rounded-md border border-base-300 bg-base-100 p-3 space-y-2">
       <div class="text-sm font-semibold">{{ selectedSkill.name }}</div>
-      <div class="text-xs opacity-80 whitespace-pre-wrap">{{ selectedSkill.description || "(无描述)" }}</div>
+      <div class="text-sm opacity-80 whitespace-pre-wrap">{{ selectedSkill.description || "(无描述)" }}</div>
       <div class="text-[11px] opacity-60 break-all">{{ selectedSkill.path }}</div>
     </div>
 
-    <div v-if="statusText" class="text-xs" :class="statusError ? 'text-error' : 'opacity-70'">
+    <div v-if="statusText" class="text-sm" :class="statusError ? 'text-error' : 'opacity-70'">
       {{ statusText }}
     </div>
   </div>
