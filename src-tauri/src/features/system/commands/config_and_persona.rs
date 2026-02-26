@@ -8,6 +8,11 @@ fn show_chat_window(app: AppHandle) -> Result<(), String> {
     show_window(&app, "chat")
 }
 
+#[tauri::command]
+fn set_chat_window_active(active: bool) {
+    set_record_hotkey_probe_chat_window_active(active);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GithubUpdateInfo {

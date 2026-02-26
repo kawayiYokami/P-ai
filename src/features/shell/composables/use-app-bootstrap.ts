@@ -38,7 +38,7 @@ type AppBootstrapOptions = {
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
   onConfigUpdated?: (payload: AppConfig) => void;
-  onRecordHotkeyProbe?: (state: "pressed" | "released") => void;
+  onRecordHotkeyProbe?: (payload: { state: "pressed" | "released"; seq: number }) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -93,11 +93,24 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
         }),
       );
       unlisteners.push(
-        await listen<string>("easy-call:record-hotkey-probe", (event) => {
-          const text = String(event.payload || "").trim().toLowerCase();
-          if (text === "pressed" || text === "released") {
-            options.onRecordHotkeyProbe?.(text);
+        await listen<unknown>("easy-call:record-hotkey-probe", (event) => {
+          const payload = event.payload as
+            | { state?: unknown; seq?: unknown }
+            | string
+            | null
+            | undefined;
+          if (typeof payload === "string") {
+            const text = payload.trim().toLowerCase();
+            if (text === "pressed" || text === "released") {
+              options.onRecordHotkeyProbe?.({ state: text, seq: 0 });
+            }
+            return;
           }
+          const text = String(payload?.state || "").trim().toLowerCase();
+          if (text !== "pressed" && text !== "released") return;
+          const seqRaw = Number(payload?.seq);
+          const seq = Number.isFinite(seqRaw) && seqRaw > 0 ? Math.floor(seqRaw) : 0;
+          options.onRecordHotkeyProbe?.({ state: text, seq });
         }),
       );
     } catch (error) {

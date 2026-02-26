@@ -353,6 +353,9 @@ const config = reactive<AppConfig>({
   mcpServers: [],
   apiConfigs: [],
 });
+const recordHotkeyProbeLastSeq = ref(0);
+const recordHotkeyProbeDown = ref(false);
+const chatWindowActiveSynced = ref<boolean | null>(null);
 const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
@@ -595,6 +598,41 @@ async function tryPrewarmChatMic() {
   if (document.visibilityState === "hidden") return;
   if (!document.hasFocus()) return;
   await prewarmMicrophone();
+}
+
+function isChatWindowActiveNow(): boolean {
+  return viewMode.value === "chat" && document.visibilityState === "visible" && document.hasFocus();
+}
+
+function clearRecordHotkeyProbeState() {
+  recordHotkeyProbeDown.value = false;
+  recordHotkeyProbeLastSeq.value = 0;
+}
+
+function syncChatWindowActiveState() {
+  const active = isChatWindowActiveNow();
+  if (chatWindowActiveSynced.value === active) return;
+  chatWindowActiveSynced.value = active;
+  if (active) {
+    void stopRecording(false);
+    recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
+  }
+  clearRecordHotkeyProbeState();
+  void invokeTauri("set_chat_window_active", { active }).catch((error) => {
+    console.warn("[HOTKEY] set_chat_window_active failed:", error);
+  });
+}
+
+function handleWindowFocusForStateSync() {
+  syncChatWindowActiveState();
+}
+
+function handleWindowBlurForStateSync() {
+  syncChatWindowActiveState();
+}
+
+function handleVisibilityForStateSync() {
+  syncChatWindowActiveState();
 }
 const chatMedia = useChatMedia({
   t: tr,
@@ -953,11 +991,23 @@ const appBootstrap = useAppBootstrap({
       Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
     );
   },
-  onRecordHotkeyProbe: (state) => {
+  onRecordHotkeyProbe: ({ state, seq }) => {
+    if (seq > 0) {
+      if (seq <= recordHotkeyProbeLastSeq.value) return;
+      recordHotkeyProbeLastSeq.value = seq;
+    }
+    if (state === "released") {
+      recordHotkeyProbeDown.value = false;
+    }
     if (viewMode.value !== "chat") return;
     if (!config.recordBackgroundWakeEnabled) return;
     if (state === "pressed") {
-      void startRecording();
+      recordHotkeyProbeDown.value = true;
+      void startRecording().then(() => {
+        if (!recordHotkeyProbeDown.value) {
+          void stopRecording(false);
+        }
+      });
       return;
     }
     if (state === "released") {
@@ -976,14 +1026,31 @@ function handleVisibilityForMicPrewarm() {
 }
 
 onMounted(() => {
+  syncChatWindowActiveState();
+  window.addEventListener("focus", handleWindowFocusForStateSync);
+  window.addEventListener("blur", handleWindowBlurForStateSync);
+  document.addEventListener("visibilitychange", handleVisibilityForStateSync);
   window.addEventListener("focus", handleWindowFocusForMicPrewarm);
   document.addEventListener("visibilitychange", handleVisibilityForMicPrewarm);
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("focus", handleWindowFocusForStateSync);
+  window.removeEventListener("blur", handleWindowBlurForStateSync);
+  document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
+  clearRecordHotkeyProbeState();
+  chatWindowActiveSynced.value = null;
+  void invokeTauri("set_chat_window_active", { active: false }).catch(() => {});
   window.removeEventListener("focus", handleWindowFocusForMicPrewarm);
   document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
 });
+
+watch(
+  () => viewMode.value,
+  () => {
+    syncChatWindowActiveState();
+  },
+);
 
 watch(
   () => ({

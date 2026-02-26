@@ -11,6 +11,15 @@ static RECORD_HOTKEY_PROBE_STARTED: std::sync::OnceLock<std::sync::atomic::Atomi
 #[cfg(target_os = "windows")]
 static RECORD_BACKGROUND_WAKE_ENABLED: std::sync::OnceLock<std::sync::atomic::AtomicBool> =
     std::sync::OnceLock::new();
+#[cfg(target_os = "windows")]
+static RECORD_HOTKEY_PROBE_EVENT_SEQ: std::sync::OnceLock<std::sync::atomic::AtomicU64> =
+    std::sync::OnceLock::new();
+#[cfg(target_os = "windows")]
+static CHAT_WINDOW_ACTIVE: std::sync::OnceLock<std::sync::atomic::AtomicBool> =
+    std::sync::OnceLock::new();
+#[cfg(target_os = "windows")]
+static RECORD_HOTKEY_PROBE_STATE: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>> =
+    std::sync::OnceLock::new();
 
 fn handle_global_shortcut_probe(app: &AppHandle, shortcut: &Shortcut, state: ShortcutState) {
     if state != ShortcutState::Pressed {
@@ -193,6 +202,22 @@ fn should_stop_on_release(parsed: &ParsedRecordHotkey, released_token: &str) -> 
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Serialize, Clone)]
+struct RecordHotkeyProbeEventPayload {
+    state: &'static str,
+    seq: u64,
+}
+
+#[cfg(target_os = "windows")]
+fn emit_record_hotkey_probe_event(app: &AppHandle, state: &'static str) {
+    let seq_counter = RECORD_HOTKEY_PROBE_EVENT_SEQ
+        .get_or_init(|| std::sync::atomic::AtomicU64::new(0));
+    let seq = seq_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+    let payload = RecordHotkeyProbeEventPayload { state, seq };
+    let _ = app.emit("easy-call:record-hotkey-probe", payload);
+}
+
+#[cfg(target_os = "windows")]
 fn set_record_hotkey_probe_background_wake_enabled(enabled: bool) {
     let flag = RECORD_BACKGROUND_WAKE_ENABLED
         .get_or_init(|| std::sync::atomic::AtomicBool::new(enabled));
@@ -202,6 +227,36 @@ fn set_record_hotkey_probe_background_wake_enabled(enabled: bool) {
 #[cfg(target_os = "windows")]
 fn is_record_hotkey_probe_background_wake_enabled() -> bool {
     RECORD_BACKGROUND_WAKE_ENABLED
+        .get()
+        .map(|flag| flag.load(std::sync::atomic::Ordering::Acquire))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn reset_record_hotkey_probe_state() {
+    if let Some(state_arc) = RECORD_HOTKEY_PROBE_STATE.get() {
+        if let Ok(mut state) = state_arc.lock() {
+            state.ctrl = false;
+            state.alt = false;
+            state.shift = false;
+            state.meta = false;
+            state.active = false;
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_record_hotkey_probe_chat_window_active(active: bool) {
+    let flag = CHAT_WINDOW_ACTIVE.get_or_init(|| std::sync::atomic::AtomicBool::new(false));
+    let previous = flag.swap(active, std::sync::atomic::Ordering::AcqRel);
+    if previous != active {
+        reset_record_hotkey_probe_state();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_record_hotkey_probe_chat_window_active() -> bool {
+    CHAT_WINDOW_ACTIVE
         .get()
         .map(|flag| flag.load(std::sync::atomic::Ordering::Acquire))
         .unwrap_or(false)
@@ -233,14 +288,24 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
             ));
         }
     };
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecordHotkeyProbeState::default()));
+    let _ = RECORD_HOTKEY_PROBE_STATE.set(state.clone());
+    set_record_hotkey_probe_chat_window_active(false);
+
     std::thread::spawn(move || {
-        let mut state = RecordHotkeyProbeState::default();
+        let state_for_callback = state.clone();
         let callback = move |event: rdev::Event| match event.event_type {
             rdev::EventType::KeyPress(key) => {
                 if !is_record_hotkey_probe_background_wake_enabled() {
                     return;
                 }
+                if is_record_hotkey_probe_chat_window_active() {
+                    return;
+                }
                 let Some(token) = token_from_key(key) else {
+                    return;
+                };
+                let Ok(mut state) = state_for_callback.lock() else {
                     return;
                 };
                 if let Some(modifier) = modifier_token_from_key(key) {
@@ -256,21 +321,27 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
                     return;
                 }
                 state.active = true;
-                let _ = app.emit("easy-call:record-hotkey-probe", "pressed");
+                drop(state);
+                emit_record_hotkey_probe_event(&app, "pressed");
             }
             rdev::EventType::KeyRelease(key) => {
-                if !is_record_hotkey_probe_background_wake_enabled() {
-                    return;
-                }
                 let Some(token) = token_from_key(key) else {
+                    return;
+                };
+                let mut should_emit_release = false;
+                let Ok(mut state) = state_for_callback.lock() else {
                     return;
                 };
                 if state.active && should_stop_on_release(&parsed, &token) {
                     state.active = false;
-                    let _ = app.emit("easy-call:record-hotkey-probe", "released");
+                    should_emit_release = true;
                 }
                 if let Some(modifier) = modifier_token_from_key(key) {
                     set_modifier_state(&mut state, modifier, false);
+                }
+                drop(state);
+                if should_emit_release {
+                    emit_record_hotkey_probe_event(&app, "released");
                 }
             }
             _ => {}
@@ -289,3 +360,6 @@ fn start_record_hotkey_probe(_app: AppHandle, _config_path: std::path::PathBuf) 
 
 #[cfg(not(target_os = "windows"))]
 fn set_record_hotkey_probe_background_wake_enabled(_enabled: bool) {}
+
+#[cfg(not(target_os = "windows"))]
+fn set_record_hotkey_probe_chat_window_active(_active: bool) {}
