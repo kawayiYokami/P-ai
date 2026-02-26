@@ -110,6 +110,7 @@
               </div>
             </details>
             <div
+              class="ecall-markdown-content prose prose-sm max-w-none"
               v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
               @click="handleAssistantLinkClick"
             ></div>
@@ -207,7 +208,12 @@
                 {{ latestInlineReasoningText }}
               </div>
             </details>
-            <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
+            <div
+              v-if="latestAssistantText"
+              class="ecall-markdown-content prose prose-sm max-w-none"
+              v-html="renderedAssistantHtml"
+              @click="handleAssistantLinkClick"
+            ></div>
             <div class="mt-1">
               <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
               <span v-else-if="chatting" class="inline-block w-1.5 h-4 bg-base-content animate-pulse"></span>
@@ -336,7 +342,10 @@ import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Pause, Play, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
-import markdownItKatex from "markdown-it-katex";
+import { katex } from "@mdit/plugin-katex";
+import { mark } from "@mdit/plugin-mark";
+import { alert } from "@mdit/plugin-alert";
+import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
 import { invokeTauri } from "../../../services/tauri-api";
@@ -406,12 +415,18 @@ let resizeInputRaf = 0;
 let mermaidInited = false;
 let mermaidRenderToken = 0;
 let mermaidApi: any | null = null;
+let mermaidObserver: MutationObserver | null = null;
+let mermaidRenderQueued = false;
+const MERMAID_SENTINEL = "__EASY_CALL_MERMAID__";
 
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true,
-}).use(markdownItKatex as any);
+})
+  .use(katex)
+  .use(mark)
+  .use(alert);
 const mdAny = md as any;
 const defaultFenceRenderer =
   mdAny.renderer?.rules?.fence ??
@@ -427,7 +442,8 @@ mdAny.renderer.rules.fence = (
   const token = tokens[idx];
   const info = String(token?.info || "").trim().toLowerCase();
   if (info === "mermaid") {
-    return `<pre class="ecall-mermaid-block"><code>${escapeHtml(String(token?.content || ""))}</code></pre>`;
+    const content = String(token?.content || "");
+    return `<pre><code>${escapeHtml(`${MERMAID_SENTINEL}\n${content}`)}</code></pre>`;
   }
   return defaultFenceRenderer(tokens, idx, options, env, self);
 };
@@ -441,11 +457,10 @@ function escapeHtml(input: string): string {
     .replace(/'/g, "&#39;");
 }
 
-async function ensureMermaidInited(): Promise<boolean> {
+function ensureMermaidInited(): boolean {
   if (mermaidInited && mermaidApi) return true;
   try {
-    const mod = await import("mermaid");
-    const api = (mod as any).default ?? mod;
+    const api = (mermaid as any).default ?? mermaid;
     api.initialize({
       startOnLoad: false,
       theme: "default",
@@ -459,22 +474,47 @@ async function ensureMermaidInited(): Promise<boolean> {
   }
 }
 
+function scheduleRenderMermaidBlocks() {
+  if (mermaidRenderQueued) return;
+  mermaidRenderQueued = true;
+  requestAnimationFrame(() => {
+    mermaidRenderQueued = false;
+    void renderMermaidBlocks();
+  });
+}
+
 async function renderMermaidBlocks() {
   const root = scrollContainer.value;
   if (!root) return;
-  const blocks = Array.from(
-    root.querySelectorAll<HTMLElement>(".assistant-markdown pre.ecall-mermaid-block"),
+  const candidates = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      ".assistant-markdown pre > code",
+    ),
   );
-  if (!blocks.length) return;
+  if (!candidates.length) return;
   const token = ++mermaidRenderToken;
-  const ok = await ensureMermaidInited();
+  const ok = ensureMermaidInited();
   if (!ok || !mermaidApi) return;
-  for (let index = 0; index < blocks.length; index += 1) {
+  for (let index = 0; index < candidates.length; index += 1) {
     if (token !== mermaidRenderToken) return;
-    const block = blocks[index];
-    if (block.dataset.rendered === "1") continue;
-    const source = (block.querySelector("code")?.textContent || "").trim();
+    const node = candidates[index];
+    const host =
+      node.tagName === "CODE" ? (node.parentElement as HTMLElement | null) : node;
+    if (!host) continue;
+    const rawText = (
+      node.tagName === "CODE"
+        ? node.textContent
+        : node.querySelector("code")?.textContent || node.textContent
+    || "").trim();
+    if (!rawText.startsWith(MERMAID_SENTINEL)) continue;
+    const source = rawText
+      .slice(MERMAID_SENTINEL.length)
+      .replace(/^\r?\n/, "")
+      .trim();
     if (!source) continue;
+    const sourceKey = `${source.length}:${source}`;
+    if (host.dataset.failedFor === sourceKey) continue;
+    host.classList.remove("ecall-mermaid-error");
     try {
       const id = `ecall-mermaid-${Date.now()}-${index}`;
       const { svg } = await mermaidApi.render(id, source);
@@ -482,12 +522,41 @@ async function renderMermaidBlocks() {
       const container = document.createElement("div");
       container.className = "ecall-mermaid-diagram";
       container.innerHTML = svg;
-      block.replaceWith(container);
+      host.replaceWith(container);
     } catch {
-      block.dataset.rendered = "1";
-      block.classList.add("ecall-mermaid-error");
+      try {
+        const normalized = normalizeMermaidSource(source);
+        if (normalized && normalized !== source) {
+          const id = `ecall-mermaid-retry-${Date.now()}-${index}`;
+          const { svg } = await mermaidApi.render(id, normalized);
+          if (token !== mermaidRenderToken) return;
+          const container = document.createElement("div");
+          container.className = "ecall-mermaid-diagram";
+          container.innerHTML = svg;
+          host.replaceWith(container);
+          continue;
+        }
+      } catch {
+        // fall through to failed mark
+      }
+      host.dataset.failedFor = sourceKey;
+      host.classList.add("ecall-mermaid-error");
     }
   }
+}
+
+function normalizeMermaidSource(source: string): string {
+  return source
+    .replace(/\r\n/g, "\n")
+    .replace(/[：]/g, ":")
+    .replace(/[，]/g, ",")
+    .replace(/[；]/g, ";")
+    .replace(/[（]/g, "(")
+    .replace(/[）]/g, ")")
+    .replace(/[【]/g, "[")
+    .replace(/[】]/g, "]")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'");
 }
 
 function avatarInitial(name: string): string {
@@ -746,7 +815,17 @@ onMounted(() => {
     scrollToBottom();
     autoFollowOutput.value = true;
     resizeChatInput();
-    void renderMermaidBlocks();
+    scheduleRenderMermaidBlocks();
+    const root = scrollContainer.value;
+    if (!root) return;
+    mermaidObserver = new MutationObserver(() => {
+      scheduleRenderMermaidBlocks();
+    });
+    mermaidObserver.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
   });
 });
 
@@ -758,6 +837,10 @@ onBeforeUnmount(() => {
   if (resizeInputRaf) {
     cancelAnimationFrame(resizeInputRaf);
     resizeInputRaf = 0;
+  }
+  if (mermaidObserver) {
+    mermaidObserver.disconnect();
+    mermaidObserver = null;
   }
   stopAudioPlayback();
 });
@@ -800,7 +883,7 @@ watch(
       nextTick(() => scrollToBottom());
     }
     nextTick(() => {
-      void renderMermaidBlocks();
+      scheduleRenderMermaidBlocks();
     });
   },
 );
@@ -821,54 +904,43 @@ watch(
     props.toolStatusText,
   ],
   () => {
-    if (!autoFollowOutput.value) return;
-    nextTick(() => scrollToBottom());
+    if (autoFollowOutput.value) {
+      nextTick(() => scrollToBottom());
+    }
     nextTick(() => {
-      void renderMermaidBlocks();
+      scheduleRenderMermaidBlocks();
     });
   },
 );
 </script>
 
 <style scoped>
-.assistant-markdown :deep(p) {
-  margin: 0;
-  overflow-wrap: anywhere;
-  word-break: wrap-break-word;
-}
-
-.assistant-markdown :deep(ul),
-.assistant-markdown :deep(ol) {
-  margin: 0.2rem 0 0.4rem 1rem;
-  padding: 0;
+.assistant-markdown :deep(.ecall-markdown-content) {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.assistant-markdown :deep(li),
-.assistant-markdown :deep(a) {
-  overflow-wrap: anywhere;
-  word-break: wrap-break-word;
+.assistant-markdown :deep(.ecall-markdown-content.prose) {
+  --tw-prose-body: currentColor;
+  --tw-prose-headings: currentColor;
+  --tw-prose-lead: currentColor;
+  --tw-prose-links: currentColor;
+  --tw-prose-bold: currentColor;
+  --tw-prose-counters: currentColor;
+  --tw-prose-bullets: hsl(var(--bc) / 0.5);
+  --tw-prose-hr: hsl(var(--bc) / 0.15);
+  --tw-prose-quotes: currentColor;
+  --tw-prose-quote-borders: hsl(var(--bc) / 0.2);
+  --tw-prose-captions: hsl(var(--bc) / 0.75);
+  --tw-prose-code: currentColor;
+  --tw-prose-pre-code: currentColor;
+  --tw-prose-pre-bg: hsl(var(--b2));
+  --tw-prose-th-borders: hsl(var(--bc) / 0.2);
+  --tw-prose-td-borders: hsl(var(--bc) / 0.15);
 }
 
-.assistant-markdown :deep(code) {
-  background: rgb(0 0 0 / 8%);
-  border-radius: 0.25rem;
-  padding: 0.1rem 0.25rem;
-  font-size: 0.8em;
-}
-
-.assistant-markdown :deep(pre) {
-  background: rgb(0 0 0 / 8%);
-  border-radius: 0.4rem;
-  padding: 0.45rem 0.55rem;
+.assistant-markdown :deep(.ecall-markdown-content pre) {
   overflow-x: auto;
-  margin: 0.3rem 0 0.45rem;
-}
-
-.assistant-markdown :deep(pre code) {
-  background: transparent;
-  padding: 0;
 }
 
 .assistant-markdown :deep(.ecall-mermaid-diagram) {
