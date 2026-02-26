@@ -102,7 +102,7 @@ fn bgra_to_rgb(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn rgba_to_bgra(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     for px in bytes.chunks_exact(4) {
@@ -286,18 +286,8 @@ fn capture_once_windows(input: &ScreenshotRequest) -> DesktopToolResult<(Vec<u8>
     Ok((frame.bgra, frame.width, frame.height, frame.bounds, capture_ms))
 }
 
-#[cfg(not(target_os = "windows"))]
-fn is_wayland_session() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .map(|v| v.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var("WAYLAND_DISPLAY")
-            .map(|v| !v.trim().is_empty())
-            .unwrap_or(false)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn monitor_from_request_linux(input: &ScreenshotRequest) -> DesktopToolResult<xcap::Monitor> {
+#[cfg(target_os = "macos")]
+fn monitor_from_request_macos(input: &ScreenshotRequest) -> DesktopToolResult<xcap::Monitor> {
     let monitors = xcap::Monitor::all().map_err(|err| {
         DesktopToolError::internal_error(format!("list monitors failed: {err}"))
     })?;
@@ -341,15 +331,12 @@ fn monitor_from_request_linux(input: &ScreenshotRequest) -> DesktopToolResult<xc
     Ok(monitors[0].clone())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn capture_once_windows(
     input: &ScreenshotRequest,
 ) -> DesktopToolResult<(Vec<u8>, u32, u32, ScreenBounds, u64)> {
     let started = Instant::now();
-    let is_wayland = is_wayland_session();
-    let backend = if is_wayland { "Wayland" } else { "X11" };
-
-    let monitor = monitor_from_request_linux(input)?;
+    let monitor = monitor_from_request_macos(input)?;
     let monitor_width = monitor.width().map_err(|err| {
         DesktopToolError::internal_error(format!("read monitor width failed: {err}"))
     })?;
@@ -366,7 +353,7 @@ fn capture_once_windows(
         let crop_width = ex - sx;
         let crop_height = ey - sy;
         let image = monitor.capture_region(sx, sy, crop_width, crop_height).map_err(|err| {
-            DesktopToolError::internal_error(format!("capture region via {backend} failed: {err}"))
+            DesktopToolError::internal_error(format!("capture region failed: {err}"))
         })?;
         (
             image.into_raw(),
@@ -380,14 +367,9 @@ fn capture_once_windows(
             },
         )
     } else {
-        let image = monitor.capture_image().map_err(|err| {
-            let hint = if is_wayland {
-                "; ensure xdg-desktop-portal is running and grant screen-capture permission"
-            } else {
-                ""
-            };
-            DesktopToolError::internal_error(format!("capture desktop via {backend} failed: {err}{hint}"))
-        })?;
+        let image = monitor
+            .capture_image()
+            .map_err(|err| DesktopToolError::internal_error(format!("capture desktop failed: {err}")))?;
         let width = image.width();
         let height = image.height();
         (
@@ -405,6 +387,15 @@ fn capture_once_windows(
 
     let bgra = rgba_to_bgra(&rgba);
     Ok((bgra, width, height, bounds, started.elapsed().as_millis() as u64))
+}
+
+#[cfg(target_os = "linux")]
+fn capture_once_windows(
+    _input: &ScreenshotRequest,
+) -> DesktopToolResult<(Vec<u8>, u32, u32, ScreenBounds, u64)> {
+    Err(DesktopToolError::internal_error(
+        "screenshot is temporarily unavailable on Linux builds",
+    ))
 }
 
 async fn run_screenshot_tool(input: ScreenshotRequest) -> DesktopToolResult<ScreenshotResponse> {
