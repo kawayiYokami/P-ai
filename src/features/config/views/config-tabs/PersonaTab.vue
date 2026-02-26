@@ -1,6 +1,6 @@
 <template>
   <label class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.title") }}</span></div>
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.title") }}</span></div>
     <div class="flex gap-1">
       <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
         <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : "" }}</option>
@@ -22,7 +22,7 @@
 
   <div v-if="selectedPersona" class="grid gap-2">
     <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.name") }}</span></div>
+      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.name") }}</span></div>
       <div class="flex items-center gap-2">
         <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.persona.name')" />
         <button
@@ -46,20 +46,20 @@
       <div v-if="avatarError" class="flex items-center justify-between py-1"><span class="text-error break-all">{{ avatarError }}</span></div>
     </label>
     <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-xs">{{ t("config.persona.prompt") }}</span></div>
+      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.prompt") }}</span></div>
       <textarea
         v-model="selectedPersona.systemPrompt"
-        class="textarea textarea-bordered textarea-xs w-full"
+        class="textarea textarea-bordered textarea-sm w-full"
         rows="12"
         :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
       ></textarea>
     </label>
 
-    <div v-if="!selectedPersona.isBuiltInUser" class="text-xs font-medium">{{ t('config.persona.privateMemory') }}</div>
+    <div v-if="!selectedPersona.isBuiltInUser" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
     <div v-if="!selectedPersona.isBuiltInUser" class="card bg-base-100 border border-base-300">
       <div class="card-body gap-3 p-3">
         <div class="flex items-center justify-between">
-          <div class="text-xs">
+          <div class="text-sm">
             <div class="opacity-60">{{ t('config.persona.privateMemoryHint') }}</div>
             <div class="mt-1 font-medium">
               {{ t('config.persona.currentStatus') }}{{ selectedPersona.privateMemoryEnabled ? t('config.persona.private') : t('config.persona.public') }}
@@ -85,14 +85,14 @@
           </div>
         </div>
         <div class="flex justify-end">
-          <button class="btn btn-xs btn-ghost" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
+          <button class="btn btn-sm btn-ghost" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             {{ t('config.persona.import') }}
           </button>
         </div>
       </div>
     </div>
-    <div v-if="!selectedPersona.isBuiltInUser && privateMemoryError" class="text-xs text-error">
+    <div v-if="!selectedPersona.isBuiltInUser && privateMemoryError" class="text-sm text-error">
       {{ privateMemoryError }}
     </div>
 
@@ -113,7 +113,7 @@
         <span>{{ t('config.persona.countingMemory') }}</span>
       </div>
       <div v-else class="text-sm whitespace-pre-wrap leading-relaxed">{{ privateMemoryDialogMessage }}</div>
-      <div v-if="!privateMemoryCounting && privateMemoryCount > 0" class="mt-3 rounded-box border border-warning/40 bg-warning/10 p-2 text-xs">
+      <div v-if="!privateMemoryCounting && privateMemoryCount > 0" class="mt-3 rounded-box border border-warning/40 bg-warning/10 p-2 text-sm">
         <div class="font-medium">{{ t('config.persona.mustExportFirst') }}</div>
         <div class="opacity-70 mt-1">{{ t('config.persona.exportedConfirmUnlock') }}</div>
       </div>

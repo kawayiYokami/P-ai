@@ -1,17 +1,17 @@
 <template>
-  <div v-if="!toolApiConfig" class="text-xs opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
+  <div v-if="!toolApiConfig" class="text-sm opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
   <template v-else>
     <div class="grid gap-2">
       <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">{{ t("config.tools.maxIterations") }}</span></div>
+        <div class="label py-1"><span class="label-text text-sm">{{ t("config.tools.maxIterations") }}</span></div>
         <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm" />
       </label>
       <div class="card bg-base-100 border border-base-300">
         <div class="flex items-center justify-between gap-3 p-4">
-          <span class="text-xs font-medium">{{ t('config.tools.shellWorkspace') }}</span>
+          <span class="text-sm font-medium">{{ t('config.tools.shellWorkspace') }}</span>
           <div class="flex items-center gap-2">
-            <button class="btn btn-xs" type="button" @click="addWorkspace">{{ t('config.tools.newWorkspace') }}</button>
-            <button class="btn btn-xs btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
+            <button class="btn btn-sm" type="button" @click="addWorkspace">{{ t('config.tools.newWorkspace') }}</button>
+            <button class="btn btn-sm btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
               {{ t('config.tools.save') }}
             </button>
           </div>
@@ -19,11 +19,11 @@
         <div class="grid gap-3 px-4 pb-4">
           <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`" class="rounded-box border border-base-300 p-3 bg-base-200">
             <div class="flex items-center gap-2 mb-3">
-              <input v-model.trim="ws.name" class="input input-bordered input-xs flex-1" :placeholder="t('config.tools.workspaceName')" />
-              <button class="btn btn-xs bg-base-100" type="button" :disabled="!!ws.builtIn" @click="pickWorkspacePath(index)">{{ t('config.tools.selectPath') }}</button>
-              <button class="btn btn-xs btn-ghost" type="button" :disabled="!!ws.builtIn" @click="removeWorkspace(index)">{{ t('config.tools.delete') }}</button>
+              <input v-model.trim="ws.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.tools.workspaceName')" />
+              <button class="btn btn-sm bg-base-100" type="button" :disabled="!!ws.builtIn" @click="pickWorkspacePath(index)">{{ t('config.tools.selectPath') }}</button>
+              <button class="btn btn-sm btn-ghost" type="button" :disabled="!!ws.builtIn" @click="removeWorkspace(index)">{{ t('config.tools.delete') }}</button>
             </div>
-            <input v-model.trim="ws.path" class="input input-bordered input-xs w-full font-mono" :placeholder="t('config.tools.directoryPath')" :disabled="!!ws.builtIn" />
+            <input v-model.trim="ws.path" class="input input-bordered input-sm w-full font-mono" :placeholder="t('config.tools.directoryPath')" :disabled="!!ws.builtIn" />
           </div>
         </div>
         <div class="mt-3 px-4 pb-4 text-[11px] opacity-70">
@@ -32,7 +32,7 @@
       </div>
     </div>
     <div class="mt-4"></div>
-    <div v-if="!toolApiConfig.enableTools" class="text-xs opacity-70">{{ t("config.tools.disabledHint") }}</div>
+    <div v-if="!toolApiConfig.enableTools" class="text-sm opacity-70">{{ t("config.tools.disabledHint") }}</div>
     <div v-else class="grid gap-2">
       <ToolListCard
         :title="t('config.mcpToolList.toolList')"
@@ -46,7 +46,7 @@
           </div>
           <div v-if="showGitInstallLink(item.id)" class="text-[11px] text-warning mt-1 flex items-center gap-2">
             <span>{{ t("config.tools.gitRequiredHint") }}</span>
-            <button class="btn btn-xs bg-base-100" @click="openGitDownloadLink">
+            <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
               {{ t("config.tools.installGit") }}
             </button>
           </div>
@@ -55,7 +55,7 @@
           <div v-if="item.id === 'desktop-screenshot'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
-              <button class="btn btn-xs btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage" @click="runDesktopScreenshot">
+              <button class="btn btn-sm btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage" @click="runDesktopScreenshot">
                 {{ t("config.tools.runOnce") }}
               </button>
             </div>
@@ -65,8 +65,8 @@
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
               <div class="flex items-center gap-2">
-                <input v-model.number="waitMs" type="number" min="1" max="120000" step="100" class="input input-bordered input-xs w-24" />
-                <button class="btn btn-xs btn-primary" :disabled="waitRunning || !toolApiConfig?.enableImage" @click="runDesktopWait">
+                <input v-model.number="waitMs" type="number" min="1" max="120000" step="100" class="input input-bordered input-sm w-24" />
+                <button class="btn btn-sm btn-primary" :disabled="waitRunning || !toolApiConfig?.enableImage" @click="runDesktopWait">
                   {{ t("config.tools.runOnce") }}
                 </button>
               </div>
@@ -76,7 +76,7 @@
           <div v-if="item.id === 'shell-exec'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
-              <button class="btn btn-xs btn-primary" :disabled="terminalSelfCheckRunning" @click="runTerminalSelfCheck">
+              <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning" @click="runTerminalSelfCheck">
                 {{ t("config.tools.terminalSelfCheck") }}
               </button>
             </div>

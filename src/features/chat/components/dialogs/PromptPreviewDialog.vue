@@ -1,7 +1,7 @@
 <template>
   <div class="modal-box max-w-2xl">
     <h3 class="font-semibold text-sm mb-2">{{ title }}</h3>
-    <div v-if="loading" class="text-xs opacity-70">{{ loadingText }}</div>
+    <div v-if="loading" class="text-sm opacity-70">{{ loadingText }}</div>
     <div v-else class="grid gap-2">
       <div v-if="mode === 'full'" class="text-[11px] opacity-70">
         {{ latestInputLengthText }}: {{ latestUserText.length }} |
@@ -9,7 +9,7 @@
         {{ audiosText }}: {{ latestAudios }}
       </div>
       <textarea
-        class="textarea textarea-bordered textarea-sm w-full h-80 font-mono text-xs"
+        class="textarea textarea-bordered textarea-sm w-full h-80 font-mono text-sm"
         readonly
         :value="text"
       ></textarea>

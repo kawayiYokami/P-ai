@@ -336,7 +336,7 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
         lines.push(format!("{}. {}", index + 1, ws.name));
     }
     lines.push(
-        "切换请调用 shell_switch_workspace(workspaceName)；执行请调用 shell_exec(command, cwd?)。cwd 必须为相对路径。"
+        "切换请调用 shell_switch_workspace(workspaceName)；执行请调用 shell_exec(command)。"
             .to_string(),
     );
     Some(lines.join("\n"))
@@ -1093,7 +1093,6 @@ async fn builtin_shell_exec(
     state: &AppState,
     session_id: &str,
     command: &str,
-    cwd: Option<&str>,
     timeout_ms: Option<u64>,
 ) -> Result<Value, String> {
     let cmd = command.trim();
@@ -1131,7 +1130,7 @@ async fn builtin_shell_exec(
         .map(|v| v.to_string_lossy().to_string())
         .collect::<Vec<_>>();
     let session_root = terminal_session_root_canonical(state, &normalized_session)?;
-    let cwd = match resolve_terminal_cwd(state, &normalized_session, cwd) {
+    let cwd = match resolve_terminal_cwd(state, &normalized_session, None) {
         Ok(path) => path,
         Err(err) if err.contains("Call shell_switch_workspace first.") => {
             return Ok(serde_json::json!({
@@ -1143,7 +1142,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root.to_string_lossy().to_string(),
                 "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
                 "allowedProjectRoots": allowed_project_roots,
-                "cwd": cwd.unwrap_or(""),
+                "cwd": "",
                 "command": cmd,
             }));
         }

@@ -2,7 +2,7 @@
   <div class="space-y-3">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <div class="text-xs opacity-70">{{ t('config.mcp.serverList') }}</div>
+        <div class="text-sm opacity-70">{{ t('config.mcp.serverList') }}</div>
         <select
           v-if="servers.length > 0"
           v-model="selectedServerId"
@@ -23,7 +23,7 @@
 
     <div class="divider" v-if="servers.length > 0"></div>
 
-    <div v-if="loading" class="text-xs opacity-70">{{ t('config.mcp.loading') }}</div>
+    <div v-if="loading" class="text-sm opacity-70">{{ t('config.mcp.loading') }}</div>
 
     <McpServerCard
       v-if="selectedServer"
@@ -37,7 +37,7 @@
       @refresh-tools="refreshTools"
     />
 
-    <div v-if="statusText" class="text-xs" :class="statusError ? 'text-error' : 'opacity-70'">
+    <div v-if="statusText" class="text-sm" :class="statusError ? 'text-error' : 'opacity-70'">
       {{ statusText }}
     </div>
   </div>

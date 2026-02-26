@@ -24,7 +24,7 @@
         <div class="flex items-start gap-3">
           <input
             type="checkbox"
-            class="toggle toggle-xs toggle-success mt-1 shrink-0"
+            class="toggle toggle-sm toggle-success mt-1 shrink-0"
             :checked="item.enabled"
             :disabled="disabled || item.toggleDisabled"
             @change="onToggle($event, item.id)"
@@ -33,7 +33,7 @@
             <div class="flex items-center gap-2">
               <div v-if="item.statusClass" class="w-2.5 h-2.5 rounded-full shrink-0" :class="item.statusClass" :title="item.statusTitle || ''"></div>
               <div class="font-medium">{{ item.name }}</div>
-              <span v-if="item.running" class="loading loading-spinner loading-xs"></span>
+              <span v-if="item.running" class="loading loading-spinner loading-sm"></span>
             </div>
             <div class="text-[11px] opacity-60">{{ item.description || noDescriptionText }}</div>
             <slot name="item-extra" :item="item" />

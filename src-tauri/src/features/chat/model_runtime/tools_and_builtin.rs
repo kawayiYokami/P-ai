@@ -1012,8 +1012,6 @@ struct RefreshMcpAndSkillsToolArgs {}
 struct TerminalExecToolArgs {
     command: String,
     #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
     timeout_ms: Option<u64>,
 }
 
@@ -1266,14 +1264,12 @@ impl Tool for BuiltinTerminalExecTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "shell_exec".to_string(),
-            description:
-                "Execute a shell command inside current shell workspace root. cwd must be relative."
-                    .to_string(),
+            description: "Execute a shell command inside current shell workspace root."
+                .to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
                 "command": { "type": "string", "description": "Shell command to execute" },
-                "cwd": { "type": "string", "description": "Relative working directory under current session root (optional)" },
                 "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
               },
               "required": ["command"]
@@ -1291,7 +1287,6 @@ impl Tool for BuiltinTerminalExecTool {
             &self.app_state,
             &self.session_id,
             &args.command,
-            args.cwd.as_deref(),
             args.timeout_ms,
         )
         .await
