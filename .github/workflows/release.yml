@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.target_os == 'linux-macos' && '["ubuntu-24.04","macos-latest"]' || inputs.target_os == 'linux' && '["ubuntu-24.04"]' || inputs.target_os == 'macos' && '["macos-latest"]' || inputs.target_os == 'windows' && '["windows-latest"]' || '["ubuntu-24.04","windows-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (github.event.inputs.target_os == 'linux-macos' && '["ubuntu-24.04","macos-latest"]' || github.event.inputs.target_os == 'linux' && '["ubuntu-24.04"]' || github.event.inputs.target_os == 'macos' && '["macos-latest"]' || github.event.inputs.target_os == 'windows' && '["windows-latest"]' || '["ubuntu-24.04","windows-latest","macos-latest"]') || '["ubuntu-24.04","windows-latest","macos-latest"]') }}
 
     steps:
       - name: Checkout
