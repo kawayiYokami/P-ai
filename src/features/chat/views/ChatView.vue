@@ -336,6 +336,7 @@ import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Pause, Play, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
+import markdownItKatex from "markdown-it-katex";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
 import { invokeTauri } from "../../../services/tauri-api";
@@ -402,12 +403,92 @@ const linkOpenErrorText = ref("");
 let activeAudio: HTMLAudioElement | null = null;
 let followScrollRaf = 0;
 let resizeInputRaf = 0;
+let mermaidInited = false;
+let mermaidRenderToken = 0;
+let mermaidApi: any | null = null;
 
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true,
-});
+}).use(markdownItKatex as any);
+const mdAny = md as any;
+const defaultFenceRenderer =
+  mdAny.renderer?.rules?.fence ??
+  ((tokens: any[], idx: number, options: unknown, _env: unknown, self: any) =>
+    self.renderToken(tokens, idx, options));
+mdAny.renderer.rules.fence = (
+  tokens: any[],
+  idx: number,
+  options: unknown,
+  env: unknown,
+  self: any,
+) => {
+  const token = tokens[idx];
+  const info = String(token?.info || "").trim().toLowerCase();
+  if (info === "mermaid") {
+    return `<pre class="ecall-mermaid-block"><code>${escapeHtml(String(token?.content || ""))}</code></pre>`;
+  }
+  return defaultFenceRenderer(tokens, idx, options, env, self);
+};
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function ensureMermaidInited(): Promise<boolean> {
+  if (mermaidInited && mermaidApi) return true;
+  try {
+    const mod = await import("mermaid");
+    const api = (mod as any).default ?? mod;
+    api.initialize({
+      startOnLoad: false,
+      theme: "default",
+      securityLevel: "strict",
+    });
+    mermaidApi = api;
+    mermaidInited = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function renderMermaidBlocks() {
+  const root = scrollContainer.value;
+  if (!root) return;
+  const blocks = Array.from(
+    root.querySelectorAll<HTMLElement>(".assistant-markdown pre.ecall-mermaid-block"),
+  );
+  if (!blocks.length) return;
+  const token = ++mermaidRenderToken;
+  const ok = await ensureMermaidInited();
+  if (!ok || !mermaidApi) return;
+  for (let index = 0; index < blocks.length; index += 1) {
+    if (token !== mermaidRenderToken) return;
+    const block = blocks[index];
+    if (block.dataset.rendered === "1") continue;
+    const source = (block.querySelector("code")?.textContent || "").trim();
+    if (!source) continue;
+    try {
+      const id = `ecall-mermaid-${Date.now()}-${index}`;
+      const { svg } = await mermaidApi.render(id, source);
+      if (token !== mermaidRenderToken) return;
+      const container = document.createElement("div");
+      container.className = "ecall-mermaid-diagram";
+      container.innerHTML = svg;
+      block.replaceWith(container);
+    } catch {
+      block.dataset.rendered = "1";
+      block.classList.add("ecall-mermaid-error");
+    }
+  }
+}
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();
@@ -665,6 +746,7 @@ onMounted(() => {
     scrollToBottom();
     autoFollowOutput.value = true;
     resizeChatInput();
+    void renderMermaidBlocks();
   });
 });
 
@@ -717,6 +799,9 @@ watch(
     if (newLen > oldLen && autoFollowOutput.value) {
       nextTick(() => scrollToBottom());
     }
+    nextTick(() => {
+      void renderMermaidBlocks();
+    });
   },
 );
 
@@ -738,6 +823,9 @@ watch(
   () => {
     if (!autoFollowOutput.value) return;
     nextTick(() => scrollToBottom());
+    nextTick(() => {
+      void renderMermaidBlocks();
+    });
   },
 );
 </script>
@@ -781,6 +869,16 @@ watch(
 .assistant-markdown :deep(pre code) {
   background: transparent;
   padding: 0;
+}
+
+.assistant-markdown :deep(.ecall-mermaid-diagram) {
+  margin: 0.3rem 0 0.45rem;
+  overflow-x: auto;
+}
+
+.assistant-markdown :deep(.ecall-mermaid-diagram svg) {
+  max-width: 100%;
+  height: auto;
 }
 
 .assistant-markdown :deep(img.twemoji) {
