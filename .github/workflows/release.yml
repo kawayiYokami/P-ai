@@ -7,17 +7,6 @@ on:
         description: "发布版本号（例如 v0.2.8），仅发布时必填"
         required: false
         type: string
-      target_os:
-        description: "构建目标平台"
-        required: true
-        default: "linux"
-        type: choice
-        options:
-          - all
-          - linux-macos
-          - linux
-          - macos
-          - windows
       publish_release:
         description: "是否发布到 GitHub Release"
         required: true
@@ -35,12 +24,8 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (github.event.inputs.target_os == 'linux-macos' && '["ubuntu-24.04","macos-latest"]' || github.event.inputs.target_os == 'linux' && '["ubuntu-24.04"]' || github.event.inputs.target_os == 'macos' && '["macos-latest"]' || github.event.inputs.target_os == 'windows' && '["windows-latest"]' || '["ubuntu-24.04","windows-latest","macos-latest"]') || '["ubuntu-24.04","windows-latest","macos-latest"]') }}
+    name: Build (ubuntu-24.04)
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -58,7 +43,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -106,7 +90,7 @@ jobs:
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bundle-${{ matrix.os }}
+          name: bundle-ubuntu-24.04
           path: |
             src-tauri/target/release/bundle/**
           if-no-files-found: error
@@ -157,9 +141,6 @@ jobs:
           tag_name: ${{ steps.tag.outputs.name }}
           generate_release_notes: true
           files: |
-            release-assets/**/bundle/**/*.exe
-            release-assets/**/bundle/**/*.msi
-            release-assets/**/bundle/**/*.dmg
             release-assets/**/bundle/**/*.deb
             release-assets/**/bundle/**/*.rpm
             release-assets/**/bundle/**/*.AppImage

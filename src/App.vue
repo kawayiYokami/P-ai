@@ -579,9 +579,11 @@ const {
     chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
   },
   onTranscribed: ({ source }) => {
-    void invokeTauri("show_chat_window").catch((error) => {
-      console.warn("[AUDIO] show_chat_window failed:", error);
-    });
+    if (!isChatWindowActiveNow()) {
+      void invokeTauri("show_chat_window").catch((error) => {
+        console.warn("[AUDIO] show_chat_window failed:", error);
+      });
+    }
     if (source !== "remote") return;
     if (!config.sttAutoSend) return;
     if (chatting.value || forcingArchive.value) return;
