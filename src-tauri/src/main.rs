@@ -276,6 +276,7 @@ fn main() {
             list_recent_llm_round_logs,
             clear_recent_llm_round_logs,
             desktop_screenshot,
+            xcap,
             desktop_wait,
             terminal_self_check,
             get_chat_shell_workspace,
