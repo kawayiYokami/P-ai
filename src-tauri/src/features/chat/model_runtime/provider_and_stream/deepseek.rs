@@ -80,7 +80,27 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
                 }
             }
             if let Some(calls) = &hm.tool_calls {
-                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+                let normalized: Vec<Value> = calls
+                    .iter()
+                    .map(|call| {
+                        let mut c = call.clone();
+                        if let Some(func) = c.get_mut("function") {
+                            if let Some(args) = func.get("arguments") {
+                                if !args.is_string() {
+                                    let s = args.to_string();
+                                    if let Some(obj) = func.as_object_mut() {
+                                        obj.insert(
+                                            "arguments".to_string(),
+                                            Value::String(s),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        c
+                    })
+                    .collect();
+                msg.insert("tool_calls".to_string(), Value::Array(normalized));
             }
             messages.push(Value::Object(msg));
         } else if hm.role == "assistant" {

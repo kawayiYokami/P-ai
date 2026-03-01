@@ -129,19 +129,24 @@ where
                             .to_string()
                         }
                     };
+                    let tool_call_call_id = tool_call.call_id.clone();
+                    let mut tc_json = serde_json::json!({
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": tool_args
+                        }
+                    });
+                    if let Some(cid) = &tool_call_call_id {
+                        if let Some(obj) = tc_json.as_object_mut() {
+                            obj.insert("call_id".to_string(), Value::String(cid.clone()));
+                        }
+                    }
                     tool_history_events.push(serde_json::json!({
                         "role": "assistant",
                         "content": Value::Null,
-                        "tool_calls": [
-                            {
-                                "id": tool_call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": tool_args_value
-                                }
-                            }
-                        ]
+                        "tool_calls": [tc_json]
                     }));
                     let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result);
                     tool_history_events.push(serde_json::json!({

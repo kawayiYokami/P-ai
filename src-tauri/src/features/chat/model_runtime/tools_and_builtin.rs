@@ -30,6 +30,49 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                     assistant_blocks.push(AssistantContent::reasoning(reasoning.clone()));
                 }
             }
+            if let Some(tool_calls) = &hm.tool_calls {
+                for raw in tool_calls {
+                    let Some(id) = raw.get("id").and_then(Value::as_str).map(str::trim) else {
+                        continue;
+                    };
+                    if id.is_empty() {
+                        continue;
+                    }
+                    let Some(name) = raw
+                        .get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                    else {
+                        continue;
+                    };
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let arguments = raw
+                        .get("function")
+                        .and_then(|f| f.get("arguments"))
+                        .cloned()
+                        .unwrap_or_else(|| Value::String("{}".to_string()));
+                    let call_id = raw
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| Some(id.to_string()));
+                    let tool_call = rig::message::ToolCall {
+                        id: id.to_string(),
+                        call_id,
+                        function: rig::message::ToolFunction {
+                            name: name.to_string(),
+                            arguments,
+                        },
+                        signature: None,
+                        additional_params: None,
+                    };
+                    assistant_blocks.push(AssistantContent::ToolCall(tool_call));
+                }
+            }
             if assistant_blocks.is_empty() {
                 assistant_blocks.push(AssistantContent::text(String::new()));
             }
@@ -46,7 +89,11 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
             {
-                UserContent::tool_result(tool_call_id.to_string(), result_content)
+                UserContent::tool_result_with_call_id(
+                    tool_call_id.to_string(),
+                    tool_call_id.to_string(),
+                    result_content,
+                )
             } else {
                 UserContent::text(hm.text.clone())
             };
@@ -56,6 +103,105 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
         }
     }
     Ok(chat_history)
+}
+
+#[cfg(test)]
+mod prepared_history_to_rig_messages_tests {
+    use super::*;
+
+    #[test]
+    fn should_replay_tool_result_message_into_rig_history() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "user".to_string(),
+                    text: "帮我看一下".to_string(),
+                    user_time_text: Some("2026-03-01 11:00:00".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    user_time_text: None,
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("thinking".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    user_time_text: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_time_text: String::new(),
+            latest_user_system_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let chat_history = prepared_history_to_rig_messages(&prepared).expect("history built");
+        let mut saw_tool_result = false;
+        let mut saw_assistant_reasoning = false;
+        let mut saw_assistant_tool_call = false;
+
+        for message in &chat_history {
+            match message {
+                RigMessage::Assistant { content, .. } => {
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            AssistantContent::Reasoning(r) if r.display_text().contains("thinking")
+                        )
+                    }) {
+                        saw_assistant_reasoning = true;
+                    }
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            AssistantContent::ToolCall(call)
+                                if call.id == "call_1"
+                                    && call.function.name == "xcap"
+                        )
+                    }) {
+                        saw_assistant_tool_call = true;
+                    }
+                }
+                RigMessage::User { content } => {
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            UserContent::ToolResult(result)
+                                if result.id == "call_1"
+                                    && result.content.iter().any(|part| {
+                                        matches!(
+                                            part,
+                                            ToolResultContent::Text(text)
+                                                if text.text.contains("capture_focused_window")
+                                        )
+                                    })
+                        )
+                    }) {
+                        saw_tool_result = true;
+                    }
+                }
+            }
+        }
+
+        assert!(saw_assistant_reasoning, "assistant reasoning should be replayed");
+        assert!(saw_assistant_tool_call, "assistant tool call should be replayed");
+        assert!(saw_tool_result, "tool result should be replayed as rig UserContent::ToolResult");
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
