@@ -21,9 +21,37 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                     .map_err(|_| "Failed to build user history message".to_string())?,
             });
         } else if hm.role == "assistant" {
+            let mut assistant_blocks = Vec::<AssistantContent>::new();
+            if !hm.text.trim().is_empty() {
+                assistant_blocks.push(AssistantContent::text(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    assistant_blocks.push(AssistantContent::reasoning(reasoning.clone()));
+                }
+            }
+            if assistant_blocks.is_empty() {
+                assistant_blocks.push(AssistantContent::text(String::new()));
+            }
             chat_history.push(RigMessage::Assistant {
                 id: None,
-                content: OneOrMany::one(AssistantContent::text(hm.text.clone())),
+                content: OneOrMany::many(assistant_blocks)
+                    .map_err(|_| "Failed to build assistant history message".to_string())?,
+            });
+        } else if hm.role == "tool" {
+            let result_content = OneOrMany::one(ToolResultContent::text(hm.text.clone()));
+            let tool_user_content = if let Some(tool_call_id) = hm
+                .tool_call_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                UserContent::tool_result(tool_call_id.to_string(), result_content)
+            } else {
+                UserContent::text(hm.text.clone())
+            };
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::one(tool_user_content),
             });
         }
     }
