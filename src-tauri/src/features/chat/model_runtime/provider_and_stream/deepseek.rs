@@ -66,11 +66,38 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
                 "role": "user",
                 "content": pieces.join("\n")
             }));
+        } else if hm.role == "assistant" && hm.tool_calls.is_some() {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("assistant".to_string()));
+            if hm.text.trim().is_empty() {
+                msg.insert("content".to_string(), Value::Null);
+            } else {
+                msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            }
+            if let Some(reasoning) = &hm.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+                }
+            }
+            if let Some(calls) = &hm.tool_calls {
+                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+            }
+            messages.push(Value::Object(msg));
         } else if hm.role == "assistant" {
             messages.push(serde_json::json!({
                 "role": "assistant",
                 "content": hm.text
             }));
+        } else if hm.role == "tool" {
+            let mut msg = serde_json::Map::new();
+            msg.insert("role".to_string(), Value::String("tool".to_string()));
+            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            if let Some(call_id) = &hm.tool_call_id {
+                if !call_id.trim().is_empty() {
+                    msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
+                }
+            }
+            messages.push(Value::Object(msg));
         }
     }
     let mut latest_pieces = Vec::<String>::new();
@@ -482,5 +509,49 @@ mod deepseek_tool_call_tests {
         let wire = deepseek_tool_arguments_wire_value(args);
         assert!(wire.is_string());
         assert_eq!(wire.as_str().unwrap_or_default(), args);
+    }
+
+    #[test]
+    fn deepseek_messages_include_tool_history_events() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    user_time_text: None,
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "xcap", "arguments": "{\"method\":\"list_windows\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("thinking".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true}".to_string(),
+                    user_time_text: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "next".to_string(),
+            latest_user_time_text: String::new(),
+            latest_user_system_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = deepseek_messages_from_prepared(&prepared);
+        assert!(messages.iter().any(|m| {
+            m.get("role").and_then(Value::as_str) == Some("assistant")
+                && m.get("tool_calls").and_then(Value::as_array).is_some()
+        }));
+        assert!(messages.iter().any(|m| {
+            m.get("role").and_then(Value::as_str) == Some("tool")
+                && m.get("tool_call_id").and_then(Value::as_str) == Some("call_1")
+        }));
     }
 }
