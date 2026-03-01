@@ -12,6 +12,160 @@ async fn desktop_wait(input: WaitRequest) -> Result<WaitResponse, String> {
         .map_err(|err| to_tool_err_string(&err))
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct XcapToolInput {
+    method: String,
+    #[serde(default)]
+    args: Value,
+}
+
+fn xcap_arg_u32(args: &Value, key: &str) -> Result<u32, String> {
+    let v = args
+        .get(key)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| to_tool_err_string(&DesktopToolError::invalid_params(format!("{key} is required"))))?;
+    u32::try_from(v).map_err(|_| {
+        to_tool_err_string(&DesktopToolError::invalid_params(format!("{key} is out of range")))
+    })
+}
+
+fn xcap_arg_i32(args: &Value, key: &str) -> Result<i32, String> {
+    let v = args
+        .get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| to_tool_err_string(&DesktopToolError::invalid_params(format!("{key} is required"))))?;
+    i32::try_from(v).map_err(|_| {
+        to_tool_err_string(&DesktopToolError::invalid_params(format!("{key} is out of range")))
+    })
+}
+
+fn xcap_optional_webp_quality(args: &Value) -> f32 {
+    args.get("webpQuality")
+        .and_then(Value::as_f64)
+        .map(|v| v as f32)
+        .unwrap_or(default_webp_quality())
+}
+
+fn xcap_optional_save_path(args: &Value) -> Option<String> {
+    args.get("savePath")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+#[tauri::command]
+async fn xcap(input: XcapToolInput) -> Result<Value, String> {
+    let method = input.method.trim().to_string();
+    let args = input.args;
+    let out = match method.as_str() {
+        "list_windows" => {
+            let data = xcap_list_windows_infos().map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        "list_monitors" => {
+            let data = xcap_list_monitors_infos().map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        "capture_focused_window" => {
+            let req = ScreenshotRequest {
+                mode: ScreenshotMode::Desktop,
+                monitor_id: None,
+                region: None,
+                save_path: xcap_optional_save_path(&args),
+                webp_quality: xcap_optional_webp_quality(&args),
+            };
+            let data = run_capture_window_tool(req, None)
+                .map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        "capture_window" => {
+            let window_id = xcap_arg_u32(&args, "windowId")?;
+            let req = ScreenshotRequest {
+                mode: ScreenshotMode::Desktop,
+                monitor_id: None,
+                region: None,
+                save_path: xcap_optional_save_path(&args),
+                webp_quality: xcap_optional_webp_quality(&args),
+            };
+            let data = run_capture_window_tool(req, Some(window_id))
+                .map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        "capture_monitor" => {
+            let monitor_id = xcap_arg_u32(&args, "monitorId")?;
+            let req = ScreenshotRequest {
+                mode: ScreenshotMode::Monitor,
+                monitor_id: Some(monitor_id),
+                region: None,
+                save_path: xcap_optional_save_path(&args),
+                webp_quality: xcap_optional_webp_quality(&args),
+            };
+            let data = run_screenshot_tool(req)
+                .await
+                .map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        "capture_region" => {
+            let x = xcap_arg_i32(&args, "x")?;
+            let y = xcap_arg_i32(&args, "y")?;
+            let width = xcap_arg_u32(&args, "width")?;
+            let height = xcap_arg_u32(&args, "height")?;
+            let monitor_id = args
+                .get("monitorId")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok());
+            let req = ScreenshotRequest {
+                mode: ScreenshotMode::Region,
+                monitor_id,
+                region: Some(ScreenBounds {
+                    x,
+                    y,
+                    width,
+                    height,
+                }),
+                save_path: xcap_optional_save_path(&args),
+                webp_quality: xcap_optional_webp_quality(&args),
+            };
+            let data = run_screenshot_tool(req)
+                .await
+                .map_err(|err| to_tool_err_string(&err))?;
+            serde_json::json!({
+                "ok": true,
+                "method": method,
+                "data": data
+            })
+        }
+        _ => {
+            return Err(to_tool_err_string(&DesktopToolError::invalid_params(
+                "unsupported xcap method",
+            )));
+        }
+    };
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TerminalSelfCheckStepResult {
@@ -273,5 +427,4 @@ fn resolve_terminal_approval(
     let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
     Ok(())
 }
-
 

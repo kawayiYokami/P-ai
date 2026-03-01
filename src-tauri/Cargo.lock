@@ -1642,7 +1642,6 @@ dependencies = [
  "uuid",
  "webbrowser",
  "webp",
- "windows-capture",
  "windows-sys 0.59.0",
  "xcap",
 ]
@@ -7923,19 +7922,6 @@ dependencies = [
  "windows-core 0.62.2",
  "windows-future 0.3.2",
  "windows-numerics 0.3.1",
-]
-
-[[package]]
-name = "windows-capture"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a4df73e95feddb9ec1a7e9c2ca6323b8c97d5eeeff78d28f1eccdf19c882b24"
-dependencies = [
- "parking_lot",
- "rayon",
- "thiserror 2.0.18",
- "windows 0.61.3",
- "windows-future 0.2.1",
 ]
 
 [[package]]
