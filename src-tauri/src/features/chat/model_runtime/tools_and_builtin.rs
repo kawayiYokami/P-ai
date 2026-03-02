@@ -25,11 +25,6 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
             if !hm.text.trim().is_empty() {
                 assistant_blocks.push(AssistantContent::text(hm.text.clone()));
             }
-            if let Some(reasoning) = &hm.reasoning_content {
-                if !reasoning.trim().is_empty() {
-                    assistant_blocks.push(AssistantContent::reasoning(reasoning.clone()));
-                }
-            }
             if let Some(tool_calls) = &hm.tool_calls {
                 for raw in tool_calls {
                     let Some(id) = raw.get("id").and_then(Value::as_str).map(str::trim) else {
