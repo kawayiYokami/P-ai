@@ -49,6 +49,16 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                         .and_then(|f| f.get("arguments"))
                         .cloned()
                         .unwrap_or_else(|| Value::String("{}".to_string()));
+                    // Normalize: stored arguments may be a JSON string (e.g. "{\"query\":\"...\"}").
+                    // Gemini requires Value::Object (protobuf Struct); OpenAI's rig adapter
+                    // also accepts Value::Object and stringifies it internally.
+                    // Parse string→object so both providers work from the same history.
+                    let arguments = match &arguments {
+                        Value::String(s) => {
+                            serde_json::from_str::<Value>(s).unwrap_or(arguments)
+                        }
+                        _ => arguments,
+                    };
                     let call_id = raw
                         .get("call_id")
                         .and_then(Value::as_str)
