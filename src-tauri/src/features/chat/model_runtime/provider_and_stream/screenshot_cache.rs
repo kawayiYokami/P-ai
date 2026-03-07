@@ -48,23 +48,24 @@ fn clear_screenshot_artifact_cache() {
     }
 }
 
-fn is_screenshot_tool_name(tool_name: &str) -> bool {
-    matches!(
-        tool_name,
-        "desktop_screenshot" | "desktop-screenshot" | "xcap"
-    )
-}
-
 fn extract_image_base64_from_value(value: &Value) -> Option<String> {
+    fn normalize_data_uri(raw: &str) -> String {
+        let s = raw.trim();
+        if let Some(idx) = s.find("base64,") {
+            return s[(idx + "base64,".len())..].to_string();
+        }
+        s.to_string()
+    }
+
     value
         .get("imageBase64")
         .and_then(Value::as_str)
-        .map(ToString::to_string)
+        .map(normalize_data_uri)
         .or_else(|| {
             value
                 .get("image_base64")
                 .and_then(Value::as_str)
-                .map(ToString::to_string)
+                .map(normalize_data_uri)
         })
         .or_else(|| {
             value
@@ -82,9 +83,46 @@ fn extract_image_base64_from_value(value: &Value) -> Option<String> {
                         }
                         part.get("data")
                             .and_then(Value::as_str)
-                            .map(ToString::to_string)
+                            .map(normalize_data_uri)
                     })
                 })
+        })
+        .or_else(|| {
+            value
+                .get("content")
+                .and_then(Value::as_array)
+                .and_then(|parts| {
+                    parts.iter().find_map(|part| {
+                        let is_image = part
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(|t| t.eq_ignore_ascii_case("image"))
+                            .unwrap_or(false);
+                        if !is_image {
+                            return None;
+                        }
+                        part.get("data")
+                            .and_then(Value::as_str)
+                            .map(normalize_data_uri)
+                    })
+                })
+        })
+        .or_else(|| {
+            value.as_array().and_then(|parts| {
+                parts.iter().find_map(|part| {
+                    let is_image = part
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(|t| t.eq_ignore_ascii_case("image"))
+                        .unwrap_or(false);
+                    if !is_image {
+                        return None;
+                    }
+                    part.get("data")
+                        .and_then(Value::as_str)
+                        .map(normalize_data_uri)
+                })
+            })
         })
 }
 
@@ -121,6 +159,45 @@ fn extract_image_mime_from_value(value: &Value) -> Option<String> {
                             .map(ToString::to_string)
                     })
                 })
+        })
+        .or_else(|| {
+            value
+                .get("content")
+                .and_then(Value::as_array)
+                .and_then(|parts| {
+                    parts.iter().find_map(|part| {
+                        let is_image = part
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(|t| t.eq_ignore_ascii_case("image"))
+                            .unwrap_or(false);
+                        if !is_image {
+                            return None;
+                        }
+                        part.get("mimeType")
+                            .and_then(Value::as_str)
+                            .filter(|m| !m.trim().is_empty())
+                            .map(ToString::to_string)
+                    })
+                })
+        })
+        .or_else(|| {
+            value.as_array().and_then(|parts| {
+                parts.iter().find_map(|part| {
+                    let is_image = part
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(|t| t.eq_ignore_ascii_case("image"))
+                        .unwrap_or(false);
+                    if !is_image {
+                        return None;
+                    }
+                    part.get("mimeType")
+                        .and_then(Value::as_str)
+                        .filter(|m| !m.trim().is_empty())
+                        .map(ToString::to_string)
+                })
+            })
         })
 }
 
@@ -214,10 +291,10 @@ fn compact_screenshot_tool_result(
 }
 
 fn enrich_screenshot_tool_result_with_cache(
-    tool_name: &str,
+    _tool_name: &str,
     tool_result: &str,
 ) -> (String, Option<(ScreenshotForwardPayload, String)>) {
-    let Some(payload) = screenshot_forward_payload_from_tool_result(tool_name, tool_result) else {
+    let Some(payload) = screenshot_forward_payload_from_tool_result(tool_result) else {
         return (tool_result.to_string(), None);
     };
     let artifact_id = screenshot_artifact_cache_put(&payload);
@@ -226,12 +303,8 @@ fn enrich_screenshot_tool_result_with_cache(
 }
 
 fn screenshot_forward_payload_from_tool_result(
-    tool_name: &str,
     tool_result: &str,
 ) -> Option<ScreenshotForwardPayload> {
-    if !is_screenshot_tool_name(tool_name) {
-        return None;
-    }
     let value = serde_json::from_str::<Value>(tool_result).ok()?;
     let payload_value = screenshot_payload_value(&value);
     let image_base64 = extract_image_base64_from_value(payload_value)?;
@@ -270,9 +343,7 @@ fn screenshot_forward_notice(payload: &ScreenshotForwardPayload) -> String {
 }
 
 fn sanitize_tool_result_for_history(tool_name: &str, tool_result: &str) -> String {
-    if !is_screenshot_tool_name(tool_name) {
-        return tool_result.to_string();
-    }
+    let _ = tool_name;
     let Ok(mut value) = serde_json::from_str::<Value>(tool_result) else {
         return tool_result.to_string();
     };
