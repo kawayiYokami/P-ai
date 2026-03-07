@@ -5,6 +5,8 @@ async fn call_model_openai_with_tools(
     mut tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
@@ -23,7 +25,16 @@ async fn call_model_openai_with_tools(
         .temperature(api_config.temperature)
         .tools(tools)
         .build();
-    run_unified_tool_loop(agent, prepared, on_delta, max_tool_iterations, false).await
+    run_unified_tool_loop(
+        agent,
+        prepared,
+        on_delta,
+        max_tool_iterations,
+        false,
+        tool_abort_state,
+        chat_session_key,
+    )
+    .await
 }
 
 async fn call_model_openai_responses_with_tools(
@@ -33,6 +44,8 @@ async fn call_model_openai_responses_with_tools(
     mut tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
@@ -49,5 +62,14 @@ async fn call_model_openai_responses_with_tools(
         .temperature(api_config.temperature)
         .tools(tools)
         .build();
-    run_unified_tool_loop(agent, prepared, on_delta, max_tool_iterations, false).await
+    run_unified_tool_loop(
+        agent,
+        prepared,
+        on_delta,
+        max_tool_iterations,
+        false,
+        tool_abort_state,
+        chat_session_key,
+    )
+    .await
 }

@@ -35,12 +35,48 @@ fn resolve_reasoning_for_tool_history(turn_reasoning: &str, chat_history: &[RigM
     " ".to_string()
 }
 
+async fn call_tool_with_user_abort<F, T, E>(
+    app_state: Option<&AppState>,
+    chat_session_key: &str,
+    future: F,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    if let Some(state) = app_state {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)?;
+        let result = futures_util::future::Abortable::new(future, abort_registration).await;
+        if let Err(err) = clear_inflight_tool_abort_handle(state, chat_session_key) {
+            eprintln!(
+                "[WARN][CHAT] clear inflight tool abort handle failed (session={}): {}",
+                chat_session_key, err
+            );
+        }
+        match result {
+            Ok(inner) => inner.map_err(|err| err.to_string()),
+            Err(_) => {
+                eprintln!(
+                    "[INFO][CHAT] tool call aborted by user (session={})",
+                    chat_session_key
+                );
+                Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
+            }
+        }
+    } else {
+        future.await.map_err(|err| err.to_string())
+    }
+}
+
 async fn run_unified_tool_loop<M>(
     agent: rig::agent::Agent<M>,
     prepared: PreparedPrompt,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     include_reasoning_before_tool_calls: bool,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String>
 where
     M: rig::completion::CompletionModel,
@@ -99,10 +135,12 @@ where
                         Value::String(raw) => raw.clone(),
                         other => other.to_string(),
                     };
-                    let tool_result = match agent
-                        .tool_server_handle
-                        .call_tool(&tool_name, &tool_args)
-                        .await
+                    let tool_result = match call_tool_with_user_abort(
+                        tool_abort_state,
+                        chat_session_key,
+                        agent.tool_server_handle.call_tool(&tool_name, &tool_args),
+                    )
+                    .await
                     {
                         Ok(output) => {
                             send_tool_status_event(
@@ -114,6 +152,13 @@ where
                             output
                         }
                         Err(err) => {
+                            if err == CHAT_ABORTED_BY_USER_ERROR {
+                                eprintln!(
+                                    "[INFO][CHAT] stop requested; exiting tool loop immediately (session={})",
+                                    chat_session_key
+                                );
+                                return Err(err);
+                            }
                             let err_text = err.to_string();
                             send_tool_status_event(
                                 on_delta,

@@ -4,6 +4,7 @@ const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const USER_PERSONA_ID: &str = "user-persona";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
+const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -894,6 +895,7 @@ struct AppState {
     state_lock: Arc<Mutex<()>>,
     last_panic_snapshot: Arc<Mutex<Option<String>>>,
     inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
+    inflight_tool_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
     terminal_session_roots: Arc<Mutex<std::collections::HashMap<String, String>>>,
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
@@ -946,6 +948,7 @@ impl AppState {
             state_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),

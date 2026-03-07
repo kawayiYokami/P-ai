@@ -203,6 +203,8 @@ async fn call_model_deepseek_with_tools(
     tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let api_base = deepseek_openai_api_base(&api_config.base_url);
     let config = async_openai::config::OpenAIConfig::new()
@@ -404,7 +406,13 @@ async fn call_model_deepseek_with_tools(
                 &format!("正在调用工具：{}", tool_name),
             );
             let tool_result = if let Some(idx) = tool_map.get(&tool_name) {
-                match tool_assembly.tools[*idx].call(args_str.clone()).await {
+                match call_tool_with_user_abort(
+                    tool_abort_state,
+                    chat_session_key,
+                    tool_assembly.tools[*idx].call(args_str.clone()),
+                )
+                .await
+                {
                     Ok(output) => {
                         send_tool_status_event(
                             on_delta,
@@ -415,6 +423,13 @@ async fn call_model_deepseek_with_tools(
                         output
                     }
                     Err(err) => {
+                        if err == CHAT_ABORTED_BY_USER_ERROR {
+                            eprintln!(
+                                "[INFO][CHAT] stop requested during deepseek tool call; aborting turn (session={})",
+                                chat_session_key
+                            );
+                            return Err(err);
+                        }
                         let err_text = err.to_string();
                         send_tool_status_event(
                             on_delta,

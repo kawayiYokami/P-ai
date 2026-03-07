@@ -6,6 +6,8 @@ async fn dispatch_openai_style_call(
     tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    app_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     if selected_api.request_format.is_deepseek_kimi() {
         call_model_deepseek_with_tools(
@@ -16,6 +18,8 @@ async fn dispatch_openai_style_call(
             tool_assembly,
             on_delta,
             max_tool_iterations,
+            app_state,
+            chat_session_key,
         )
         .await
     } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
@@ -26,6 +30,8 @@ async fn dispatch_openai_style_call(
             tool_assembly,
             on_delta,
             max_tool_iterations,
+            app_state,
+            chat_session_key,
         )
         .await
     } else {
@@ -36,6 +42,8 @@ async fn dispatch_openai_style_call(
             tool_assembly,
             on_delta,
             max_tool_iterations,
+            app_state,
+            chat_session_key,
         )
         .await
     }
@@ -49,7 +57,7 @@ async fn call_model_openai_style(
     app_state: Option<&AppState>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
-    tool_session_id: &str,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut prepared = prepared;
     if !selected_api.enable_image && !prepared.latest_images.is_empty() {
@@ -72,7 +80,7 @@ async fn call_model_openai_style(
             && prepared.latest_audios.is_empty()
         {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
             if tool_assembly.tools.is_empty() {
                 call_model_gemini_rig_style(api_config, model_name, prepared).await
             } else {
@@ -84,6 +92,8 @@ async fn call_model_openai_style(
                     tool_assembly,
                     on_delta,
                     max_tool_iterations,
+                    app_state,
+                    chat_session_key,
                 )
                 .await
             }
@@ -96,7 +106,7 @@ async fn call_model_openai_style(
             && prepared.latest_audios.is_empty()
         {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
             if tool_assembly.tools.is_empty() {
                 call_model_anthropic_rig_style(api_config, model_name, prepared).await
             } else {
@@ -108,6 +118,8 @@ async fn call_model_openai_style(
                     tool_assembly,
                     on_delta,
                     max_tool_iterations,
+                    app_state,
+                    chat_session_key,
                 )
                 .await
             }
@@ -120,7 +132,7 @@ async fn call_model_openai_style(
     {
         if selected_api.enable_tools {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
             tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
             dispatch_openai_style_call(
                 api_config,
@@ -130,6 +142,8 @@ async fn call_model_openai_style(
                 tool_assembly,
                 on_delta,
                 max_tool_iterations,
+                app_state,
+                chat_session_key,
             )
             .await
         } else if selected_api.request_format.is_deepseek_kimi() {
@@ -169,7 +183,7 @@ async fn call_model_openai_style(
                 );
                 if selected_api.enable_tools {
                     let tool_assembly =
-                        assemble_runtime_tools(selected_api, app_state, tool_session_id).await?;
+                        assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
                     tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                     dispatch_openai_style_call(
                         api_config,
@@ -179,6 +193,8 @@ async fn call_model_openai_style(
                         tool_assembly,
                         on_delta,
                         max_tool_iterations,
+                        app_state,
+                        chat_session_key,
                     )
                     .await
                 } else if selected_api.request_format.is_deepseek_kimi() {
