@@ -5,6 +5,8 @@ async fn call_model_gemini_with_tools(
     mut tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
     let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
@@ -35,5 +37,14 @@ async fn call_model_gemini_with_tools(
         .tools(tools)
         .build();
 
-    run_unified_tool_loop(agent, prepared, on_delta, max_tool_iterations, false).await
+    run_unified_tool_loop(
+        agent,
+        prepared,
+        on_delta,
+        max_tool_iterations,
+        false,
+        tool_abort_state,
+        chat_session_key,
+    )
+    .await
 }

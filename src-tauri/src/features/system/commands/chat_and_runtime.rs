@@ -2,6 +2,43 @@ fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
     format!("{}::{}", api_config_id.trim(), agent_id.trim())
 }
 
+fn register_inflight_tool_abort_handle(
+    state: &AppState,
+    chat_key: &str,
+    handle: AbortHandle,
+) -> Result<(), String> {
+    let mut inflight = state
+        .inflight_tool_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
+    if let Some(previous) = inflight.insert(chat_key.to_string(), handle) {
+        previous.abort();
+    }
+    Ok(())
+}
+
+fn clear_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<(), String> {
+    let mut inflight = state
+        .inflight_tool_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
+    inflight.remove(chat_key);
+    Ok(())
+}
+
+fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<bool, String> {
+    let mut inflight = state
+        .inflight_tool_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
+    if let Some(handle) = inflight.remove(chat_key) {
+        handle.abort();
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
     !reply.assistant_text.trim().is_empty()
         || !reply.reasoning_standard.trim().is_empty()
@@ -93,8 +130,9 @@ async fn send_chat_message(
             previous.abort();
         }
     }
+    let _ = abort_inflight_tool_abort_handle(state.inner(), &chat_key);
 
-    let tool_session_id = chat_key.clone();
+    let chat_session_key = chat_key.clone();
     let state_for_run = state.clone();
     let run = async move {
     let state = state_for_run;
@@ -467,7 +505,7 @@ async fn send_chat_message(
             Some(&state),
             &on_delta,
             app_config.tool_max_iterations as usize,
-            &tool_session_id,
+            &chat_session_key,
         )
         .await;
 
@@ -598,10 +636,22 @@ async fn send_chat_message(
             .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
         inflight.remove(&chat_key);
     }
+    if let Err(err) = clear_inflight_tool_abort_handle(state.inner(), &chat_key) {
+        eprintln!(
+            "[WARN][CHAT] clear inflight tool abort handle failed (session={}): {}",
+            chat_key, err
+        );
+    }
 
     match result {
         Ok(inner) => inner,
-        Err(_) => Err("CHAT_ABORTED_BY_USER".to_string()),
+        Err(_) => {
+            eprintln!(
+                "[INFO][CHAT] chat request aborted by user (session={})",
+                chat_key
+            );
+            Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
+        }
     }
 }
 
@@ -624,7 +674,7 @@ async fn stop_chat_message(
     }
 
     let chat_key = inflight_chat_key(&api_config_id, &agent_id);
-    let aborted = {
+    let aborted_chat = {
         let mut inflight = state
             .inflight_chat_abort_handles
             .lock()
@@ -636,6 +686,8 @@ async fn stop_chat_message(
             false
         }
     };
+    let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
+    let aborted = aborted_chat || aborted_tool;
 
     let partial_assistant_text = input.partial_assistant_text.trim().to_string();
     let partial_reasoning_standard = input.partial_reasoning_standard.trim().to_string();
