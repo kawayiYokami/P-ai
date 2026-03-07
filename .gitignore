@@ -31,3 +31,4 @@ target/
 
 # Tauri local config overrides
 src-tauri/.cargo/
+relay_tool_probe/
