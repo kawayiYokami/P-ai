@@ -46,6 +46,7 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
 
   async function mount() {
     const mode = options.initWindowMode();
+    const isChatWindow = mode === "chat";
     options.setViewMode(mode);
     try {
       unlisteners.push(
@@ -63,14 +64,18 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
           await options.onRefreshSignal();
         }),
       );
-      unlisteners.push(
-        await listen<TerminalApprovalRequestPayload>(
-          "easy-call:terminal-approval-request",
-          (event) => {
-            options.onTerminalApprovalRequested?.(event.payload);
-          },
-        ),
-      );
+      if (isChatWindow) {
+        unlisteners.push(
+          await listen<TerminalApprovalRequestPayload>(
+            "easy-call:terminal-approval-request",
+            (event) => {
+              options.onTerminalApprovalRequested?.(event.payload);
+            },
+          ),
+        );
+      } else {
+        console.info("[BOOTSTRAP] skipping terminal approval listener: not chat window");
+      }
       unlisteners.push(
         await listen<ConversationApiSettingsPayload>(
           "easy-call:conversation-api-updated",
