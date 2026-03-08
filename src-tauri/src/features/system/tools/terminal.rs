@@ -1125,6 +1125,7 @@ async fn builtin_shell_exec(
     }
 
     let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let session_root_locked = terminal_session_has_locked_root(state, &normalized_session);
     let allowed_project_roots = terminal_allowed_project_roots_canonical(state)?
         .iter()
         .map(|v| v.to_string_lossy().to_string())
@@ -1182,6 +1183,13 @@ async fn builtin_shell_exec(
             );
         }
         TerminalWriteRisk::Existing { paths } => {
+            if session_root_locked {
+                eprintln!(
+                    "[TOOL-DEBUG] shell_exec approval skipped: locked workspace session={} existing_path_count={}",
+                    normalized_session,
+                    paths.len()
+                );
+            } else {
             let mut lines = vec![
                 "该命令将修改/删除已有文件，是否批准本次执行？".to_string(),
                 format!("会话: {normalized_session}"),
@@ -1221,37 +1229,45 @@ async fn builtin_shell_exec(
                     "command": cmd,
                 }));
             }
+            }
         }
         TerminalWriteRisk::Unknown => {
-            let message = format!(
-                "无法判定该命令是否会修改已有文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",
-                cwd.to_string_lossy()
-            );
-            let approved = terminal_request_user_approval(
-                state,
-                "终端执行审批",
-                &message,
-                &normalized_session,
-                "unknown_write_risk",
-                Some(&cwd),
-                Some(cmd),
-                None,
-                None,
-                &[],
-            )
-            .await?;
-            if !approved {
-                return Ok(serde_json::json!({
-                    "ok": false,
-                    "approved": false,
-                    "blockedReason": "user_denied_unknown_write_risk",
-                    "message": "User denied command with unknown write risk.",
-                    "sessionId": normalized_session,
-                    "rootPath": session_root.to_string_lossy().to_string(),
-                    "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
-                    "cwd": cwd.to_string_lossy().to_string(),
-                    "command": cmd,
-                }));
+            if session_root_locked {
+                eprintln!(
+                    "[TOOL-DEBUG] shell_exec approval skipped: locked workspace session={} write-risk=Unknown",
+                    normalized_session
+                );
+            } else {
+                let message = format!(
+                    "无法判定该命令是否会修改已有文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",
+                    cwd.to_string_lossy()
+                );
+                let approved = terminal_request_user_approval(
+                    state,
+                    "终端执行审批",
+                    &message,
+                    &normalized_session,
+                    "unknown_write_risk",
+                    Some(&cwd),
+                    Some(cmd),
+                    None,
+                    None,
+                    &[],
+                )
+                .await?;
+                if !approved {
+                    return Ok(serde_json::json!({
+                        "ok": false,
+                        "approved": false,
+                        "blockedReason": "user_denied_unknown_write_risk",
+                        "message": "User denied command with unknown write risk.",
+                        "sessionId": normalized_session,
+                        "rootPath": session_root.to_string_lossy().to_string(),
+                        "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                        "cwd": cwd.to_string_lossy().to_string(),
+                        "command": cmd,
+                    }));
+                }
             }
         }
     }
