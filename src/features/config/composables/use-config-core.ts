@@ -1,4 +1,4 @@
-import type { ComputedRef } from "vue";
+﻿import type { ComputedRef } from "vue";
 import { normalizeLocale } from "../../../i18n";
 import type { ApiConfigItem, AppConfig } from "../../../types/app";
 
@@ -37,22 +37,15 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enabled: true,
       values: {},
     },
-    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
+    { id: "websearch", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
     { id: "memory-save", command: "builtin", args: ["memory-save"], enabled: true, values: {} },
-    { id: "desktop-screenshot", command: "builtin", args: ["desktop-screenshot"], enabled: false, values: {} },
-    { id: "desktop-wait", command: "builtin", args: ["desktop-wait"], enabled: false, values: {} },
-    { id: "shell-exec", command: "builtin", args: ["shell-exec"], enabled: false, values: {} },
+    { id: "screenshot", command: "builtin", args: ["screenshot"], enabled: false, values: {} },
+    { id: "wait", command: "builtin", args: ["wait"], enabled: false, values: {} },
+    { id: "exec", command: "builtin", args: ["exec"], enabled: false, values: {} },
     {
-      id: "shell-switch-workspace",
+      id: "reload",
       command: "builtin",
-      args: ["shell-switch-workspace"],
-      enabled: false,
-      values: {},
-    },
-    {
-      id: "refresh-mcp-skills",
-      command: "builtin",
-      args: ["refresh-mcp-skills"],
+      args: ["reload"],
       enabled: true,
       values: {},
     },
@@ -330,3 +323,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     buildConfigSnapshotJson,
   };
 }
+
+
+
+

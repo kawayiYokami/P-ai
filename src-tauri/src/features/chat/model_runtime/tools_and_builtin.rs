@@ -515,7 +515,7 @@ fn send_tool_status_event(
 }
 
 fn tool_enabled(selected_api: &ApiConfig, id: &str) -> bool {
-    if matches!(id, "desktop-screenshot" | "desktop-wait") && !selected_api.enable_image {
+    if matches!(id, "screenshot" | "wait") && !selected_api.enable_image {
         return false;
     }
     selected_api.enable_tools
@@ -876,7 +876,7 @@ async fn builtin_bing_search(query: &str) -> Result<Value, String> {
         let url = format!("{base}/search?q={}", urlencoding::encode(raw_query));
         last_request_url = Some(url.clone());
         eprintln!(
-            "[TOOL-DEBUG] bing-search request_url query={} url={}",
+            "[TOOL-DEBUG] websearch request_url query={} url={}",
             raw_query, url
         );
         let resp = client
@@ -1125,7 +1125,7 @@ async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {
     serde_json::to_value(res).map_err(|err| format!("serialize desktop wait result failed: {err}"))
 }
 
-async fn builtin_refresh_mcp_and_skills(app_state: &AppState) -> Result<Value, String> {
+async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
     let mut result = {
         let guard = app_state
             .state_lock
@@ -1194,12 +1194,6 @@ struct TerminalExecToolArgs {
     timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ShellSwitchWorkspaceToolArgs {
-    workspace_name: String,
-    #[serde(default)]
-    reason: Option<String>,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct BuiltinFetchTool;
@@ -1248,15 +1242,15 @@ impl Tool for BuiltinFetchTool {
 struct BuiltinBingSearchTool;
 
 impl Tool for BuiltinBingSearchTool {
-    const NAME: &'static str = "bing_search";
+    const NAME: &'static str = "websearch";
     type Error = ToolInvokeError;
     type Args = BingSearchToolArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "bing_search".to_string(),
-            description: "Search web with Bing.".to_string(),
+            name: "websearch".to_string(),
+            description: "Search the web.".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
@@ -1269,7 +1263,7 @@ impl Tool for BuiltinBingSearchTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=bing-search args={}",
+            "[TOOL-DEBUG] execute_builtin_tool.start name=websearch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
         let result = builtin_bing_search(&args.query)
@@ -1277,11 +1271,11 @@ impl Tool for BuiltinBingSearchTool {
             .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=bing-search result={}",
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=websearch result={}",
                 debug_value_snippet(v, 240)
             ),
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=bing-search err={err}")
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=websearch err={err}")
             }
         }
         result
@@ -1350,14 +1344,14 @@ impl Tool for BuiltinMemorySaveTool {
 struct BuiltinDesktopWaitTool;
 
 impl Tool for BuiltinDesktopWaitTool {
-    const NAME: &'static str = "desktop_wait";
+    const NAME: &'static str = "wait";
     type Error = ToolInvokeError;
     type Args = DesktopWaitToolArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "desktop_wait".to_string(),
+            name: "wait".to_string(),
             description: "Wait for specified milliseconds.".to_string(),
             parameters: serde_json::json!({
               "type": "object",
@@ -1371,16 +1365,16 @@ impl Tool for BuiltinDesktopWaitTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=desktop-wait args={}",
+            "[TOOL-DEBUG] execute_builtin_tool.start name=wait args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
         let result = builtin_desktop_wait(args.ms).await.map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=desktop-wait result={}",
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=wait result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=desktop-wait err={err}"),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=wait err={err}"),
         }
         result
     }
@@ -1392,15 +1386,15 @@ struct BuiltinRefreshMcpAndSkillsTool {
 }
 
 impl Tool for BuiltinRefreshMcpAndSkillsTool {
-    const NAME: &'static str = "refresh_mcp_and_skills";
+    const NAME: &'static str = "reload";
     type Error = ToolInvokeError;
     type Args = RefreshMcpAndSkillsToolArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "refresh_mcp_and_skills".to_string(),
-            description: "Reload MCP and SKILL from llm-workspace and return latest skill summary."
+            name: "reload".to_string(),
+            description: "Reload MCP and skill from workspace."
                 .to_string(),
             parameters: serde_json::json!({
               "type": "object",
@@ -1411,17 +1405,17 @@ impl Tool for BuiltinRefreshMcpAndSkillsTool {
     }
 
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!("[TOOL-DEBUG] execute_builtin_tool.start name=refresh-mcp-and-skills");
-        let result = builtin_refresh_mcp_and_skills(&self.app_state)
+        eprintln!("[TOOL-DEBUG] execute_builtin_tool.start name=reload");
+        let result = builtin_reload(&self.app_state)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=refresh-mcp-and-skills result={}",
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=reload result={}",
                 debug_value_snippet(v, 240)
             ),
             Err(err) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.err name=refresh-mcp-and-skills err={err}"
+                "[TOOL-DEBUG] execute_builtin_tool.err name=reload err={err}"
             ),
         }
         result
@@ -1435,15 +1429,15 @@ struct BuiltinTerminalExecTool {
 }
 
 impl Tool for BuiltinTerminalExecTool {
-    const NAME: &'static str = "shell_exec";
+    const NAME: &'static str = "exec";
     type Error = ToolInvokeError;
     type Args = TerminalExecToolArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "shell_exec".to_string(),
-            description: "Execute a shell command inside current shell workspace root."
+            name: "exec".to_string(),
+            description: "Execute a command inside current shell workspace root."
                 .to_string(),
             parameters: serde_json::json!({
               "type": "object",
@@ -1459,7 +1453,7 @@ impl Tool for BuiltinTerminalExecTool {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
         eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=shell-exec args={}",
+            "[TOOL-DEBUG] execute_builtin_tool.start name=exec args={}",
             debug_value_snippet(&args_json, 240)
         );
         let result = builtin_shell_exec(
@@ -1472,69 +1466,15 @@ impl Tool for BuiltinTerminalExecTool {
         .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=shell-exec result={}",
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=exec result={}",
                 debug_value_snippet(v, 240)
             ),
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=shell-exec err={err}")
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=exec err={err}")
             }
         }
         result
     }
 }
 
-#[derive(Debug, Clone)]
-struct BuiltinShellSwitchWorkspaceTool {
-    app_state: AppState,
-    session_id: String,
-}
 
-impl Tool for BuiltinShellSwitchWorkspaceTool {
-    const NAME: &'static str = "shell_switch_workspace";
-    type Error = ToolInvokeError;
-    type Args = ShellSwitchWorkspaceToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "shell_switch_workspace".to_string(),
-            description:
-                "Switch shell workspace root by workspaceName."
-                .to_string(),
-            parameters: serde_json::json!({
-              "type": "object",
-              "properties": {
-                "workspace_name": { "type": "string", "description": "Configured workspace name" },
-                "reason": { "type": "string", "description": "Why this path is needed" }
-              },
-              "required": ["workspace_name"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
-        eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=shell-switch-workspace args={}",
-            debug_value_snippet(&args_json, 240)
-        );
-        let result = builtin_shell_switch_workspace(
-            &self.app_state,
-            &self.session_id,
-            &args.workspace_name,
-            args.reason.as_deref(),
-        )
-        .await
-        .map_err(ToolInvokeError::from);
-        match &result {
-            Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=shell-switch-workspace result={}",
-                debug_value_snippet(v, 240)
-            ),
-            Err(err) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.err name=shell-switch-workspace err={err}"
-            ),
-        }
-        result
-    }
-}

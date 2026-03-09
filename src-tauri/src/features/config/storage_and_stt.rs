@@ -1,4 +1,4 @@
-fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
+﻿fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "Config path has no parent directory".to_string())?;
@@ -46,6 +46,32 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 200_000);
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
+        for tool in &mut api.tools {
+            match tool.id.as_str() {
+                "bing-search" => {
+                    tool.id = "websearch".to_string();
+                }
+                "desktop-screenshot" => {
+                    tool.id = "screenshot".to_string();
+                    tool.args = vec!["screenshot".to_string()];
+                }
+                "desktop-wait" => {
+                    tool.id = "wait".to_string();
+                    tool.args = vec!["wait".to_string()];
+                }
+                "shell-exec" => {
+                    tool.id = "exec".to_string();
+                    tool.args = vec!["exec".to_string()];
+                }
+                "shell-switch-workspace" => {
+                    tool.id = "__removed_shell_switch_workspace__".to_string();
+                }
+                _ => {}
+            }
+        }
+        api.tools.retain(|tool| tool.id != "__removed_shell_switch_workspace__");
+        api.tools.sort_by(|a, b| a.id.cmp(&b.id));
+        api.tools.dedup_by(|a, b| a.id == b.id);
         if api.enable_tools {
             if api.tools.is_empty() {
                 api.tools = default_api_tools();
@@ -781,3 +807,7 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
     request_format.is_openai_style()
 }
+
+
+
+

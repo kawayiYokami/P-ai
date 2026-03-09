@@ -121,7 +121,7 @@
       "descDesktopWait": "按毫秒等待，用于操作节奏控制。",
       "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
       "descTerminalPathAccess": "设置当前会话的终端根目录（超出根目录将被拒绝）。",
-      "descRefreshMcpSkills": "刷新 llm-workspace 中的 MCP 與 SKILL，並返回最新摘要。",
+      "descReload": "重載工作區中的 MCP 與 Skill。",
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空間",
       "newWorkspace": "新建",
@@ -496,3 +496,4 @@
     "github": "GitHub 仓库"
   }
 }
+

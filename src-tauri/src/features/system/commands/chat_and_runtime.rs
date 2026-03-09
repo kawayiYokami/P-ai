@@ -1250,7 +1250,7 @@ fn check_tools_status(
             });
             continue;
         }
-        if matches!(tool.id.as_str(), "desktop-screenshot" | "desktop-wait") && !selected.enable_image {
+        if matches!(tool.id.as_str(), "screenshot" | "wait") && !selected.enable_image {
             statuses.push(ToolLoadStatus {
                 id: tool.id,
                 status: "unavailable".to_string(),
@@ -1260,15 +1260,15 @@ fn check_tools_status(
         }
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
-            "bing-search" => ("loaded".to_string(), "内置 Bing 爬虫搜索可用".to_string()),
+            "websearch" => ("loaded".to_string(), "内置网页搜索工具可用".to_string()),
             "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
-            "desktop-screenshot" => ("loaded".to_string(), "桌面截图工具可用".to_string()),
-            "desktop-wait" => ("loaded".to_string(), "桌面等待工具可用".to_string()),
-            "refresh-mcp-skills" => (
+            "screenshot" => ("loaded".to_string(), "截图工具可用".to_string()),
+            "wait" => ("loaded".to_string(), "等待工具可用".to_string()),
+            "reload" => (
                 "loaded".to_string(),
-                "MCP/Skill 刷新工具可用".to_string(),
+                "MCP/Skill 重载工具可用".to_string(),
             ),
-            "shell-exec" => {
+            "exec" => {
                 #[cfg(target_os = "windows")]
                 {
                     if state.terminal_shell.kind == "missing-git-bash" {
@@ -1278,30 +1278,12 @@ fn check_tools_status(
                                 .to_string(),
                         )
                     } else {
-                        ("loaded".to_string(), "终端执行工具可用".to_string())
+                        ("loaded".to_string(), "执行工具可用".to_string())
                     }
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    ("loaded".to_string(), "终端执行工具可用".to_string())
-                }
-            }
-            "shell-switch-workspace" => {
-                #[cfg(target_os = "windows")]
-                {
-                    if state.terminal_shell.kind == "missing-git-bash" {
-                        (
-                            "unavailable".to_string(),
-                            "未检测到 Git Bash。请安装 Git for Windows 后再启用终端工具。"
-                                .to_string(),
-                        )
-                    } else {
-                        ("loaded".to_string(), "终端根目录设置工具可用".to_string())
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    ("loaded".to_string(), "终端根目录设置工具可用".to_string())
+                    ("loaded".to_string(), "执行工具可用".to_string())
                 }
             }
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
@@ -1360,3 +1342,7 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
         latest_updated_at: None,
     })
 }
+
+
+
+

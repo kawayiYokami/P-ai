@@ -232,7 +232,7 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "bing-search".to_string(),
+            id: "websearch".to_string(),
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "bing-cn-mcp".to_string()],
             enabled: true,
@@ -246,37 +246,30 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "desktop-screenshot".to_string(),
+            id: "screenshot".to_string(),
             command: "builtin".to_string(),
-            args: vec!["desktop-screenshot".to_string()],
+            args: vec!["screenshot".to_string()],
             enabled: false,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "desktop-wait".to_string(),
+            id: "wait".to_string(),
             command: "builtin".to_string(),
-            args: vec!["desktop-wait".to_string()],
+            args: vec!["wait".to_string()],
             enabled: false,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "shell-exec".to_string(),
+            id: "exec".to_string(),
             command: "builtin".to_string(),
-            args: vec!["shell-exec".to_string()],
+            args: vec!["exec".to_string()],
             enabled: false,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "shell-switch-workspace".to_string(),
+            id: "reload".to_string(),
             command: "builtin".to_string(),
-            args: vec!["shell-switch-workspace".to_string()],
-            enabled: false,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
-            id: "refresh-mcp-skills".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["refresh-mcp-skills".to_string()],
+            args: vec!["reload".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
@@ -1210,3 +1203,5 @@ struct ConversationApiSettings {
     #[serde(default)]
     stt_auto_send: bool,
 }
+
+
