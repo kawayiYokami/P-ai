@@ -279,6 +279,7 @@ fn main() {
             xcap,
             desktop_wait,
             terminal_self_check,
+            open_chat_shell_workspace_dir,
             get_chat_shell_workspace,
             lock_chat_shell_workspace,
             unlock_chat_shell_workspace,

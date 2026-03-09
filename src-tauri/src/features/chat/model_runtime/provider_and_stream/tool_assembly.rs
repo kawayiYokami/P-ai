@@ -21,7 +21,8 @@ async fn assemble_runtime_tools(
 ) -> Result<RuntimeToolAssembly, String> {
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_websearch = tool_enabled(selected_api, "websearch");
-    let has_memory = tool_enabled(selected_api, "memory-save");
+    let has_remember = tool_enabled(selected_api, "remember");
+    let has_recall = tool_enabled(selected_api, "recall");
     let has_screenshot = tool_enabled(selected_api, "screenshot");
     let has_wait = tool_enabled(selected_api, "wait");
     let has_refresh_mcp_skills = tool_enabled(selected_api, "reload");
@@ -60,16 +61,16 @@ async fn assemble_runtime_tools(
         tools.push(Box::new(BuiltinBingSearchTool));
     }
 
-    if has_memory {
+    if has_remember {
         let state = app_state
-            .ok_or_else(|| "memory_save requires app state".to_string())?
+            .ok_or_else(|| "remember requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinMemorySaveTool {
+        tools.push(Box::new(BuiltinRememberTool {
             app_state: state,
         }));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "memory-save",
+            "remember",
             true,
             true,
             None,
@@ -77,7 +78,31 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "memory-save",
+            "remember",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    if has_recall {
+        let state = app_state
+            .ok_or_else(|| "recall requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinRecallTool {
+            app_state: state,
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "recall",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "recall",
             false,
             false,
             Some("disabled in api tools config".to_string()),

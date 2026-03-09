@@ -116,7 +116,8 @@
       "statusUnknown": "未知状态",
       "descFetch": "抓取网页内容并提取正文。",
       "descBingSearch": "执行网络搜索并返回候选结果。",
-      "descMemorySave": "把关键信息写入长期记忆。",
+      "descRemember": "把关键信息记住为长期记忆。",
+      "descRecall": "按查询回忆相关记忆，并返回记忆板。",
       "descDesktopScreenshot": "捕获当前整个桌面的图像内容。",
       "descDesktopWait": "按毫秒等待，用于操作节奏控制。",
       "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
@@ -124,13 +125,15 @@
       "descReload": "重载工作区中的 MCP 与 Skill。",
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空间",
+      "openDir": "打开目录",
       "newWorkspace": "新建",
+      "modifyWorkspace": "修改工作空间",
       "save": "保存",
       "delete": "删除",
       "workspaceName": "工作空间名称",
       "selectPath": "选择路径",
       "directoryPath": "目录路径",
-      "workspaceHint": "仅允许切换到这些工作空间；名称必须唯一；默认工作空间不可删除。"
+      "workspaceHint": "终端执行使用当前工作空间；修改路径后请保存，再由执行工具使用。"
     },
     "persona": {
       "title": "人格",

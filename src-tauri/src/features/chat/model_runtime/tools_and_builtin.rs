@@ -1115,6 +1115,46 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
     }))
 }
 
+fn builtin_recall(app_state: &AppState, query: &str) -> Result<Value, String> {
+    let trimmed_query = query.trim();
+    if trimmed_query.is_empty() {
+        return Err("recall.query is required".to_string());
+    }
+
+    let memories = {
+        let guard = app_state
+            .state_lock
+            .lock()
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        let mut data = read_app_data(&app_state.data_path)?;
+        ensure_default_agent(&mut data);
+        let selected_agent_id = data.selected_agent_id.clone();
+        let private_memory_enabled = data
+            .agents
+            .iter()
+            .find(|a| a.id == selected_agent_id)
+            .map(|a| a.private_memory_enabled)
+            .unwrap_or(false);
+        let memories = memory_store_list_memories_visible_for_agent(
+            &app_state.data_path,
+            &selected_agent_id,
+            private_memory_enabled,
+        )?;
+        drop(guard);
+        memories
+    };
+
+    let recall_hit_ids = memory_recall_hit_ids(&app_state.data_path, &memories, trimmed_query);
+    let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
+    let memory_board = build_memory_board_xml_from_recall_ids(&memories, &latest_recall_ids)
+        .unwrap_or_default();
+
+    Ok(serde_json::json!({
+      "memoryBoard": memory_board,
+      "count": latest_recall_ids.len()
+    }))
+}
+
 async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {
     let res = run_wait_tool(WaitRequest {
         mode: WaitMode::Sleep,
@@ -1177,6 +1217,11 @@ struct MemorySaveToolArgs {
     judgment: String,
     reasoning: Option<String>,
     tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct RecallToolArgs {
+    query: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1283,19 +1328,19 @@ impl Tool for BuiltinBingSearchTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinMemorySaveTool {
+struct BuiltinRememberTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinMemorySaveTool {
-    const NAME: &'static str = "memory_save";
+impl Tool for BuiltinRememberTool {
+    const NAME: &'static str = "remember";
     type Error = ToolInvokeError;
     type Args = MemorySaveToolArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "memory_save".to_string(),
+            name: "remember".to_string(),
             description: "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。"
                 .to_string(),
             parameters: serde_json::json!({
@@ -1323,18 +1368,62 @@ impl Tool for BuiltinMemorySaveTool {
             "tags": args.tags,
         });
         eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=memory-save args={}",
+            "[TOOL-DEBUG] execute_builtin_tool.start name=remember args={}",
             debug_value_snippet(&args_json, 240)
         );
         let result = builtin_memory_save(&self.app_state, args_json).map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=memory-save result={}",
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=remember result={}",
                 debug_value_snippet(v, 240)
             ),
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=memory-save err={err}")
+                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=remember err={err}")
             }
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinRecallTool {
+    app_state: AppState,
+}
+
+impl Tool for BuiltinRecallTool {
+    const NAME: &'static str = "recall";
+    type Error = ToolInvokeError;
+    type Args = RecallToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "recall".to_string(),
+            description: "按查询回忆相关记忆，并返回可直接注入提示词的记忆板。"
+                .to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "query": { "type": "string", "description": "回忆查询文本" }
+              },
+              "required": ["query"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=recall args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let result = builtin_recall(&self.app_state, &args.query).map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=recall result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=recall err={err}"),
         }
         result
     }

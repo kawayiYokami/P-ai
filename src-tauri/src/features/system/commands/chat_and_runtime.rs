@@ -1261,7 +1261,8 @@ fn check_tools_status(
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
             "websearch" => ("loaded".to_string(), "内置网页搜索工具可用".to_string()),
-            "memory-save" => ("loaded".to_string(), "内置记忆工具可用".to_string()),
+            "remember" => ("loaded".to_string(), "记住工具可用".to_string()),
+            "recall" => ("loaded".to_string(), "回忆工具可用".to_string()),
             "screenshot" => ("loaded".to_string(), "截图工具可用".to_string()),
             "wait" => ("loaded".to_string(), "等待工具可用".to_string()),
             "reload" => (

@@ -345,6 +345,42 @@ fn resolve_workspace_display_name(state: &AppState, root: &Path) -> String {
     workspace_name_from_path(root)
 }
 
+fn open_shell_path_in_file_manager(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(path)
+            .status()
+            .map_err(|err| format!("Open in explorer failed: {err}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .status()
+            .map_err(|err| format!("Open in Finder failed: {err}"))?;
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .status()
+            .map_err(|err| format!("Open in file manager failed: {err}"))?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err("Open in file manager is not supported on this platform".to_string())
+}
+
+#[tauri::command]
+fn open_chat_shell_workspace_dir(state: State<'_, AppState>) -> Result<String, String> {
+    let root = terminal_default_session_root_canonical(&state)?;
+    open_shell_path_in_file_manager(&root)?;
+    Ok(root.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn get_chat_shell_workspace(
     input: ChatShellWorkspaceInput,
@@ -427,4 +463,3 @@ fn resolve_terminal_approval(
     let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
     Ok(())
 }
-

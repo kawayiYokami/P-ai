@@ -116,7 +116,8 @@
       "statusUnknown": "Unknown",
       "descFetch": "Fetch webpage content and extract readable text.",
       "descBingSearch": "Run web search and return candidate results.",
-      "descMemorySave": "Save key facts into long-term memory.",
+      "descRemember": "Remember key facts as long-term memory.",
+      "descRecall": "Recall related memory and return a memory board.",
       "descDesktopScreenshot": "Capture the current full desktop image.",
       "descDesktopWait": "Pause by milliseconds to control action pacing.",
       "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
@@ -124,13 +125,15 @@
       "descReload": "Reload MCP and skill from workspace.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
+      "openDir": "Open Directory",
       "newWorkspace": "New",
+      "modifyWorkspace": "Change Workspace",
       "save": "Save",
       "delete": "Delete",
       "workspaceName": "Workspace Name",
       "selectPath": "Select Path",
       "directoryPath": "Directory Path",
-      "workspaceHint": "Only allow switching to these workspaces; names must be unique; default workspaces cannot be deleted."
+      "workspaceHint": "Terminal execution uses the current workspace; save after changing the path so exec can use it."
     },
     "persona": {
       "title": "Persona",

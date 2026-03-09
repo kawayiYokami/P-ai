@@ -10,7 +10,7 @@
         <div class="flex items-center justify-between gap-3 p-4">
           <span class="text-sm font-medium">{{ t('config.tools.shellWorkspace') }}</span>
           <div class="flex items-center gap-2">
-            <button class="btn btn-sm" type="button" @click="addWorkspace">{{ t('config.tools.newWorkspace') }}</button>
+            <button class="btn btn-sm" type="button" @click="openShellWorkspaceDir">{{ t('config.tools.openDir') }}</button>
             <button class="btn btn-sm btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
               {{ t('config.tools.save') }}
             </button>
@@ -20,10 +20,9 @@
           <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`" class="rounded-box border border-base-300 p-3 bg-base-200">
             <div class="flex items-center gap-2 mb-3">
               <input v-model.trim="ws.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.tools.workspaceName')" />
-              <button class="btn btn-sm bg-base-100" type="button" :disabled="!!ws.builtIn" @click="pickWorkspacePath(index)">{{ t('config.tools.selectPath') }}</button>
-              <button class="btn btn-sm btn-ghost" type="button" :disabled="!!ws.builtIn" @click="removeWorkspace(index)">{{ t('config.tools.delete') }}</button>
+              <button class="btn btn-sm bg-base-100" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspace') }}</button>
             </div>
-            <input v-model.trim="ws.path" class="input input-bordered input-sm w-full font-mono" :placeholder="t('config.tools.directoryPath')" :disabled="!!ws.builtIn" />
+            <input v-model.trim="ws.path" class="input input-bordered input-sm w-full font-mono" :placeholder="t('config.tools.directoryPath')" />
           </div>
         </div>
         <div class="mt-3 px-4 pb-4 text-[11px] opacity-70">
@@ -157,19 +156,9 @@ const waitMs = ref(800);
 const screenshotPreviewDataUrl = ref("");
 const screenshotDialogRef = ref<HTMLDialogElement | null>(null);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
-function addWorkspace() {
-  if (!Array.isArray(props.config.shellWorkspaces)) props.config.shellWorkspaces = [];
-  props.config.shellWorkspaces.push({
-    name: "",
-    path: "",
-    builtIn: false,
-  });
-}
 
-function removeWorkspace(index: number) {
-  const item = props.config.shellWorkspaces[index];
-  if (!item || item.builtIn) return;
-  props.config.shellWorkspaces.splice(index, 1);
+async function openShellWorkspaceDir() {
+  await invokeTauri<string>("open_chat_shell_workspace_dir");
 }
 
 function defaultWorkspaceNameFromPath(path: string): string {
@@ -215,7 +204,8 @@ function statusDotClass(id: string): string {
 function toolDescription(id: string): string {
   if (id === "fetch") return t("config.tools.descFetch");
   if (id === "websearch") return t("config.tools.descBingSearch");
-  if (id === "memory-save") return t("config.tools.descMemorySave");
+  if (id === "remember") return t("config.tools.descRemember");
+  if (id === "recall") return t("config.tools.descRecall");
   if (id === "screenshot") return t("config.tools.descDesktopScreenshot");
   if (id === "wait") return t("config.tools.descDesktopWait");
   if (id === "exec") return t("config.tools.descTerminalExec");

@@ -239,9 +239,16 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "memory-save".to_string(),
+            id: "remember".to_string(),
             command: "builtin".to_string(),
-            args: vec!["memory-save".to_string()],
+            args: vec!["remember".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "recall".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["recall".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
