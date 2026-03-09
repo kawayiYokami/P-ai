@@ -382,6 +382,14 @@ fn open_chat_shell_workspace_dir(state: State<'_, AppState>) -> Result<String, S
 }
 
 #[tauri::command]
+fn reset_chat_shell_workspace(state: State<'_, AppState>) -> Result<String, String> {
+    let root = terminal_default_session_root_canonical(&state)?;
+    ensure_workspace_mcp_layout(&state)?;
+    ensure_workspace_skills_layout(&state)?;
+    Ok(root.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn get_chat_shell_workspace(
     input: ChatShellWorkspaceInput,
     state: State<'_, AppState>,
