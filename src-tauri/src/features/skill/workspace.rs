@@ -12,14 +12,53 @@ fn sync_skill_template_file(path: &PathBuf, content: &str) -> Result<(), String>
     fs::write(path, content).map_err(|err| format!("Write file failed ({}): {err}", path.display()))
 }
 
+fn sync_workspace_preset_skill(
+    skills_root: &PathBuf,
+    skill_dir_name: &str,
+    skill_md: &str,
+) -> Result<(), String> {
+    let dir = skills_root.join(skill_dir_name);
+    fs::create_dir_all(&dir)
+        .map_err(|err| format!("Create preset skill dir failed ({}): {err}", dir.display()))?;
+    sync_skill_template_file(&dir.join("SKILL.md"), skill_md)
+}
+
 pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), String> {
     let skills_root = llm_workspace_skills_root(state);
     fs::create_dir_all(&skills_root)
         .map_err(|err| format!("Create skills dir failed ({}): {err}", skills_root.display()))?;
-    sync_skill_template_file(
-        &skills_root.join("README.md"),
-        include_str!("README.workspace.md"),
+
+    let legacy_readme = skills_root.join("README.md");
+    if legacy_readme.exists() {
+        let _ = fs::remove_file(&legacy_readme);
+    }
+
+    sync_workspace_preset_skill(
+        &skills_root,
+        "browser-automation",
+        include_str!("../../../resources/preset-skills/browser-automation/SKILL.md"),
     )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "news-analyst",
+        include_str!("../../../resources/preset-skills/news-analyst/SKILL.md"),
+    )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "skill-setup",
+        include_str!("../../../resources/preset-skills/skill-setup/SKILL.md"),
+    )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "mcp-setup",
+        include_str!("../../../resources/preset-skills/mcp-setup/SKILL.md"),
+    )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "workspace-guide",
+        include_str!("../../../resources/preset-skills/workspace-guide/SKILL.md"),
+    )?;
+
     Ok(())
 }
 
@@ -27,7 +66,12 @@ fn parse_skill_frontmatter_fields(skill_md_path: &PathBuf) -> Result<(String, St
     let content = fs::read_to_string(skill_md_path)
         .map_err(|err| format!("Read SKILL.md failed ({}): {err}", skill_md_path.display()))?;
     let mut lines = content.lines();
-    let first = lines.next().unwrap_or_default().trim().to_string();
+    let first = lines
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches('\u{feff}')
+        .trim()
+        .to_string();
     if first != "---" {
         return Err("SKILL.md must start with YAML frontmatter".to_string());
     }

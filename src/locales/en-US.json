@@ -126,6 +126,7 @@
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
       "openDir": "Open Directory",
+      "resetWorkspace": "Reset Workspace",
       "newWorkspace": "New",
       "modifyWorkspace": "Change Workspace",
       "save": "Save",
@@ -133,7 +134,12 @@
       "workspaceName": "Workspace Name",
       "selectPath": "Select Path",
       "directoryPath": "Directory Path",
-      "workspaceHint": "Terminal execution uses the current workspace; save after changing the path so exec can use it."
+      "workspaceHint": "Terminal execution uses the current workspace; save after changing the path so exec can use it.",
+      "openDirOpened": "Opened directory: {path}",
+      "openDirFailed": "Failed to open directory: {err}",
+      "resetWorkspaceConfirm": "Restore the default preset files in the shell workspace? This will not delete your custom directories or repositories.",
+      "resetWorkspaceDone": "Restored default shell workspace content: {path}",
+      "resetWorkspaceFailed": "Failed to reset shell workspace: {err}"
     },
     "persona": {
       "title": "Persona",
@@ -264,9 +270,7 @@
       "saved": "Saved: {name}",
       "deleted": "Deleted: {id}",
       "transport": "transport={transport}",
-      "openDir": "Open Directory",
-      "openDirOpened": "Opened directory: {path}",
-      "openDirFailed": "Failed to open directory: {err}"
+      "openDir": "Open Directory"
     },
     "mcpServerCard": {
       "displayNamePlaceholder": "Display Name",
@@ -499,4 +503,3 @@
     "github": "GitHub Repository"
   }
 }
-

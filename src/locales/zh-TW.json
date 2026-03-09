@@ -126,6 +126,7 @@
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空間",
       "openDir": "打開目錄",
+      "resetWorkspace": "重置工作空間",
       "newWorkspace": "新建",
       "modifyWorkspace": "修改工作空間",
       "save": "儲存",
@@ -133,7 +134,12 @@
       "workspaceName": "工作空間名稱",
       "selectPath": "選擇路徑",
       "directoryPath": "目錄路徑",
-      "workspaceHint": "終端執行使用目前工作空間；修改路徑後請先保存，再由執行工具使用。"
+      "workspaceHint": "終端執行使用目前工作空間；修改路徑後請先保存，再由執行工具使用。",
+      "openDirOpened": "已打開目錄: {path}",
+      "openDirFailed": "打開目錄失敗: {err}",
+      "resetWorkspaceConfirm": "確認恢復 Shell 工作空間中的預設文件？這不會刪除你的自定義目錄或倉庫。",
+      "resetWorkspaceDone": "已恢復 Shell 工作空間預設內容: {path}",
+      "resetWorkspaceFailed": "重置 Shell 工作空間失敗: {err}"
     },
     "persona": {
       "title": "人格",
@@ -264,9 +270,7 @@
       "saved": "已儲存: {name}",
       "deleted": "已刪除: {id}",
       "transport": "transport={transport}",
-      "openDir": "打開目錄",
-      "openDirOpened": "已打開目錄: {path}",
-      "openDirFailed": "打開目錄失敗: {err}"
+      "openDir": "打開目錄"
     },
     "mcpServerCard": {
       "displayNamePlaceholder": "顯示名稱",
@@ -499,4 +503,3 @@
     "github": "GitHub 仓库"
   }
 }
-

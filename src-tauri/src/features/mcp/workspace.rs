@@ -27,14 +27,6 @@ fn llm_workspace_mcp_policies_dir(state: &AppState) -> PathBuf {
     llm_workspace_mcp_root(state).join("policies")
 }
 
-fn sync_mcp_template_file(path: &PathBuf, content: &str) -> Result<(), String> {
-    let current = fs::read_to_string(path).ok();
-    if current.as_deref() == Some(content) {
-        return Ok(());
-    }
-    fs::write(path, content).map_err(|err| format!("Write file failed ({}): {err}", path.display()))
-}
-
 fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
     let mcp_root = llm_workspace_mcp_root(state);
     let mcp_servers = llm_workspace_mcp_servers_dir(state);
@@ -43,10 +35,10 @@ fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
         .map_err(|err| format!("Create MCP servers dir failed ({}): {err}", mcp_servers.display()))?;
     fs::create_dir_all(&mcp_policies)
         .map_err(|err| format!("Create MCP policies dir failed ({}): {err}", mcp_policies.display()))?;
-    sync_mcp_template_file(
-        &mcp_root.join("README.md"),
-        include_str!("README.workspace.md"),
-    )?;
+    let legacy_readme = mcp_root.join("README.md");
+    if legacy_readme.exists() {
+        let _ = fs::remove_file(&legacy_readme);
+    }
     Ok(())
 }
 
