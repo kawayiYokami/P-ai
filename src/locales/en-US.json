@@ -121,7 +121,7 @@
       "descDesktopWait": "Pause by milliseconds to control action pacing.",
       "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
       "descTerminalPathAccess": "Set terminal root directory for current session (outside root is blocked).",
-      "descRefreshMcpSkills": "Refresh MCP and skill from llm-workspace and return latest summary.",
+      "descReload": "Reload MCP and skill from workspace.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
       "newWorkspace": "New",
@@ -496,3 +496,4 @@
     "github": "GitHub Repository"
   }
 }
+

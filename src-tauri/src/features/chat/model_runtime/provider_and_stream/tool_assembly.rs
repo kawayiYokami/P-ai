@@ -1,20 +1,3 @@
-fn shell_switch_workspace_enabled_for_session(
-    selected_api: &ApiConfig,
-    app_state: Option<&AppState>,
-    tool_session_id: &str,
-) -> bool {
-    if !tool_enabled(selected_api, "shell-switch-workspace") {
-        return false;
-    }
-    let Some(state) = app_state else {
-        return false;
-    };
-    if terminal_session_has_locked_root(state, tool_session_id) {
-        return false;
-    }
-    true
-}
-
 fn tool_manifest_item(
     source: &str,
     name: &str,
@@ -37,14 +20,12 @@ async fn assemble_runtime_tools(
     tool_session_id: &str,
 ) -> Result<RuntimeToolAssembly, String> {
     let has_fetch = tool_enabled(selected_api, "fetch");
-    let has_bing = tool_enabled(selected_api, "bing-search");
+    let has_websearch = tool_enabled(selected_api, "websearch");
     let has_memory = tool_enabled(selected_api, "memory-save");
-    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
-    let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
-    let has_refresh_mcp_skills = tool_enabled(selected_api, "refresh-mcp-skills");
-    let has_shell_switch_workspace =
-        shell_switch_workspace_enabled_for_session(selected_api, app_state, tool_session_id);
-    let has_shell_exec = tool_enabled(selected_api, "shell-exec");
+    let has_screenshot = tool_enabled(selected_api, "screenshot");
+    let has_wait = tool_enabled(selected_api, "wait");
+    let has_refresh_mcp_skills = tool_enabled(selected_api, "reload");
+    let has_exec = tool_enabled(selected_api, "exec");
 
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
@@ -66,16 +47,16 @@ async fn assemble_runtime_tools(
 
     tool_manifest.push(tool_manifest_item(
         "builtin",
-        "bing-search",
-        has_bing,
-        has_bing,
-        if has_bing {
+        "websearch",
+        has_websearch,
+        has_websearch,
+        if has_websearch {
             None
         } else {
             Some("disabled in api tools config".to_string())
         },
     ));
-    if has_bing {
+    if has_websearch {
         tools.push(Box::new(BuiltinBingSearchTool));
     }
 
@@ -104,23 +85,23 @@ async fn assemble_runtime_tools(
     }
 
     let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
-    if has_desktop_screenshot {
+    if has_screenshot {
         match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
             Ok(client) => {
                 mcp_screenshot_client = Some(client);
                 tool_manifest.push(tool_manifest_item(
                     "builtin_mcp",
-                    "desktop-screenshot",
+                    "screenshot",
                     true,
                     true,
                     None,
                 ));
             }
             Err(err) => {
-                eprintln!("[MCP] desktop-screenshot degraded to disabled: {err}");
+                eprintln!("[MCP] screenshot degraded to disabled: {err}");
                 tool_manifest.push(tool_manifest_item(
                     "builtin_mcp",
-                    "desktop-screenshot",
+                    "screenshot",
                     true,
                     false,
                     Some(format!("MCP attach failed: {err}")),
@@ -130,7 +111,7 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin_mcp",
-            "desktop-screenshot",
+            "screenshot",
             false,
             false,
             Some("disabled in api tools config".to_string()),
@@ -171,11 +152,11 @@ async fn assemble_runtime_tools(
         }
     }
 
-    if has_desktop_wait {
+    if has_wait {
         tools.push(Box::new(BuiltinDesktopWaitTool));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "desktop-wait",
+            "wait",
             true,
             true,
             None,
@@ -183,7 +164,7 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "desktop-wait",
+            "wait",
             false,
             false,
             Some("disabled in api tools config".to_string()),
@@ -192,12 +173,12 @@ async fn assemble_runtime_tools(
 
     if has_refresh_mcp_skills {
         let state = app_state
-            .ok_or_else(|| "refresh_mcp_and_skills requires app state".to_string())?
+            .ok_or_else(|| "reload requires app state".to_string())?
             .clone();
         tools.push(Box::new(BuiltinRefreshMcpAndSkillsTool { app_state: state }));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "refresh-mcp-skills",
+            "reload",
             true,
             true,
             None,
@@ -205,39 +186,14 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "refresh-mcp-skills",
+            "reload",
             false,
             false,
             Some("disabled in api tools config".to_string()),
         ));
     }
 
-    if has_shell_switch_workspace {
-        let state = app_state
-            .ok_or_else(|| "shell_switch_workspace requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinShellSwitchWorkspaceTool {
-            app_state: state,
-            session_id: tool_session_id.to_string(),
-        }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "shell-switch-workspace",
-            true,
-            true,
-            None,
-        ));
-    } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "shell-switch-workspace",
-            false,
-            false,
-            Some("disabled in api tools config or locked workspace".to_string()),
-        ));
-    }
-
-    if has_shell_exec {
+    if has_exec {
         let state = app_state
             .ok_or_else(|| "shell_exec requires app state".to_string())?
             .clone();
@@ -247,7 +203,7 @@ async fn assemble_runtime_tools(
         }));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "shell-exec",
+            "exec",
             true,
             true,
             None,
@@ -255,7 +211,7 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "shell-exec",
+            "exec",
             false,
             false,
             Some("disabled in api tools config".to_string()),
@@ -306,3 +262,9 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     }
     Ok(client)
 }
+
+
+
+
+
+

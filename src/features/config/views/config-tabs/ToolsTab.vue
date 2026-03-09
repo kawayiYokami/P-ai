@@ -52,7 +52,7 @@
           </div>
         </template>
         <template #item-debug="{ item }">
-          <div v-if="item.id === 'desktop-screenshot'" class="mt-2">
+          <div v-if="item.id === 'screenshot'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
               <button class="btn btn-sm btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage" @click="runDesktopScreenshot">
@@ -61,7 +61,7 @@
             </div>
             <div v-if="screenshotResult" class="mt-2 text-[11px] opacity-80 break-all">{{ screenshotResult }}</div>
           </div>
-          <div v-if="item.id === 'desktop-wait'" class="mt-2">
+          <div v-if="item.id === 'wait'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
               <div class="flex items-center gap-2">
@@ -73,7 +73,7 @@
             </div>
             <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
           </div>
-          <div v-if="item.id === 'shell-exec'" class="mt-2">
+          <div v-if="item.id === 'exec'" class="mt-2">
             <div class="flex items-center justify-between gap-2">
               <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
               <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning" @click="runTerminalSelfCheck">
@@ -214,18 +214,18 @@ function statusDotClass(id: string): string {
 
 function toolDescription(id: string): string {
   if (id === "fetch") return t("config.tools.descFetch");
-  if (id === "bing-search") return t("config.tools.descBingSearch");
+  if (id === "websearch") return t("config.tools.descBingSearch");
   if (id === "memory-save") return t("config.tools.descMemorySave");
-  if (id === "desktop-screenshot") return t("config.tools.descDesktopScreenshot");
-  if (id === "desktop-wait") return t("config.tools.descDesktopWait");
-  if (id === "shell-exec") return t("config.tools.descTerminalExec");
-  if (id === "shell-switch-workspace") return t("config.tools.descTerminalPathAccess");
-  if (id === "refresh-mcp-skills") return t("config.tools.descRefreshMcpSkills");
+  if (id === "screenshot") return t("config.tools.descDesktopScreenshot");
+  if (id === "wait") return t("config.tools.descDesktopWait");
+  if (id === "exec") return t("config.tools.descTerminalExec");
+  
+  if (id === "reload") return t("config.tools.descReload");
   return t("config.tools.descGeneric");
 }
 
 function isImageBoundTool(id: string): boolean {
-  return id === "desktop-screenshot" || id === "desktop-wait";
+  return id === "screenshot" || id === "wait";
 }
 
 function toolSwitchDisabled(_id: string): boolean {
@@ -233,9 +233,9 @@ function toolSwitchDisabled(_id: string): boolean {
 }
 
 function isToolRunning(id: string): boolean {
-  if (id === "desktop-screenshot") return screenshotRunning.value;
-  if (id === "desktop-wait") return waitRunning.value;
-  if (id === "shell-exec") return terminalSelfCheckRunning.value;
+  if (id === "screenshot") return screenshotRunning.value;
+  if (id === "wait") return waitRunning.value;
+  if (id === "exec") return terminalSelfCheckRunning.value;
   return false;
 }
 
@@ -260,7 +260,7 @@ function onToggleToolItem(payload: { id: string; enabled: boolean }) {
 }
 
 function showGitInstallLink(id: string): boolean {
-  if (id !== "shell-exec") return false;
+  if (id !== "exec") return false;
   const status = toolStatusById(id);
   return status?.status === "unavailable";
 }
@@ -372,3 +372,5 @@ async function runDesktopWait() {
   }
 }
 </script>
+
+

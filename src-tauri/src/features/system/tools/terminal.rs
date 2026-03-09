@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 const TERMINAL_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 20_000;
@@ -313,7 +313,7 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
                 tool.enabled
                     && matches!(
                         tool.id.as_str(),
-                        "shell-exec" | "shell-switch-workspace"
+                        "exec"
                     )
             });
     if !terminal_enabled {
@@ -327,11 +327,11 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
 
     let mut lines = Vec::<String>::new();
     lines.push("[SHELL WORKSPACE 约束]".to_string());
-    lines.push("你只能基于“工作空间名称”进行切换，不要使用路径。".to_string());
+    lines.push("你只能在允许的工作空间根目录内执行命令。".to_string());
     lines.push("禁止在命令中使用绝对路径。".to_string());
     lines.push("禁止在命令中使用绝对路径。".to_string());
     lines.push("禁止在命令中使用绝对路径。".to_string());
-    lines.push("可用工作空间：".to_string());
+    lines.push("允许的工作空间根目录：".to_string());
     for (index, ws) in workspaces.iter().enumerate() {
         lines.push(format!("{}. {}", index + 1, ws.name));
     }
@@ -1320,69 +1320,6 @@ async fn builtin_shell_exec(
         "truncated": stdout_truncated || stderr_truncated,
         "stdoutTruncated": stdout_truncated,
         "stderrTruncated": stderr_truncated
-    }))
-}
-
-async fn builtin_shell_switch_workspace(
-    state: &AppState,
-    session_id: &str,
-    workspace_name: &str,
-    reason: Option<&str>,
-) -> Result<Value, String> {
-    let normalized_session = normalize_terminal_tool_session_id(session_id);
-    let allowed_workspaces = terminal_allowed_workspaces_canonical(state)?;
-    let allowed_workspace_names = allowed_workspaces
-        .iter()
-        .map(|v| v.name.clone())
-        .collect::<Vec<_>>();
-    let current_root = terminal_session_root_canonical(state, &normalized_session)?;
-    let workspace = terminal_workspace_canonical(state)?;
-    let target_name = workspace_name.trim();
-    if target_name.is_empty() {
-        return Err("workspaceName is required".to_string());
-    }
-    let target = allowed_workspaces
-        .iter()
-        .find(|ws| ws.name.eq_ignore_ascii_case(target_name))
-        .map(|ws| ws.path.clone());
-    let Some(target) = target else {
-        return Ok(serde_json::json!({
-            "ok": false,
-            "granted": false,
-            "blockedReason": "workspace_not_found",
-            "message": "Requested workspaceName not found.",
-            "sessionId": normalized_session,
-            "workspaceName": target_name,
-            "rootPath": current_root.to_string_lossy().to_string(),
-            "workspacePath": workspace.to_string_lossy().to_string(),
-            "allowedWorkspaceNames": allowed_workspace_names,
-            "reason": reason.unwrap_or("").trim(),
-            "note": "Session shell root remains unchanged."
-        }));
-    };
-
-    let set_session_root = |state: &AppState, session_id: &str, root: &Path| -> Result<(), String> {
-        let mut roots = state
-            .terminal_session_roots
-            .lock()
-            .map_err(|_| "Failed to lock terminal session roots".to_string())?;
-        roots.insert(session_id.to_string(), root.to_string_lossy().to_string());
-        Ok(())
-    };
-
-    set_session_root(state, &normalized_session, &target)?;
-
-    Ok(serde_json::json!({
-        "ok": true,
-        "granted": true,
-        "sessionId": normalized_session,
-        "workspaceName": target_name,
-        "normalizedPath": target.to_string_lossy().to_string(),
-        "rootPath": target.to_string_lossy().to_string(),
-        "workspacePath": workspace.to_string_lossy().to_string(),
-        "allowedWorkspaceNames": allowed_workspace_names,
-        "reason": reason.unwrap_or("").trim(),
-        "note": "Session shell root switched to requested workspace."
     }))
 }
 
