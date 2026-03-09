@@ -11,6 +11,7 @@
           <span class="text-sm font-medium">{{ t('config.tools.shellWorkspace') }}</span>
           <div class="flex items-center gap-2">
             <button class="btn btn-sm" type="button" @click="openShellWorkspaceDir">{{ t('config.tools.openDir') }}</button>
+            <button class="btn btn-sm" type="button" :disabled="shellWorkspaceResetting" @click="resetShellWorkspace">{{ t('config.tools.resetWorkspace') }}</button>
             <button class="btn btn-sm btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
               {{ t('config.tools.save') }}
             </button>
@@ -27,6 +28,9 @@
         </div>
         <div class="mt-3 px-4 pb-4 text-[11px] opacity-70">
           {{ t('config.tools.workspaceHint') }}
+        </div>
+        <div v-if="shellWorkspaceStatus" class="px-4 pb-4 text-[11px]" :class="shellWorkspaceStatusError ? 'text-error' : 'opacity-70'">
+          {{ shellWorkspaceStatus }}
         </div>
       </div>
     </div>
@@ -155,10 +159,37 @@ const terminalSelfCheckResult = ref("");
 const waitMs = ref(800);
 const screenshotPreviewDataUrl = ref("");
 const screenshotDialogRef = ref<HTMLDialogElement | null>(null);
+const shellWorkspaceResetting = ref(false);
+const shellWorkspaceStatus = ref("");
+const shellWorkspaceStatusError = ref(false);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
 
+function setShellWorkspaceStatus(text: string, isError = false) {
+  shellWorkspaceStatus.value = text;
+  shellWorkspaceStatusError.value = isError;
+}
+
 async function openShellWorkspaceDir() {
-  await invokeTauri<string>("open_chat_shell_workspace_dir");
+  try {
+    const opened = await invokeTauri<string>("open_chat_shell_workspace_dir");
+    setShellWorkspaceStatus(t("config.tools.openDirOpened", { path: opened }));
+  } catch (error) {
+    setShellWorkspaceStatus(t("config.tools.openDirFailed", { err: toErrorMessage(error) }), true);
+  }
+}
+
+async function resetShellWorkspace() {
+  if (shellWorkspaceResetting.value) return;
+  if (!window.confirm(t("config.tools.resetWorkspaceConfirm"))) return;
+  shellWorkspaceResetting.value = true;
+  try {
+    const root = await invokeTauri<string>("reset_chat_shell_workspace");
+    setShellWorkspaceStatus(t("config.tools.resetWorkspaceDone", { path: root }));
+  } catch (error) {
+    setShellWorkspaceStatus(t("config.tools.resetWorkspaceFailed", { err: toErrorMessage(error) }), true);
+  } finally {
+    shellWorkspaceResetting.value = false;
+  }
 }
 
 function defaultWorkspaceNameFromPath(path: string): string {

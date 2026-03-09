@@ -97,7 +97,10 @@ fn main() {
                 .location()
                 .map(|loc| format!("{}:{}", loc.file(), loc.line()))
                 .unwrap_or_else(|| "unknown location".to_string());
-            let thread_name = std::thread::current().name().unwrap_or("unnamed").to_string();
+            let thread_name = std::thread::current()
+                .name()
+                .unwrap_or("unnamed")
+                .to_string();
             let snapshot = format!(
                 "{} thread={} payload={}",
                 location.trim(),
@@ -280,6 +283,7 @@ fn main() {
             desktop_wait,
             terminal_self_check,
             open_chat_shell_workspace_dir,
+            reset_chat_shell_workspace,
             get_chat_shell_workspace,
             lock_chat_shell_workspace,
             unlock_chat_shell_workspace,
