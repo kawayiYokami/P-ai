@@ -81,7 +81,14 @@ async fn send_chat_message_inner(
             .state_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-        let app_config = read_config(&state.config_path)?;
+        let mut app_config = read_config(&state.config_path)?;
+        let mut data = read_app_data(&state.data_path)?;
+        let changed = ensure_default_agent(&mut data);
+        if changed {
+            write_app_data(&state.data_path, &data)?;
+        }
+        let mut runtime_data = data.clone();
+        merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
         let selected_api = if let Some(api_id) = requested_api_id.as_deref() {
             app_config
                 .api_configs
@@ -94,13 +101,8 @@ async fn send_chat_message_inner(
                 .ok_or_else(|| "No API config configured. Please add one.".to_string())?
         };
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
-        let mut data = read_app_data(&state.data_path)?;
-        let changed = ensure_default_agent(&mut data);
-        if changed {
-            write_app_data(&state.data_path, &data)?;
-        }
         let effective_agent_id = if let Some(agent_id) = requested_agent_id.as_deref() {
-            if data
+            if runtime_data
                 .agents
                 .iter()
                 .any(|a| a.id == agent_id && !a.is_built_in_user)
@@ -109,14 +111,14 @@ async fn send_chat_message_inner(
             } else {
                 return Err(format!("Selected agent '{agent_id}' not found."));
             }
-        } else if data
+        } else if runtime_data
             .agents
             .iter()
             .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
         {
             data.assistant_department_agent_id.clone()
         } else {
-            data.agents
+            runtime_data.agents
                 .iter()
                 .find(|a| !a.is_built_in_user)
                 .map(|a| a.id.clone())
@@ -287,9 +289,11 @@ async fn send_chat_message_inner(
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut data = read_app_data(&state.data_path)?;
-        ensure_default_agent(&mut data);
-        let _agent = data
-            .agents
+        let changed = ensure_default_agent(&mut data);
+        let mut config = read_config(&state.config_path)?;
+        let mut runtime_agents = data.agents.clone();
+        merge_private_organization_into_runtime(&state.data_path, &mut config, &mut runtime_agents)?;
+        let _agent = runtime_agents
             .iter()
             .find(|a| a.id == effective_agent_id)
             .cloned()
@@ -315,6 +319,7 @@ async fn send_chat_message_inner(
                 pending_archive_forced = decision.forced;
             }
         }
+        let _ = changed;
         write_app_data(&state.data_path, &data)?;
         drop(guard);
     }
@@ -1323,6 +1328,7 @@ fn check_tools_status(
     normalize_api_tools(&mut config);
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
+    merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut data)?;
     drop(guard);
 
     let target_agent_id = input

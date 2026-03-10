@@ -83,6 +83,8 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
     }
     if (options.viewMode.value === "chat") {
       await options.refreshConversationHistory();
+    } else if (options.viewMode.value === "config") {
+      await refreshAllViewData();
     } else if (options.viewMode.value === "archives") {
       await options.refreshConversationHistory();
       await options.loadArchives();

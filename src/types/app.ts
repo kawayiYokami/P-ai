@@ -74,6 +74,8 @@ export type DepartmentConfig = {
   updatedAt: string;
   orderIndex: number;
   isBuiltInAssistant?: boolean;
+  source?: string;
+  scope?: string;
 };
 
 export type AppConfig = {
@@ -143,6 +145,10 @@ export type RefreshMcpAndSkillsResult = {
   skillsFailed: WorkspaceLoadError[];
   skills: SkillSummaryItem[];
   skillSummary: string;
+  privateAgentsLoaded: string[];
+  privateAgentsFailed: WorkspaceLoadError[];
+  privateDepartmentsLoaded: string[];
+  privateDepartmentsFailed: WorkspaceLoadError[];
 };
 
 export type LlmRoundLogHeader = {
@@ -179,6 +185,8 @@ export type PersonaProfile = {
   avatarUpdatedAt?: string;
   isBuiltInUser?: boolean;
   isBuiltInSystem?: boolean;
+  source?: string;
+  scope?: string;
 };
 
 export type MessagePart =

@@ -24,6 +24,10 @@ pub struct RefreshMcpAndSkillsResult {
     pub skills_failed: Vec<WorkspaceLoadError>,
     pub skills: Vec<SkillSummaryItem>,
     pub skill_summary: String,
+    pub private_agents_loaded: Vec<String>,
+    pub private_agents_failed: Vec<WorkspaceLoadError>,
+    pub private_departments_loaded: Vec<String>,
+    pub private_departments_failed: Vec<WorkspaceLoadError>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

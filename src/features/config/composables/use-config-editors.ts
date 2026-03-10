@@ -52,6 +52,8 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       avatarUpdatedAt: undefined,
       isBuiltInUser: false,
       isBuiltInSystem: false,
+      source: "main_config",
+      scope: "global",
     });
     options.assistantDepartmentAgentId.value = id;
     options.personaEditorId.value = id;

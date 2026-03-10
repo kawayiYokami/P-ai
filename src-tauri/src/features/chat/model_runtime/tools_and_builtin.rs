@@ -1741,9 +1741,10 @@ fn delegate_resolve_context(
         .state_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-    let config = read_config(&app_state.config_path)?;
+    let mut config = read_config(&app_state.config_path)?;
     let mut data = read_app_data(&app_state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    merge_private_organization_into_runtime_data(&app_state.data_path, &mut config, &mut data)?;
     let source_department = department_for_agent_id(&config, source_agent_id)
         .cloned()
         .ok_or_else(|| format!("未找到发起部门，agentId={source_agent_id}"))?;

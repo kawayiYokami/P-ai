@@ -28,6 +28,7 @@
             <div class="flex items-center gap-2">
               <div class="font-medium text-sm">{{ department.name }}</div>
               <span v-if="department.isBuiltInAssistant" class="badge badge-xs badge-primary">{{ t("config.department.assistantBadge") }}</span>
+              <span v-else-if="department.source === 'private_workspace'" class="badge badge-xs badge-secondary">{{ t("config.department.privateWorkspaceBadge") }}</span>
             </div>
             <div class="text-[11px] opacity-60 mt-1 line-clamp-2">
               {{ department.summary || t("config.department.emptySummary") }}
@@ -47,10 +48,13 @@
       <!-- 部门详情 -->
       <div v-if="selectedDepartment" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
         <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-base-300/70">
-          <div class="font-medium">{{ selectedDepartment.name }}</div>
+          <div class="flex items-center gap-2">
+            <div class="font-medium">{{ selectedDepartment.name }}</div>
+            <span v-if="selectedDepartmentIsPrivateWorkspace" class="badge badge-xs badge-secondary">{{ t("config.department.privateWorkspaceBadge") }}</span>
+          </div>
           <button
             class="btn btn-sm btn-ghost text-error"
-            :disabled="!!selectedDepartment.isBuiltInAssistant || savingConfig"
+            :disabled="!!selectedDepartment.isBuiltInAssistant || selectedDepartmentIsPrivateWorkspace || savingConfig"
             @click="removeSelectedDepartment"
           >
             {{ t("config.department.remove") }}
@@ -64,6 +68,7 @@
             <input
               v-model.trim="selectedDepartment.name"
               class="input input-bordered input-sm w-full"
+              :disabled="selectedDepartmentIsPrivateWorkspace"
               :placeholder="t('config.department.namePlaceholder')"
             />
             <div v-if="selectedDepartmentNameEmpty" class="text-xs text-error mt-1">
@@ -79,6 +84,7 @@
             <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.department.assignee") }}</div>
             <select
               class="select select-bordered select-sm w-full"
+              :disabled="selectedDepartmentIsPrivateWorkspace"
               :value="selectedDepartment.agentIds[0] || ''"
               @change="selectDepartmentAssignee(($event.target as HTMLSelectElement).value)"
             >
@@ -98,7 +104,7 @@
           <!-- 驱动模型 -->
           <div class="px-3 py-2">
             <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.department.model") }}</div>
-            <select v-model="selectedDepartment.apiConfigId" class="select select-bordered select-sm w-full" @change="syncAssistantDepartmentState">
+            <select v-model="selectedDepartment.apiConfigId" class="select select-bordered select-sm w-full" :disabled="selectedDepartmentIsPrivateWorkspace" @change="syncAssistantDepartmentState">
               <option v-for="api in textDepartmentApiConfigs" :key="api.id" :value="api.id">{{ api.name }}</option>
             </select>
             <div class="text-[11px] opacity-50 mt-1">{{ t("config.department.allowedModelsNote") }}</div>
@@ -110,6 +116,7 @@
             <textarea
               v-model="selectedDepartment.summary"
               class="textarea textarea-bordered textarea-sm w-full min-h-20"
+              :disabled="selectedDepartmentIsPrivateWorkspace"
               :placeholder="t('config.department.summaryPlaceholder')"
             />
           </div>
@@ -120,6 +127,7 @@
             <textarea
               v-model="selectedDepartment.guide"
               class="textarea textarea-bordered textarea-sm w-full min-h-28"
+              :disabled="selectedDepartmentIsPrivateWorkspace"
               :placeholder="t('config.department.guidePlaceholder')"
             />
             <div class="text-[11px] opacity-50 mt-1">{{ t("config.department.guideHint") }}</div>
@@ -174,6 +182,9 @@ const pagedDepartments = computed(() => {
 
 const selectedDepartment = computed(
   () => props.config.departments.find((item) => item.id === selectedDepartmentId.value) ?? sortedDepartments.value[0] ?? null,
+);
+const selectedDepartmentIsPrivateWorkspace = computed(
+  () => selectedDepartment.value?.source === "private_workspace",
 );
 const textDepartmentApiConfigs = computed(() =>
   props.apiConfigs.filter((api) => !!api.enableText && ["openai", "openai_responses", "gemini", "deepseek/kimi", "anthropic"].includes(api.requestFormat)),
@@ -244,6 +255,8 @@ function addDepartment() {
     updatedAt: now,
     orderIndex: props.config.departments.length + 1,
     isBuiltInAssistant: false,
+    source: "main_config",
+    scope: "global",
   });
   // 计算新部门在哪一页并跳转
   const newIndex = props.config.departments.length - 1;

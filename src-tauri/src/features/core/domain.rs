@@ -381,6 +381,26 @@ struct DepartmentConfig {
     order_index: i64,
     #[serde(default)]
     is_built_in_assistant: bool,
+    #[serde(default = "default_main_source")]
+    source: String,
+    #[serde(default = "default_global_scope")]
+    scope: String,
+}
+
+fn default_main_source() -> String {
+    "main_config".to_string()
+}
+
+fn default_private_workspace_source() -> String {
+    "private_workspace".to_string()
+}
+
+fn default_global_scope() -> String {
+    "global".to_string()
+}
+
+fn default_assistant_private_scope() -> String {
+    "assistant_private".to_string()
 }
 
 fn default_assistant_department(api_config_id: &str) -> DepartmentConfig {
@@ -396,6 +416,8 @@ fn default_assistant_department(api_config_id: &str) -> DepartmentConfig {
         updated_at: now,
         order_index: 1,
         is_built_in_assistant: true,
+        source: default_main_source(),
+        scope: default_global_scope(),
     }
 }
 
@@ -780,6 +802,10 @@ struct AgentProfile {
     is_built_in_system: bool,
     #[serde(default)]
     private_memory_enabled: bool,
+    #[serde(default = "default_main_source")]
+    source: String,
+    #[serde(default = "default_global_scope")]
+    scope: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1291,6 +1317,8 @@ fn default_agent() -> AgentProfile {
         is_built_in_user: false,
         is_built_in_system: false,
         private_memory_enabled: false,
+        source: default_main_source(),
+        scope: default_global_scope(),
     }
 }
 
@@ -1308,6 +1336,8 @@ fn default_user_persona() -> AgentProfile {
         is_built_in_user: true,
         is_built_in_system: false,
         private_memory_enabled: false,
+        source: default_main_source(),
+        scope: default_global_scope(),
     }
 }
 
@@ -1325,6 +1355,8 @@ fn default_system_persona() -> AgentProfile {
         is_built_in_user: false,
         is_built_in_system: true,
         private_memory_enabled: false,
+        source: default_main_source(),
+        scope: default_global_scope(),
     }
 }
 
@@ -1378,6 +1410,14 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
     let mut has_system_persona = false;
     for agent in &mut data.agents {
         if normalize_agent_tools(agent) {
+            changed = true;
+        }
+        if agent.source.trim().is_empty() {
+            agent.source = default_main_source();
+            changed = true;
+        }
+        if agent.scope.trim().is_empty() {
+            agent.scope = default_global_scope();
             changed = true;
         }
         if agent.id == DEFAULT_AGENT_ID {

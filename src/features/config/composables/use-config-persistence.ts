@@ -61,6 +61,8 @@ function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
     updatedAt: String((item as { updatedAt?: unknown })?.updatedAt || "").trim(),
     orderIndex: Math.max(1, Number((item as { orderIndex?: unknown })?.orderIndex || 1)),
     isBuiltInAssistant: !!(item as { isBuiltInAssistant?: unknown })?.isBuiltInAssistant,
+    source: String((item as { source?: unknown })?.source || "").trim() || "main_config",
+    scope: String((item as { scope?: unknown })?.scope || "").trim() || "global",
   };
 }
 

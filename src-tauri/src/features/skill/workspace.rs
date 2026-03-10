@@ -63,6 +63,11 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
         "task-guide",
         include_str!("../../../resources/preset-skills/task-guide/SKILL.md"),
     )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "private-organization-guide",
+        include_str!("../../../resources/preset-skills/private-organization-guide/SKILL.md"),
+    )?;
 
     Ok(())
 }
@@ -186,8 +191,13 @@ pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
 pub(crate) fn refresh_workspace_mcp_and_skills(state: &AppState) -> Result<RefreshMcpAndSkillsResult, String> {
     ensure_workspace_mcp_layout(state)?;
     ensure_workspace_skills_layout(state)?;
+    ensure_workspace_private_organization_layout(state)?;
     let (servers, mcp_errors) = load_workspace_mcp_servers_with_errors(state)?;
     let (skills, skill_errors) = load_workspace_skill_summaries_with_errors(state)?;
+    let mut config = read_config(&state.config_path)?;
+    let mut data = read_app_data(&state.data_path)?;
+    let _ = ensure_default_agent(&mut data);
+    let private_org = merge_private_organization_into_runtime(&state.data_path, &mut config, &mut data.agents)?;
     let mcp_loaded = servers.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
     let skills_loaded = skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
     let skill_summary = render_skill_summary(&skills);
@@ -204,6 +214,10 @@ pub(crate) fn refresh_workspace_mcp_and_skills(state: &AppState) -> Result<Refre
         skills_failed: skill_errors,
         skills: skills.clone(),
         skill_summary,
+        private_agents_loaded: private_org.private_agents_loaded,
+        private_agents_failed: private_org.private_agents_failed,
+        private_departments_loaded: private_org.private_departments_loaded,
+        private_departments_failed: private_org.private_departments_failed,
     })
 }
 

@@ -226,6 +226,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       updatedAt: new Date().toISOString(),
       orderIndex: 1,
       isBuiltInAssistant: true,
+      source: "main_config",
+      scope: "global",
     };
     for (const item of options.config.departments || []) {
       const id = String(item?.id || "").trim();
@@ -249,6 +251,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         updatedAt: String(item?.updatedAt || "").trim() || new Date().toISOString(),
         orderIndex: Math.max(1, Number(item?.orderIndex || normalizedDepartments.length + 1)),
         isBuiltInAssistant: !!item?.isBuiltInAssistant || id === "assistant-department",
+        source: String(item?.source || "").trim() || "main_config",
+        scope: String(item?.scope || "").trim() || "global",
       });
     }
     if (!normalizedDepartments.some((item) => item.id === "assistant-department" || item.isBuiltInAssistant)) {
@@ -266,6 +270,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiConfigId: validTextChatApiIds.has(item.apiConfigId) ? item.apiConfigId : defaultAssistantDepartmentApiId,
       orderIndex: idx + 1,
       isBuiltInAssistant: item.isBuiltInAssistant || item.id === "assistant-department",
+      source: item.source || "main_config",
+      scope: item.scope || "global",
     }));
     const assistantDept = options.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
     if (assistantDept) {

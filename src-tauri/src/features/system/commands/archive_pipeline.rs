@@ -205,12 +205,13 @@ async fn force_archive_current(
             .state_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let app_config = read_config(&state.config_path)?;
+        let mut app_config = read_config(&state.config_path)?;
+        let mut data = read_app_data(&state.data_path)?;
+        ensure_default_agent(&mut data);
+        merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
         let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
-        let mut data = read_app_data(&state.data_path)?;
-        ensure_default_agent(&mut data);
         let requested_agent_id = input.agent_id.trim();
         let effective_agent_id = if data
             .agents

@@ -51,6 +51,32 @@ fn validate_department_names_unique(config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn runtime_config_with_private_organization(
+    state: &AppState,
+    config: &AppConfig,
+    data: &AppData,
+) -> Result<AppConfig, String> {
+    let mut runtime_config = config.clone();
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut runtime_config, &mut runtime_data)?;
+    Ok(runtime_config)
+}
+
+fn runtime_agents_with_private_organization(
+    state: &AppState,
+    config: &AppConfig,
+    data: &AppData,
+) -> Result<Vec<AgentProfile>, String> {
+    let mut runtime_config = config.clone();
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut runtime_config, &mut runtime_data)?;
+    Ok(runtime_data.agents)
+}
+
+fn private_agent_operation_error(agent_id: &str) -> String {
+    format!("当前人格来自私有工作区，不能直接在主配置中修改：{agent_id}")
+}
+
 fn is_newer_version(current: &str, latest: &str) -> bool {
     let a = parse_version_parts(current);
     let b = parse_version_parts(latest);
@@ -128,6 +154,13 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     let mut result = read_config(&state.config_path)?;
     normalize_app_config(&mut result);
     ensure_default_shell_workspace_in_config(&mut result, &state);
+    let mut data = read_app_data(&state.data_path)?;
+    let changed = ensure_default_agent(&mut data);
+    if changed {
+        write_app_data(&state.data_path, &data)?;
+    }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut result, &mut runtime_data)?;
     drop(guard);
     Ok(result)
 }
@@ -154,7 +187,6 @@ fn save_config(
     let mut config = config;
     normalize_app_config(&mut config);
     ensure_default_shell_workspace_in_config(&mut config, &state);
-    validate_department_names_unique(&config)?;
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
     let guard = state
@@ -162,9 +194,14 @@ fn save_config(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    write_config(&state.config_path, &config)?;
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (_private_agent_ids, private_department_ids) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    config.departments.retain(|item| !private_department_ids.contains(&item.id));
+    validate_department_names_unique(&config)?;
+    write_config(&state.config_path, &config)?;
     if let Some(agent_id) = assistant_department_agent_id(&config) {
         if data.assistant_department_agent_id != agent_id {
             data.assistant_department_agent_id = agent_id;
@@ -172,9 +209,10 @@ fn save_config(
         }
     }
     register_hotkey_from_config(&app, &config)?;
+    let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
     drop(guard);
-    let _ = app.emit("easy-call:config-updated", &config);
-    Ok(config)
+    let _ = app.emit("easy-call:config-updated", &runtime_config);
+    Ok(runtime_config)
 }
 
 #[tauri::command]
@@ -184,13 +222,16 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
+    let mut config = read_config(&state.config_path)?;
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
     if changed {
         write_app_data(&state.data_path, &data)?;
     }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut runtime_data)?;
     drop(guard);
-    Ok(data.agents)
+    Ok(runtime_data.agents)
 }
 
 #[tauri::command]
@@ -207,7 +248,10 @@ fn save_agents(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
+    let base_config = read_config(&state.config_path)?;
     let mut data = read_app_data(&state.data_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
     let previous_agents = data.agents.clone();
     let existing_user_persona = data
         .agents
@@ -219,7 +263,11 @@ fn save_agents(
         .iter()
         .find(|a| a.id == SYSTEM_PERSONA_ID)
         .cloned();
-    data.agents = input.agents;
+    data.agents = input
+        .agents
+        .into_iter()
+        .filter(|agent| !private_agent_ids.contains(&agent.id))
+        .collect();
     if !data.agents.iter().any(|a| a.id == USER_PERSONA_ID) {
         if let Some(user_persona) = existing_user_persona {
             data.agents.push(user_persona);
@@ -279,8 +327,8 @@ fn save_agents(
 
     write_app_data(&state.data_path, &data)?;
     let mut config = read_config(&state.config_path)?;
-    let valid_agent_ids = data
-        .agents
+    let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
+    let valid_agent_ids = runtime_agents
         .iter()
         .filter(|a| !a.is_built_in_user)
         .map(|a| a.id.clone())
@@ -304,8 +352,9 @@ fn save_agents(
         normalize_app_config(&mut config);
         write_config(&state.config_path, &config)?;
     }
+    let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     drop(guard);
-    Ok(data.agents)
+    Ok(runtime_agents)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,6 +438,13 @@ fn get_agent_private_memory_count(
     if agent_id.is_empty() {
         return Err("agentId is required".to_string());
     }
+    let config = read_config(&state.config_path)?;
+    let data = read_app_data(&state.data_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &config, &data.agents)?;
+    if private_agent_ids.contains(agent_id) {
+        return Err(private_agent_operation_error(agent_id));
+    }
     Ok(AgentPrivateMemoryCountResult {
         count: memory_store_count_private_memories_by_agent(&state.data_path, agent_id)?,
     })
@@ -410,6 +466,13 @@ fn set_agent_private_memory_enabled(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    if private_agent_ids.contains(agent_id) {
+        drop(guard);
+        return Err(private_agent_operation_error(agent_id));
+    }
 
     let agent_idx = data
         .agents
@@ -466,6 +529,13 @@ fn export_agent_private_memories(
     if agent_id.is_empty() {
         return Err("agentId is required".to_string());
     }
+    let config = read_config(&state.config_path)?;
+    let data = read_app_data(&state.data_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &config, &data.agents)?;
+    if private_agent_ids.contains(agent_id) {
+        return Err(private_agent_operation_error(agent_id));
+    }
     let export = memory_store_export_agent_private_memories(&state.data_path, agent_id)?;
     Ok(ExportAgentPrivateMemoriesResult {
         count: export.count,
@@ -489,6 +559,13 @@ fn disable_agent_private_memory(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    if private_agent_ids.contains(agent_id) {
+        drop(guard);
+        return Err(private_agent_operation_error(agent_id));
+    }
 
     let agent_idx = data
         .agents
@@ -533,6 +610,13 @@ fn import_agent_memories(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    if private_agent_ids.contains(agent_id) {
+        drop(guard);
+        return Err(private_agent_operation_error(agent_id));
+    }
     if !data
         .agents
         .iter()
@@ -559,7 +643,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let config = read_config(&state.config_path)?;
+    let mut config = read_config(&state.config_path)?;
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
     let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
@@ -572,11 +656,13 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
     if changed || runtime_changed {
         write_app_data(&state.data_path, &data)?;
     }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut runtime_data)?;
     drop(guard);
 
     Ok(ChatSettings {
         assistant_department_agent_id: data.assistant_department_agent_id.clone(),
-        user_alias: user_persona_name(&data),
+        user_alias: user_persona_name(&runtime_data),
         response_style_id: data.response_style_id.clone(),
     })
 }
@@ -595,8 +681,11 @@ fn save_chat_settings(
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
     let config = read_config(&state.config_path)?;
+    let mut runtime_config = config.clone();
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut runtime_config, &mut runtime_data)?;
     let target_agent_id = assistant_department_agent_id(&config).unwrap_or_else(|| input.assistant_department_agent_id.clone());
-    if !data
+    if !runtime_data
         .agents
         .iter()
         .any(|a| a.id == target_agent_id && !a.is_built_in_user)
@@ -715,6 +804,13 @@ fn save_agent_avatar(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    if private_agent_ids.contains(input.agent_id.trim()) {
+        drop(guard);
+        return Err(private_agent_operation_error(input.agent_id.trim()));
+    }
 
     let idx = data
         .agents
@@ -761,6 +857,13 @@ fn clear_agent_avatar(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+    if private_agent_ids.contains(input.agent_id.trim()) {
+        drop(guard);
+        return Err(private_agent_operation_error(input.agent_id.trim()));
+    }
     let idx = data
         .agents
         .iter()
@@ -904,13 +1007,18 @@ fn get_chat_snapshot(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let app_config = read_config(&state.config_path)?;
+    let mut app_config = read_config(&state.config_path)?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    if defaults_changed {
+        write_app_data(&state.data_path, &data)?;
+    }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.agent_id.trim();
     if !requested_agent_id.is_empty()
-        && !data
+        && !runtime_data
             .agents
             .iter()
             .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
@@ -919,14 +1027,14 @@ fn get_chat_snapshot(
     }
     let effective_agent_id = if !requested_agent_id.is_empty() {
         requested_agent_id.to_string()
-    } else if data
+    } else if runtime_data
         .agents
         .iter()
         .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
     {
         data.assistant_department_agent_id.clone()
     } else {
-        data.agents
+        runtime_data.agents
             .iter()
             .find(|a| !a.is_built_in_user)
             .map(|a| a.id.clone())
@@ -958,7 +1066,7 @@ fn get_chat_snapshot(
         .find(|m| m.role == "assistant")
         .cloned();
 
-    if defaults_changed || data.conversations.len() != before_len {
+    if data.conversations.len() != before_len {
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);
@@ -1262,13 +1370,18 @@ fn get_active_conversation_messages(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let app_config = read_config(&state.config_path)?;
+    let mut app_config = read_config(&state.config_path)?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    if defaults_changed {
+        write_app_data(&state.data_path, &data)?;
+    }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.agent_id.trim();
     if !requested_agent_id.is_empty()
-        && !data
+        && !runtime_data
             .agents
             .iter()
             .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
@@ -1277,14 +1390,14 @@ fn get_active_conversation_messages(
     }
     let effective_agent_id = if !requested_agent_id.is_empty() {
         requested_agent_id.to_string()
-    } else if data
+    } else if runtime_data
         .agents
         .iter()
         .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
     {
         data.assistant_department_agent_id.clone()
     } else {
-        data.agents
+        runtime_data.agents
             .iter()
             .find(|a| !a.is_built_in_user)
             .map(|a| a.id.clone())
@@ -1303,7 +1416,7 @@ fn get_active_conversation_messages(
     };
     let mut messages = data.conversations[idx].messages.clone();
 
-    if defaults_changed || data.conversations.len() != before_len {
+    if data.conversations.len() != before_len {
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);
@@ -1342,15 +1455,20 @@ fn rewind_conversation_from_message(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let app_config = read_config(&state.config_path)?;
+    let mut app_config = read_config(&state.config_path)?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    if defaults_changed {
+        write_app_data(&state.data_path, &data)?;
+    }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.session.agent_id.trim();
     if requested_agent_id.is_empty() {
         return Err("agentId is required.".to_string());
     }
-    if !data
+    if !runtime_data
         .agents
         .iter()
         .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
@@ -1400,7 +1518,7 @@ fn rewind_conversation_from_message(
         compute_context_usage_ratio(conversation, context_window_tokens)
     };
 
-    if defaults_changed || data.conversations.len() != before_len || removed_count > 0 {
+    if data.conversations.len() != before_len || removed_count > 0 {
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);

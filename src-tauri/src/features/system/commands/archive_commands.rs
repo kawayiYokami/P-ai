@@ -8,12 +8,13 @@ fn get_prompt_preview(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let app_config = read_config(&state.config_path)?;
+    let mut app_config = read_config(&state.config_path)?;
     let api_config = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
     let effective_agent_id = if data
         .agents
         .iter()

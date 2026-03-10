@@ -3,16 +3,18 @@
     <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.title") }}</span></div>
     <div class="flex gap-1">
       <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-        <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : "") }}</option>
+        <option v-for="p in personas" :key="p.id" :value="p.id">
+          {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
+        </option>
       </select>
       <button class="btn btn-sm btn-square text-primary bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
         <Plus class="h-3.5 w-3.5" />
       </button>
       <button
         class="btn btn-sm btn-square"
-        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'text-error bg-base-100'"
+        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'text-error bg-base-100'"
         :title="t('config.persona.remove')"
-        :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1"
+        :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1"
         @click="$emit('removeSelectedPersona')"
       >
         <Trash2 class="h-3.5 w-3.5" />
@@ -25,10 +27,11 @@
     <label class="flex w-full flex-col gap-1">
       <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.name") }}</span></div>
       <div class="flex items-center gap-2">
-        <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.persona.name')" />
+        <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :disabled="selectedPersonaIsPrivateWorkspace" :placeholder="t('config.persona.name')" />
+        <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-xs badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
         <button
           class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
-          :disabled="avatarSaving"
+          :disabled="avatarSaving || selectedPersonaIsPrivateWorkspace"
           :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
           @click="$emit('openAvatarEditor')"
         >
@@ -52,12 +55,13 @@
         v-model="selectedPersona.systemPrompt"
         class="textarea textarea-bordered textarea-sm w-full"
         rows="12"
+        :disabled="selectedPersonaIsPrivateWorkspace"
         :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.isBuiltInSystem ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
       ></textarea>
     </label>
 
-    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
-    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="card bg-base-100 border border-base-300">
+    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
+    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="card bg-base-100 border border-base-300">
       <div class="card-body gap-3 p-3">
         <div class="flex items-center justify-between">
           <div class="text-sm">
@@ -145,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, Trash2 } from "lucide-vue-next";
 import type { PersonaProfile } from "../../../../types/app";
@@ -180,6 +184,9 @@ const privateMemoryError = ref("");
 const privateMemoryCount = ref(0);
 const privateMemoryExported = ref(false);
 const pendingDisableAgentId = ref("");
+const selectedPersonaIsPrivateWorkspace = computed(
+  () => props.selectedPersona?.source === "private_workspace",
+);
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();

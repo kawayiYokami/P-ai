@@ -348,6 +348,8 @@ fn normalize_departments(config: &mut AppConfig) {
             updated_at: raw.updated_at.trim().to_string(),
             order_index: raw.order_index,
             is_built_in_assistant: raw.is_built_in_assistant || id == ASSISTANT_DEPARTMENT_ID,
+            source: if raw.source.trim().is_empty() { default_main_source() } else { raw.source.trim().to_string() },
+            scope: if raw.scope.trim().is_empty() { default_global_scope() } else { raw.scope.trim().to_string() },
         };
         if item.name.is_empty() {
             item.name = if item.is_built_in_assistant {
