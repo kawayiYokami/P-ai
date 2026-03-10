@@ -194,7 +194,7 @@
           class="px-3 py-2"
         >
           <div class="flex items-center justify-between gap-2">
-            <span class="badge badge-xs" :class="log.outcome === 'success' ? 'badge-success' : 'badge-error'">{{ log.outcome }}</span>
+            <span class="badge badge-xs" :class="runLogBadgeClass(log.outcome)">{{ runLogLabel(log.outcome) }}</span>
             <span class="text-[11px] opacity-50">{{ formatTaskTime(log.triggeredAt) }}</span>
           </div>
           <div v-if="log.note" class="text-sm whitespace-pre-wrap wrap-break-word opacity-70 mt-1">{{ log.note }}</div>
@@ -305,6 +305,22 @@ function formatTaskTime(value?: string | null): string {
   }).formatToParts(parsed);
   const pick = (type: string) => parts.find((part) => part.type === type)?.value || '00';
   return `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}:${pick('second')}`;
+}
+
+function runLogLabel(outcome: string): string {
+  if (outcome === "sent") return "已发送";
+  if (outcome === "queued") return "已排队";
+  if (outcome === "dequeued") return "已恢复";
+  if (outcome === "failed") return "失败";
+  return outcome || "-";
+}
+
+function runLogBadgeClass(outcome: string): string {
+  if (outcome === "sent") return "badge-success";
+  if (outcome === "queued") return "badge-warning";
+  if (outcome === "dequeued") return "badge-info";
+  if (outcome === "failed") return "badge-error";
+  return "badge-ghost";
 }
 
 async function loadRunLogs(taskId?: string) {

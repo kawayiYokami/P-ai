@@ -1309,6 +1309,10 @@ fn check_tools_status(
                 "loaded".to_string(),
                 "MCP/Skill 重载工具可用".to_string(),
             ),
+            "task" => (
+                "loaded".to_string(),
+                "任务工具可用".to_string(),
+            ),
             "exec" => {
                 #[cfg(target_os = "windows")]
                 {
