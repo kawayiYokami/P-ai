@@ -14,9 +14,11 @@ type UseConfigRuntimeOptions = {
   setStatus: (text: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   personas: Ref<PersonaProfile[]>;
-  selectedPersonaId: Ref<string>;
+  assistantDepartmentAgentId: Ref<string>;
+  personaEditorId: Ref<string>;
   avatarSaving: Ref<boolean>;
   avatarError: Ref<string>;
+  toolPersona: ComputedRef<PersonaProfile | null>;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   refreshingModels: Ref<boolean>;
   modelRefreshError: Ref<string>;
@@ -61,7 +63,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
         options.personas.value[idx].updatedAt = new Date().toISOString();
       }
       await options.ensureAvatarCached(result.path, result.updatedAt);
-      if (input.agentId === options.selectedPersonaId.value) {
+      if (input.agentId === options.assistantDepartmentAgentId.value) {
         await syncTrayIcon(input.agentId);
       }
       options.setStatus(options.t("status.avatarSaved"));
@@ -84,7 +86,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
         options.personas.value[idx].avatarUpdatedAt = undefined;
         options.personas.value[idx].updatedAt = new Date().toISOString();
       }
-      if (input.agentId === options.selectedPersonaId.value) {
+      if (input.agentId === options.assistantDepartmentAgentId.value) {
         await syncTrayIcon(input.agentId);
       }
       options.setStatus(options.t("status.avatarCleared"));
@@ -123,11 +125,15 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
   }
 
   async function refreshToolsStatus() {
-    if (!options.toolApiConfig.value) return;
+    const agentId = String(options.toolPersona.value?.id || "").trim();
+    if (!agentId) return;
     options.checkingToolsStatus.value = true;
     try {
       options.toolStatuses.value = await invokeTauri<ToolLoadStatus[]>("check_tools_status", {
-        input: { apiConfigId: options.toolApiConfig.value.id },
+        input: {
+          agentId,
+          apiConfigId: options.toolApiConfig.value?.id ?? null,
+        },
       });
     } catch (e) {
       options.toolStatuses.value = [
@@ -175,3 +181,4 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
     clearImageCache,
   };
 }
+

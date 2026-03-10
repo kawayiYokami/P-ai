@@ -14,20 +14,20 @@
       @scroll="onScroll"
       @wheel.passive="onWheel"
     >
-      <!-- 历史对话 turns -->
+      <!-- 历史对话 -->
       <template v-for="block in messageBlocks" :key="block.id">
-        <div :class="['chat group/user-turn mt-3', isPrimaryUserPersonaMessage(block) ? 'chat-end' : 'chat-start']">
+        <div :class="['chat group/user-turn mt-3', isOwnMessage(block) ? 'chat-end' : 'chat-start']">
           <div class="chat-image avatar self-start">
             <div class="w-7 rounded-full">
-              <img v-if="primaryMessageAvatarUrl(block)" :src="primaryMessageAvatarUrl(block)" :alt="primaryMessageName(block)" />
+              <img v-if="messageAvatarUrl(block)" :src="messageAvatarUrl(block)" :alt="messageName(block)" />
               <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
-                {{ avatarInitial(primaryMessageName(block)) }}
+                {{ avatarInitial(messageName(block)) }}
               </div>
             </div>
           </div>
           <div class="chat-header mb-1 flex items-center gap-2">
             <button
-              v-if="isPrimaryUserPersonaMessage(block) && !chatting && !frozen"
+              v-if="isOwnMessage(block) && !chatting && !frozen"
               type="button"
               class="inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
               :title="t('chat.recall')"
@@ -35,58 +35,98 @@
             >
               <Undo2 class="h-3 w-3" />
             </button>
-            <span class="text-xs text-base-content">{{ primaryMessageName(block) }}</span>
-            <time v-if="formattedBlockTime(block.primaryCreatedAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.primaryCreatedAt) }}</time>
+            <span class="text-xs text-base-content">{{ messageName(block) }}</span>
+            <time v-if="formattedBlockTime(block.createdAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.createdAt) }}</time>
           </div>
-          <div :class="['chat-bubble max-w-[92%]', isPrimaryUserPersonaMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70']">
-            <div v-if="block.primaryTaskTrigger" class="space-y-2">
+          <div :class="['chat-bubble max-w-[92%]', isOwnMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70 assistant-markdown']">
+            <div v-if="block.taskTrigger" class="space-y-2">
               <div class="flex items-center gap-2">
                 <span class="badge badge-sm badge-outline">{{ t("chat.taskTrigger.badge") }}</span>
               </div>
-              <div class="text-base font-medium leading-6">{{ block.primaryTaskTrigger.title }}</div>
-              <div v-if="block.primaryTaskTrigger.cause" class="space-y-0.5">
+              <div class="text-base font-medium leading-6">{{ block.taskTrigger.title }}</div>
+              <div v-if="block.taskTrigger.cause" class="space-y-0.5">
                 <div class="text-[11px] opacity-55">{{ t("config.task.fields.cause") }}</div>
-                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.cause }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.cause }}</div>
               </div>
-              <div v-if="block.primaryTaskTrigger.goal" class="space-y-0.5">
+              <div v-if="block.taskTrigger.goal" class="space-y-0.5">
                 <div class="text-[11px] opacity-55">{{ t("config.task.fields.goal") }}</div>
-                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.goal }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.goal }}</div>
               </div>
-              <div v-if="block.primaryTaskTrigger.flow" class="space-y-0.5">
+              <div v-if="block.taskTrigger.flow" class="space-y-0.5">
                 <div class="text-[11px] opacity-55">{{ t("config.task.fields.flow") }}</div>
-                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.flow }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.flow }}</div>
               </div>
-              <div v-if="block.primaryTaskTrigger.statusSummary" class="space-y-0.5">
+              <div v-if="block.taskTrigger.statusSummary" class="space-y-0.5">
                 <div class="text-[11px] opacity-55">{{ t("config.task.fields.statusSummary") }}</div>
-                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.statusSummary }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.statusSummary }}</div>
               </div>
-              <div v-if="block.primaryTaskTrigger.runAt || block.primaryTaskTrigger.endAt || block.primaryTaskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
-                <div v-if="block.primaryTaskTrigger.runAt">
+              <div v-if="block.taskTrigger.runAt || block.taskTrigger.endAt || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
+                <div v-if="block.taskTrigger.runAt">
                   <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
-                  <span class="ml-2">{{ formattedBlockTime(block.primaryTaskTrigger.runAt) }}</span>
+                  <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAt) }}</span>
                 </div>
-                <div v-if="block.primaryTaskTrigger.endAt">
+                <div v-if="block.taskTrigger.endAt">
                   <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>
-                  <span class="ml-2">{{ formattedBlockTime(block.primaryTaskTrigger.endAt) }}</span>
+                  <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAt) }}</span>
                 </div>
-                <div v-if="block.primaryTaskTrigger.everyMinutes">
+                <div v-if="block.taskTrigger.everyMinutes">
                   <span class="text-[11px] opacity-55">{{ t("config.task.fields.everyMinutes") }}</span>
-                  <span class="ml-2">{{ block.primaryTaskTrigger.everyMinutes }}</span>
+                  <span class="ml-2">{{ block.taskTrigger.everyMinutes }}</span>
                 </div>
               </div>
-              <div v-if="block.primaryTaskTrigger.todos.length > 0" class="space-y-1">
+              <div v-if="(block.taskTrigger?.todos ?? []).length > 0" class="space-y-1">
                 <div class="text-[11px] opacity-55">{{ t("config.task.fields.todos") }}</div>
                 <ul class="space-y-1 text-sm leading-6">
-                  <li v-for="(todo, todoIdx) in block.primaryTaskTrigger.todos" :key="`${block.id}-todo-${todoIdx}`" class="flex items-start gap-2">
+                  <li v-for="(todo, todoIdx) in block.taskTrigger?.todos ?? []" :key="`${block.id}-todo-${todoIdx}`" class="flex items-start gap-2">
                     <span class="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60"></span>
                     <span class="min-w-0 whitespace-pre-wrap">{{ todo }}</span>
                   </li>
                 </ul>
               </div>
             </div>
-            <div v-if="block.primaryText" :class="block.primaryTaskTrigger ? 'mt-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'">{{ block.primaryText }}</div>
-            <div v-if="block.primaryImages.length > 0" :class="block.primaryTaskTrigger || block.primaryText ? 'mt-2 grid gap-1' : 'grid gap-1'">
-              <template v-for="(img, idx) in block.primaryImages" :key="`${block.id}-img-${idx}`">
+            <details
+              v-if="!isOwnMessage(block) && block.reasoningStandard"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
+            >
+              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center text-base-content/80">
+                <span class="block min-w-0 flex-1 truncate">
+                  {{ firstLinePreview(block.reasoningStandard) || "..." }}
+                </span>
+              </summary>
+              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
+                {{ block.reasoningStandard }}
+              </div>
+            </details>
+            <details
+              v-if="!isOwnMessage(block) && resolvedInlineReasoning(block)"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
+            >
+              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
+                <span class="block min-w-0 flex-1 truncate">
+                  {{ firstLinePreview(resolvedInlineReasoning(block)) || "..." }}
+                </span>
+              </summary>
+              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
+                {{ resolvedInlineReasoning(block) }}
+              </div>
+            </details>
+            <div
+              v-if="block.text"
+              :class="block.taskTrigger ? 'mt-3' : ''"
+            >
+              <div
+                v-if="isOwnMessage(block)"
+                class="whitespace-pre-wrap"
+              >{{ block.text }}</div>
+              <div
+                v-else
+                class="ecall-markdown-content prose prose-sm max-w-none"
+                v-html="renderMarkdown(splitThinkText(block.text).visible)"
+                @click="handleAssistantLinkClick"
+              ></div>
+            </div>
+            <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
+              <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
                 <img
                   v-if="isImageMime(img.mime)"
                   :src="`data:${img.mime};base64,${img.bytesBase64}`"
@@ -100,9 +140,9 @@
                 </div>
               </template>
             </div>
-            <div v-if="block.primaryAudios.length > 0" :class="block.primaryTaskTrigger || block.primaryText || block.primaryImages.length > 0 ? 'mt-2 flex flex-col gap-1' : 'flex flex-col gap-1'">
+            <div v-if="block.audios.length > 0" :class="block.taskTrigger || block.text || block.images.length > 0 ? 'mt-2 flex flex-col gap-1' : 'flex flex-col gap-1'">
               <button
-                v-for="(aud, idx) in block.primaryAudios"
+                v-for="(aud, idx) in block.audios"
                 :key="`${block.id}-aud-${idx}`"
                 class="btn btn-sm bg-base-100/70 w-fit"
                 @click="toggleAudioPlayback(`${block.id}-aud-${idx}`, aud)"
@@ -112,63 +152,17 @@
                 <span>{{ t("chat.voice", { index: idx + 1 }) }}</span>
               </button>
             </div>
-          </div>
-        </div>
-        <div v-if="block.replyText || block.replyReasoningStandard || block.replyReasoningInline" class="chat chat-start mt-3">
-          <div class="chat-image avatar self-start">
-            <div class="w-7 rounded-full">
-              <img v-if="replyMessageAvatarUrl(block)" :src="replyMessageAvatarUrl(block)" :alt="replyMessageName(block)" />
-              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
-                {{ avatarInitial(replyMessageName(block)) }}
-              </div>
-            </div>
-          </div>
-          <div class="chat-header mb-1 flex items-center gap-2">
-            <span class="text-xs text-base-content">{{ replyMessageName(block) }}</span>
-            <time v-if="formattedBlockTime(block.replyCreatedAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.replyCreatedAt) }}</time>
-          </div>
-          <div v-if="block.replyText || block.replyReasoningStandard" class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
-            <details
-              v-if="block.replyReasoningStandard"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
-            >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center text-base-content/80">
-                <span class="block min-w-0 flex-1 truncate">
-                  {{ firstLinePreview(block.replyReasoningStandard) || "..." }}
-                </span>
-              </summary>
-              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
-                {{ block.replyReasoningStandard }}
-              </div>
-            </details>
-            <details
-              v-if="resolvedReplyInlineReasoning(block)"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
-            >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
-                <span class="block min-w-0 flex-1 truncate">
-                  {{ firstLinePreview(resolvedReplyInlineReasoning(block)) || "..." }}
-                </span>
-              </summary>
-              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
-                {{ resolvedReplyInlineReasoning(block) }}
-              </div>
-            </details>
-            <div
-              class="ecall-markdown-content prose prose-sm max-w-none"
-              v-html="renderMarkdown(splitThinkText(block.replyText).visible)"
-              @click="handleAssistantLinkClick"
-            ></div>
-            <div v-if="!chatting && !frozen" class="mt-2 flex items-center gap-1.5">
+            <div v-if="!isOwnMessage(block) && !chatting && !frozen" class="mt-2 flex items-center gap-1.5">
               <button
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.copy')"
-                @click="copyAssistantTurn(block)"
+                @click="copyMessage(block)"
               >
                 <Copy class="h-3.5 w-3.5" />
               </button>
               <button
+                v-if="block.role === 'assistant'"
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.regenerate')"
@@ -177,9 +171,9 @@
                 <RotateCcw class="h-3.5 w-3.5" />
               </button>
             </div>
-            <div v-if="block.replyToolCallCount > 0" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
+            <div v-if="block.toolCallCount > 0" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
               <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
-              <span>{{ toolSummaryText(block.replyLastToolName, block.replyToolCallCount) }}</span>
+              <span>{{ toolSummaryText(block.lastToolName, block.toolCallCount) }}</span>
             </div>
           </div>
         </div>
@@ -608,34 +602,23 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 
-function primaryMessageName(block: ChatMessageBlock): string {
-  const id = String(block.primaryAgentId || "").trim();
+function messageName(block: ChatMessageBlock): string {
+  const id = String(block.speakerAgentId || "").trim();
   if (id && props.personaNameMap[id]) return props.personaNameMap[id];
-  return props.userAlias || t("archives.roleUser");
+  if (!id || id === "user-persona") return props.userAlias || t("archives.roleUser");
+  return id;
 }
 
-function primaryMessageAvatarUrl(block: ChatMessageBlock): string {
-  const id = String(block.primaryAgentId || "").trim();
+function messageAvatarUrl(block: ChatMessageBlock): string {
+  const id = String(block.speakerAgentId || "").trim();
   if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
   if (!id || id === "user-persona") return props.userAvatarUrl || "";
   return "";
 }
 
-function isPrimaryUserPersonaMessage(block: ChatMessageBlock): boolean {
-  const id = String(block.primaryAgentId || "").trim();
+function isOwnMessage(block: ChatMessageBlock): boolean {
+  const id = String(block.speakerAgentId || "").trim();
   return !id || id === "user-persona";
-}
-
-function replyMessageName(block: ChatMessageBlock): string {
-  const id = String(block.replyAgentId || "").trim();
-  if (id && props.personaNameMap[id]) return props.personaNameMap[id];
-  return props.personaName || t("archives.roleAssistant");
-}
-
-function replyMessageAvatarUrl(block: ChatMessageBlock): string {
-  const id = String(block.replyAgentId || "").trim();
-  if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
-  return props.assistantAvatarUrl || "";
 }
 
 function formattedBlockTime(value?: string): string {
@@ -706,8 +689,8 @@ const latestInlineReasoningText = computed(
 );
 const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts.value.visible));
 
-function resolvedReplyInlineReasoning(block: ChatMessageBlock): string {
-  return splitThinkText(block.replyText).inline || block.replyReasoningInline || "";
+function resolvedInlineReasoning(block: ChatMessageBlock): string {
+  return splitThinkText(block.text).inline || block.reasoningInline || "";
 }
 
 function toolSummaryText(lastToolName: string, count: number): string {
@@ -717,8 +700,8 @@ function toolSummaryText(lastToolName: string, count: number): string {
     : `调用 ${String(lastToolName || "-")}`;
 }
 
-async function copyAssistantTurn(block: ChatMessageBlock) {
-  const copyText = splitThinkText(block.replyText).visible || block.replyText || "";
+async function copyMessage(block: ChatMessageBlock) {
+  const copyText = splitThinkText(block.text).visible || block.text || "";
   if (!copyText) return;
   try {
     await navigator.clipboard.writeText(copyText);

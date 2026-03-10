@@ -15,19 +15,25 @@ fn tool_manifest_item(
 }
 
 async fn assemble_runtime_tools(
+    app_config: &AppConfig,
     selected_api: &ApiConfig,
+    agent: &AgentProfile,
     app_state: Option<&AppState>,
     tool_session_id: &str,
 ) -> Result<RuntimeToolAssembly, String> {
-    let has_fetch = tool_enabled(selected_api, "fetch");
-    let has_websearch = tool_enabled(selected_api, "websearch");
-    let has_remember = tool_enabled(selected_api, "remember");
-    let has_recall = tool_enabled(selected_api, "recall");
-    let has_screenshot = tool_enabled(selected_api, "screenshot");
-    let has_wait = tool_enabled(selected_api, "wait");
-    let has_refresh_mcp_skills = tool_enabled(selected_api, "reload");
-    let has_exec = tool_enabled(selected_api, "exec");
-    let has_task = tool_enabled(selected_api, "task");
+    let current_department = department_for_agent_id(app_config, &agent.id);
+    let department_reason = |tool_id: &str| tool_restricted_by_department(current_department, tool_id);
+    let has_fetch = tool_enabled(selected_api, agent, current_department, "fetch");
+    let has_websearch = tool_enabled(selected_api, agent, current_department, "websearch");
+    let has_remember = tool_enabled(selected_api, agent, current_department, "remember");
+    let has_recall = tool_enabled(selected_api, agent, current_department, "recall");
+    let has_screenshot = tool_enabled(selected_api, agent, current_department, "screenshot");
+    let has_wait = tool_enabled(selected_api, agent, current_department, "wait");
+    let has_refresh_mcp_skills = tool_enabled(selected_api, agent, current_department, "reload");
+    let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
+    let has_task = tool_enabled(selected_api, agent, current_department, "task");
+    let has_delegate = tool_enabled(selected_api, agent, current_department, "delegate");
+    let has_handoff = tool_enabled(selected_api, agent, current_department, "handoff");
 
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
@@ -40,7 +46,7 @@ async fn assemble_runtime_tools(
         if has_fetch {
             None
         } else {
-            Some("disabled in api tools config".to_string())
+            department_reason("fetch").or_else(|| Some("当前人格未启用该工具".to_string()))
         },
     ));
     if has_fetch {
@@ -55,7 +61,7 @@ async fn assemble_runtime_tools(
         if has_websearch {
             None
         } else {
-            Some("disabled in api tools config".to_string())
+            department_reason("websearch").or_else(|| Some("当前人格未启用该工具".to_string()))
         },
     ));
     if has_websearch {
@@ -82,7 +88,7 @@ async fn assemble_runtime_tools(
             "remember",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("remember").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -106,7 +112,7 @@ async fn assemble_runtime_tools(
             "recall",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("recall").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -140,7 +146,7 @@ async fn assemble_runtime_tools(
             "screenshot",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("screenshot").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -193,7 +199,7 @@ async fn assemble_runtime_tools(
             "wait",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("wait").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -215,7 +221,7 @@ async fn assemble_runtime_tools(
             "reload",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("reload").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -240,7 +246,7 @@ async fn assemble_runtime_tools(
             "exec",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("exec").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -262,7 +268,57 @@ async fn assemble_runtime_tools(
             "task",
             false,
             false,
-            Some("disabled in api tools config".to_string()),
+            department_reason("task").or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_delegate {
+        let state = app_state
+            .ok_or_else(|| "delegate requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinDelegateTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "delegate",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "delegate",
+            false,
+            false,
+            department_reason("delegate").or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_handoff {
+        let state = app_state
+            .ok_or_else(|| "handoff requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinHandoffTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "handoff",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "handoff",
+            false,
+            false,
+            department_reason("handoff").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -310,9 +366,5 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     }
     Ok(client)
 }
-
-
-
-
 
 

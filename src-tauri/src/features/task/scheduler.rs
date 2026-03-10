@@ -11,9 +11,9 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
     let agent_id = if data
         .agents
         .iter()
-        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user && !a.is_built_in_system)
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user && !a.is_built_in_system)
     {
-        data.selected_agent_id.clone()
+        data.assistant_department_agent_id.clone()
     } else {
         data.agents
             .iter()
@@ -305,6 +305,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
         },
         session: None,
         speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+        trigger_only: false,
     };
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));
     let trigger_label = if task.trigger.run_at.is_none() {
@@ -395,3 +396,4 @@ fn start_task_scheduler(state: AppState) {
         }
     });
 }
+

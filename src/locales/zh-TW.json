@@ -20,6 +20,7 @@
       "tools": "工具",
       "skill": "技能",
       "persona": "人格",
+      "department": "部門",
       "chatSettings": "对话",
       "memory": "记忆",
       "task": "任務",
@@ -93,6 +94,7 @@
       "capTools": "工具调用"
     },
     "tools": {
+      "basicConfig": "基本配置",
       "noChatLlmProvider": "未配置对话LLM供应商",
       "maxIterations": "工具最大调用轮次",
       "terminalProjectRoots": "终端可用项目目录",
@@ -125,6 +127,8 @@
       "descTerminalPathAccess": "设置当前会话的终端根目录（超出根目录将被拒绝）。",
       "descReload": "重載工作區中的 MCP 與 Skill。",
       "descTask": "管理持久化任務面板，支援新建、更新、完成、查看任務。",
+      "descDelegate": "向目標部門發起一份獨立委託，工具只負責送達。",
+      "descHandoff": "在委託鏈內部同步轉辦，當前部門會等待下級結果返回。",
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空間",
       "openDir": "打開目錄",
@@ -141,7 +145,12 @@
       "openDirFailed": "打開目錄失敗: {err}",
       "resetWorkspaceConfirm": "確認恢復 Shell 工作空間中的預設文件？這不會刪除你的自定義目錄或倉庫。",
       "resetWorkspaceDone": "已恢復 Shell 工作空間預設內容: {path}",
-      "resetWorkspaceFailed": "重置 Shell 工作空間失敗: {err}"
+      "resetWorkspaceFailed": "重置 Shell 工作空間失敗: {err}",
+      "personaLabel": "人格",
+      "editingLabel": "當前正在編輯：",
+      "currentDepartmentLabel": "當前部門：",
+      "currentModelLabel": "運行模型：",
+      "unassignedHint": "暫未被部門委任，當前只能編輯工具權限"
     },
     "persona": {
       "title": "人格",
@@ -189,11 +198,35 @@
       "countFailedButCanClose": "記憶數量統計失敗，但仍可關閉私有記憶。",
       "exportSuccess": "匯出成功：{count} 條"
     },
+    "department": {
+      "title": "部門",
+      "hint": "部門是職責容器。助理部門負責主會話，其他部門用於後續委派執行。",
+      "add": "新增",
+      "remove": "刪除部門",
+      "assistantBadge": "主部門",
+      "currentAssistant": "當前主助理",
+      "emptySummary": "暫無概述",
+      "newName": "部門",
+      "name": "部門名稱",
+      "namePlaceholder": "例如：研發部、資料部",
+      "emptyName": "部門名稱不能為空",
+      "duplicateName": "部門名稱不能重複",
+      "model": "驅動模型",
+      "allowedModelsNote": "僅允許選擇可用於文本對話的模型。",
+      "summary": "部門概述",
+      "summaryPlaceholder": "寫給上級領導看：這個部門適合承接什麼任務。",
+      "guide": "辦事指南",
+      "guidePlaceholder": "寫給部門主管 / 工具人：接到任務後應該如何執行、匯報、交付。",
+      "guideHint": "此內容僅部門內部可見",
+      "assignee": "任命",
+      "assigneePlaceholder": "暫不指定",
+      "selectHint": "請從左側選擇一個部門"
+    },
     "chatSettings": {
-      "chatLlmProvider": "对话LLM供应商",
+      "chatLlmProvider": "助理部門驅動模型",
       "visionApi": "图转文AI（可选）",
       "noVision": "不配置",
-      "assistantPersona": "AI人格",
+      "assistantPersona": "助理部門主人格",
       "responseStyle": "对话风格",
       "openCurrentHistory": "未归档记录",
       "previewRequest": "预览请求体",
@@ -340,6 +373,7 @@
     "mcpToolList": {
       "toolList": "工具列表",
       "noDescription": "(無描述)",
+      "empty": "暫無工具",
       "recentElapsed": "最近拉取耗時"
     },
     "logs": {
@@ -490,9 +524,10 @@
     "deleteTitle": "删除归档",
     "deleteConfirm": "确认删除该归档？此操作不可撤销。",
     "deleteUnarchivedConfirm": "确认删除该未归档会话？此操作不可撤销。",
-    "currentUnarchived": "未归档（当前）",
-    "currentUnarchivedHint": "线性消息最新尾部",
-    "archivedMessages": "归档消息",
+    "currentUnarchived": "未歸檔（當前）",
+    "currentUnarchivedHint": "線性消息最新尾部",
+    "delegateConversations": "委託會話",
+    "archivedMessages": "歸檔消息",
     "summary": "归档摘要",
     "contentDivider": "归档内容",
     "roleUser": "用户",

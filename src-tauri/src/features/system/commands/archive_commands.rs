@@ -17,9 +17,9 @@ fn get_prompt_preview(
     let effective_agent_id = if data
         .agents
         .iter()
-        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
     {
-        data.selected_agent_id.clone()
+        data.assistant_department_agent_id.clone()
     } else {
         data.agents
             .iter()
@@ -42,6 +42,9 @@ fn get_prompt_preview(
             title: "Preview".to_string(),
             api_config_id: api_config.id.clone(),
             agent_id: effective_agent_id.clone(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
             created_at: now_iso(),
             updated_at: now_iso(),
             last_user_at: None,
@@ -67,6 +70,7 @@ fn get_prompt_preview(
         &conversation,
         &agent,
         &data.agents,
+        &app_config.departments,
         &user_name,
         &user_intro,
         &data.response_style_id,

@@ -18,18 +18,27 @@ type UseChatMessageBlocksOptions = {
 };
 
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
-  function resolveAssistantAgentId(message: ChatMessage): string {
+  function resolveSpeakerAgentId(message: ChatMessage): string {
     const direct = String(message.speakerAgentId || "").trim();
     if (direct) return direct;
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    for (const key of ["speakerAgentId", "speaker_agent_id", "agentId", "agent_id"]) {
+    for (const key of [
+      "speakerAgentId",
+      "speaker_agent_id",
+      "targetAgentId",
+      "target_agent_id",
+      "agentId",
+      "agent_id",
+      "sourceAgentId",
+      "source_agent_id",
+    ]) {
       const value = String(meta[key] || "").trim();
       if (value) return value;
     }
     return "";
   }
 
-  function summarizeAssistantToolHistory(
+  function summarizeToolHistory(
     toolHistory: ChatMessage["toolCall"],
   ): { count: number; lastToolName: string } {
     if (!Array.isArray(toolHistory) || toolHistory.length === 0) {
@@ -49,8 +58,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return { count, lastToolName };
   }
 
-
-  function resolvePrimaryTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | undefined {
+  function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | undefined {
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
     if (String(meta.messageKind || "").trim() !== "task_trigger") return undefined;
     const raw = meta.taskTrigger;
@@ -72,76 +80,62 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       everyMinutes: Number.isFinite(Number(card.everyMinutes)) ? Number(card.everyMinutes) : undefined,
     };
   }
+
+  function latestUserAnchorIndex(messages: ChatMessage[]): number {
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      const item = messages[idx];
+      if (item.role !== "user") continue;
+      const speaker = resolveSpeakerAgentId(item);
+      if (!speaker || speaker === "user-persona") return idx;
+    }
+    return 0;
+  }
+
   const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
     const startedAt = options.perfNow();
-    const msgs = options.allMessages.value;
-    const turns: ChatMessageBlock[] = [];
-    for (let i = 0; i < msgs.length; i++) {
-      const msg = msgs[i];
-      if (msg.role === "user") {
-        const primaryText = removeBinaryPlaceholders(renderMessage(msg));
-        const primaryAgentId = String(msg.speakerAgentId || "").trim();
-        const primaryImages = extractMessageImages(msg);
-        const primaryAudios = extractMessageAudios(msg);
-        const primaryTaskTrigger = resolvePrimaryTaskTrigger(msg);
-        let replyText = "";
-        let replyCreatedAt = "";
-        let replyReasoningStandard = "";
-        let replyReasoningInline = "";
-        let replyToolCallCount = 0;
-        let replyLastToolName = "";
-        let replyAgentId = "";
-        if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
-          const assistantMsg = msgs[i + 1];
-          const parsed = parseAssistantStoredText(renderMessage(assistantMsg));
-          const providerMeta = assistantMsg.providerMeta || {};
-          replyCreatedAt = String(assistantMsg.createdAt || "").trim();
-          const toolSummary = summarizeAssistantToolHistory(assistantMsg.toolCall);
-          replyText = parsed.assistantText;
-          replyReasoningStandard = parsed.reasoningStandard || String(providerMeta.reasoningStandard || "");
-          replyReasoningInline = parsed.reasoningInline || String(providerMeta.reasoningInline || "");
-          replyToolCallCount = toolSummary.count;
-          replyLastToolName = toolSummary.lastToolName;
-          replyAgentId = resolveAssistantAgentId(assistantMsg);
-          i++;
-        }
-        if (
-          primaryText
-          || primaryImages.length > 0
-          || primaryAudios.length > 0
-          || !!primaryTaskTrigger
-          || replyText.trim()
-          || replyReasoningStandard.trim()
-          || replyReasoningInline.trim()
-        ) {
-          turns.push({
-            id: msg.id,
-            primaryAgentId,
-            replyAgentId,
-            primaryCreatedAt: String(msg.createdAt || "").trim(),
-            replyCreatedAt,
-            primaryText,
-            primaryImages,
-            primaryAudios,
-            primaryTaskTrigger,
-            replyText,
-            replyReasoningStandard,
-            replyReasoningInline,
-            replyToolCallCount,
-            replyLastToolName,
-          });
-        }
-      }
-    }
+    const messages = options.allMessages.value;
+    const startIndex = latestUserAnchorIndex(messages);
+    const blocks = messages.slice(startIndex).map((message) => {
+      const rendered = removeBinaryPlaceholders(renderMessage(message));
+      const parsed = parseAssistantStoredText(rendered);
+      const meta = (message.providerMeta || {}) as Record<string, unknown>;
+      const toolSummary = summarizeToolHistory(message.toolCall);
+      return {
+        id: message.id,
+        role: message.role,
+        speakerAgentId: resolveSpeakerAgentId(message) || undefined,
+        createdAt: String(message.createdAt || "").trim() || undefined,
+        text: message.role === "assistant" ? parsed.assistantText : rendered,
+        images: extractMessageImages(message),
+        audios: extractMessageAudios(message),
+        taskTrigger: resolveTaskTrigger(message),
+        reasoningStandard:
+          parsed.reasoningStandard
+          || String(meta.reasoningStandard || "").trim(),
+        reasoningInline:
+          parsed.reasoningInline
+          || String(meta.reasoningInline || "").trim(),
+        toolCallCount: toolSummary.count,
+        lastToolName: toolSummary.lastToolName,
+      };
+    }).filter((block) =>
+      block.text
+      || block.images.length > 0
+      || block.audios.length > 0
+      || !!block.taskTrigger
+      || !!block.reasoningStandard
+      || !!block.reasoningInline,
+    );
+
     if (options.perfDebug) {
       const cost = Math.round((options.perfNow() - startedAt) * 10) / 10;
-      console.log(`【性能】构建消息块 messages=${msgs.length} turns=${turns.length} 状态=完成 耗时=${cost}ms`);
+      console.log(`【性能】构建消息块 messages=${messages.length} blocks=${blocks.length} 完成 耗时=${cost}ms`);
     }
-    return turns;
+    return blocks;
   });
 
   const visibleMessageBlocks = computed(() =>
-    allMessageBlocks.value.slice(Math.max(0, allMessageBlocks.value.length - options.visibleMessageBlockCount.value))
+    allMessageBlocks.value.slice(Math.max(0, allMessageBlocks.value.length - options.visibleMessageBlockCount.value)),
   );
 
   const hasMoreMessageBlocks = computed(() => options.visibleMessageBlockCount.value < allMessageBlocks.value.length);
@@ -164,7 +158,3 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     chatUsagePercent,
   };
 }
-
-
-
-

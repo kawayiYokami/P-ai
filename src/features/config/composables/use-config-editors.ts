@@ -1,5 +1,6 @@
 import type { ComputedRef, Ref } from "vue";
 import type { ApiConfigItem, AppConfig, PersonaProfile } from "../../../types/app";
+import { defaultToolBindings } from "../utils/builtin-tools";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -8,7 +9,7 @@ type UseConfigEditorsOptions = {
   config: AppConfig;
   personas: Ref<PersonaProfile[]>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  selectedPersonaId: Ref<string>;
+  assistantDepartmentAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   selectedPersonaEditor: ComputedRef<PersonaProfile | null>;
   createApiConfig: (seed?: string) => ApiConfigItem;
@@ -43,6 +44,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       id,
       name: `${options.t("config.persona.title")} ${options.assistantPersonas.value.length + 1}`,
       systemPrompt: options.t("config.persona.assistantPlaceholder"),
+      tools: defaultToolBindings(),
       privateMemoryEnabled: false,
       createdAt: now,
       updatedAt: now,
@@ -51,7 +53,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       isBuiltInUser: false,
       isBuiltInSystem: false,
     });
-    options.selectedPersonaId.value = id;
+    options.assistantDepartmentAgentId.value = id;
     options.personaEditorId.value = id;
   }
 
@@ -61,8 +63,8 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     if (!target || target.isBuiltInUser || target.isBuiltInSystem) return;
     const idx = options.personas.value.findIndex((p) => p.id === target.id);
     if (idx >= 0) options.personas.value.splice(idx, 1);
-    if (options.selectedPersonaId.value === target.id) {
-      options.selectedPersonaId.value = options.assistantPersonas.value[0]?.id || "default-agent";
+    if (options.assistantDepartmentAgentId.value === target.id) {
+      options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id || "default-agent";
     }
     options.personaEditorId.value = options.assistantPersonas.value[0]?.id || "default-agent";
   }
@@ -74,3 +76,4 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     removeSelectedPersona,
   };
 }
+

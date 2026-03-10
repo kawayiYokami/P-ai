@@ -2089,7 +2089,7 @@ mod memory_store_tests {
             r#"{
               "version": 1,
               "agents": [],
-              "selectedAgentId": "default-agent",
+              "assistantDepartmentAgentId": "default-agent",
               "userAlias": "tester",
               "responseStyleId": "concise",
               "conversations": [],
@@ -2223,3 +2223,4 @@ mod memory_store_tests {
         assert_eq!(c_strength, 2, "T2 recalled-but-useless should remain unchanged");
     }
 }
+

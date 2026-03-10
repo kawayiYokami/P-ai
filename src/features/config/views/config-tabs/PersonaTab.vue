@@ -9,7 +9,8 @@
         <Plus class="h-3.5 w-3.5" />
       </button>
       <button
-        class="btn btn-sm btn-square text-error bg-base-100"
+        class="btn btn-sm btn-square"
+        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'text-error bg-base-100'"
         :title="t('config.persona.remove')"
         :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1"
         @click="$emit('removeSelectedPersona')"

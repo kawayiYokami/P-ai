@@ -4,6 +4,11 @@ const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const USER_PERSONA_ID: &str = "user-persona";
 const SYSTEM_PERSONA_ID: &str = "system-persona";
+const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
+const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
+const DELEGATE_TOOL_KIND_HANDOFF: &str = "handoff";
+const CONVERSATION_KIND_CHAT: &str = "chat";
+const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
 
@@ -288,7 +293,25 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             enabled: true,
             values: serde_json::json!({}),
         },
+        ApiToolConfig {
+            id: "delegate".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["delegate".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "handoff".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["handoff".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
     ]
+}
+
+fn default_agent_tools() -> Vec<ApiToolConfig> {
+    default_api_tools()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -339,6 +362,53 @@ struct McpServerConfig {
 
 fn default_mcp_servers() -> Vec<McpServerConfig> {
     Vec::new()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DepartmentConfig {
+    id: String,
+    name: String,
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    guide: String,
+    api_config_id: String,
+    #[serde(default)]
+    agent_ids: Vec<String>,
+    created_at: String,
+    updated_at: String,
+    order_index: i64,
+    #[serde(default)]
+    is_built_in_assistant: bool,
+}
+
+fn default_assistant_department(api_config_id: &str) -> DepartmentConfig {
+    let now = now_iso();
+    DepartmentConfig {
+        id: ASSISTANT_DEPARTMENT_ID.to_string(),
+        name: "助理部门".to_string(),
+        summary: "负责直接与用户对话，承接主会话与统筹调度。".to_string(),
+        guide: "你是助理部门，负责作为主负责人理解用户需求、决定是否需要委派、汇总结果并继续推进主对话。".to_string(),
+        api_config_id: api_config_id.trim().to_string(),
+        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+        created_at: now.clone(),
+        updated_at: now,
+        order_index: 1,
+        is_built_in_assistant: true,
+    }
+}
+
+fn default_assistant_department_name(ui_language: &str) -> String {
+    match ui_language.trim() {
+        "en-US" => "Assistant Department".to_string(),
+        "zh-TW" => "助理部門".to_string(),
+        _ => "助理部门".to_string(),
+    }
+}
+
+fn default_departments(api_config_id: &str) -> Vec<DepartmentConfig> {
+    vec![default_assistant_department(api_config_id)]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -460,8 +530,8 @@ struct AppConfig {
     #[serde(default = "default_tool_max_iterations")]
     tool_max_iterations: u32,
     selected_api_config_id: String,
-    #[serde(default)]
-    chat_api_config_id: String,
+    #[serde(default, alias = "chatApiConfigId")]
+    assistant_department_api_config_id: String,
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]
@@ -472,6 +542,8 @@ struct AppConfig {
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     #[serde(default = "default_mcp_servers")]
     mcp_servers: Vec<McpServerConfig>,
+    #[serde(default)]
+    departments: Vec<DepartmentConfig>,
     api_configs: Vec<ApiConfig>,
 }
 
@@ -488,12 +560,13 @@ impl Default for AppConfig {
             max_record_seconds: default_max_record_seconds(),
             tool_max_iterations: default_tool_max_iterations(),
             selected_api_config_id: api_config.id.clone(),
-            chat_api_config_id: api_config.id.clone(),
+            assistant_department_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
             shell_workspaces: Vec::new(),
             mcp_servers: default_mcp_servers(),
+            departments: default_departments(&api_config.id),
             api_configs: vec![api_config],
         }
     }
@@ -540,6 +613,8 @@ struct SendChatRequest {
     session: Option<SessionSelector>,
     #[serde(default)]
     speaker_agent_id: Option<String>,
+    #[serde(default)]
+    trigger_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -577,6 +652,8 @@ struct StopChatResult {
 struct SessionSelector {
     api_config_id: Option<String>,
     agent_id: String,
+    #[serde(default)]
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -615,6 +692,9 @@ struct RefreshModelsInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CheckToolsStatusInput {
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
     api_config_id: Option<String>,
 }
 
@@ -686,6 +766,8 @@ struct AgentProfile {
     id: String,
     name: String,
     system_prompt: String,
+    #[serde(default = "default_agent_tools")]
+    tools: Vec<ApiToolConfig>,
     created_at: String,
     updated_at: String,
     #[serde(default)]
@@ -749,6 +831,12 @@ struct Conversation {
     title: String,
     api_config_id: String,
     agent_id: String,
+    #[serde(default)]
+    conversation_kind: String,
+    #[serde(default)]
+    root_conversation_id: Option<String>,
+    #[serde(default)]
+    delegate_id: Option<String>,
     created_at: String,
     updated_at: String,
     #[serde(default)]
@@ -820,8 +908,12 @@ struct MemoryEntry {
 struct AppData {
     version: u32,
     agents: Vec<AgentProfile>,
-    #[serde(default = "default_selected_agent_id")]
-    selected_agent_id: String,
+    #[serde(
+        default = "default_assistant_department_agent_id",
+        alias = "selectedAgentId",
+        alias = "selected_agent_id"
+    )]
+    assistant_department_agent_id: String,
     #[serde(default = "default_user_alias")]
     user_alias: String,
     #[serde(default = "default_response_style_id")]
@@ -838,7 +930,7 @@ impl Default for AppData {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             agents: vec![default_agent(), default_user_persona(), default_system_persona()],
-            selected_agent_id: default_selected_agent_id(),
+            assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
             conversations: Vec::new(),
@@ -848,12 +940,75 @@ impl Default for AppData {
     }
 }
 
-fn default_selected_agent_id() -> String {
+fn default_assistant_department_agent_id() -> String {
     DEFAULT_AGENT_ID.to_string()
 }
 
 fn default_user_alias() -> String {
     "用户".to_string()
+}
+
+fn assistant_department(config: &AppConfig) -> Option<&DepartmentConfig> {
+    config
+        .departments
+        .iter()
+        .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
+}
+
+fn assistant_department_mut(config: &mut AppConfig) -> Option<&mut DepartmentConfig> {
+    config
+        .departments
+        .iter_mut()
+        .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
+}
+
+fn assistant_department_agent_id(config: &AppConfig) -> Option<String> {
+    assistant_department(config)
+        .and_then(|dept| dept.agent_ids.iter().find(|id| !id.trim().is_empty()).cloned())
+}
+
+fn department_by_id<'a>(config: &'a AppConfig, department_id: &str) -> Option<&'a DepartmentConfig> {
+    let trimmed = department_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    config.departments.iter().find(|item| item.id == trimmed)
+}
+
+fn department_for_agent_id<'a>(config: &'a AppConfig, agent_id: &str) -> Option<&'a DepartmentConfig> {
+    let trimmed = agent_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    config
+        .departments
+        .iter()
+        .find(|item| item.agent_ids.iter().any(|id| id.trim() == trimmed))
+        .or_else(|| {
+            if trimmed == DEFAULT_AGENT_ID {
+                assistant_department(config)
+            } else {
+                None
+            }
+        })
+}
+
+fn tool_restricted_by_department(department: Option<&DepartmentConfig>, tool_id: &str) -> Option<String> {
+    let department = department?;
+    let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
+    if is_assistant {
+        return None;
+    }
+    if !matches!(tool_id, "wait" | "reload" | "screenshot" | "delegate") {
+        return None;
+    }
+    let department_name = department.name.trim();
+    let department_name = if department_name.is_empty() {
+        "当前部门"
+    } else {
+        department_name
+    };
+    Some(format!("因为当前人格在 {department_name} 部门，本工具不被允许"))
 }
 
 fn user_persona_name(data: &AppData) -> String {
@@ -1128,6 +1283,7 @@ fn default_agent() -> AgentProfile {
         id: DEFAULT_AGENT_ID.to_string(),
         name: "助理".to_string(),
         system_prompt: "你是一个耐心、友善的助理。请用短信聊天的口吻与用户交流，优先自然、简短、有人味的表达。除非用户明确要求，否则不要使用结构化输出（如分点、表格、章节）和过度正式语气。面对截图相关问题时，先结合用户上下文给出直接可执行的建议，再补充必要说明。".to_string(),
+        tools: default_agent_tools(),
         created_at: now.clone(),
         updated_at: now,
         avatar_path: None,
@@ -1144,6 +1300,7 @@ fn default_user_persona() -> AgentProfile {
         id: USER_PERSONA_ID.to_string(),
         name: "用户".to_string(),
         system_prompt: "我是...".to_string(),
+        tools: default_agent_tools(),
         created_at: now.clone(),
         updated_at: now,
         avatar_path: None,
@@ -1160,6 +1317,7 @@ fn default_system_persona() -> AgentProfile {
         id: SYSTEM_PERSONA_ID.to_string(),
         name: "凯瑟琳".to_string(),
         system_prompt: "我是系统人格，负责代表任务中心与系统调度向当前助手传达信息。".to_string(),
+        tools: default_agent_tools(),
         created_at: now.clone(),
         updated_at: now,
         avatar_path: None,
@@ -1170,6 +1328,48 @@ fn default_system_persona() -> AgentProfile {
     }
 }
 
+fn normalize_agent_tools(agent: &mut AgentProfile) -> bool {
+    let defaults = default_agent_tools();
+    let mut next = Vec::<ApiToolConfig>::new();
+    for default in defaults {
+        if let Some(found) = agent.tools.iter().find(|tool| tool.id == default.id) {
+            next.push(ApiToolConfig {
+                id: default.id.clone(),
+                command: if found.command.trim().is_empty() {
+                    default.command.clone()
+                } else {
+                    found.command.clone()
+                },
+                args: if found.args.is_empty() {
+                    default.args.clone()
+                } else {
+                    found.args.clone()
+                },
+                enabled: found.enabled,
+                values: found.values.clone(),
+            });
+        } else {
+            next.push(default);
+        }
+    }
+    let changed = agent.tools.len() != next.len()
+        || agent
+            .tools
+            .iter()
+            .zip(next.iter())
+            .any(|(left, right)| {
+                left.id != right.id
+                    || left.enabled != right.enabled
+                    || left.command != right.command
+                    || left.args != right.args
+                    || left.values != right.values
+            });
+    if changed {
+        agent.tools = next;
+    }
+    changed
+}
+
 fn ensure_default_agent(data: &mut AppData) -> bool {
     let mut changed = false;
     let old_prompt = "You are a concise and helpful assistant.";
@@ -1177,6 +1377,9 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
     let mut has_user_persona = false;
     let mut has_system_persona = false;
     for agent in &mut data.agents {
+        if normalize_agent_tools(agent) {
+            changed = true;
+        }
         if agent.id == DEFAULT_AGENT_ID {
             has_assistant = true;
             if agent.is_built_in_user {
@@ -1227,13 +1430,13 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
         data.agents.push(default_system_persona());
         changed = true;
     }
-    if data.selected_agent_id.trim().is_empty()
+    if data.assistant_department_agent_id.trim().is_empty()
         || !data
             .agents
             .iter()
-            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user && !a.is_built_in_system)
+            .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user && !a.is_built_in_system)
     {
-        data.selected_agent_id = default_selected_agent_id();
+        data.assistant_department_agent_id = default_assistant_department_agent_id();
         changed = true;
     }
     let desired_alias = user_persona_name(data);
@@ -1250,6 +1453,27 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
 }
 
 fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
+    fn provider_meta_speaker_agent_id(message: &ChatMessage) -> Option<String> {
+        let meta = message.provider_meta.as_ref()?;
+        let object = meta.as_object()?;
+        for key in [
+            "speakerAgentId",
+            "speaker_agent_id",
+            "targetAgentId",
+            "target_agent_id",
+            "agentId",
+            "agent_id",
+            "sourceAgentId",
+            "source_agent_id",
+        ] {
+            let value = object.get(key).and_then(|item| item.as_str()).unwrap_or("").trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+        None
+    }
+
     let mut changed = false;
     for conversation in &mut data.conversations {
         let host_agent_id = conversation.agent_id.trim().to_string();
@@ -1263,9 +1487,34 @@ fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
                 .map(str::trim)
                 .unwrap_or("");
             if current.is_empty() {
-                message.speaker_agent_id = Some(if message.role == "user" { USER_PERSONA_ID.to_string() } else { host_agent_id.clone() });
+                message.speaker_agent_id = Some(
+                    provider_meta_speaker_agent_id(message).unwrap_or_else(|| {
+                        if message.role == "user" {
+                            USER_PERSONA_ID.to_string()
+                        } else {
+                            host_agent_id.clone()
+                        }
+                    }),
+                );
                 changed = true;
             }
+        }
+    }
+    changed
+}
+
+fn fill_missing_conversation_metadata(data: &mut AppData) -> bool {
+    let mut changed = false;
+    for conversation in &mut data.conversations {
+        if conversation.conversation_kind.trim().is_empty() {
+            conversation.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+            changed = true;
+        }
+    }
+    for archive in &mut data.archived_conversations {
+        if archive.source_conversation.conversation_kind.trim().is_empty() {
+            archive.source_conversation.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+            changed = true;
         }
     }
     changed
@@ -1274,7 +1523,8 @@ fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChatSettings {
-    selected_agent_id: String,
+    #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
+    assistant_department_agent_id: String,
     user_alias: String,
     #[serde(default = "default_response_style_id")]
     response_style_id: String,
@@ -1283,7 +1533,8 @@ struct ChatSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConversationApiSettings {
-    chat_api_config_id: String,
+    #[serde(alias = "chatApiConfigId", alias = "chat_api_config_id")]
+    assistant_department_api_config_id: String,
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]
@@ -1291,6 +1542,7 @@ struct ConversationApiSettings {
     #[serde(default)]
     stt_auto_send: bool,
 }
+
 
 
 

@@ -18,6 +18,7 @@ fn build_prepared_prompt_for_mode(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -29,10 +30,33 @@ fn build_prepared_prompt_for_mode(
 ) -> PreparedPrompt {
     match mode {
         PromptBuildMode::Chat => {
+            let temp_config = AppConfig {
+                hotkey: String::new(),
+                ui_language: String::new(),
+                ui_font: String::new(),
+                record_hotkey: String::new(),
+                record_background_wake_enabled: false,
+                min_record_seconds: 0,
+                max_record_seconds: 0,
+                tool_max_iterations: 0,
+                selected_api_config_id: String::new(),
+                assistant_department_api_config_id: String::new(),
+                vision_api_config_id: None,
+                stt_api_config_id: None,
+                stt_auto_send: false,
+                shell_workspaces: Vec::new(),
+                mcp_servers: Vec::new(),
+                departments: departments.to_vec(),
+                api_configs: Vec::new(),
+            };
+            let include_archive_recap = department_for_agent_id(&temp_config, &agent.id)
+            .map(|department| department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant)
+            .unwrap_or(false);
             let mut prepared = build_prompt(
                 conversation,
                 agent,
                 agents,
+                departments,
                 user_name,
                 user_intro,
                 response_style_id,
@@ -41,7 +65,11 @@ fn build_prepared_prompt_for_mode(
             );
             prepared = enrich_prepared_prompt_with_common_preamble(
                 prepared,
-                last_archive_summary,
+                if include_archive_recap {
+                    last_archive_summary
+                } else {
+                    None
+                },
                 terminal_block,
             );
             if let Some(overrides) = chat_overrides {
@@ -224,3 +252,4 @@ fn apply_chat_latest_user_payload(
     prepared.latest_images = latest_images;
     prepared.latest_audios = latest_audios;
 }
+

@@ -6,7 +6,12 @@ fn latest_active_conversation_index(
     data.conversations
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.status == "active" && c.summary.trim().is_empty() && c.agent_id == agent_id)
+        .filter(|(_, c)| {
+            c.status == "active"
+                && c.summary.trim().is_empty()
+                && c.agent_id == agent_id
+                && !conversation_is_delegate(c)
+        })
         .max_by(|(idx_a, a), (idx_b, b)| {
             let a_updated = a.updated_at.trim();
             let b_updated = b.updated_at.trim();
@@ -18,6 +23,44 @@ fn latest_active_conversation_index(
                 .then_with(|| idx_a.cmp(idx_b))
         })
         .map(|(idx, _)| idx)
+}
+
+fn conversation_is_delegate(conversation: &Conversation) -> bool {
+    conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+}
+
+fn build_conversation_record(
+    api_config_id: &str,
+    agent_id: &str,
+    title: &str,
+    conversation_kind: &str,
+    root_conversation_id: Option<String>,
+    delegate_id: Option<String>,
+) -> Conversation {
+    let now = now_iso();
+    Conversation {
+        id: Uuid::new_v4().to_string(),
+        title: if title.trim().is_empty() {
+            format!("Chat {}", &now.chars().take(16).collect::<String>())
+        } else {
+            title.trim().to_string()
+        },
+        api_config_id: api_config_id.to_string(),
+        agent_id: agent_id.to_string(),
+        conversation_kind: conversation_kind.trim().to_string(),
+        root_conversation_id,
+        delegate_id,
+        created_at: now.clone(),
+        updated_at: now,
+        last_user_at: None,
+        last_assistant_at: None,
+        last_context_usage_ratio: 0.0,
+        status: "active".to_string(),
+        summary: String::new(),
+        archived_at: None,
+        messages: Vec::new(),
+        memory_recall_table: Vec::new(),
+    }
 }
 
 fn ensure_active_conversation_index(
@@ -34,23 +77,14 @@ fn ensure_active_conversation_index(
         return idx;
     }
 
-    let now = now_iso();
-    let conversation = Conversation {
-        id: Uuid::new_v4().to_string(),
-        title: format!("Chat {}", &now.chars().take(16).collect::<String>()),
-        api_config_id: api_config_id.to_string(),
-        agent_id: agent_id.to_string(),
-        created_at: now.clone(),
-        updated_at: now,
-        last_user_at: None,
-        last_assistant_at: None,
-        last_context_usage_ratio: 0.0,
-        status: "active".to_string(),
-        summary: String::new(),
-        archived_at: None,
-        messages: Vec::new(),
-        memory_recall_table: Vec::new(),
-    };
+    let conversation = build_conversation_record(
+        api_config_id,
+        agent_id,
+        "",
+        CONVERSATION_KIND_CHAT,
+        None,
+        None,
+    );
 
     data.conversations.push(conversation);
     data.conversations.len() - 1
@@ -458,10 +492,225 @@ fn build_prompt_user_meta_text(
 fn render_prompt_message_text(message: &ChatMessage) -> String {
     render_message_content_for_model(message)
 }
+
+#[derive(Debug, Clone)]
+struct PromptDepartmentCard {
+    id: String,
+    name: String,
+    summary: String,
+}
+
+#[derive(Debug, Clone)]
+struct PromptDepartmentContext {
+    current: PromptDepartmentCard,
+    available: Vec<PromptDepartmentCard>,
+}
+
+struct DepartmentPromptLabels {
+    current_title: &'static str,
+    current_name_label: &'static str,
+    current_summary_label: &'static str,
+    current_guide_label: &'static str,
+    available_title: &'static str,
+    available_empty: &'static str,
+    available_id_label: &'static str,
+    available_summary_label: &'static str,
+    empty_summary: &'static str,
+    empty_guide: &'static str,
+}
+
+fn department_prompt_labels(ui_language: &str) -> DepartmentPromptLabels {
+    match ui_language.trim() {
+        "en-US" => DepartmentPromptLabels {
+            current_title: "Current Department",
+            current_name_label: "Department",
+            current_summary_label: "Summary",
+            current_guide_label: "Guide",
+            available_title: "Available Departments",
+            available_empty: "No available department right now.",
+            available_id_label: "Department ID",
+            available_summary_label: "Summary",
+            empty_summary: "Not provided",
+            empty_guide: "No guide configured.",
+        },
+        "zh-TW" => DepartmentPromptLabels {
+            current_title: "你當前所屬部門",
+            current_name_label: "部門",
+            current_summary_label: "部門概述",
+            current_guide_label: "部門辦事指南",
+            available_title: "你的可用部門",
+            available_empty: "當前沒有可用部門。",
+            available_id_label: "部門 ID",
+            available_summary_label: "概述",
+            empty_summary: "未提供",
+            empty_guide: "尚未配置辦事指南。",
+        },
+        _ => DepartmentPromptLabels {
+            current_title: "你当前所属部门",
+            current_name_label: "部门",
+            current_summary_label: "部门概述",
+            current_guide_label: "部门办事指南",
+            available_title: "你的可用部门",
+            available_empty: "当前没有可用部门。",
+            available_id_label: "部门 ID",
+            available_summary_label: "概述",
+            empty_summary: "未提供",
+            empty_guide: "尚未配置办事指南。",
+        },
+    }
+}
+
+fn prompt_department_card_from_config(
+    department: &DepartmentConfig,
+    empty_summary: &str,
+) -> PromptDepartmentCard {
+    PromptDepartmentCard {
+        id: department.id.clone(),
+        name: department.name.trim().to_string(),
+        summary: if department.summary.trim().is_empty() {
+            empty_summary.to_string()
+        } else {
+            department.summary.trim().to_string()
+        },
+    }
+}
+
+fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
+    AppConfig {
+        hotkey: String::new(),
+        ui_language: String::new(),
+        ui_font: String::new(),
+        record_hotkey: String::new(),
+        record_background_wake_enabled: false,
+        min_record_seconds: 0,
+        max_record_seconds: 0,
+        tool_max_iterations: 0,
+        selected_api_config_id: String::new(),
+        assistant_department_api_config_id: String::new(),
+        vision_api_config_id: None,
+        stt_api_config_id: None,
+        stt_auto_send: false,
+        shell_workspaces: Vec::new(),
+        mcp_servers: Vec::new(),
+        departments: departments.to_vec(),
+        api_configs: Vec::new(),
+    }
+}
+
+fn prompt_department_context_from_provider_meta(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    departments: &[DepartmentConfig],
+    empty_summary: &str,
+) -> Option<PromptDepartmentContext> {
+    let temp_config = departments_only_config(departments);
+    let current_department = department_for_agent_id(&temp_config, &agent.id)?;
+    let latest_user = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"))?;
+    let meta = latest_user.provider_meta.as_ref()?.as_object()?;
+    let target_department_id = meta.get("targetDepartmentId").and_then(Value::as_str)?.trim();
+    if target_department_id != current_department.id {
+        return None;
+    }
+    let call_stack = meta
+        .get("callStack")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<HashSet<String>>()
+        })
+        .unwrap_or_default();
+    let mut available = departments
+        .iter()
+        .filter(|department| department.id != current_department.id)
+        .filter(|department| !call_stack.contains(department.id.as_str()))
+        .map(|department| prompt_department_card_from_config(department, empty_summary))
+        .collect::<Vec<_>>();
+    available.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(PromptDepartmentContext {
+        current: prompt_department_card_from_config(current_department, empty_summary),
+        available,
+    })
+}
+
+fn build_departments_prompt_block(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    departments: &[DepartmentConfig],
+    ui_language: &str,
+) -> String {
+    if departments.is_empty() {
+        return String::new();
+    }
+    let labels = department_prompt_labels(ui_language);
+    let config = departments_only_config(departments);
+    let current_department = department_for_agent_id(&config, &agent.id);
+    let prompt_context = prompt_department_context_from_provider_meta(
+        conversation,
+        agent,
+        departments,
+        labels.empty_summary,
+    )
+    .or_else(|| {
+        current_department.map(|department| PromptDepartmentContext {
+            current: prompt_department_card_from_config(department, labels.empty_summary),
+            available: departments
+                .iter()
+                .filter(|item| item.id != department.id)
+                .map(|item| prompt_department_card_from_config(item, labels.empty_summary))
+                .collect::<Vec<_>>(),
+        })
+    });
+    let Some(prompt_context) = prompt_context else {
+        return String::new();
+    };
+    let guide = current_department
+        .map(|department| department.guide.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| labels.empty_guide.to_string());
+    let mut lines = vec![
+        format!("## {}", labels.current_title),
+        format!("- {}：{}", labels.current_name_label, prompt_context.current.name),
+        format!(
+            "- {}：{}",
+            labels.current_summary_label, prompt_context.current.summary
+        ),
+        format!("- {}：{}", labels.current_guide_label, guide),
+        String::new(),
+        format!("## {}", labels.available_title),
+    ];
+    if prompt_context.available.is_empty() {
+        lines.push(format!("- {}", labels.available_empty));
+    } else {
+        for department in prompt_context.available {
+            lines.push(format!(
+                "- {}：{} | {}：{} | {}：{}",
+                labels.current_name_label,
+                department.name,
+                labels.available_id_label,
+                department.id,
+                labels.available_summary_label,
+                department.summary
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
 fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -620,9 +869,11 @@ fn build_prompt(
     let role_identity_text = role_identity_line
         .replacen("{}", &xml_escape_prompt(&agent.name), 1)
         .replacen("{}", &xml_escape_prompt(user_name), 1);
+    let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
 
     let preamble = format!(
         "{}\n\
+{}\n\
 ## {}\n\
 {}\n\
 \n\
@@ -643,6 +894,7 @@ fn build_prompt(
 - {}\n\
 \n",
         highest_instruction_md,
+        departments_block,
         assistant_settings_label,
         agent.system_prompt,
         user_settings_label,
@@ -790,4 +1042,5 @@ fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
         _ => None,
     }
 }
+
 

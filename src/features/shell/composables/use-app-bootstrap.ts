@@ -3,13 +3,13 @@ import type { AppConfig } from "../../../types/app";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
-  chatApiConfigId: string;
+  assistantDepartmentApiConfigId: string;
   visionApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
 };
 type ChatSettingsPayload = {
-  selectedAgentId: string;
+  assistantDepartmentAgentId: string;
   userAlias: string;
   responseStyleId: string;
 };
@@ -136,3 +136,4 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
     unmount,
   };
 }
+

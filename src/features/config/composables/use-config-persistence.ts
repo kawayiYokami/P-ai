@@ -2,6 +2,7 @@ import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { AppConfig, PersonaProfile } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
+import { normalizeToolBindings } from "../utils/builtin-tools";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -26,7 +27,7 @@ type UseConfigPersistenceOptions = {
   saving: Ref<boolean>;
   personas: Ref<PersonaProfile[]>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  selectedPersonaId: Ref<string>;
+  assistantDepartmentAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
@@ -45,6 +46,23 @@ const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
 const DEFAULT_MAX_RECORD_SECONDS = 60;
 const MAX_RECORD_SECONDS = 600;
+
+function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
+  return {
+    id: String((item as { id?: unknown })?.id || "").trim(),
+    name: String((item as { name?: unknown })?.name || "").trim(),
+    summary: String((item as { summary?: unknown })?.summary || "").trim(),
+    guide: String((item as { guide?: unknown })?.guide || "").trim(),
+    apiConfigId: String((item as { apiConfigId?: unknown })?.apiConfigId || "").trim(),
+    agentIds: Array.isArray((item as { agentIds?: unknown[] })?.agentIds)
+      ? ((item as { agentIds?: unknown[] }).agentIds || []).map((v) => String(v || "").trim()).filter(Boolean)
+      : [],
+    createdAt: String((item as { createdAt?: unknown })?.createdAt || "").trim(),
+    updatedAt: String((item as { updatedAt?: unknown })?.updatedAt || "").trim(),
+    orderIndex: Math.max(1, Number((item as { orderIndex?: unknown })?.orderIndex || 1)),
+    isBuiltInAssistant: !!(item as { isBuiltInAssistant?: unknown })?.isBuiltInAssistant,
+  };
+}
 
 export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   function extractHttpStatus(error: unknown): number | null {
@@ -130,10 +148,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
-      options.config.chatApiConfigId = cfg.chatApiConfigId;
+      options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!cfg.sttAutoSend;
+      options.config.departments = Array.isArray((cfg as AppConfig).departments)
+        ? (cfg.departments || []).map(mapDepartmentConfig)
+        : [];
       options.config.shellWorkspaces = Array.isArray(cfg.shellWorkspaces)
         ? cfg.shellWorkspaces
             .map((v) => ({
@@ -200,10 +221,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
       options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
-      options.config.chatApiConfigId = saved.chatApiConfigId;
+      options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
+      options.config.departments = Array.isArray(saved.departments)
+        ? (saved.departments || []).map(mapDepartmentConfig)
+        : [];
       options.config.shellWorkspaces = Array.isArray(saved.shellWorkspaces)
         ? saved.shellWorkspaces
             .map((v) => ({
@@ -273,16 +297,19 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.suppressAutosave.value = true;
     try {
       const list = await invokeTauri<PersonaProfile[]>("load_agents");
-      options.personas.value = list;
-      if (!options.assistantPersonas.value.some((p) => p.id === options.selectedPersonaId.value)) {
-        options.selectedPersonaId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
+      options.personas.value = list.map((item) => ({
+        ...item,
+        tools: normalizeToolBindings(item.tools),
+      }));
+      if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
+        options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
       }
       if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.selectedPersonaId.value;
+        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
       }
       options.syncUserAliasFromPersona();
       await options.preloadPersonaAvatars();
-      await options.syncTrayIcon(options.selectedPersonaId.value);
+      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadPersonasFailed", e);
     } finally {
@@ -293,14 +320,14 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   async function loadChatSettings() {
     options.suppressAutosave.value = true;
     try {
-      const settings = await invokeTauri<{ selectedAgentId: string; userAlias: string; responseStyleId: string }>(
+      const settings = await invokeTauri<{ assistantDepartmentAgentId: string; userAlias: string; responseStyleId: string }>(
         "load_chat_settings",
       );
-      if (options.assistantPersonas.value.some((p) => p.id === settings.selectedAgentId)) {
-        options.selectedPersonaId.value = settings.selectedAgentId;
+      if (options.assistantPersonas.value.some((p) => p.id === settings.assistantDepartmentAgentId)) {
+        options.assistantDepartmentAgentId.value = settings.assistantDepartmentAgentId;
       }
       if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.selectedPersonaId.value;
+        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
       }
       options.userAlias.value = settings.userAlias?.trim() || options.t("archives.roleUser");
       if (options.responseStyleIds.value.includes(settings.responseStyleId)) {
@@ -308,7 +335,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       } else {
         options.selectedResponseStyleId.value = "concise";
       }
-      await options.syncTrayIcon(options.selectedPersonaId.value);
+      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
     } finally {
@@ -322,10 +349,16 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.personas.value = await invokeTauri<PersonaProfile[]>("save_agents", {
         input: { agents: options.personas.value },
       });
+      options.personas.value = options.personas.value.map((item) => ({
+        ...item,
+        tools: normalizeToolBindings(item.tools),
+      }));
       options.syncUserAliasFromPersona();
       options.setStatus(options.t("status.personaSaved"));
+      return true;
     } catch (e) {
       options.setStatusError("status.savePersonasFailed", e);
+      return false;
     } finally {
       options.suppressAutosave.value = false;
     }
@@ -335,17 +368,17 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.saving.value = true;
     options.setStatus(options.t("status.savingChatSettings"));
     try {
-      const targetAgentId = options.assistantPersonas.value.some((p) => p.id === options.selectedPersonaId.value)
-        ? options.selectedPersonaId.value
+      const targetAgentId = options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)
+        ? options.assistantDepartmentAgentId.value
         : options.assistantPersonas.value[0]?.id || "default-agent";
       await invokeTauri("save_chat_settings", {
         input: {
-          selectedAgentId: targetAgentId,
+          assistantDepartmentAgentId: targetAgentId,
           userAlias: options.userAlias.value,
           responseStyleId: options.selectedResponseStyleId.value,
         },
       });
-      options.selectedPersonaId.value = targetAgentId;
+      options.assistantDepartmentAgentId.value = targetAgentId;
       options.setStatus(options.t("status.chatSettingsSaved"));
     } catch (e) {
       options.setStatusError("status.saveChatSettingsFailed", e);
@@ -359,19 +392,19 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     try {
       console.info("[CONFIG] save_conversation_api_settings invoked");
       const saved = await invokeTauri<{
-        chatApiConfigId: string;
+        assistantDepartmentApiConfigId: string;
         visionApiConfigId?: string;
         sttApiConfigId?: string;
         sttAutoSend?: boolean;
       }>("save_conversation_api_settings", {
         input: {
-          chatApiConfigId: options.config.chatApiConfigId,
+          assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
           visionApiConfigId: options.config.visionApiConfigId || null,
           sttApiConfigId: options.config.sttApiConfigId || null,
           sttAutoSend: !!options.config.sttAutoSend,
         },
       });
-      options.config.chatApiConfigId = saved.chatApiConfigId;
+      options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
@@ -394,3 +427,4 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     saveConversationApiSettings,
   };
 }
+

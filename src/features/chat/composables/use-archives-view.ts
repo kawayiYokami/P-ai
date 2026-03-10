@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ArchiveSummary, ChatMessage, UnarchivedConversationSummary } from "../../../types/app";
+import type { ArchiveSummary, ChatMessage, DelegateConversationSummary, UnarchivedConversationSummary } from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -74,6 +74,9 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   const unarchivedConversations = ref<UnarchivedConversationSummary[]>([]);
   const unarchivedMessages = ref<ChatMessage[]>([]);
   const selectedUnarchivedConversationId = ref("");
+  const delegateConversations = ref<DelegateConversationSummary[]>([]);
+  const delegateMessages = ref<ChatMessage[]>([]);
+  const selectedDelegateConversationId = ref("");
 
   async function selectUnarchivedConversation(conversationId: string) {
     const previousId = selectedUnarchivedConversationId.value;
@@ -108,8 +111,42 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
+  async function selectDelegateConversation(conversationId: string) {
+    const previousId = selectedDelegateConversationId.value;
+    const previousMessages = delegateMessages.value;
+    try {
+      const messages = await invokeTauri<ChatMessage[]>("get_delegate_conversation_messages", {
+        input: { conversationId },
+      });
+      selectedDelegateConversationId.value = conversationId;
+      delegateMessages.value = messages;
+    } catch (e) {
+      selectedDelegateConversationId.value = previousId;
+      delegateMessages.value = previousMessages;
+      options.setStatusError("status.loadMessagesFailed", e);
+    }
+  }
+
+  async function loadDelegateConversations() {
+    try {
+      delegateConversations.value = await invokeTauri<DelegateConversationSummary[]>("list_delegate_conversations");
+      if (delegateConversations.value.length === 0) {
+        selectedDelegateConversationId.value = "";
+        delegateMessages.value = [];
+        return;
+      }
+      const targetId = delegateConversations.value.some((item) => item.conversationId === selectedDelegateConversationId.value)
+        ? selectedDelegateConversationId.value
+        : delegateConversations.value[0].conversationId;
+      await selectDelegateConversation(targetId);
+    } catch (e) {
+      options.setStatusError("status.loadMessagesFailed", e);
+    }
+  }
+
   async function loadArchives() {
     await loadUnarchivedConversations();
+    await loadDelegateConversations();
     try {
       archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
       if (archives.value.length === 0) {
@@ -256,8 +293,13 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     unarchivedConversations,
     unarchivedMessages,
     selectedUnarchivedConversationId,
+    delegateConversations,
+    delegateMessages,
+    selectedDelegateConversationId,
     selectUnarchivedConversation,
+    selectDelegateConversation,
     loadUnarchivedConversations,
+    loadDelegateConversations,
     loadArchives,
     selectArchive,
     deleteUnarchivedConversation,

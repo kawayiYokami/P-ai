@@ -123,6 +123,7 @@ async fn summarize_archived_conversation_with_model_v2(
         source_conversation,
         agent,
         &[],
+        &[],
         user_alias,
         "",
         "concise",
@@ -220,9 +221,9 @@ async fn force_archive_current(
         } else if data
             .agents
             .iter()
-            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+            .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
         {
-            data.selected_agent_id.clone()
+            data.assistant_department_agent_id.clone()
         } else {
             data.agents
                 .iter()
@@ -389,3 +390,4 @@ pub(crate) async fn run_archive_pipeline(
         merge_groups: Some(merged_groups),
     })
 }
+

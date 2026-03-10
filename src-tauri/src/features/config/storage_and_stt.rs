@@ -1,4 +1,4 @@
-﻿fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
+fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "Config path has no parent directory".to_string())?;
@@ -289,6 +289,115 @@ fn normalize_mcp_servers(config: &mut AppConfig) {
     config.mcp_servers = out;
 }
 
+fn is_text_chat_api(api: &ApiConfig) -> bool {
+    api.enable_text && api.request_format.is_chat_text()
+}
+
+fn normalize_departments(config: &mut AppConfig) {
+    if config.api_configs.is_empty() {
+        return;
+    }
+    let fallback_api_id = config
+        .api_configs
+        .iter()
+        .find(|api| api.id == config.assistant_department_api_config_id && is_text_chat_api(api))
+        .or_else(|| config.api_configs.iter().find(|api| is_text_chat_api(api)))
+        .or_else(|| config.api_configs.first())
+        .map(|api| api.id.clone())
+        .unwrap_or_default();
+    let mut out = Vec::<DepartmentConfig>::new();
+    let mut seen_ids = std::collections::HashSet::<String>::new();
+    for raw in &config.departments {
+        let id = raw.id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let key = id.to_ascii_lowercase();
+        if !seen_ids.insert(key) {
+            continue;
+        }
+        let api_config_id = if config
+            .api_configs
+            .iter()
+            .any(|a| a.id == raw.api_config_id && is_text_chat_api(a))
+        {
+            raw.api_config_id.trim().to_string()
+        } else {
+            fallback_api_id.clone()
+        };
+        let mut agent_ids = Vec::<String>::new();
+        let mut seen_agent_ids = std::collections::HashSet::<String>::new();
+        for agent_id in &raw.agent_ids {
+            let agent_id = agent_id.trim().to_string();
+            if agent_id.is_empty() {
+                continue;
+            }
+            let key = agent_id.to_ascii_lowercase();
+            if seen_agent_ids.insert(key) {
+                agent_ids.push(agent_id);
+            }
+        }
+        let mut item = DepartmentConfig {
+            id: id.clone(),
+            name: raw.name.trim().to_string(),
+            summary: raw.summary.trim().to_string(),
+            guide: raw.guide.trim().to_string(),
+            api_config_id,
+            agent_ids,
+            created_at: raw.created_at.trim().to_string(),
+            updated_at: raw.updated_at.trim().to_string(),
+            order_index: raw.order_index,
+            is_built_in_assistant: raw.is_built_in_assistant || id == ASSISTANT_DEPARTMENT_ID,
+        };
+        if item.name.is_empty() {
+            item.name = if item.is_built_in_assistant {
+                default_assistant_department_name(&config.ui_language)
+            } else {
+                format!("部门 {}", out.len() + 1)
+            };
+        }
+        if item.created_at.trim().is_empty() {
+            item.created_at = now_iso();
+        }
+        if item.updated_at.trim().is_empty() {
+            item.updated_at = item.created_at.clone();
+        }
+        out.push(item);
+    }
+
+    if !out.iter().any(|item| item.is_built_in_assistant || item.id == ASSISTANT_DEPARTMENT_ID) {
+        out.insert(0, default_assistant_department(&fallback_api_id));
+    }
+
+    for (idx, item) in out.iter_mut().enumerate() {
+        item.order_index = (idx as i64) + 1;
+        if item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant {
+            item.id = ASSISTANT_DEPARTMENT_ID.to_string();
+            item.is_built_in_assistant = true;
+            if item.name.trim().is_empty() {
+                item.name = default_assistant_department_name(&config.ui_language);
+            }
+            if item.api_config_id.trim().is_empty()
+                || !config
+                    .api_configs
+                    .iter()
+                    .any(|a| a.id == item.api_config_id && is_text_chat_api(a))
+            {
+                item.api_config_id = fallback_api_id.clone();
+            }
+            if item.agent_ids.is_empty() {
+                item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
+            }
+        }
+    }
+
+    out.sort_by_key(|item| (if item.is_built_in_assistant { 0 } else { 1 }, item.order_index));
+    config.departments = out;
+    if let Some(dept) = assistant_department(config) {
+        config.assistant_department_api_config_id = dept.api_config_id.clone();
+    }
+}
+
 fn normalize_app_config(config: &mut AppConfig) {
     if config.api_configs.is_empty() {
         *config = AppConfig::default();
@@ -327,7 +436,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     }
 
     let chat_valid = config.api_configs.iter().any(|a| {
-        a.id == config.chat_api_config_id
+        a.id == config.assistant_department_api_config_id
             && a.enable_text
             && a.request_format.is_chat_text()
     });
@@ -337,9 +446,9 @@ fn normalize_app_config(config: &mut AppConfig) {
             .iter()
             .find(|a| a.enable_text && a.request_format.is_chat_text())
         {
-            config.chat_api_config_id = api.id.clone();
+            config.assistant_department_api_config_id = api.id.clone();
         } else {
-            config.chat_api_config_id = config.api_configs[0].id.clone();
+            config.assistant_department_api_config_id = config.api_configs[0].id.clone();
         }
     }
 
@@ -380,6 +489,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     }
     normalize_shell_workspaces(config);
     normalize_mcp_servers(config);
+    normalize_departments(config);
 }
 
 const MEDIA_REF_PREFIX: &str = "@media:";
@@ -664,7 +774,7 @@ fn resolve_selected_api_config(
     let target_id = requested_id
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(app_config.chat_api_config_id.as_str());
+        .unwrap_or(app_config.assistant_department_api_config_id.as_str());
 
     if let Some(found) = app_config.api_configs.iter().find(|p| p.id == target_id) {
         return Some(found.clone());
@@ -807,6 +917,7 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
     request_format.is_openai_style()
 }
+
 
 
 

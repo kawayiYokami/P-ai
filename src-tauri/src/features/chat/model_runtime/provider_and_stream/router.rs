@@ -51,7 +51,9 @@ async fn dispatch_openai_style_call(
 
 async fn call_model_openai_style(
     api_config: &ResolvedApiConfig,
+    app_config: &AppConfig,
     selected_api: &ApiConfig,
+    agent: &AgentProfile,
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
@@ -80,7 +82,7 @@ async fn call_model_openai_style(
             && prepared.latest_audios.is_empty()
         {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
+                assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
             if tool_assembly.tools.is_empty() {
                 call_model_gemini_rig_style(api_config, model_name, prepared).await
             } else {
@@ -106,7 +108,7 @@ async fn call_model_openai_style(
             && prepared.latest_audios.is_empty()
         {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
+                assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
             if tool_assembly.tools.is_empty() {
                 call_model_anthropic_rig_style(api_config, model_name, prepared).await
             } else {
@@ -132,7 +134,7 @@ async fn call_model_openai_style(
     {
         if selected_api.enable_tools {
             let tool_assembly =
-                assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
+                assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
             tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
             dispatch_openai_style_call(
                 api_config,
@@ -183,7 +185,7 @@ async fn call_model_openai_style(
                 );
                 if selected_api.enable_tools {
                     let tool_assembly =
-                        assemble_runtime_tools(selected_api, app_state, chat_session_key).await?;
+                        assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
                     tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                     dispatch_openai_style_call(
                         api_config,

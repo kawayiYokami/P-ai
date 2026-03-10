@@ -20,6 +20,7 @@
       "tools": "Tools",
       "skill": "Skill",
       "persona": "Persona",
+      "department": "Departments",
       "chatSettings": "Chat",
       "memory": "Memory",
       "task": "Task",
@@ -93,6 +94,7 @@
       "capTools": "Tools"
     },
     "tools": {
+      "basicConfig": "Basic Config",
       "noChatLlmProvider": "Chat LLM provider is not configured",
       "maxIterations": "Max tool iterations",
       "terminalProjectRoots": "Trusted Terminal Project Roots",
@@ -125,6 +127,8 @@
       "descTerminalPathAccess": "Set terminal root directory for current session (outside root is blocked).",
       "descReload": "Reload MCP and skill from workspace.",
       "descTask": "Manage the persistent task board: create, update, complete, and inspect tasks.",
+      "descDelegate": "Send an independent delegation to a target department; this tool only handles delivery.",
+      "descHandoff": "Synchronously hand work to another department inside a delegation chain and wait for the child result.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
       "openDir": "Open Directory",
@@ -141,7 +145,12 @@
       "openDirFailed": "Failed to open directory: {err}",
       "resetWorkspaceConfirm": "Restore the default preset files in the shell workspace? This will not delete your custom directories or repositories.",
       "resetWorkspaceDone": "Restored default shell workspace content: {path}",
-      "resetWorkspaceFailed": "Failed to reset shell workspace: {err}"
+      "resetWorkspaceFailed": "Failed to reset shell workspace: {err}",
+      "personaLabel": "Persona",
+      "editingLabel": "Currently editing: ",
+      "currentDepartmentLabel": "Current department: ",
+      "currentModelLabel": "Runtime model: ",
+      "unassignedHint": "This persona has not been assigned to any department yet, so only tool permissions can be edited."
     },
     "persona": {
       "title": "Persona",
@@ -189,11 +198,35 @@
       "countFailedButCanClose": "Failed to count memories, but private memory can still be disabled.",
       "exportSuccess": "Export successful: {count} items"
     },
+    "department": {
+      "title": "Department",
+      "hint": "Departments are responsibility containers. The assistant department owns the main conversation, and other departments are for delegated work.",
+      "add": "Add",
+      "remove": "Remove Department",
+      "assistantBadge": "Primary",
+      "currentAssistant": "Current Main Assistant",
+      "emptySummary": "No summary yet",
+      "newName": "Department",
+      "name": "Department Name",
+      "namePlaceholder": "For example: Research, Intelligence",
+      "emptyName": "Department name is required",
+      "duplicateName": "Department names must be unique",
+      "model": "Model",
+      "allowedModelsNote": "Only models that support text conversations can be selected.",
+      "summary": "Department Summary",
+      "summaryPlaceholder": "Visible to the leader: what kind of work this department should receive.",
+      "guide": "Guide",
+      "guidePlaceholder": "Visible to the department lead / workers: how this department should execute, report, and deliver.",
+      "guideHint": "This content is only visible internally within the department",
+      "assignee": "Assignee",
+      "assigneePlaceholder": "Not assigned",
+      "selectHint": "Please select a department from the left"
+    },
     "chatSettings": {
-      "chatLlmProvider": "Chat LLM Provider",
+      "chatLlmProvider": "Assistant Department Model",
       "visionApi": "Vision API (Optional)",
       "noVision": "Not set",
-      "assistantPersona": "AI Persona",
+      "assistantPersona": "Assistant Department Persona",
       "responseStyle": "Response Style",
       "openCurrentHistory": "History",
       "previewRequest": "Request",
@@ -340,6 +373,7 @@
     "mcpToolList": {
       "toolList": "Tool List",
       "noDescription": "(no description)",
+      "empty": "No tools available",
       "recentElapsed": "Recent elapsed time"
     },
     "logs": {
@@ -492,6 +526,7 @@
     "deleteUnarchivedConfirm": "Delete this unarchived conversation? This action cannot be undone.",
     "currentUnarchived": "Current (Unarchived)",
     "currentUnarchivedHint": "Latest tail of linear messages",
+    "delegateConversations": "Delegate Threads",
     "archivedMessages": "Archived Messages",
     "summary": "Archive Summary",
     "contentDivider": "Archive Content",

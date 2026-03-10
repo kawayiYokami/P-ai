@@ -5,12 +5,12 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 type UseAppWatchersOptions = {
   config: AppConfig;
-  configTab: Ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">;
+  configTab: Ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">;
   viewMode: Ref<"chat" | "archives" | "config">;
   personas: Ref<PersonaProfile[]>;
   userPersona: ComputedRef<PersonaProfile | null>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  selectedPersonaId: Ref<string>;
+  assistantDepartmentAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
@@ -56,6 +56,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       id: p.id,
       name: p.name,
       systemPrompt: p.systemPrompt,
+      tools: (p.tools || []).map((tool) => `${tool.id}:${tool.enabled ? 1 : 0}`),
       updatedAt: p.updatedAt,
       avatarPath: p.avatarPath,
       avatarUpdatedAt: p.avatarUpdatedAt,
@@ -76,8 +77,8 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => options.assistantPersonas.value.map((p) => p.id).join("|"),
     () => {
       if (options.assistantPersonas.value.length === 0) return;
-      if (!options.assistantPersonas.value.some((p) => p.id === options.selectedPersonaId.value)) {
-        options.selectedPersonaId.value = options.assistantPersonas.value[0].id;
+      if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
+        options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0].id;
       }
     },
   );
@@ -87,14 +88,13 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => {
       if (options.personas.value.length === 0) return;
       if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.selectedPersonaId.value;
+        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
       }
     },
   );
 
   watch(
     () => ({
-      selectedPersonaId: options.selectedPersonaId.value,
       userAlias: options.userAlias.value,
       responseStyleId: options.selectedResponseStyleId.value,
     }),
@@ -102,7 +102,28 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   );
 
   watch(
-    () => options.selectedPersonaId.value,
+    () => {
+      const assistantDepartment = options.config.departments.find(
+        (item) => item.id === "assistant-department" || item.isBuiltInAssistant,
+      );
+      return {
+        agentId: assistantDepartment?.agentIds?.[0] || "",
+        apiConfigId: assistantDepartment?.apiConfigId || "",
+      };
+    },
+    ({ agentId, apiConfigId }) => {
+      if (agentId && options.assistantDepartmentAgentId.value !== agentId) {
+        options.assistantDepartmentAgentId.value = agentId;
+      }
+      if (apiConfigId && options.config.assistantDepartmentApiConfigId !== apiConfigId) {
+        options.config.assistantDepartmentApiConfigId = apiConfigId;
+      }
+    },
+    { deep: true },
+  );
+
+  watch(
+    () => options.assistantDepartmentAgentId.value,
     (id) => {
       if (!id) return;
       void options.syncTrayIcon(id);
@@ -111,7 +132,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
 
   watch(
     () => ({
-      chatApiConfigId: options.config.chatApiConfigId,
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
       sttApiConfigId: options.config.sttApiConfigId,
       sttAutoSend: options.config.sttAutoSend,
@@ -141,16 +162,20 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   watch(
     () => [
       options.configTab.value,
-      options.activeChatApiConfigId.value,
+      options.toolApiConfig.value?.id ?? "",
+      options.personaEditorId.value,
       options.toolApiConfig.value?.enableTools,
       options.toolApiConfig.value?.enableImage,
-      (options.toolApiConfig.value?.tools ?? []).map((tool) => `${tool.id}:${tool.enabled ? 1 : 0}`).join("|"),
+      (options.personas.value.find((item) => item.id === options.personaEditorId.value)?.tools ?? [])
+        .map((tool) => `${tool.id}:${tool.enabled ? 1 : 0}`)
+        .join("|"),
     ],
     async ([tab, id, enabled]) => {
       if (tab !== "tools") return;
-      if (!id) return;
-      if (!enabled) {
-        options.toolStatuses.value = (options.toolApiConfig.value?.tools ?? []).map((tool) => ({
+      if (id && !enabled) {
+        options.toolStatuses.value = (
+          options.personas.value.find((item) => item.id === options.personaEditorId.value)?.tools ?? []
+        ).map((tool) => ({
           id: tool.id,
           status: "disabled",
           detail: options.t("config.tools.disabledHint"),
@@ -161,7 +186,9 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
         await options.refreshToolsStatus();
       } catch (error) {
         console.error("[WATCH] refreshToolsStatus failed:", error);
-        options.toolStatuses.value = (options.toolApiConfig.value?.tools ?? []).map((tool) => ({
+        options.toolStatuses.value = (
+          options.personas.value.find((item) => item.id === options.personaEditorId.value)?.tools ?? []
+        ).map((tool) => ({
           id: tool.id,
           status: "failed",
           detail: String(error),
@@ -196,3 +223,4 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     },
   );
 }
+

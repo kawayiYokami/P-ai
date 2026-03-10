@@ -40,8 +40,9 @@
       :assistant-personas="assistantPersonas"
       :user-persona="userPersona"
       :persona-editor-id="personaEditorId"
-      :selected-persona-id="selectedPersonaId"
+      :assistant-department-agent-id="assistantDepartmentAgentId"
       :selected-persona-editor="selectedPersonaEditor"
+      :tool-persona="selectedPersonaEditor"
       :selected-persona-editor-avatar-url="selectedPersonaEditorAvatarUrl"
       :user-persona-avatar-url="userPersonaAvatarUrl"
       :response-style-options="responseStyleOptions"
@@ -59,7 +60,7 @@
       :hotkey-test-recording-ms="hotkeyTestRecordingMs"
       :hotkey-test-audio="hotkeyTestAudio"
       :user-alias="userAlias"
-      :selected-persona-name="selectedPersona?.name || t('archives.roleAssistant')"
+      :selected-persona-name="assistantDepartmentPersona?.name || t('archives.roleAssistant')"
       :current-chat-workspace-name="chatWorkspaceName"
       :chat-workspace-locked="chatWorkspaceLocked"
       :user-avatar-url="userAvatarUrl"
@@ -94,6 +95,9 @@
       :unarchived-conversations="unarchivedConversations"
       :selected-unarchived-conversation-id="selectedUnarchivedConversationId"
       :unarchived-messages="unarchivedMessages"
+      :delegate-conversations="delegateConversations"
+      :selected-delegate-conversation-id="selectedDelegateConversationId"
+      :delegate-messages="delegateMessages"
       :current-history="currentHistory"
       :message-text="messageText"
       :extract-message-images="extractMessageImages"
@@ -113,7 +117,7 @@
       :update-config-tab="(value) => { configTab = value; }"
       :set-ui-language="setUiLanguage"
       :update-persona-editor-id="(value) => { personaEditorId = value; }"
-      :update-selected-persona-id="(value) => { selectedPersonaId = value; }"
+      :update-selected-persona-id="(value) => { assistantDepartmentAgentId.value = value; }"
       :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
@@ -152,6 +156,7 @@
       :load-archives="loadArchives"
       :select-archive="selectArchive"
       :select-unarchived-conversation="selectUnarchivedConversation"
+      :select-delegate-conversation="selectDelegateConversation"
       :export-archive="exportArchive"
       :import-archive-file="prepareArchiveImport"
       :delete-archive="deleteArchive"
@@ -346,20 +351,21 @@ const config = reactive<AppConfig>({
   maxRecordSeconds: 60,
   toolMaxIterations: 10,
   selectedApiConfigId: "",
-  chatApiConfigId: "",
+  assistantDepartmentApiConfigId: "",
   visionApiConfigId: undefined,
   sttApiConfigId: undefined,
   sttAutoSend: false,
   shellWorkspaces: [],
   mcpServers: [],
+  departments: [],
   apiConfigs: [],
 });
 const recordHotkeyProbeLastSeq = ref(0);
 const recordHotkeyProbeDown = ref(false);
 const chatWindowActiveSynced = ref<boolean | null>(null);
-const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
+const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
-const selectedPersonaId = ref("default-agent");
+const assistantDepartmentAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
@@ -463,9 +469,13 @@ const {
   unarchivedConversations,
   unarchivedMessages,
   selectedUnarchivedConversationId,
+  delegateConversations,
+  delegateMessages,
+  selectedDelegateConversationId,
   loadArchives,
   selectArchive,
   selectUnarchivedConversation,
+  selectDelegateConversation,
   deleteUnarchivedConversation,
   deleteArchive,
   exportArchive,
@@ -503,7 +513,7 @@ type ChatShellWorkspaceState = {
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
-    return t("window.chatTitle", { name: selectedPersona.value?.name || t("archives.roleAssistant") });
+    return t("window.chatTitle", { name: assistantDepartmentPersona.value?.name || t("archives.roleAssistant") });
   }
   if (viewMode.value === "archives") {
     return t("window.archivesTitle");
@@ -528,13 +538,12 @@ const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.
 const sttCapableApiConfigs = computed(() =>
   config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
 );
-const activeChatApiConfigId = computed(
-  () => config.chatApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
+const assistantDepartmentApiConfigId = computed(
+  () => config.assistantDepartmentApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
 );
-const activeChatApiConfig = computed(
-  () => config.apiConfigs.find((a) => a.id === activeChatApiConfigId.value) ?? null,
+const assistantDepartmentApiConfig = computed(
+  () => config.apiConfigs.find((a) => a.id === assistantDepartmentApiConfigId.value) ?? null,
 );
-const toolApiConfig = computed(() => activeChatApiConfig.value);
 const hasVisionFallback = computed(() =>
   !!config.visionApiConfigId
   && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
@@ -650,7 +659,7 @@ const chatMedia = useChatMedia({
   chatting,
   forcingArchive,
   isRecording: () => recording.value,
-  activeChatApiConfig,
+  activeChatApiConfig: assistantDepartmentApiConfig,
   hasVisionFallback,
   chatInput,
   clipboardImages,
@@ -681,21 +690,28 @@ const userPersona = computed(
 const assistantPersonas = computed(() =>
   personas.value.filter((p) => !p.isBuiltInUser && !p.isBuiltInSystem && p.id !== "user-persona" && p.id !== "system-persona"),
 );
-const selectedPersona = computed(
+const assistantDepartmentPersona = computed(
   () =>
-    assistantPersonas.value.find((p) => p.id === selectedPersonaId.value)
+    assistantPersonas.value.find((p) => p.id === assistantDepartmentAgentId.value)
     ?? assistantPersonas.value[0]
     ?? null,
 );
+const activeAssistantAgentId = computed(() => assistantDepartmentAgentId.value);
 const selectedPersonaEditor = computed(
   () => personas.value.find((p) => p.id === personaEditorId.value) ?? null,
+);
+const toolDepartment = computed(() =>
+  config.departments.find((item) => (item.agentIds || []).includes(personaEditorId.value)) ?? null,
+);
+const toolApiConfig = computed(() =>
+  config.apiConfigs.find((a) => a.id === (toolDepartment.value?.apiConfigId || "")) ?? null,
 );
 const userAvatarUrl = computed(
   () => resolveAvatarUrl(userPersona.value?.avatarPath, userPersona.value?.avatarUpdatedAt),
 );
 const userPersonaAvatarUrl = computed(() => userAvatarUrl.value);
 const selectedPersonaAvatarUrl = computed(
-  () => resolveAvatarUrl(selectedPersona.value?.avatarPath, selectedPersona.value?.avatarUpdatedAt),
+  () => resolveAvatarUrl(assistantDepartmentPersona.value?.avatarPath, assistantDepartmentPersona.value?.avatarUpdatedAt),
 );
 const selectedPersonaEditorAvatarUrl = computed(
   () => resolveAvatarUrl(selectedPersonaEditor.value?.avatarPath, selectedPersonaEditor.value?.avatarUpdatedAt),
@@ -744,7 +760,7 @@ const baseUrlReference = computed(() => {
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {
-  const api = activeChatApiConfig.value;
+  const api = assistantDepartmentApiConfig.value;
   if (!api) return t("chat.placeholder");
   const hints: string[] = [];
   if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V");
@@ -770,7 +786,7 @@ const responseStyleIds = computed(() => responseStyleOptions.map((item) => item.
 const { visibleMessageBlocks, hasMoreMessageBlocks, chatContextUsageRatio, chatUsagePercent } = useChatMessageBlocks({
   allMessages,
   visibleMessageBlockCount,
-  activeChatApiConfig,
+  activeChatApiConfig: assistantDepartmentApiConfig,
   perfDebug: PERF_DEBUG,
   perfNow,
 });
@@ -805,9 +821,11 @@ const {
   setStatus,
   setStatusError,
   personas,
-  selectedPersonaId,
+  assistantDepartmentAgentId,
+  personaEditorId,
   avatarSaving,
   avatarError,
+  toolPersona: selectedPersonaEditor,
   selectedApiConfig,
   refreshingModels,
   modelRefreshError,
@@ -833,7 +851,7 @@ const configPersistence = useConfigPersistence({
   saving,
   personas,
   assistantPersonas,
-  selectedPersonaId,
+  assistantDepartmentAgentId,
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
@@ -864,8 +882,8 @@ const chatRuntime = useChatRuntime({
   setChatError: (text) => {
     chatErrorText.value = text;
   },
-  activeChatApiConfigId,
-  selectedPersonaId,
+  activeChatApiConfigId: assistantDepartmentApiConfigId,
+  assistantDepartmentAgentId: activeAssistantAgentId,
   chatting,
   forcingArchive,
   allMessages,
@@ -904,7 +922,7 @@ const {
   config,
   personas,
   assistantPersonas,
-  selectedPersonaId,
+  assistantDepartmentAgentId,
   personaEditorId,
   selectedPersonaEditor,
   createApiConfig,
@@ -952,7 +970,7 @@ const appBootstrap = useAppBootstrap({
     enqueueTerminalApprovalRequest(payload);
   },
   onConversationApiUpdated: async (payload) => {
-    config.chatApiConfigId = String(payload.chatApiConfigId || "");
+    config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId || "");
     config.visionApiConfigId = payload.visionApiConfigId || undefined;
     config.sttApiConfigId = payload.sttApiConfigId || undefined;
     config.sttAutoSend = !!payload.sttAutoSend;
@@ -965,9 +983,9 @@ const appBootstrap = useAppBootstrap({
     }
   },
   onChatSettingsUpdated: async (payload) => {
-    const nextAgentId = String(payload.selectedAgentId || "").trim();
+    const nextAgentId = String(payload.assistantDepartmentAgentId || "").trim();
     if (nextAgentId) {
-      selectedPersonaId.value = nextAgentId;
+      assistantDepartmentAgentId.value = nextAgentId;
       if (personaEditorId.value !== nextAgentId) {
         personaEditorId.value = nextAgentId;
       }
@@ -1057,8 +1075,8 @@ watch(
 
 watch(
   () => ({
-    apiId: activeChatApiConfigId.value,
-    imageEnabled: !!activeChatApiConfig.value?.enableImage,
+    apiId: assistantDepartmentApiConfigId.value,
+    imageEnabled: !!assistantDepartmentApiConfig.value?.enableImage,
     visionEnabled: hasVisionFallback.value,
   }),
   () => {
@@ -1071,8 +1089,8 @@ watch(
 watch(
   () => ({
     mode: viewMode.value,
-    apiId: activeChatApiConfigId.value,
-    agentId: selectedPersonaId.value,
+    apiId: assistantDepartmentApiConfigId.value,
+    agentId: activeAssistantAgentId.value,
   }),
   ({ mode }) => {
     if (mode !== "chat") return;
@@ -1137,8 +1155,8 @@ function setUiFont(value: string) {
 }
 
 async function refreshChatWorkspaceState() {
-  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
-  const agentId = String(selectedPersonaId.value || "").trim();
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) {
     chatWorkspaceName.value = "默认工作空间";
     chatWorkspaceLocked.value = false;
@@ -1158,8 +1176,8 @@ async function refreshChatWorkspaceState() {
 }
 
 async function lockChatWorkspaceFromPicker() {
-  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
-  const agentId = String(selectedPersonaId.value || "").trim();
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   try {
     const picked = await open({
@@ -1185,8 +1203,8 @@ async function lockChatWorkspaceFromPicker() {
 }
 
 async function unlockChatWorkspace() {
-  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
-  const agentId = String(selectedPersonaId.value || "").trim();
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   try {
     const state = await invokeTauri<ChatShellWorkspaceState>("unlock_chat_shell_workspace", {
@@ -1409,8 +1427,8 @@ const chatFlow = useChatFlow({
   chatting,
   forcingArchive,
   getSession: () => {
-    const apiConfigId = String(activeChatApiConfigId.value || "").trim();
-    const agentId = String(selectedPersonaId.value || "").trim();
+    const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+    const agentId = String(activeAssistantAgentId.value || "").trim();
     if (!apiConfigId || !agentId) return null;
     return { apiConfigId, agentId };
   },
@@ -1466,8 +1484,8 @@ type RewindConversationResult = {
 };
 
 async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage | null> {
-  const apiConfigId = String(activeChatApiConfigId.value || "").trim();
-  const agentId = String(selectedPersonaId.value || "").trim();
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
   const messageId = String(turnId || "").trim();
   if (!apiConfigId || !agentId || !messageId) return null;
   try {
@@ -1511,15 +1529,15 @@ function handleToolsChanged() {
     clearTimeout(toolSwitchAutosaveTimer);
   }
   toolSwitchAutosaveTimer = setTimeout(async () => {
-    const saved = await saveConfig();
+    const saved = await savePersonas();
     if (saved && configTab.value === "tools") {
       await refreshToolsStatus();
     }
   }, 250);
 }
 const { openCurrentHistory, openPromptPreview, openSystemPromptPreview } = useChatDialogActions({
-  activeChatApiConfigId,
-  selectedPersonaId,
+  activeChatApiConfigId: assistantDepartmentApiConfigId,
+  assistantDepartmentAgentId: activeAssistantAgentId,
   openCurrentHistoryDialog,
   openPromptPreviewDialog,
   openSystemPromptPreviewDialog,
@@ -1571,13 +1589,13 @@ useAppWatchers({
   personas,
   userPersona,
   assistantPersonas,
-  selectedPersonaId,
+  assistantDepartmentAgentId,
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
   selectedApiConfig,
   toolApiConfig,
-  activeChatApiConfigId,
+  activeChatApiConfigId: assistantDepartmentApiConfigId,
   suppressChatReloadWatch,
   modelRefreshError,
   toolStatuses,
@@ -1597,3 +1615,4 @@ useAppWatchers({
   },
 });
 </script>
+

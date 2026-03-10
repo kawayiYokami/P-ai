@@ -73,6 +73,7 @@ mod archive_host_selection_tests {
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: String::new(),
+            tools: default_agent_tools(),
             created_at: now_iso(),
             updated_at: now_iso(),
             avatar_path: None,
@@ -104,7 +105,7 @@ mod archive_host_selection_tests {
         let data = AppData {
             version: APP_DATA_SCHEMA_VERSION,
             agents: vec![mk_agent("pub-a", false), mk_agent("pub-b", false)],
-            selected_agent_id: "pub-b".to_string(),
+            assistant_department_agent_id: "pub-b".to_string(),
             user_alias: "u".to_string(),
             response_style_id: "concise".to_string(),
             conversations: Vec::new(),
@@ -116,6 +117,9 @@ mod archive_host_selection_tests {
             title: "t".to_string(),
             api_config_id: "api".to_string(),
             agent_id: "pub-a".to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
             created_at: now_iso(),
             updated_at: now_iso(),
             last_user_at: None,
@@ -136,7 +140,7 @@ mod archive_host_selection_tests {
         let data = AppData {
             version: APP_DATA_SCHEMA_VERSION,
             agents: vec![mk_agent("p1", true), mk_agent("p2", true)],
-            selected_agent_id: "p2".to_string(),
+            assistant_department_agent_id: "p2".to_string(),
             user_alias: "u".to_string(),
             response_style_id: "concise".to_string(),
             conversations: Vec::new(),
@@ -148,6 +152,9 @@ mod archive_host_selection_tests {
             title: "t".to_string(),
             api_config_id: "api".to_string(),
             agent_id: "p1".to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
             created_at: now_iso(),
             updated_at: now_iso(),
             last_user_at: None,
@@ -170,6 +177,9 @@ mod archive_host_selection_tests {
             title: "t".to_string(),
             api_config_id: "api".to_string(),
             agent_id: "p1".to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
             created_at: now_iso(),
             updated_at: now_iso(),
             last_user_at: None,
@@ -215,3 +225,4 @@ mod archive_host_selection_tests {
         assert!(!history[1].text.starts_with("ASSISTANT:"));
     }
 }
+

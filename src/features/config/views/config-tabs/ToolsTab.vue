@@ -1,11 +1,7 @@
 <template>
-  <div v-if="!toolApiConfig" class="text-sm opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
-  <template v-else>
-    <div class="grid gap-2">
-      <label class="form-control">
-        <div class="label py-1"><span class="label-text text-sm">{{ t("config.tools.maxIterations") }}</span></div>
-        <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm" />
-      </label>
+  <template v-if="selectedPersona">
+    <div class="grid gap-3">
+      <!-- Shell 工作区 -->
       <div class="card bg-base-100 border border-base-300">
         <div class="flex items-center justify-between gap-3 p-4">
           <span class="text-sm font-medium">{{ t('config.tools.shellWorkspace') }}</span>
@@ -18,10 +14,10 @@
           </div>
         </div>
         <div class="grid gap-3 px-4 pb-4">
-          <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`" class="rounded-box border border-base-300 p-3 bg-base-200">
+          <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`">
             <div class="flex items-center gap-2 mb-3">
               <input v-model.trim="ws.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.tools.workspaceName')" />
-              <button class="btn btn-sm bg-base-100" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspace') }}</button>
+              <button class="btn btn-sm btn-neutral" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspace') }}</button>
             </div>
             <input v-model.trim="ws.path" class="input input-bordered input-sm w-full font-mono" :placeholder="t('config.tools.directoryPath')" />
           </div>
@@ -35,63 +31,115 @@
       </div>
     </div>
     <div class="mt-4"></div>
-    <div v-if="!toolApiConfig.enableTools" class="text-sm opacity-70">{{ t("config.tools.disabledHint") }}</div>
-    <div v-else class="grid gap-2">
-      <ToolListCard
-        :title="t('config.mcpToolList.toolList')"
-        :items="toolListItems"
-        :no-description-text="t('config.mcpToolList.noDescription')"
-        @toggle-item="onToggleToolItem"
-      >
-        <template #item-extra="{ item }">
-          <div v-if="isImageBoundTool(item.id) && !toolApiConfig.enableImage" class="text-[11px] text-warning mt-1">
-            {{ t("config.tools.imageCapabilityRequired") }}
-          </div>
-          <div v-if="showGitInstallLink(item.id)" class="text-[11px] text-warning mt-1 flex items-center gap-2">
-            <span>{{ t("config.tools.gitRequiredHint") }}</span>
-            <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
-              {{ t("config.tools.installGit") }}
-            </button>
-          </div>
+    <div v-if="toolApiConfig && !toolApiConfig.enableTools" class="text-sm opacity-70">{{ t("config.tools.disabledHint") }}</div>
+    <div v-else class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
+      <!-- 头部：人格选择 + 最大迭代 + 标题 -->
+      <div class="flex items-center gap-3 px-3 py-2 border-b border-base-300/70 flex-wrap">
+        <div class="flex items-center gap-2 shrink-0">
+          <div class="text-sm font-bold text-base-content whitespace-nowrap">{{ t("config.tools.personaLabel") }}</div>
+          <select
+            :value="personaEditorId"
+            class="select select-bordered select-sm min-w-32"
+            @change="emit('update:personaEditorId', String(($event.target as HTMLSelectElement).value || ''))"
+          >
+            <option v-for="persona in personas" :key="persona.id" :value="persona.id">{{ persona.name }}</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <div class="text-sm font-bold text-base-content whitespace-nowrap">{{ t("config.tools.maxIterations") }}</div>
+          <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm w-20" />
+        </div>
+        <div class="font-medium ml-auto">{{ t('config.mcpToolList.toolList') }}<span v-if="toolListItems.length">（{{ toolListItems.length }}）</span></div>
+      </div>
+      <!-- 当前编辑状态提示 -->
+      <div class="px-3 py-1.5 bg-base-200/30 text-[11px] opacity-70">
+        {{ t("config.tools.editingLabel") }}{{ selectedPersona.name }}
+        <template v-if="currentDepartment">
+          · {{ t("config.tools.currentDepartmentLabel") }}{{ currentDepartment.name }}
         </template>
-        <template #item-debug="{ item }">
-          <div v-if="item.id === 'screenshot'" class="mt-2">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
-              <button class="btn btn-sm btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage" @click="runDesktopScreenshot">
-                {{ t("config.tools.runOnce") }}
-              </button>
-            </div>
-            <div v-if="screenshotResult" class="mt-2 text-[11px] opacity-80 break-all">{{ screenshotResult }}</div>
-          </div>
-          <div v-if="item.id === 'wait'" class="mt-2">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
+        <template v-if="toolApiConfig">
+          · {{ t("config.tools.currentModelLabel") }}{{ toolApiConfig.name }}
+        </template>
+        <template v-else>
+          · {{ t("config.tools.unassignedHint") }}
+        </template>
+      </div>
+      <!-- 工具列表内容 -->
+      <div v-if="toolListItems.length" class="divide-y divide-base-300/60">
+        <div
+          v-for="item in toolListItems"
+          :key="item.id"
+          class="px-3 py-2"
+        >
+          <div class="flex items-start gap-3">
+            <input
+              type="checkbox"
+              class="toggle toggle-sm toggle-success mt-1 shrink-0"
+              :checked="item.enabled"
+              :disabled="item.toggleDisabled"
+              @change="onToggle($event, item.id)"
+            />
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <input v-model.number="waitMs" type="number" min="1" max="120000" step="100" class="input input-bordered input-sm w-24" />
-                <button class="btn btn-sm btn-primary" :disabled="waitRunning || !toolApiConfig?.enableImage" @click="runDesktopWait">
-                  {{ t("config.tools.runOnce") }}
+                <div v-if="item.statusClass" class="w-2.5 h-2.5 rounded-full shrink-0" :class="item.statusClass" :title="item.statusTitle || ''"></div>
+                <div class="font-medium">{{ item.name }}</div>
+                <span v-if="item.running" class="loading loading-spinner loading-sm"></span>
+              </div>
+              <div class="text-[11px] opacity-60">{{ item.description || t("config.mcpToolList.noDescription") }}</div>
+              <div v-if="statusDetail(item.id)" class="text-[11px] mt-1 rounded px-2 py-1" :class="statusMessageClass(item.id)">
+                {{ statusDetail(item.id) }}
+              </div>
+              <!-- 额外信息 -->
+              <div v-if="isImageBoundTool(item.id) && !toolApiConfig?.enableImage" class="text-[11px] bg-warning/10 text-base-content mt-1 rounded px-2 py-1">
+                        {{ t("config.tools.imageCapabilityRequired") }}
+                      </div>
+                      <div v-if="showGitInstallLink(item.id)" class="text-[11px] bg-warning/10 text-base-content mt-1 rounded px-2 py-1 flex items-center gap-2">
+                        <span>{{ t("config.tools.gitRequiredHint") }}</span>                <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
+                  {{ t("config.tools.installGit") }}
                 </button>
               </div>
+              <!-- 调试操作 -->
+              <div v-if="item.id === 'screenshot'" class="mt-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
+                  <button class="btn btn-sm btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage || toolSwitchDisabled(item.id)" @click="runDesktopScreenshot">
+                    {{ t("config.tools.runOnce") }}
+                  </button>
+                </div>
+                <div v-if="screenshotResult" class="mt-2 text-[11px] opacity-80 break-all">{{ screenshotResult }}</div>
+              </div>
+              <div v-if="item.id === 'wait'" class="mt-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
+                  <div class="flex items-center gap-2">
+                    <input v-model.number="waitMs" type="number" min="1" max="120000" step="100" class="input input-bordered input-sm w-24" />
+                    <button class="btn btn-sm btn-primary" :disabled="waitRunning || !toolApiConfig?.enableImage || toolSwitchDisabled(item.id)" @click="runDesktopWait">
+                      {{ t("config.tools.runOnce") }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
+              </div>
+              <div v-if="item.id === 'exec'" class="mt-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
+                  <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning || toolSwitchDisabled(item.id)" @click="runTerminalSelfCheck">
+                    {{ t("config.tools.terminalSelfCheck") }}
+                  </button>
+                </div>
+                <pre
+                  v-if="terminalSelfCheckResult"
+                  class="mt-2 text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono bg-base-200 border border-base-300 rounded p-2"
+                >{{ terminalSelfCheckResult }}</pre>
+              </div>
             </div>
-            <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
           </div>
-          <div v-if="item.id === 'exec'" class="mt-2">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
-              <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning" @click="runTerminalSelfCheck">
-                {{ t("config.tools.terminalSelfCheck") }}
-              </button>
-            </div>
-            <pre
-              v-if="terminalSelfCheckResult"
-              class="mt-2 text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono bg-base-200 border border-base-300 rounded p-2"
-            >{{ terminalSelfCheckResult }}</pre>
-          </div>
-        </template>
-      </ToolListCard>
+        </div>
+      </div>
+      <div v-else class="text-sm opacity-50 text-center py-4">{{ t("config.mcpToolList.empty") }}</div>
     </div>
   </template>
+  <div v-else class="text-sm opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
   <dialog ref="screenshotDialogRef" class="modal">
     <div class="modal-box max-w-5xl">
       <div class="text-sm font-medium mb-2">{{ t("config.tools.desktopScreenshotTitle") }}</div>
@@ -108,11 +156,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, ToolLoadStatus } from "../../../../types/app";
+import type { ApiConfigItem, AppConfig, PersonaProfile, ToolLoadStatus } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { open } from "@tauri-apps/plugin-dialog";
-import ToolListCard, { type ToolListItem } from "../../components/ToolListCard.vue";
+import { type ToolListItem } from "../../components/ToolListCard.vue";
 
 type TerminalSelfCheckStep = {
   name: string;
@@ -138,6 +186,9 @@ type TerminalSelfCheckResult = {
 
 const props = defineProps<{
   config: AppConfig;
+  personas: PersonaProfile[];
+  personaEditorId: string;
+  selectedPersona: PersonaProfile | null;
   toolApiConfig: ApiConfigItem | null;
   toolStatuses: ToolLoadStatus[];
   savingConfig: boolean;
@@ -146,6 +197,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "openMemoryViewer"): void;
   (e: "toolSwitchChanged"): void;
+  (e: "update:personaEditorId", value: string): void;
   (e: "saveApiConfig"): void;
 }>();
 
@@ -219,8 +271,23 @@ function toolStatusById(id: string): ToolLoadStatus | undefined {
   return props.toolStatuses.find((s) => s.id === id);
 }
 
+const currentDepartment = computed(() =>
+  props.config.departments.find((item) => (item.agentIds || []).includes(props.personaEditorId)) ?? null,
+);
+
 function statusText(id: string): string {
   return toolStatusById(id)?.status ?? t("config.tools.statusUnknown");
+}
+
+function statusDetail(id: string): string {
+  return String(toolStatusById(id)?.detail || "").trim();
+}
+
+function statusMessageClass(id: string): string {
+  const status = toolStatusById(id)?.status;
+  if (status === "failed") return "text-error bg-error/10";
+  if (status === "unavailable") return "text-base-content bg-warning/10";
+  return "opacity-70";
 }
 
 function statusDotClass(id: string): string {
@@ -243,6 +310,8 @@ function toolDescription(id: string): string {
   
   if (id === "reload") return t("config.tools.descReload");
   if (id === "task") return t("config.tools.descTask");
+  if (id === "delegate") return t("config.tools.descDelegate");
+  if (id === "handoff") return t("config.tools.descHandoff");
   return t("config.tools.descGeneric");
 }
 
@@ -250,8 +319,8 @@ function isImageBoundTool(id: string): boolean {
   return id === "screenshot" || id === "wait";
 }
 
-function toolSwitchDisabled(_id: string): boolean {
-  return false;
+function toolSwitchDisabled(id: string): boolean {
+  return toolStatusById(id)?.status === "unavailable";
 }
 
 function isToolRunning(id: string): boolean {
@@ -262,7 +331,7 @@ function isToolRunning(id: string): boolean {
 }
 
 const toolListItems = computed<ToolListItem[]>(() =>
-  (props.toolApiConfig?.tools ?? []).map((tool) => ({
+  (props.selectedPersona?.tools ?? []).map((tool) => ({
     id: tool.id,
     name: tool.id,
     description: toolDescription(tool.id),
@@ -274,10 +343,13 @@ const toolListItems = computed<ToolListItem[]>(() =>
   })),
 );
 
-function onToggleToolItem(payload: { id: string; enabled: boolean }) {
-  const target = props.toolApiConfig?.tools.find((tool) => tool.id === payload.id);
-  if (!target) return;
-  target.enabled = payload.enabled;
+function onToggle(event: Event, id: string) {
+  const target = event.target as HTMLInputElement | null;
+  const payload = { id, enabled: !!target?.checked };
+  const tool = props.selectedPersona?.tools.find((t) => t.id === payload.id);
+  if (!tool) return;
+  if (toolSwitchDisabled(id)) return;
+  tool.enabled = payload.enabled;
   emit("toolSwitchChanged");
 }
 
@@ -394,5 +466,3 @@ async function runDesktopWait() {
   }
 }
 </script>
-
-

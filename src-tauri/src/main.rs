@@ -64,6 +64,7 @@ include!("features/memory/providers.rs");
 include!("features/mcp.rs");
 include!("features/skill.rs");
 include!("features/task.rs");
+include!("features/delegate.rs");
 
 include!("features/system/commands.rs");
 
@@ -163,6 +164,9 @@ fn main() {
             if let Err(err) = task_store_open(&app_state.data_path) {
                 eprintln!("[BOOT] initialize task store failed: {err}");
             }
+            if let Err(err) = delegate_store_open(&app_state.data_path) {
+                eprintln!("[启动] 初始化委托存储失败：{err}");
+            }
             match memory_store_migrate_legacy_app_data_memories(&app_state.data_path) {
                 Ok(Some(report)) => {
                     eprintln!(
@@ -180,7 +184,7 @@ fn main() {
             let avatar_path = data
                 .agents
                 .iter()
-                .find(|a| a.id == data.selected_agent_id)
+                .find(|a| a.id == data.assistant_department_agent_id)
                 .and_then(|a| a.avatar_path.clone());
             drop(guard);
             let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
@@ -242,6 +246,8 @@ fn main() {
             get_chat_snapshot,
             list_unarchived_conversations,
             get_unarchived_conversation_messages,
+            list_delegate_conversations,
+            get_delegate_conversation_messages,
             delete_unarchived_conversation,
             get_active_conversation_messages,
             rewind_conversation_from_message,
@@ -324,3 +330,4 @@ fn main() {
 mod tests {
     include!("features/tests.rs");
 }
+

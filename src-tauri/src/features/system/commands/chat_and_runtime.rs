@@ -55,6 +55,7 @@ async fn send_chat_message_inner(
     state: &AppState,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
+    let trigger_only = input.trigger_only;
     let requested_api_id = input
         .session
         .as_ref()
@@ -67,6 +68,13 @@ async fn send_chat_message_inner(
         .as_ref()
         .map(|s| s.agent_id.trim().to_string())
         .filter(|v| !v.is_empty());
+    let requested_conversation_id = input
+        .session
+        .as_ref()
+        .and_then(|s| s.conversation_id.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
 
     let (app_config, selected_api, resolved_api, effective_agent_id) = {
         let guard = state
@@ -104,9 +112,9 @@ async fn send_chat_message_inner(
         } else if data
             .agents
             .iter()
-            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+            .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
         {
-            data.selected_agent_id.clone()
+            data.assistant_department_agent_id.clone()
         } else {
             data.agents
                 .iter()
@@ -228,7 +236,11 @@ async fn send_chat_message_inner(
         }
     }
 
-    let effective_user_parts = build_user_parts(&effective_payload, &selected_api)?;
+    let effective_user_parts = if trigger_only {
+        Vec::new()
+    } else {
+        build_user_parts(&effective_payload, &selected_api)?
+    };
     let effective_user_text = effective_user_parts
         .iter()
         .map(|part| match part {
@@ -263,12 +275,13 @@ async fn send_chat_message_inner(
         })
         .collect::<Vec<_>>();
 
+    let specific_conversation_requested = requested_conversation_id.is_some();
     let mut archived_before_send = false;
     let mut pending_archive_source: Option<Conversation> = None;
     let mut pending_archive_reason = String::new();
     let mut pending_archive_forced = false;
 
-    {
+    if !trigger_only && !specific_conversation_requested {
         let guard = state
             .state_lock
             .lock()
@@ -364,7 +377,7 @@ async fn send_chat_message_inner(
         }
     }
 
-    let (model_name, prepared_prompt, conversation_id, latest_user_text) = {
+    let (model_name, prepared_prompt, conversation_id, latest_user_text, current_agent) = {
         let guard = state
             .state_lock
             .lock()
@@ -379,122 +392,162 @@ async fn send_chat_message_inner(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id);
-
-        // 聊天记录保留用户可见内容；模型请求使用 effective_payload（可能已做图转文）。
-        let mut storage_api = selected_api.clone();
-        storage_api.enable_image = true;
-        storage_api.enable_audio = true;
-        let mut storage_payload = input.payload.clone();
-        if let Some(display_text) = input
-            .payload
-            .display_text
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            storage_payload.text = Some(display_text.to_string());
-        }
-        let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
-        externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
-        let conversation_before = data.conversations[idx].clone();
-        let recall_query_text = memory_recall_query_text(&conversation_before, &effective_user_text);
-        let private_memory_enabled = data
-            .agents
-            .iter()
-            .find(|a| a.id == effective_agent_id)
-            .map(|a| a.private_memory_enabled)
-            .unwrap_or(false);
-        let store_memories = memory_store_list_memories_visible_for_agent(
-            &state.data_path,
-            &effective_agent_id,
-            private_memory_enabled,
-        )?;
-        let recall_hit_ids =
-            memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
-
-        for memory_id in &recall_hit_ids {
-            data.conversations[idx]
-                .memory_recall_table
-                .push(memory_id.clone());
-        }
-
-        let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
-        let memory_board_xml =
-            build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
-        let last_archive_summary = data
-            .conversations
-            .iter()
-            .rev()
-            .find(|c| c.agent_id == effective_agent_id && !c.summary.trim().is_empty())
-            .map(|c| c.summary.clone());
-
-        let mut extra_text_blocks = input.payload.extra_text_blocks.clone().unwrap_or_default();
-        if let Some(xml) = &memory_board_xml {
-            extra_text_blocks.push(xml.clone());
-        }
-        let latest_user_text = effective_user_text.clone();
-
-        let now = now_iso();
-        let user_message = ChatMessage {
-            id: Uuid::new_v4().to_string(),
-            role: "user".to_string(),
-            created_at: now.clone(),
-            speaker_agent_id: Some(input.speaker_agent_id.clone().unwrap_or_else(|| USER_PERSONA_ID.to_string())),
-            parts: user_parts,
-            extra_text_blocks,
-            provider_meta: input.payload.provider_meta.clone(),
-            tool_call: None,
-            mcp_call: None,
+        let idx = if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            data.conversations
+                .iter()
+                .position(|item| {
+                    item.id == conversation_id
+                        && item.summary.trim().is_empty()
+                        && item.agent_id == effective_agent_id
+                })
+                .ok_or_else(|| format!("指定会话不存在，conversationId={conversation_id}"))?
+        } else {
+            ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id)
         };
+        let conversation_before = data.conversations[idx].clone();
+        let last_archive_summary = if conversation_is_delegate(&conversation_before) {
+            None
+        } else {
+            data.conversations
+                .iter()
+                .rev()
+                .find(|c| c.agent_id == effective_agent_id && !c.summary.trim().is_empty())
+                .map(|c| c.summary.clone())
+        };
+        let conversation = if trigger_only {
+            let latest_message = conversation_before
+                .messages
+                .last()
+                .ok_or_else(|| "当前对话没有可供继续处理的消息。".to_string())?;
+            if latest_message
+                .speaker_agent_id
+                .as_deref()
+                .map(str::trim)
+                == Some(effective_agent_id.as_str())
+            {
+                return Err("当前最后一条消息来自助理自身，无需重复激活。".to_string());
+            }
+            conversation_before.clone()
+        } else {
+            // 聊天记录保留用户可见内容；模型请求使用 effective_payload（可能已做图转文）。
+            let mut storage_api = selected_api.clone();
+            storage_api.enable_image = true;
+            storage_api.enable_audio = true;
+            let mut storage_payload = input.payload.clone();
+            if let Some(display_text) = input
+                .payload
+                .display_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                storage_payload.text = Some(display_text.to_string());
+            }
+            let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
+            externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
+            let recall_query_text = memory_recall_query_text(&conversation_before, &effective_user_text);
+            let private_memory_enabled = data
+                .agents
+                .iter()
+                .find(|a| a.id == effective_agent_id)
+                .map(|a| a.private_memory_enabled)
+                .unwrap_or(false);
+            let store_memories = memory_store_list_memories_visible_for_agent(
+                &state.data_path,
+                &effective_agent_id,
+                private_memory_enabled,
+            )?;
+            let recall_hit_ids =
+                memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
 
-        data.conversations[idx].messages.push(user_message);
-        data.conversations[idx].updated_at = now.clone();
-        data.conversations[idx].last_user_at = Some(now_iso());
-        data.conversations[idx].last_context_usage_ratio =
-            compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
+            for memory_id in &recall_hit_ids {
+                data.conversations[idx]
+                    .memory_recall_table
+                    .push(memory_id.clone());
+            }
 
-        let conversation = data.conversations[idx].clone();
+            let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
+            let memory_board_xml =
+                build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
+            let mut extra_text_blocks = input.payload.extra_text_blocks.clone().unwrap_or_default();
+            if let Some(xml) = &memory_board_xml {
+                extra_text_blocks.push(xml.clone());
+            }
+
+            let now = now_iso();
+            let user_message = ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(input.speaker_agent_id.clone().unwrap_or_else(|| USER_PERSONA_ID.to_string())),
+                parts: user_parts,
+                extra_text_blocks,
+                provider_meta: input.payload.provider_meta.clone(),
+                tool_call: None,
+                mcp_call: None,
+            };
+
+            data.conversations[idx].messages.push(user_message);
+            data.conversations[idx].updated_at = now.clone();
+            data.conversations[idx].last_user_at = Some(now_iso());
+            data.conversations[idx].last_context_usage_ratio =
+                compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
+            data.conversations[idx].clone()
+        };
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
-        let latest_user_prompt_text = conversation
-            .messages
-            .last()
-            .map(|message| {
-                let speaker_block = build_prompt_speaker_block(
-                    message,
-                    &data.agents,
-                    &user_name,
-                    &app_config.ui_language,
-                );
-                if speaker_block.trim().is_empty() {
-                    latest_user_text.clone()
-                } else if latest_user_text.trim().is_empty() {
-                    speaker_block
-                } else {
-                    format!("{}\n{}", speaker_block, latest_user_text)
-                }
-            })
-            .unwrap_or_else(|| latest_user_text.clone());
-        let mut chat_overrides = ChatPromptOverrides::default();
-        chat_overrides.latest_user_text = Some(latest_user_prompt_text);
-        chat_overrides.latest_user_time_iso = Some(now.clone());
-        chat_overrides
-            .latest_user_system_blocks
-            .push(build_hidden_skill_snapshot_block(&state));
-        if let Some(xml) = &memory_board_xml {
-            chat_overrides.latest_user_system_blocks.push(xml.clone());
-        }
-        if let Some(task_board) = build_hidden_task_board_block(&state) {
-            chat_overrides.latest_user_system_blocks.push(task_board);
-        }
-        chat_overrides.latest_images = effective_images.clone();
-        chat_overrides.latest_audios = effective_audios.clone();
+        let latest_user_text = if trigger_only {
+            conversation
+                .messages
+                .iter()
+                .rev()
+                .find(|message| prompt_role_for_message(message, &effective_agent_id).as_deref() == Some("user"))
+                .map(render_message_content_for_model)
+                .unwrap_or_default()
+        } else {
+            effective_user_text.clone()
+        };
+        let chat_overrides = if trigger_only {
+            None
+        } else {
+            let latest_user_prompt_text = conversation
+                .messages
+                .last()
+                .map(|message| {
+                    let speaker_block = build_prompt_speaker_block(
+                        message,
+                        &data.agents,
+                        &user_name,
+                        &app_config.ui_language,
+                    );
+                    if speaker_block.trim().is_empty() {
+                        latest_user_text.clone()
+                    } else if latest_user_text.trim().is_empty() {
+                        speaker_block
+                    } else {
+                        format!("{}\n{}", speaker_block, latest_user_text)
+                    }
+                })
+                .unwrap_or_else(|| latest_user_text.clone());
+            let mut chat_overrides = ChatPromptOverrides::default();
+            chat_overrides.latest_user_text = Some(latest_user_prompt_text);
+            chat_overrides.latest_user_time_iso = Some(now_iso());
+            chat_overrides
+                .latest_user_system_blocks
+                .push(build_hidden_skill_snapshot_block(&state));
+            if let Some(task_board) = build_hidden_task_board_block(&state) {
+                chat_overrides.latest_user_system_blocks.push(task_board);
+            }
+            chat_overrides.latest_images = effective_images.clone();
+            chat_overrides.latest_audios = effective_audios.clone();
+            Some(chat_overrides)
+        };
         let prepared = build_prepared_prompt_for_mode(
             PromptBuildMode::Chat,
             &conversation,
             &agent,
             &data.agents,
+            &app_config.departments,
             &user_name,
             &user_intro,
             &data.response_style_id,
@@ -502,7 +555,7 @@ async fn send_chat_message_inner(
             Some(&state.data_path),
             last_archive_summary.as_deref(),
             terminal_prompt_trusted_roots_block(&state, &selected_api),
-            Some(chat_overrides),
+            chat_overrides,
         );
 
         // Use persisted API config as the source of truth to avoid stale
@@ -515,7 +568,9 @@ async fn send_chat_message_inner(
         };
         let conversation_id = conversation.id.clone();
 
-        write_app_data(&state.data_path, &data)?;
+        if !trigger_only {
+            write_app_data(&state.data_path, &data)?;
+        }
         drop(guard);
 
         (
@@ -523,6 +578,7 @@ async fn send_chat_message_inner(
             prepared,
             conversation_id,
             latest_user_text,
+            agent,
         )
     };
 
@@ -531,7 +587,9 @@ async fn send_chat_message_inner(
     for attempt in 0..=max_failure_retries {
         let reply_result = call_model_openai_style(
             &resolved_api,
+            &app_config,
             &selected_api,
+            &current_agent,
             &model_name,
             prepared_prompt.clone(),
             Some(&state),
@@ -1263,30 +1321,94 @@ fn check_tools_status(
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut config = read_config(&state.config_path)?;
     normalize_api_tools(&mut config);
+    let mut data = read_app_data(&state.data_path)?;
+    ensure_default_agent(&mut data);
     drop(guard);
 
-    let selected = resolve_selected_api_config(&config, input.api_config_id.as_deref())
-        .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+    let target_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "缺少人格 ID".to_string())?;
+    let selected_agent = data
+        .agents
+        .iter()
+        .find(|item| item.id == target_agent_id)
+        .cloned()
+        .ok_or_else(|| format!("未找到人格：{target_agent_id}"))?;
+    let current_department = department_for_agent_id(&config, &target_agent_id);
+
+    let effective_api_id = department_for_agent_id(&config, &target_agent_id)
+        .map(|item| item.api_config_id.clone())
+        .or_else(|| input.api_config_id.clone());
+    let selected = effective_api_id
+        .as_deref()
+        .and_then(|api_id| resolve_selected_api_config(&config, Some(api_id)));
+
+    if selected.is_none() {
+        return Ok(selected_agent
+            .tools
+            .iter()
+            .map(|tool| {
+                let restricted_reason = tool_restricted_by_department(current_department, &tool.id);
+                let detail = if let Some(reason) = restricted_reason.clone() {
+                    reason
+                } else if matches!(tool.id.as_str(), "screenshot" | "wait") {
+                    "当前人格尚未委任部门，需绑定支持图像的部门模型后才能运行。".to_string()
+                } else if tool.enabled {
+                    "当前人格已启用该工具，但尚未委任部门，暂不校验运行模型。".to_string()
+                } else {
+                    "当前人格未启用该工具。".to_string()
+                };
+                ToolLoadStatus {
+                    id: tool.id.clone(),
+                    status: if restricted_reason.is_some() {
+                        "unavailable".to_string()
+                    } else if tool.enabled {
+                        if matches!(tool.id.as_str(), "screenshot" | "wait") {
+                            "unavailable".to_string()
+                        } else {
+                            "loaded".to_string()
+                        }
+                    } else {
+                        "disabled".to_string()
+                    },
+                    detail,
+                }
+            })
+            .collect());
+    }
+    let selected = selected.ok_or_else(|| "No API config configured. Please add one.".to_string())?;
 
     if !selected.enable_tools {
-        return Ok(selected
+        return Ok(selected_agent
             .tools
             .iter()
             .map(|tool| ToolLoadStatus {
                 id: tool.id.clone(),
                 status: "disabled".to_string(),
-                detail: "此 API 配置未启用工具调用。".to_string(),
+                detail: "当前模型未启用工具调用。".to_string(),
             })
             .collect());
     }
 
     let mut statuses = Vec::new();
-    for tool in selected.tools {
+    for tool in selected_agent.tools {
+        if let Some(reason) = tool_restricted_by_department(current_department, &tool.id) {
+            statuses.push(ToolLoadStatus {
+                id: tool.id,
+                status: "unavailable".to_string(),
+                detail: reason,
+            });
+            continue;
+        }
         if !tool.enabled {
             statuses.push(ToolLoadStatus {
                 id: tool.id,
                 status: "disabled".to_string(),
-                detail: "该工具开关已关闭。".to_string(),
+                detail: "当前人格未启用该工具。".to_string(),
             });
             continue;
         }
@@ -1312,6 +1434,14 @@ fn check_tools_status(
             "task" => (
                 "loaded".to_string(),
                 "任务工具可用".to_string(),
+            ),
+            "delegate" => (
+                "loaded".to_string(),
+                "委托工具可用".to_string(),
+            ),
+            "handoff" => (
+                "loaded".to_string(),
+                "同步转办工具可用".to_string(),
             ),
             "exec" => {
                 #[cfg(target_os = "windows")]
@@ -1387,6 +1517,7 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
         latest_updated_at: None,
     })
 }
+
 
 
 

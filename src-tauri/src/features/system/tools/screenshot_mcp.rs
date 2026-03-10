@@ -2,7 +2,12 @@ const MCP_SCREENSHOT_SERVER_FLAG: &str = "--mcp-screenshot-server";
 const MCP_SCREENSHOT_TOOL_NAME: &str = "desktop_screenshot";
 
 #[derive(Debug, Clone, serde::Deserialize, rmcp::schemars::JsonSchema)]
-struct McpDesktopScreenshotArgs {}
+struct McpDesktopScreenshotArgs {
+    #[serde(default)]
+    #[serde(rename = "note")]
+    #[schemars(description = "Optional note for the screenshot request. Ignored by the tool runtime.")]
+    _note: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 struct DesktopScreenshotMcpServer {

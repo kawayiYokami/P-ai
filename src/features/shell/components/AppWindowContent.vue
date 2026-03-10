@@ -26,8 +26,9 @@
       :assistant-personas="assistantPersonas"
       :user-persona="userPersona"
       :persona-editor-id="personaEditorId"
-      :selected-persona-id="selectedPersonaId"
+      :assistant-department-agent-id="assistantDepartmentAgentId"
       :selected-persona="selectedPersonaEditor"
+      :tool-persona="selectedPersonaEditor"
       :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
       :user-persona-avatar-url="userPersonaAvatarUrl"
       :response-style-options="responseStyleOptions"
@@ -49,7 +50,7 @@
       @update:config-tab="updateConfigTab"
       @update:ui-language="setUiLanguage"
       @update:persona-editor-id="updatePersonaEditorId"
-      @update:selected-persona-id="updateSelectedPersonaId"
+      @update:assistant-department-agent-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
       @set-theme="setTheme"
       @refresh-models="refreshModels"
@@ -142,9 +143,13 @@
       :unarchived-conversations="unarchivedConversations"
       :selected-unarchived-conversation-id="selectedUnarchivedConversationId"
       :unarchived-messages="unarchivedMessages"
+      :delegate-conversations="delegateConversations"
+      :selected-delegate-conversation-id="selectedDelegateConversationId"
+      :delegate-messages="delegateMessages"
       @load-archives="loadArchives"
       @select-archive="selectArchive"
       @select-unarchived-conversation="selectUnarchivedConversation"
+      @select-delegate-conversation="selectDelegateConversation"
       @export-archive="exportArchive"
       @import-archive-file="importArchiveFile"
       @delete-archive="deleteArchive"
@@ -216,6 +221,7 @@ import type {
   ArchiveSummary,
   ChatMessage,
   ChatMessageBlock,
+  DelegateConversationSummary,
   ImageTextCacheStats,
   PersonaProfile,
   ResponseStyleOption,
@@ -236,7 +242,7 @@ const props = defineProps<{
   t: (key: string, params?: Record<string, unknown>) => string;
   viewMode: "chat" | "archives" | "config";
   config: AppConfig;
-  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;
@@ -251,8 +257,9 @@ const props = defineProps<{
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;
-  selectedPersonaId: string;
+  assistantDepartmentAgentId: string;
   selectedPersonaEditor: PersonaProfile | null;
+  toolPersona: PersonaProfile | null;
   selectedPersonaEditorAvatarUrl: string;
   userPersonaAvatarUrl: string;
   responseStyleOptions: ResponseStyleOption[];
@@ -306,6 +313,9 @@ const props = defineProps<{
   unarchivedConversations: UnarchivedConversationSummary[];
   selectedUnarchivedConversationId: string;
   unarchivedMessages: ChatMessage[];
+  delegateConversations: DelegateConversationSummary[];
+  selectedDelegateConversationId: string;
+  delegateMessages: ChatMessage[];
   currentHistory: ChatMessage[];
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
@@ -322,7 +332,7 @@ const props = defineProps<{
   setHistoryDialogRef: (el: Element | null) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
-  updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;
@@ -364,6 +374,7 @@ const props = defineProps<{
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;
+  selectDelegateConversation: (id: string) => void;
   exportArchive: (payload: { format: "markdown" | "json" }) => void;
   importArchiveFile: (file: File) => void;
   deleteArchive: (id: string) => void;
@@ -392,3 +403,4 @@ const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
   props.setPromptPreviewDialogRef((el as Element | null) ?? null);
 };
 </script>
+

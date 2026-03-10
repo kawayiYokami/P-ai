@@ -1,6 +1,25 @@
-﻿import type { ComputedRef } from "vue";
+import type { ComputedRef } from "vue";
 import { normalizeLocale } from "../../../i18n";
-import type { ApiConfigItem, AppConfig } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, DepartmentConfig } from "../../../types/app";
+import { defaultToolBindings, normalizeToolBindings } from "../utils/builtin-tools";
+
+function defaultAssistantDepartmentName(uiLanguage: string): string {
+  if (uiLanguage === "en-US") return "Assistant Department";
+  if (uiLanguage === "zh-TW") return "助理部門";
+  return "助理部门";
+}
+
+function defaultAssistantDepartmentSummary(uiLanguage: string): string {
+  if (uiLanguage === "en-US") return "Responsible for talking to the user directly, owning the main conversation, and coordinating delegation.";
+  if (uiLanguage === "zh-TW") return "負責直接與使用者對話，承接主會話與統籌調度。";
+  return "负责直接与用户对话，承接主会话与统筹调度。";
+}
+
+function defaultAssistantDepartmentGuide(uiLanguage: string): string {
+  if (uiLanguage === "en-US") return "You are the assistant department. Your job is to understand user needs, decide whether delegation is needed, summarize results, and continue the main conversation.";
+  if (uiLanguage === "zh-TW") return "你是助理部門，負責作為主負責人理解使用者需求、決定是否需要委派、彙總結果並繼續推進主對話。";
+  return "你是助理部门，负责作为主负责人理解用户需求、决定是否需要委派、汇总结果并继续推进主对话。";
+}
 
 function isTextRequestFormat(format: string): boolean {
   return (
@@ -29,29 +48,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return Math.max(0, Math.min(MAX_EMPTY_REPLY_RETRY_COUNT, Math.round(parsed)));
   }
 
-  const BUILTIN_TOOL_DEFAULTS = [
-    {
-      id: "fetch",
-      command: "npx",
-      args: ["-y", "@iflow-mcp/fetch"],
-      enabled: true,
-      values: {},
-    },
-    { id: "websearch", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
-    { id: "remember", command: "builtin", args: ["remember"], enabled: true, values: {} },
-    { id: "recall", command: "builtin", args: ["recall"], enabled: true, values: {} },
-    { id: "screenshot", command: "builtin", args: ["screenshot"], enabled: false, values: {} },
-    { id: "wait", command: "builtin", args: ["wait"], enabled: false, values: {} },
-    { id: "exec", command: "builtin", args: ["exec"], enabled: false, values: {} },
-    {
-      id: "reload",
-      command: "builtin",
-      args: ["reload"],
-      enabled: true,
-      values: {},
-    },
-    { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
-  ] as const;
   function normalizeUiFont(value: unknown): string {
     const text = String(value || "").trim();
     if (!text) return "auto";
@@ -59,29 +55,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   }
 
   function defaultApiTools() {
-    return BUILTIN_TOOL_DEFAULTS.map((tool) => ({
-      id: tool.id,
-      command: tool.command,
-      args: [...tool.args],
-      enabled: tool.enabled,
-      values: { ...(tool.values as Record<string, unknown>) },
-    }));
+    return defaultToolBindings();
   }
 
   function normalizeApiToolBindings(api: ApiConfigItem) {
-    const defaults = defaultApiTools();
-    const current = Array.isArray(api.tools) ? api.tools : [];
-    api.tools = defaults.map((tool) => {
-      const found = current.find((item) => item.id === tool.id);
-      return {
-        id: tool.id,
-        command: found?.command || tool.command,
-        args: Array.isArray(found?.args) ? found!.args : tool.args,
-        enabled: typeof found?.enabled === "boolean" ? found.enabled : tool.enabled,
-        values: found?.values ?? tool.values,
-      };
-    });
-
+    api.tools = normalizeToolBindings(api.tools);
   }
 
   function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
@@ -147,8 +125,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     if (!options.config.apiConfigs.some((a) => a.id === options.config.selectedApiConfigId)) {
       options.config.selectedApiConfigId = options.config.apiConfigs[0].id;
     }
-    if (!options.config.apiConfigs.some((a) => a.id === options.config.chatApiConfigId && a.enableText)) {
-      options.config.chatApiConfigId =
+    if (!options.config.apiConfigs.some((a) => a.id === options.config.assistantDepartmentApiConfigId && a.enableText)) {
+      options.config.assistantDepartmentApiConfigId =
         options.textCapableApiConfigs.value.find((a) => isTextRequestFormat(a.requestFormat))?.id
         ?? options.textCapableApiConfigs.value[0]?.id
         ?? options.config.apiConfigs[0].id;
@@ -221,6 +199,78 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       });
     }
     options.config.mcpServers = normalizedMcpServers;
+    const validTextChatApiIds = new Set(
+      options.config.apiConfigs
+        .filter((a) => !!a.enableText && isTextRequestFormat(a.requestFormat))
+        .map((a) => a.id),
+    );
+    const normalizedDepartments: DepartmentConfig[] = [];
+    const seenDepartmentIds = new Set<string>();
+    const defaultAssistantDepartmentApiId =
+      options.config.assistantDepartmentApiConfigId
+      || options.textCapableApiConfigs.value.find((a) => isTextRequestFormat(a.requestFormat))?.id
+      || options.textCapableApiConfigs.value[0]?.id
+      || options.config.apiConfigs[0]?.id
+      || "";
+    const assistantName = defaultAssistantDepartmentName(options.config.uiLanguage);
+    const assistantSummary = defaultAssistantDepartmentSummary(options.config.uiLanguage);
+    const assistantGuide = defaultAssistantDepartmentGuide(options.config.uiLanguage);
+    const defaultAssistantDepartment: DepartmentConfig = {
+      id: "assistant-department",
+      name: assistantName,
+      summary: assistantSummary,
+      guide: assistantGuide,
+      apiConfigId: defaultAssistantDepartmentApiId,
+      agentIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      orderIndex: 1,
+      isBuiltInAssistant: true,
+    };
+    for (const item of options.config.departments || []) {
+      const id = String(item?.id || "").trim();
+      if (!id) continue;
+      const key = id.toLowerCase();
+      if (seenDepartmentIds.has(key)) continue;
+      seenDepartmentIds.add(key);
+      const agentIds = Array.isArray(item?.agentIds)
+        ? Array.from(new Set(item.agentIds.map((v) => String(v || "").trim()).filter(Boolean)))
+        : [];
+      normalizedDepartments.push({
+        id,
+        name: String(item?.name || "").trim() || `部门 ${normalizedDepartments.length + 1}`,
+        summary: String(item?.summary || "").trim(),
+        guide: String(item?.guide || "").trim(),
+        apiConfigId: validTextChatApiIds.has(String(item?.apiConfigId || "").trim())
+          ? String(item?.apiConfigId || "").trim()
+          : defaultAssistantDepartmentApiId,
+        agentIds,
+        createdAt: String(item?.createdAt || "").trim() || new Date().toISOString(),
+        updatedAt: String(item?.updatedAt || "").trim() || new Date().toISOString(),
+        orderIndex: Math.max(1, Number(item?.orderIndex || normalizedDepartments.length + 1)),
+        isBuiltInAssistant: !!item?.isBuiltInAssistant || id === "assistant-department",
+      });
+    }
+    if (!normalizedDepartments.some((item) => item.id === "assistant-department" || item.isBuiltInAssistant)) {
+      normalizedDepartments.unshift(defaultAssistantDepartment);
+    }
+    normalizedDepartments.sort((a, b) => {
+      const aRank = a.isBuiltInAssistant || a.id === "assistant-department" ? 0 : 1;
+      const bRank = b.isBuiltInAssistant || b.id === "assistant-department" ? 0 : 1;
+      return aRank - bRank || a.orderIndex - b.orderIndex;
+    });
+    options.config.departments = normalizedDepartments.map((item, idx) => ({
+      ...item,
+      id: item.isBuiltInAssistant || item.id === "assistant-department" ? "assistant-department" : item.id,
+      name: String(item.name || "").trim() || (item.isBuiltInAssistant || item.id === "assistant-department" ? assistantName : `部门 ${idx + 1}`),
+      apiConfigId: validTextChatApiIds.has(item.apiConfigId) ? item.apiConfigId : defaultAssistantDepartmentApiId,
+      orderIndex: idx + 1,
+      isBuiltInAssistant: item.isBuiltInAssistant || item.id === "assistant-department",
+    }));
+    const assistantDept = options.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
+    if (assistantDept) {
+      options.config.assistantDepartmentApiConfigId = assistantDept.apiConfigId || defaultAssistantDepartmentApiId;
+    }
   }
 
   function buildConfigPayload(): AppConfig {
@@ -234,11 +284,12 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
       selectedApiConfigId: options.config.selectedApiConfigId,
-      chatApiConfigId: options.config.chatApiConfigId,
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
       ...(options.config.sttApiConfigId ? { sttApiConfigId: options.config.sttApiConfigId } : {}),
       ...(options.config.sttAutoSend ? { sttAutoSend: true } : {}),
       shellWorkspaces: [...(options.config.shellWorkspaces || [])],
+      departments: [...(options.config.departments || [])],
       // `cachedTools` is runtime-derived and should not be client-controlled on save.
       mcpServers: (options.config.mcpServers || []).map((item) => ({
         id: item.id,
@@ -286,11 +337,12 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       maxRecordSeconds: options.config.maxRecordSeconds,
       toolMaxIterations: options.config.toolMaxIterations,
       selectedApiConfigId: options.config.selectedApiConfigId,
-      chatApiConfigId: options.config.chatApiConfigId,
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
       sttApiConfigId: options.config.sttApiConfigId,
       sttAutoSend: !!options.config.sttAutoSend,
       shellWorkspaces: [...(options.config.shellWorkspaces || [])],
+      departments: [...(options.config.departments || [])],
       mcpServers: [...(options.config.mcpServers || [])],
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
@@ -325,7 +377,4 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     buildConfigSnapshotJson,
   };
 }
-
-
-
 

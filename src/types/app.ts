@@ -63,6 +63,19 @@ export type McpServerConfig = {
   updatedAt?: string;
 };
 
+export type DepartmentConfig = {
+  id: string;
+  name: string;
+  summary: string;
+  guide: string;
+  apiConfigId: string;
+  agentIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  orderIndex: number;
+  isBuiltInAssistant?: boolean;
+};
+
 export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
@@ -74,12 +87,13 @@ export type AppConfig = {
   toolMaxIterations: number;
   selectedApiConfigId: string;
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).
-  chatApiConfigId: string;
+  assistantDepartmentApiConfigId: string;
   visionApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
   shellWorkspaces: ShellWorkspace[];
   mcpServers: McpServerConfig[];
+  departments: DepartmentConfig[];
   apiConfigs: ApiConfigItem[];
 };
 
@@ -157,6 +171,7 @@ export type PersonaProfile = {
   id: string;
   name: string;
   systemPrompt: string;
+  tools: ApiToolItem[];
   privateMemoryEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -228,19 +243,17 @@ export type ChatSnapshot = {
 
 export type ChatMessageBlock = {
   id: string;
-  primaryAgentId?: string;
-  replyAgentId?: string;
-  primaryCreatedAt?: string;
-  replyCreatedAt?: string;
-  primaryText: string;
-  primaryImages: Array<{ mime: string; bytesBase64: string }>;
-  primaryAudios: Array<{ mime: string; bytesBase64: string }>;
-  primaryTaskTrigger?: TaskTriggerMessageCard;
-  replyText: string;
-  replyReasoningStandard: string;
-  replyReasoningInline: string;
-  replyToolCallCount: number;
-  replyLastToolName: string;
+  role: ChatRole;
+  speakerAgentId?: string;
+  createdAt?: string;
+  text: string;
+  images: Array<{ mime: string; bytesBase64: string }>;
+  audios: Array<{ mime: string; bytesBase64: string }>;
+  taskTrigger?: TaskTriggerMessageCard;
+  reasoningStandard: string;
+  reasoningInline: string;
+  toolCallCount: number;
+  lastToolName: string;
 };
 
 export type ArchiveSummary = {
@@ -260,13 +273,26 @@ export type UnarchivedConversationSummary = {
   apiConfigId: string;
 };
 
+export type DelegateConversationSummary = {
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  lastMessageAt?: string;
+  messageCount: number;
+  agentId: string;
+  apiConfigId: string;
+  delegateId?: string;
+  rootConversationId?: string;
+  archivedAt?: string;
+};
+
 export type ResponseStyleOption = {
   id: string;
   name: string;
   prompt: string;
 };
 
-export type ChatSettings = { selectedPersonaId: string; userAlias: string; responseStyleId: string };
+export type ChatSettings = { assistantDepartmentAgentId: string; userAlias: string; responseStyleId: string };
 
 export type ToolLoadStatus = {
   id: string;
@@ -279,4 +305,5 @@ export type ImageTextCacheStats = {
   totalChars: number;
   latestUpdatedAt?: string;
 };
+
 

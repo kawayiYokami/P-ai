@@ -150,7 +150,8 @@ struct AgentsFile {
 #[serde(rename_all = "camelCase")]
 struct RuntimeStateFile {
     version: u32,
-    selected_agent_id: String,
+    #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
+    assistant_department_agent_id: String,
     user_alias: String,
     response_style_id: String,
     #[serde(default)]
@@ -161,7 +162,7 @@ impl Default for RuntimeStateFile {
     fn default() -> Self {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
-            selected_agent_id: default_selected_agent_id(),
+            assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
             image_text_cache: Vec::new(),
@@ -307,7 +308,8 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
     struct LegacyProfile {
         version: u32,
         agents: Vec<AgentProfile>,
-        selected_agent_id: String,
+        #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
+        assistant_department_agent_id: String,
         user_alias: String,
         response_style_id: String,
     }
@@ -334,7 +336,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         LegacyProfile {
             version: defaults.version,
             agents: defaults.agents.clone(),
-            selected_agent_id: defaults.selected_agent_id.clone(),
+            assistant_department_agent_id: defaults.assistant_department_agent_id.clone(),
             user_alias: defaults.user_alias.clone(),
             response_style_id: defaults.response_style_id.clone(),
         }
@@ -353,7 +355,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
     Ok(AppData {
         version: profile.version,
         agents: profile.agents,
-        selected_agent_id: profile.selected_agent_id,
+        assistant_department_agent_id: profile.assistant_department_agent_id,
         user_alias: profile.user_alias,
         response_style_id: profile.response_style_id,
         conversations: conversations.conversations,
@@ -410,7 +412,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
     Ok(AppData {
         version: runtime.version,
         agents,
-        selected_agent_id: runtime.selected_agent_id,
+        assistant_department_agent_id: runtime.assistant_department_agent_id,
         user_alias: runtime.user_alias,
         response_style_id: runtime.response_style_id,
         conversations,
@@ -429,11 +431,13 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     };
     parsed.version = APP_DATA_SCHEMA_VERSION;
     let defaults_changed = ensure_default_agent(&mut parsed);
+    let conversation_metadata_filled = fill_missing_conversation_metadata(&mut parsed);
     let message_speaker_filled = fill_missing_message_speaker_agent_ids(&mut parsed);
     let avatar_paths_migrated = migrate_agent_avatar_paths(path, &mut parsed);
     let merged_archives = migrate_app_data_archives_into_conversations(path, &mut parsed)?;
     let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
     if defaults_changed
+        || conversation_metadata_filled
         || message_speaker_filled
         || avatar_paths_migrated
         || merged_archives
@@ -451,7 +455,7 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
     };
     let runtime = RuntimeStateFile {
         version: APP_DATA_SCHEMA_VERSION,
-        selected_agent_id: data.selected_agent_id.clone(),
+        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
         user_alias: data.user_alias.clone(),
         response_style_id: data.response_style_id.clone(),
         image_text_cache: data.image_text_cache.clone(),
@@ -517,3 +521,4 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
     }
     Ok(())
 }
+

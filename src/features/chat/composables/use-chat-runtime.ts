@@ -20,7 +20,7 @@ type UseChatRuntimeOptions = {
   setStatusError: (key: string, error: unknown) => void;
   setChatError: (text: string) => void;
   activeChatApiConfigId: Ref<string>;
-  selectedPersonaId: Ref<string>;
+  assistantDepartmentAgentId: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
@@ -33,7 +33,7 @@ type UseChatRuntimeOptions = {
 export function useChatRuntime(options: UseChatRuntimeOptions) {
   async function forceArchiveNow() {
     const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
-    const agentId = String(options.selectedPersonaId.value || "").trim();
+    const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
     if (!apiConfigId || !agentId) {
       const text = options.t("status.forceArchiveNoTarget");
       options.setStatus(text);
@@ -93,13 +93,13 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
   }
 
   async function loadAllMessages() {
-    if (!options.activeChatApiConfigId.value || !options.selectedPersonaId.value) return;
+    if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
     const startedAt = options.perfNow();
     try {
       const msgs = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", {
         input: {
           apiConfigId: options.activeChatApiConfigId.value,
-          agentId: options.selectedPersonaId.value,
+          agentId: options.assistantDepartmentAgentId.value,
         },
       });
       if (options.perfDebug) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
@@ -126,3 +126,4 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     loadMoreMessageBlocks,
   };
 }
+

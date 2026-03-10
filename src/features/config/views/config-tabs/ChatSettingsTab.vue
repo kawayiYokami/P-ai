@@ -1,11 +1,5 @@
 <template>
   <label class="mb-3 flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.chatLlmProvider") }}</span></div>
-    <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
-      <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
-    </select>
-  </label>
-  <label class="mb-3 flex w-full flex-col gap-1">
     <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.visionApi") }}</span></div>
     <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)">
       <option value="">{{ t("config.chatSettings.noVision") }}</option>
@@ -30,12 +24,6 @@
         />
       </label>
     </div>
-  </label>
-  <label class="mb-3 flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.assistantPersona") }}</span></div>
-    <select :value="selectedPersonaId" class="select select-bordered select-sm" @change="$emit('update:selectedPersonaId', ($event.target as HTMLSelectElement).value)">
-      <option v-for="p in assistantPersonas" :key="p.id" :value="p.id">{{ p.name }}</option>
-    </select>
   </label>
   <div class="mb-3 flex w-full flex-col gap-1">
     <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.responseStyle") }}</span></div>
@@ -74,15 +62,12 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption } from "../../../../types/app";
+import type { AppConfig, ImageTextCacheStats, ResponseStyleOption } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
-  textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   sttCapableApiConfigs: ApiConfigItem[];
-  assistantPersonas: PersonaProfile[];
-  selectedPersonaId: string;
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
   cacheStats: ImageTextCacheStats;
@@ -90,7 +75,6 @@ const props = defineProps<{
 }>();
 
 defineEmits<{
-  (e: "update:selectedPersonaId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;

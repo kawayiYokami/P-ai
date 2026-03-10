@@ -36,6 +36,21 @@ fn parse_version_parts(input: &str) -> Vec<u64> {
         .collect()
 }
 
+fn validate_department_names_unique(config: &AppConfig) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::<String>::new();
+    for department in &config.departments {
+        let name = department.name.trim();
+        if name.is_empty() {
+            return Err("部门名称不能为空".to_string());
+        }
+        let key = name.to_ascii_lowercase();
+        if !seen.insert(key) {
+            return Err(format!("部门名称不能重复：{name}"));
+        }
+    }
+    Ok(())
+}
+
 fn is_newer_version(current: &str, latest: &str) -> bool {
     let a = parse_version_parts(current);
     let b = parse_version_parts(latest);
@@ -139,6 +154,7 @@ fn save_config(
     let mut config = config;
     normalize_app_config(&mut config);
     ensure_default_shell_workspace_in_config(&mut config, &state);
+    validate_department_names_unique(&config)?;
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
     let guard = state
@@ -147,6 +163,14 @@ fn save_config(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     write_config(&state.config_path, &config)?;
+    let mut data = read_app_data(&state.data_path)?;
+    let _ = ensure_default_agent(&mut data);
+    if let Some(agent_id) = assistant_department_agent_id(&config) {
+        if data.assistant_department_agent_id != agent_id {
+            data.assistant_department_agent_id = agent_id;
+            write_app_data(&state.data_path, &data)?;
+        }
+    }
     register_hotkey_from_config(&app, &config)?;
     drop(guard);
     let _ = app.emit("easy-call:config-updated", &config);
@@ -254,6 +278,32 @@ fn save_agents(
     }
 
     write_app_data(&state.data_path, &data)?;
+    let mut config = read_config(&state.config_path)?;
+    let valid_agent_ids = data
+        .agents
+        .iter()
+        .filter(|a| !a.is_built_in_user)
+        .map(|a| a.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let mut config_changed = false;
+    for dept in &mut config.departments {
+        let original_len = dept.agent_ids.len();
+        dept.agent_ids.retain(|id| valid_agent_ids.contains(id));
+        if dept.id == ASSISTANT_DEPARTMENT_ID && dept.agent_ids.is_empty() {
+            dept.agent_ids.push(data.assistant_department_agent_id.clone());
+        }
+        if dept.agent_ids.len() != original_len || (dept.id == ASSISTANT_DEPARTMENT_ID && dept.agent_ids.first() != Some(&data.assistant_department_agent_id)) {
+            config_changed = true;
+            if dept.id == ASSISTANT_DEPARTMENT_ID {
+                dept.agent_ids = vec![data.assistant_department_agent_id.clone()];
+            }
+            dept.updated_at = now_iso();
+        }
+    }
+    if config_changed {
+        normalize_app_config(&mut config);
+        write_config(&state.config_path, &config)?;
+    }
     drop(guard);
     Ok(data.agents)
 }
@@ -509,15 +559,23 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
+    let config = read_config(&state.config_path)?;
     let mut data = read_app_data(&state.data_path)?;
     let changed = ensure_default_agent(&mut data);
-    if changed {
+    let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
+    let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
+        data.assistant_department_agent_id = assistant_agent_id.clone();
+        true
+    } else {
+        false
+    };
+    if changed || runtime_changed {
         write_app_data(&state.data_path, &data)?;
     }
     drop(guard);
 
     Ok(ChatSettings {
-        selected_agent_id: data.selected_agent_id.clone(),
+        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
         user_alias: user_persona_name(&data),
         response_style_id: data.response_style_id.clone(),
     })
@@ -536,21 +594,23 @@ fn save_chat_settings(
 
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
+    let config = read_config(&state.config_path)?;
+    let target_agent_id = assistant_department_agent_id(&config).unwrap_or_else(|| input.assistant_department_agent_id.clone());
     if !data
         .agents
         .iter()
-        .any(|a| a.id == input.selected_agent_id && !a.is_built_in_user)
+        .any(|a| a.id == target_agent_id && !a.is_built_in_user)
     {
         return Err("Selected agent not found.".to_string());
     }
-    data.selected_agent_id = input.selected_agent_id.clone();
+    data.assistant_department_agent_id = target_agent_id.clone();
     data.user_alias = user_persona_name(&data);
     data.response_style_id = normalize_response_style_id(&input.response_style_id);
     write_app_data(&state.data_path, &data)?;
     drop(guard);
 
     let payload = ChatSettings {
-        selected_agent_id: input.selected_agent_id,
+        assistant_department_agent_id: target_agent_id,
         user_alias: data.user_alias,
         response_style_id: data.response_style_id,
     };
@@ -787,7 +847,7 @@ fn sync_tray_icon(
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(data.selected_agent_id.as_str());
+        .unwrap_or(data.assistant_department_agent_id.as_str());
     let avatar_path = data
         .agents
         .iter()
@@ -809,16 +869,21 @@ fn save_conversation_api_settings(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut config = read_config(&state.config_path)?;
-    config.chat_api_config_id = input.chat_api_config_id.clone();
+    config.assistant_department_api_config_id = input.assistant_department_api_config_id.clone();
     config.vision_api_config_id = input.vision_api_config_id.clone();
     config.stt_api_config_id = input.stt_api_config_id.clone();
     config.stt_auto_send = input.stt_auto_send;
     normalize_app_config(&mut config);
+    let assistant_api_config_id = config.assistant_department_api_config_id.clone();
+    if let Some(dept) = assistant_department_mut(&mut config) {
+        dept.api_config_id = assistant_api_config_id;
+        dept.updated_at = now_iso();
+    }
     write_config(&state.config_path, &config)?;
     drop(guard);
 
     let payload = ConversationApiSettings {
-        chat_api_config_id: config.chat_api_config_id,
+        assistant_department_api_config_id: config.assistant_department_api_config_id,
         vision_api_config_id: config.vision_api_config_id,
         stt_api_config_id: config.stt_api_config_id,
         stt_auto_send: config.stt_auto_send,
@@ -857,9 +922,9 @@ fn get_chat_snapshot(
     } else if data
         .agents
         .iter()
-        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
     {
-        data.selected_agent_id.clone()
+        data.assistant_department_agent_id.clone()
     } else {
         data.agents
             .iter()
@@ -926,6 +991,25 @@ struct UnarchivedConversationSummary {
     api_config_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DelegateConversationSummary {
+    conversation_id: String,
+    title: String,
+    updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_message_at: Option<String>,
+    message_count: usize,
+    agent_id: String,
+    api_config_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delegate_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archived_at: Option<String>,
+}
+
 fn conversation_preview_title(conversation: &Conversation) -> String {
     let text = conversation
         .messages
@@ -951,6 +1035,29 @@ fn conversation_preview_title(conversation: &Conversation) -> String {
     }
 }
 
+fn delegate_conversation_summary_from_conversation(
+    conversation: &Conversation,
+    archived_at: Option<String>,
+) -> DelegateConversationSummary {
+    let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
+    DelegateConversationSummary {
+        conversation_id: conversation.id.clone(),
+        title: if conversation.title.trim().is_empty() {
+            conversation_preview_title(conversation)
+        } else {
+            conversation.title.clone()
+        },
+        updated_at: conversation.updated_at.clone(),
+        last_message_at,
+        message_count: conversation.messages.len(),
+        agent_id: conversation.agent_id.clone(),
+        api_config_id: conversation.api_config_id.clone(),
+        delegate_id: conversation.delegate_id.clone(),
+        root_conversation_id: conversation.root_conversation_id.clone(),
+        archived_at,
+    }
+}
+
 #[tauri::command]
 fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<UnarchivedConversationSummary>, String> {
     let guard = state
@@ -963,7 +1070,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
     let mut summaries = data
         .conversations
         .iter()
-        .filter(|c| c.summary.trim().is_empty())
+        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
         .map(|c| {
             let last_message_at = c.messages.last().map(|m| m.created_at.clone());
             UnarchivedConversationSummary {
@@ -1000,6 +1107,48 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
     Ok(summaries)
 }
 
+#[tauri::command]
+fn list_delegate_conversations(
+    state: State<'_, AppState>,
+) -> Result<Vec<DelegateConversationSummary>, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let mut summaries = data
+        .conversations
+        .iter()
+        .filter(|conversation| conversation_is_delegate(conversation))
+        .map(|conversation| delegate_conversation_summary_from_conversation(conversation, None))
+        .chain(
+            data.archived_conversations
+                .iter()
+                .map(|archive| (&archive.source_conversation, Some(archive.archived_at.clone())))
+                .filter(|(conversation, _)| conversation_is_delegate(conversation))
+                .map(|(conversation, archived_at)| {
+                    delegate_conversation_summary_from_conversation(conversation, archived_at)
+                }),
+        )
+        .collect::<Vec<_>>();
+    summaries.sort_by(|a, b| {
+        let bk = b
+            .archived_at
+            .as_deref()
+            .or(b.last_message_at.as_deref())
+            .unwrap_or(b.updated_at.as_str());
+        let ak = a
+            .archived_at
+            .as_deref()
+            .or(a.last_message_at.as_deref())
+            .unwrap_or(a.updated_at.as_str());
+        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+    Ok(summaries)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GetUnarchivedConversationMessagesInput {
@@ -1028,6 +1177,45 @@ fn get_unarchived_conversation_messages(
         .find(|c| c.summary.trim().is_empty() && c.id == conversation_id)
         .map(|c| c.messages.clone())
         .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+    Ok(messages)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetDelegateConversationMessagesInput {
+    conversation_id: String,
+}
+
+#[tauri::command]
+fn get_delegate_conversation_messages(
+    input: GetDelegateConversationMessagesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let mut messages = data
+        .conversations
+        .iter()
+        .find(|conversation| conversation_is_delegate(conversation) && conversation.id == conversation_id)
+        .map(|conversation| conversation.messages.clone())
+        .or_else(|| {
+            data.archived_conversations
+                .iter()
+                .map(|archive| &archive.source_conversation)
+                .find(|conversation| conversation_is_delegate(conversation) && conversation.id == conversation_id)
+                .map(|conversation| conversation.messages.clone())
+        })
+        .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
 }
@@ -1092,9 +1280,9 @@ fn get_active_conversation_messages(
     } else if data
         .agents
         .iter()
-        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
     {
-        data.selected_agent_id.clone()
+        data.assistant_department_agent_id.clone()
     } else {
         data.agents
             .iter()
@@ -1227,3 +1415,4 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+

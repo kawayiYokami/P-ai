@@ -21,6 +21,9 @@
           <a :class="{ 'active': props.configTab === 'persona', 'menu-active': props.configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">{{ t("config.tabs.persona") }}</a>
         </li>
         <li>
+          <a :class="{ 'active': props.configTab === 'department', 'menu-active': props.configTab === 'department', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('department')">{{ t("config.tabs.department") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
         </li>
         <li>
@@ -80,9 +83,13 @@
         <ToolsTab
           v-else-if="props.configTab === 'tools'"
           :config="config"
+          :personas="assistantPersonas"
+          :persona-editor-id="personaEditorId"
+          :selected-persona="toolPersona"
           :tool-api-config="toolApiConfig"
           :tool-statuses="toolStatuses"
           :saving-config="savingConfig"
+          @update:persona-editor-id="$emit('update:personaEditorId', $event)"
           @tool-switch-changed="$emit('toolSwitchChanged')"
           @save-api-config="$emit('saveApiConfig')"
           @open-memory-viewer="$emit('update:configTab', 'memory')"
@@ -113,22 +120,29 @@
         <ChatSettingsTab
           v-else-if="props.configTab === 'chatSettings'"
           :config="config"
-          :text-capable-api-configs="textCapableApiConfigs"
           :image-capable-api-configs="imageCapableApiConfigs"
           :stt-capable-api-configs="sttCapableApiConfigs"
-          :assistant-personas="assistantPersonas"
-          :selected-persona-id="selectedPersonaId"
           :response-style-options="responseStyleOptions"
           :response-style-id="responseStyleId"
           :cache-stats="cacheStats"
           :cache-stats-loading="cacheStatsLoading"
-          @update:selected-persona-id="$emit('update:selectedPersonaId', $event)"
           @update:response-style-id="$emit('update:responseStyleId', $event)"
           @open-current-history="$emit('openCurrentHistory')"
           @open-prompt-preview="$emit('openPromptPreview')"
           @open-system-prompt-preview="$emit('openSystemPromptPreview')"
           @refresh-image-cache-stats="$emit('refreshImageCacheStats')"
           @clear-image-cache="$emit('clearImageCache')"
+        />
+
+        <DepartmentTab
+          v-else-if="props.configTab === 'department'"
+          :config="config"
+          :api-configs="config.apiConfigs"
+          :personas="assistantPersonas"
+          :assistant-department-agent-id="assistantDepartmentAgentId"
+          :saving-config="savingConfig"
+          @update:assistant-department-assignee-id="$emit('update:assistantDepartmentAgentId', $event)"
+          @save-api-config="$emit('saveApiConfig')"
         />
 
         <MemoryTab
@@ -231,6 +245,7 @@ import ToolsTab from "./config-tabs/ToolsTab.vue";
 import McpTab from "./config-tabs/McpTab.vue";
 import SkillTab from "./config-tabs/SkillTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
+import DepartmentTab from "./config-tabs/DepartmentTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
 import TaskTab from "./config-tabs/TaskTab.vue";
@@ -238,7 +253,7 @@ import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+type ConfigTab = "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{
@@ -259,10 +274,11 @@ const props = defineProps<{
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;
-  selectedPersonaId: string;
+  assistantDepartmentAgentId: string;
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
   selectedPersona: PersonaProfile | null;
+  toolPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
   userPersonaAvatarUrl: string;
   textCapableApiConfigs: ApiConfigItem[];
@@ -285,7 +301,7 @@ const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:uiLanguage", value: string): void;
   (e: "update:personaEditorId", value: string): void;
-  (e: "update:selectedPersonaId", value: string): void;
+  (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
   (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;
@@ -599,3 +615,4 @@ onBeforeUnmount(() => {
   destroyCropper();
 });
 </script>
+
