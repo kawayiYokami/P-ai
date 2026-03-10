@@ -35,6 +35,57 @@ fn resolve_reasoning_for_tool_history(turn_reasoning: &str, chat_history: &[RigM
     " ".to_string()
 }
 
+fn organize_context_succeeded(tool_name: &str, tool_result: &str) -> bool {
+    if tool_name != "organize_context" {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(tool_result) else {
+        return false;
+    };
+    value
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && value
+            .get("applied")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
+fn tool_history_without_organize_context(events: &[Value]) -> Vec<Value> {
+    let mut filtered = Vec::<Value>::new();
+    let mut skip_next_tool = false;
+    for event in events {
+        let role = event.get("role").and_then(Value::as_str).unwrap_or_default();
+        if role == "assistant" {
+            let has_organize_call = event
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .map(|calls| {
+                    calls.iter().any(|call| {
+                        call.get("function")
+                            .and_then(|func| func.get("name"))
+                            .and_then(Value::as_str)
+                            .map(|name| name == "organize_context")
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
+            if has_organize_call {
+                skip_next_tool = true;
+                continue;
+            }
+        }
+        if skip_next_tool && role == "tool" {
+            skip_next_tool = false;
+            continue;
+        }
+        skip_next_tool = false;
+        filtered.push(event.clone());
+    }
+    filtered
+}
+
 async fn call_tool_with_user_abort<F, T, E>(
     app_state: Option<&AppState>,
     chat_session_key: &str,
@@ -255,6 +306,7 @@ where
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 tool_history_events,
+                suppress_assistant_message: false,
             });
         }
 
@@ -274,6 +326,15 @@ where
         }
 
         for (tool_name, tool_id, call_id, tool_result) in tool_results {
+            if organize_context_succeeded(&tool_name, &tool_result) {
+                return Ok(ModelReply {
+                    assistant_text: String::new(),
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    tool_history_events: tool_history_without_organize_context(&tool_history_events),
+                    suppress_assistant_message: true,
+                });
+            }
             let (tool_result_for_model, screenshot_forward) =
                 enrich_screenshot_tool_result_with_cache(&tool_name, &tool_result);
             let result_content = OneOrMany::one(ToolResultContent::text(tool_result_for_model));
@@ -333,6 +394,7 @@ where
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
         tool_history_events,
+        suppress_assistant_message: false,
     })
 }
 

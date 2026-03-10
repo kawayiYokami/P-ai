@@ -29,6 +29,45 @@ fn conversation_is_delegate(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
 }
 
+fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
+    let mut sanitized = Vec::<Value>::new();
+    let mut pending_assistant_index: Option<usize> = None;
+    for event in events {
+        let role = event
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        match role.as_str() {
+            "assistant" => {
+                let has_tool_calls = event
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .map(|items| !items.is_empty())
+                    .unwrap_or(false);
+                let index = sanitized.len();
+                sanitized.push(event.clone());
+                pending_assistant_index = if has_tool_calls { Some(index) } else { None };
+            }
+            "tool" => {
+                if pending_assistant_index.is_some() {
+                    sanitized.push(event.clone());
+                    pending_assistant_index = None;
+                }
+            }
+            _ => {
+                pending_assistant_index = None;
+                sanitized.push(event.clone());
+            }
+        }
+    }
+    if let Some(index) = pending_assistant_index {
+        sanitized.truncate(index);
+    }
+    sanitized
+}
+
 fn build_conversation_record(
     api_config_id: &str,
     agent_id: &str,
@@ -732,7 +771,7 @@ fn build_prompt(
         }
         if is_self_message {
             if let Some(events) = &message.tool_call {
-                for event in events {
+                for event in sanitize_tool_history_events(events) {
                     let event_role = event
                         .get("role")
                         .and_then(Value::as_str)

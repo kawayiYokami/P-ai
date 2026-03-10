@@ -126,6 +126,7 @@
       "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
       "descTerminalPathAccess": "设置当前会话的终端根目录（超出根目录将被拒绝）。",
       "descReload": "重载工作区中的 MCP 与 Skill。",
+      "descOrganizeContext": "只有当话题偏离很远、无关信息可能干扰最新话题时才使用；对话太短或上下文占用太低时不应压缩。",
       "descTask": "管理持久化任务面板，支持新建、更新、完成、查看任务。",
       "descDelegate": "向目标部门发起一份独立委托，工具只负责送达。",
       "descHandoff": "在委托链内部同步转办，当前部门会等待下级结果返回。",
