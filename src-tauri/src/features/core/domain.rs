@@ -287,6 +287,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "organize_context".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["organize_context".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "task".to_string(),
             command: "builtin".to_string(),
             args: vec!["task".to_string()],
@@ -1025,7 +1032,10 @@ fn tool_restricted_by_department(department: Option<&DepartmentConfig>, tool_id:
     if is_assistant {
         return None;
     }
-    if !matches!(tool_id, "wait" | "reload" | "screenshot" | "delegate") {
+    if !matches!(
+        tool_id,
+        "wait" | "reload" | "screenshot" | "delegate" | "organize_context"
+    ) {
         return None;
     }
     let department_name = department.name.trim();

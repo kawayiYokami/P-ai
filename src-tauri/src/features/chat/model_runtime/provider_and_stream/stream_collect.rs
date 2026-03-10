@@ -66,5 +66,6 @@ where
         reasoning_standard,
         reasoning_inline: String::new(),
         tool_history_events: Vec::new(),
+        suppress_assistant_message: false,
     })
 }

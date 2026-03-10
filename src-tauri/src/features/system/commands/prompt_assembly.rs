@@ -131,7 +131,10 @@ fn build_archive_history_messages(source_conversation: &Conversation) -> Vec<Pre
                 } else {
                     None
                 },
-                tool_calls: msg.tool_call.clone(),
+                tool_calls: msg
+                    .tool_call
+                    .as_ref()
+                    .map(|events| sanitize_tool_history_events(events)),
                 tool_call_id: None,
                 reasoning_content,
             }

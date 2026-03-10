@@ -1011,6 +1011,35 @@ const appBootstrap = useAppBootstrap({
       config.minRecordSeconds,
       Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
     );
+    config.toolMaxIterations = Math.max(1, Math.min(100, Number(payload.toolMaxIterations || config.toolMaxIterations)));
+    config.selectedApiConfigId = String(payload.selectedApiConfigId || config.selectedApiConfigId || "").trim() || config.selectedApiConfigId;
+    config.assistantDepartmentApiConfigId =
+      String(payload.assistantDepartmentApiConfigId || config.assistantDepartmentApiConfigId || "").trim()
+      || config.assistantDepartmentApiConfigId;
+    config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
+    config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
+    config.sttAutoSend = !!payload.sttAutoSend;
+    config.apiConfigs.splice(
+      0,
+      config.apiConfigs.length,
+      ...((Array.isArray(payload.apiConfigs) && payload.apiConfigs.length > 0)
+        ? payload.apiConfigs.map((item) => ({
+            ...item,
+            tools: Array.isArray(item.tools) ? item.tools.map((tool) => ({
+              ...tool,
+              args: Array.isArray(tool.args) ? [...tool.args] : [],
+              values: { ...((tool.values || {}) as Record<string, unknown>) },
+            })) : [],
+          }))
+        : [createApiConfig("default")]),
+    );
+    config.departments = Array.isArray(payload.departments)
+      ? payload.departments.map((item) => ({
+          ...item,
+          agentIds: Array.isArray(item.agentIds) ? [...item.agentIds] : [],
+        }))
+      : [];
+    normalizeApiBindingsLocal();
   },
   onRecordHotkeyProbe: ({ state, seq }) => {
     if (seq > 0) {

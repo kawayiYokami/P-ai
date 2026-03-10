@@ -126,6 +126,7 @@
       "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
       "descTerminalPathAccess": "Set terminal root directory for current session (outside root is blocked).",
       "descReload": "Reload MCP and skill from workspace.",
+      "descOrganizeContext": "Use only when the topic has drifted far and unrelated context may interfere with the latest task; do not compress when the chat is still short or context usage is still low.",
       "descTask": "Manage the persistent task board: create, update, complete, and inspect tasks.",
       "descDelegate": "Send an independent delegation to a target department; this tool only handles delivery.",
       "descHandoff": "Synchronously hand work to another department inside a delegation chain and wait for the child result.",

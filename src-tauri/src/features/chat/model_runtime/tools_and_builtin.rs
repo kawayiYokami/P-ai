@@ -4,6 +4,7 @@ struct ModelReply {
     reasoning_standard: String,
     reasoning_inline: String,
     tool_history_events: Vec<Value>,
+    suppress_assistant_message: bool,
 }
 
 fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<RigMessage>, String> {
@@ -1210,6 +1211,88 @@ async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
     serde_json::to_value(result).map_err(|err| format!("Serialize refresh result failed: {err}"))
 }
 
+async fn builtin_organize_context(
+    app_state: &AppState,
+    api_config_id: &str,
+    agent_id: &str,
+) -> Result<Value, String> {
+    let (selected_api, resolved_api, source, effective_agent_id) = {
+        let guard = app_state
+            .state_lock
+            .lock()
+            .map_err(|err| {
+                format!(
+                    "Failed to lock state mutex at {}:{}:{}: {}",
+                    file!(),
+                    line!(),
+                    module_path!(),
+                    err
+                )
+            })?;
+        let mut app_config = read_config(&app_state.config_path)?;
+        let mut data = read_app_data(&app_state.data_path)?;
+        ensure_default_agent(&mut data);
+        merge_private_organization_into_runtime_data(
+            &app_state.data_path,
+            &mut app_config,
+            &mut data,
+        )?;
+        let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
+            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        let effective_agent_id = agent_id.trim().to_string();
+        if effective_agent_id.is_empty() {
+            return Err("缺少人格 ID，无法整理上下文。".to_string());
+        }
+        let source_idx = latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
+            .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
+        let source = data
+            .conversations
+            .get(source_idx)
+            .cloned()
+            .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
+        if source.messages.len() < 10 {
+            return Ok(serde_json::json!({
+                "ok": false,
+                "shouldArchive": false,
+                "message": "此时不应该压缩：当前对话少于 10 句。"
+            }));
+        }
+        let usage_ratio =
+            compute_context_usage_ratio(&source, selected_api.context_window_tokens);
+        if usage_ratio < 0.10 {
+            return Ok(serde_json::json!({
+                "ok": false,
+                "shouldArchive": false,
+                "usageRatio": usage_ratio,
+                "message": "此时不应该压缩：当前上下文占用不足 10%。"
+            }));
+        }
+        drop(guard);
+        (selected_api, resolved_api, source, effective_agent_id)
+    };
+
+    let result = run_archive_pipeline(
+        app_state,
+        &selected_api,
+        &resolved_api,
+        &source,
+        &effective_agent_id,
+        "organize_context",
+        "ORGANIZE-CONTEXT",
+    )
+    .await?;
+    serde_json::to_value(result)
+        .map(|value| {
+            let mut obj = serde_json::Map::new();
+            obj.insert("ok".to_string(), Value::Bool(true));
+            obj.insert("applied".to_string(), Value::Bool(true));
+            obj.insert("result".to_string(), value);
+            Value::Object(obj)
+        })
+        .map_err(|err| format!("Serialize organize context result failed: {err}"))
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct FetchToolArgs {
     url: String,
@@ -1242,6 +1325,9 @@ struct DesktopWaitToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct RefreshMcpAndSkillsToolArgs {}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct OrganizeContextToolArgs {}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TerminalExecToolArgs {
@@ -2250,6 +2336,49 @@ impl Tool for BuiltinRefreshMcpAndSkillsTool {
             ),
             Err(err) => eprintln!(
                 "[TOOL-DEBUG] execute_builtin_tool.err name=reload err={err}"
+            ),
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinOrganizeContextTool {
+    app_state: AppState,
+    api_config_id: String,
+    agent_id: String,
+}
+
+impl Tool for BuiltinOrganizeContextTool {
+    const NAME: &'static str = "organize_context";
+    type Error = ToolInvokeError;
+    type Args = OrganizeContextToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "organize_context".to_string(),
+            description: "只有当话题已经偏离很远、无关信息可能干扰最新话题时才使用。若当前对话太短或上下文占用太低，就不应该压缩。".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }),
+        }
+    }
+
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eprintln!("[TOOL-DEBUG] execute_builtin_tool.start name=organize_context");
+        let result = builtin_organize_context(&self.app_state, &self.api_config_id, &self.agent_id)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=organize_context result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.err name=organize_context err={err}"
             ),
         }
         result

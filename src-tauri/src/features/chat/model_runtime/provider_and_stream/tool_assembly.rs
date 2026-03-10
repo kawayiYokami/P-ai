@@ -30,6 +30,7 @@ async fn assemble_runtime_tools(
     let has_screenshot = tool_enabled(selected_api, agent, current_department, "screenshot");
     let has_wait = tool_enabled(selected_api, agent, current_department, "wait");
     let has_refresh_mcp_skills = tool_enabled(selected_api, agent, current_department, "reload");
+    let has_organize_context = tool_enabled(selected_api, agent, current_department, "organize_context");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
     let has_delegate = tool_enabled(selected_api, agent, current_department, "delegate");
@@ -225,6 +226,33 @@ async fn assemble_runtime_tools(
         ));
     }
 
+    if has_organize_context {
+        let state = app_state
+            .ok_or_else(|| "organize_context requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinOrganizeContextTool {
+            app_state: state,
+            api_config_id: selected_api.id.clone(),
+            agent_id: agent.id.clone(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "organize_context",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "organize_context",
+            false,
+            false,
+            department_reason("organize_context")
+                .or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
     if has_exec {
         let state = app_state
             .ok_or_else(|| "shell_exec requires app state".to_string())?
@@ -366,5 +394,4 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     }
     Ok(client)
 }
-
 

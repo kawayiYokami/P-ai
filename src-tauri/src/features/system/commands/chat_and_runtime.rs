@@ -43,6 +43,7 @@ fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
     !reply.assistant_text.trim().is_empty()
         || !reply.reasoning_standard.trim().is_empty()
         || !reply.reasoning_inline.trim().is_empty()
+        || reply.suppress_assistant_message
 }
 
 fn is_retryable_model_error(error: &str) -> bool {
@@ -659,6 +660,7 @@ async fn send_chat_message_inner(
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
     let tool_history_events = model_reply.tool_history_events;
+    let suppress_assistant_message = model_reply.suppress_assistant_message;
 
     let assistant_text_for_storage = assistant_text.clone();
     let provider_meta = {
@@ -674,6 +676,7 @@ async fn send_chat_message_inner(
         }
     };
 
+    let mut post_reply_forced_archive_source: Option<Conversation> = None;
     {
         let guard = state
             .state_lock
@@ -687,30 +690,81 @@ async fn send_chat_message_inner(
             .find(|c| c.id == conversation_id && c.summary.trim().is_empty())
         {
             let now = now_iso();
-            conversation.messages.push(ChatMessage {
-                id: Uuid::new_v4().to_string(),
-                role: "assistant".to_string(),
-                created_at: now.clone(),
-                speaker_agent_id: Some(effective_agent_id.clone()),
-                parts: vec![MessagePart::Text {
-                    text: assistant_text_for_storage.clone(),
-                }],
-                extra_text_blocks: Vec::new(),
-                provider_meta: provider_meta.clone(),
-                tool_call: if tool_history_events.is_empty() {
-                    None
-                } else {
-                    Some(tool_history_events.clone())
-                },
-                mcp_call: None,
-            });
-            conversation.updated_at = now.clone();
-            conversation.last_assistant_at = Some(now);
+            if !suppress_assistant_message {
+                conversation.messages.push(ChatMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: "assistant".to_string(),
+                    created_at: now.clone(),
+                    speaker_agent_id: Some(effective_agent_id.clone()),
+                    parts: vec![MessagePart::Text {
+                        text: assistant_text_for_storage.clone(),
+                    }],
+                    extra_text_blocks: Vec::new(),
+                    provider_meta: provider_meta.clone(),
+                    tool_call: if tool_history_events.is_empty() {
+                        None
+                    } else {
+                        Some(tool_history_events.clone())
+                    },
+                    mcp_call: None,
+                });
+                conversation.updated_at = now.clone();
+                conversation.last_assistant_at = Some(now);
+            }
             conversation.last_context_usage_ratio =
                 compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+            if !suppress_assistant_message && conversation.last_context_usage_ratio >= 0.82 {
+                post_reply_forced_archive_source = Some(conversation.clone());
+            }
             write_app_data(&state.data_path, &data)?;
         }
         drop(guard);
+    }
+
+    if let Some(source) = post_reply_forced_archive_source {
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: "".to_string(),
+            kind: Some("tool_status".to_string()),
+            tool_name: Some("archive".to_string()),
+            tool_status: Some("running".to_string()),
+            message: Some("回复后上下文已达到 82%，正在自动归档...".to_string()),
+        });
+        let archive_res = run_archive_pipeline(
+            &state,
+            &selected_api,
+            &resolved_api,
+            &source,
+            &effective_agent_id,
+            "force_context_usage_82_after_reply",
+            "ARCHIVE-AFTER-REPLY",
+        )
+        .await;
+        match archive_res {
+            Ok(result) => {
+                let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
+                    "自动归档完成，已开启新对话。".to_string()
+                } else {
+                    format!("自动归档完成（降级摘要）：{}", result.warning.unwrap_or_default())
+                };
+                let _ = on_delta.send(AssistantDeltaEvent {
+                    delta: "".to_string(),
+                    kind: Some("tool_status".to_string()),
+                    tool_name: Some("archive".to_string()),
+                    tool_status: Some("done".to_string()),
+                    message: Some(done_message),
+                });
+            }
+            Err(err) => {
+                let _ = on_delta.send(AssistantDeltaEvent {
+                    delta: "".to_string(),
+                    kind: Some("tool_status".to_string()),
+                    tool_name: Some("archive".to_string()),
+                    tool_status: Some("failed".to_string()),
+                    message: Some(format!("自动归档失败：{err}")),
+                });
+                return Err(format!("自动归档失败：{err}"));
+            }
+        }
     }
 
     Ok(SendChatResult {
@@ -1436,6 +1490,10 @@ fn check_tools_status(
             "reload" => (
                 "loaded".to_string(),
                 "MCP/Skill 重载工具可用".to_string(),
+            ),
+            "organize_context" => (
+                "loaded".to_string(),
+                "整理上下文工具可用".to_string(),
             ),
             "task" => (
                 "loaded".to_string(),

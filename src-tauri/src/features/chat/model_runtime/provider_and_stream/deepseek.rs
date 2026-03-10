@@ -365,6 +365,7 @@ async fn call_model_deepseek_with_tools(
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 tool_history_events,
+                suppress_assistant_message: false,
             });
         }
 
@@ -531,6 +532,7 @@ async fn call_model_deepseek_with_tools(
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
         tool_history_events,
+        suppress_assistant_message: false,
     })
 }
 
