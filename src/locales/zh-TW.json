@@ -22,6 +22,7 @@
       "persona": "人格",
       "chatSettings": "对话",
       "memory": "记忆",
+      "task": "任務",
       "logs": "日志",
       "appearance": "外观",
       "about": "关于"
@@ -123,6 +124,7 @@
       "descTerminalExec": "在受控工作目录中执行一次无状态终端命令。",
       "descTerminalPathAccess": "设置当前会话的终端根目录（超出根目录将被拒绝）。",
       "descReload": "重載工作區中的 MCP 與 Skill。",
+      "descTask": "管理持久化任務面板，支援新建、更新、完成、查看任務。",
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空間",
       "openDir": "打開目錄",
@@ -144,6 +146,7 @@
     "persona": {
       "title": "人格",
       "userTag": "用户",
+      "systemTag": "系統",
       "add": "新增人格",
       "remove": "删除当前人格",
       "name": "人格名称",
@@ -151,6 +154,7 @@
       "editAvatar": "编辑头像",
       "prompt": "人格设定",
       "userPlaceholder": "我是...",
+      "systemPlaceholder": "我是任務中心與系統調度人格，用於承載系統消息顯示。",
       "assistantPlaceholder": "你是...",
       "uploadAvatar": "上传头像",
       "clearAvatar": "清除头像",
@@ -199,6 +203,56 @@
       "cacheEntries": "条目: {entries} | 字符: {chars}",
       "cacheUpdatedAt": "最近更新: {value}",
       "cacheHint": "缓存按「图转文AI配置」隔离，切换图转文AI后会自动使用对应缓存命名空间。"
+    },
+    "task": {
+      "title": "任務面板",
+      "subtitle": "查看當前追蹤任務並維護長期任務。",
+      "refresh": "刷新",
+      "currentTracked": "當前追蹤任務",
+      "trackedShort": "追蹤中",
+      "empty": "暫無任務。",
+      "noStatus": "暫無狀態摘要",
+      "detail": "任務詳情",
+      "readonlyHint": "任務詳情為唯讀，請在對話中使用 Task 工具進行更新。",
+      "createTask": "新建任務",
+      "newTask": "新建",
+      "createAction": "建立任務",
+      "saveUpdate": "保存更新",
+      "selectHint": "從左側選擇一個任務，或新建任務。",
+      "completeTitle": "完成任務",
+      "completeAction": "完成任務",
+      "reloadDetail": "刷新詳情",
+      "created": "任務已建立。",
+      "updated": "任務已更新。",
+      "completed": "任務已完成。",
+      "notes": "進度筆記",
+      "runLogs": "運行日誌",
+      "noLogs": "暫無觸發日誌。",
+      "todosPlaceholder": "每行一個 todo",
+      "filters": {
+        "active": "進行中",
+        "tracked": "追蹤中",
+        "completed": "已完成",
+        "all": "全部"
+      },
+      "fields": {
+        "title": "標題",
+        "triggerKind": "觸發器",
+        "runAt": "開始時間",
+        "everyMinutes": "間隔分鐘",
+        "statusSummary": "當前狀態",
+        "goal": "目標",
+        "cause": "起因",
+        "flow": "流程",
+        "todos": "待辦",
+        "stageKey": "階段鍵",
+        "appendNote": "追加筆記",
+        "completionConclusion": "完成結論",
+        "completionState": "完成狀態",
+        "nextRunAt": "下次觸發",
+        "updatedAt": "更新時間",
+        "endAt": "結束時間"
+      }
     },
     "memory": {
       "syncing": "嵌入同步進行中",
@@ -319,7 +373,13 @@
     "alwaysOnTopOn": "总在最前窗口",
     "archiving": "正在归档优化上下文...",
     "archivingLock": "期间将暂时锁定输入",
-    "currentHistoryTitle": "当前会话记录（未归档）"
+    "currentHistoryTitle": "當前會話記錄（未歸檔）",
+    "taskTrigger": {
+      "badge": "任務提醒",
+      "kindImmediate": "立即任務",
+      "kindEvery": "循環任務",
+      "kindAt": "定時任務"
+    }
   },
   "memory": {
     "title": "记忆列表",

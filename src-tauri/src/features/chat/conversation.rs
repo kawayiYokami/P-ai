@@ -344,6 +344,16 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
             MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }
+    if let Some(meta) = &message.provider_meta {
+        if let Some(hidden_prompt_text) = meta
+            .get("hiddenPromptText")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            chunks.push(hidden_prompt_text.to_string());
+        }
+    }
     chunks.join(" | ")
 }
 
@@ -372,79 +382,161 @@ fn xml_escape_prompt(input: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn prompt_role_for_message(message: &ChatMessage, current_agent_id: &str) -> Option<String> {
+    let raw_role = message.role.trim().to_lowercase();
+    if raw_role != "user" && raw_role != "assistant" {
+        return None;
+    }
+    let speaker_id = message
+        .speaker_agent_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    if !speaker_id.is_empty() && speaker_id == current_agent_id {
+        return Some("assistant".to_string());
+    }
+    Some("user".to_string())
+}
+
+fn prompt_speaker_label(
+    message: &ChatMessage,
+    agents: &[AgentProfile],
+    user_name: &str,
+) -> String {
+    let speaker_id = message
+        .speaker_agent_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    if speaker_id.is_empty() {
+        return user_name.trim().to_string();
+    }
+    if speaker_id == USER_PERSONA_ID {
+        let label = user_name.trim();
+        if !label.is_empty() {
+            return label.to_string();
+        }
+    }
+    agents
+        .iter()
+        .find(|profile| profile.id == speaker_id)
+        .map(|profile| profile.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| speaker_id.to_string())
+}
+
+fn build_prompt_speaker_block(
+    message: &ChatMessage,
+    agents: &[AgentProfile],
+    user_name: &str,
+    _ui_language: &str,
+) -> String {
+    let speaker_name = prompt_speaker_label(message, agents, user_name);
+    if speaker_name.trim().is_empty() {
+        return String::new();
+    }
+    format!("[{}]", speaker_name)
+}
+
+fn build_prompt_user_meta_text(
+    message: &ChatMessage,
+    agents: &[AgentProfile],
+    user_name: &str,
+    ui_language: &str,
+) -> Option<String> {
+    let speaker_block = build_prompt_speaker_block(message, agents, user_name, ui_language);
+    let time_text = format_message_time_rfc3339_local(&message.created_at);
+    let has_speaker = !speaker_block.trim().is_empty();
+    let has_time = !time_text.trim().is_empty();
+    match (has_speaker, has_time) {
+        (true, true) => Some(format!("{} {}", speaker_block, time_text)),
+        (true, false) => Some(speaker_block),
+        (false, true) => Some(format!("[{}]", time_text)),
+        (false, false) => None,
+    }
+}
+fn render_prompt_message_text(message: &ChatMessage) -> String {
+    render_message_content_for_model(message)
+}
 fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
+    agents: &[AgentProfile],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
 ) -> PreparedPrompt {
-    let latest_user_index = conversation.messages.iter().rposition(|m| m.role == "user");
+    let latest_user_index = conversation
+        .messages
+        .iter()
+        .rposition(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"));
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
     for (idx, message) in conversation.messages.iter().enumerate() {
+        let Some(role) = prompt_role_for_message(message, &agent.id) else {
+            continue;
+        };
+        let is_self_message = role == "assistant";
         if Some(idx) == latest_user_index {
             continue;
         }
-        if let Some(events) = &message.tool_call {
-            for event in events {
-                let event_role = event
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_lowercase();
-                if event_role == "assistant" {
-                    let text = event
-                        .get("content")
+        if is_self_message {
+            if let Some(events) = &message.tool_call {
+                for event in events {
+                    let event_role = event
+                        .get("role")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
-                        .to_string();
-                    let tool_calls = event
-                        .get("tool_calls")
-                        .and_then(Value::as_array)
-                        .cloned();
-                    let reasoning_content = event
-                        .get("reasoning_content")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned);
-                    history_messages.push(PreparedHistoryMessage {
-                        role: "assistant".to_string(),
-                        text,
-                        user_time_text: None,
-                        tool_calls,
-                        tool_call_id: None,
-                        reasoning_content,
-                    });
-                } else if event_role == "tool" {
-                    let text = event
-                        .get("content")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
-                    let tool_call_id = event
-                        .get("tool_call_id")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned);
-                    if !text.trim().is_empty() || tool_call_id.is_some() {
+                        .trim()
+                        .to_lowercase();
+                    if event_role == "assistant" {
+                        let text = event
+                            .get("content")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        let tool_calls = event
+                            .get("tool_calls")
+                            .and_then(Value::as_array)
+                            .cloned();
+                        let reasoning_content = event
+                            .get("reasoning_content")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
                         history_messages.push(PreparedHistoryMessage {
-                            role: "tool".to_string(),
+                            role: "assistant".to_string(),
                             text,
                             user_time_text: None,
-                            tool_calls: None,
-                            tool_call_id,
-                            reasoning_content: None,
+                            tool_calls,
+                            tool_call_id: None,
+                            reasoning_content,
                         });
+                    } else if event_role == "tool" {
+                        let text = event
+                            .get("content")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        let tool_call_id = event
+                            .get("tool_call_id")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
+                        if !text.trim().is_empty() || tool_call_id.is_some() {
+                            history_messages.push(PreparedHistoryMessage {
+                                role: "tool".to_string(),
+                                text,
+                                user_time_text: None,
+                                tool_calls: None,
+                                tool_call_id,
+                                reasoning_content: None,
+                            });
+                        }
                     }
                 }
             }
         }
-        let role = message.role.trim().to_lowercase();
-        if role != "user" && role != "assistant" {
-            continue;
-        }
-        let text = render_message_content_for_model(message);
+        let text = render_prompt_message_text(message);
         if text.trim().is_empty() {
             continue;
         }
@@ -452,8 +544,7 @@ fn build_prompt(
             role: role.clone(),
             text,
             user_time_text: if role == "user" {
-                let t = format_message_time_text(&message.created_at);
-                if t.is_empty() { None } else { Some(t) }
+                build_prompt_user_meta_text(message, agents, user_name, ui_language)
             } else {
                 None
             },
@@ -574,7 +665,7 @@ fn build_prompt(
         .messages
         .iter()
         .rev()
-        .find(|m| m.role == "user")
+        .find(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"))
         .cloned();
 
     let mut latest_user_text = String::new();
@@ -584,13 +675,13 @@ fn build_prompt(
     let mut latest_audios = Vec::<(String, String)>::new();
 
     if let Some(msg) = latest_user {
+        let user_meta_text = build_prompt_user_meta_text(&msg, agents, user_name, ui_language);
         let ChatMessage {
-            created_at,
             parts,
             extra_text_blocks,
             ..
         } = msg;
-        latest_user_time_text = format_message_time_text(&created_at);
+        latest_user_time_text = user_meta_text.unwrap_or_default();
         for part in parts {
             match part {
                 MessagePart::Text { text } => {
@@ -607,9 +698,11 @@ fn build_prompt(
                             Ok(value) => value,
                             Err(err) => {
                                 eprintln!(
-                                    "[PROMPT] resolve image attachment failed (mime={}, data_path={}): {err}",
+                                    "[提示词] 解析图片附件失败，mime={}，data_path={}，bytes_base64_len={}，error={}",
                                     mime,
-                                    path.to_string_lossy()
+                                    path.to_string_lossy(),
+                                    bytes_base64.len(),
+                                    err
                                 );
                                 bytes_base64
                             }
@@ -629,9 +722,11 @@ fn build_prompt(
                             Ok(value) => value,
                             Err(err) => {
                                 eprintln!(
-                                    "[PROMPT] resolve audio attachment failed (mime={}, data_path={}): {err}",
+                                    "[提示词] 解析音频附件失败，mime={}，data_path={}，bytes_base64_len={}，error={}",
                                     mime,
-                                    path.to_string_lossy()
+                                    path.to_string_lossy(),
+                                    bytes_base64.len(),
+                                    err
                                 );
                                 bytes_base64
                             }
@@ -695,3 +790,4 @@ fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
         _ => None,
     }
 }
+

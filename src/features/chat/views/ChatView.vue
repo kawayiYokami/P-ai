@@ -15,33 +15,78 @@
       @wheel.passive="onWheel"
     >
       <!-- 历史对话 turns -->
-      <template v-for="turn in turns" :key="turn.id">
-        <div class="chat chat-end group/user-turn">
-          <div class="chat-header mb-1 flex items-center gap-2">
-            <button
-              v-if="!chatting && !frozen"
-              type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
-              :title="t('chat.recall')"
-              @click="$emit('recallTurn', { turnId: turn.id })"
-            >
-              <Undo2 class="h-3.5 w-3.5" />
-            </button>
-            <div v-if="userAvatarUrl" class="avatar">
-              <div class="w-7 rounded-full">
-                <img :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" :title="userAlias || t('archives.roleUser')" />
-              </div>
-            </div>
-            <div v-else class="avatar placeholder">
-              <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(userAlias || t("archives.roleUser")) }}</span>
+      <template v-for="block in messageBlocks" :key="block.id">
+        <div :class="['chat group/user-turn mt-3', isPrimaryUserPersonaMessage(block) ? 'chat-end' : 'chat-start']">
+          <div class="chat-image avatar self-start">
+            <div class="w-7 rounded-full">
+              <img v-if="primaryMessageAvatarUrl(block)" :src="primaryMessageAvatarUrl(block)" :alt="primaryMessageName(block)" />
+              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
+                {{ avatarInitial(primaryMessageName(block)) }}
               </div>
             </div>
           </div>
-          <div class="chat-bubble max-w-[92%]">
-            <div v-if="turn.userText" class="whitespace-pre-wrap">{{ turn.userText }}</div>
-            <div v-if="turn.userImages.length > 0" class="mt-2 grid gap-1">
-              <template v-for="(img, idx) in turn.userImages" :key="`${turn.id}-img-${idx}`">
+          <div class="chat-header mb-1 flex items-center gap-2">
+            <button
+              v-if="isPrimaryUserPersonaMessage(block) && !chatting && !frozen"
+              type="button"
+              class="inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
+              :title="t('chat.recall')"
+              @click="$emit('recallTurn', { turnId: block.id })"
+            >
+              <Undo2 class="h-3 w-3" />
+            </button>
+            <span class="text-xs text-base-content">{{ primaryMessageName(block) }}</span>
+            <time v-if="formattedBlockTime(block.primaryCreatedAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.primaryCreatedAt) }}</time>
+          </div>
+          <div :class="['chat-bubble max-w-[92%]', isPrimaryUserPersonaMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70']">
+            <div v-if="block.primaryTaskTrigger" class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-sm badge-outline">{{ t("chat.taskTrigger.badge") }}</span>
+              </div>
+              <div class="text-base font-medium leading-6">{{ block.primaryTaskTrigger.title }}</div>
+              <div v-if="block.primaryTaskTrigger.cause" class="space-y-0.5">
+                <div class="text-[11px] opacity-55">{{ t("config.task.fields.cause") }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.cause }}</div>
+              </div>
+              <div v-if="block.primaryTaskTrigger.goal" class="space-y-0.5">
+                <div class="text-[11px] opacity-55">{{ t("config.task.fields.goal") }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.goal }}</div>
+              </div>
+              <div v-if="block.primaryTaskTrigger.flow" class="space-y-0.5">
+                <div class="text-[11px] opacity-55">{{ t("config.task.fields.flow") }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.flow }}</div>
+              </div>
+              <div v-if="block.primaryTaskTrigger.statusSummary" class="space-y-0.5">
+                <div class="text-[11px] opacity-55">{{ t("config.task.fields.statusSummary") }}</div>
+                <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.primaryTaskTrigger.statusSummary }}</div>
+              </div>
+              <div v-if="block.primaryTaskTrigger.runAt || block.primaryTaskTrigger.endAt || block.primaryTaskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
+                <div v-if="block.primaryTaskTrigger.runAt">
+                  <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
+                  <span class="ml-2">{{ formattedBlockTime(block.primaryTaskTrigger.runAt) }}</span>
+                </div>
+                <div v-if="block.primaryTaskTrigger.endAt">
+                  <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>
+                  <span class="ml-2">{{ formattedBlockTime(block.primaryTaskTrigger.endAt) }}</span>
+                </div>
+                <div v-if="block.primaryTaskTrigger.everyMinutes">
+                  <span class="text-[11px] opacity-55">{{ t("config.task.fields.everyMinutes") }}</span>
+                  <span class="ml-2">{{ block.primaryTaskTrigger.everyMinutes }}</span>
+                </div>
+              </div>
+              <div v-if="block.primaryTaskTrigger.todos.length > 0" class="space-y-1">
+                <div class="text-[11px] opacity-55">{{ t("config.task.fields.todos") }}</div>
+                <ul class="space-y-1 text-sm leading-6">
+                  <li v-for="(todo, todoIdx) in block.primaryTaskTrigger.todos" :key="`${block.id}-todo-${todoIdx}`" class="flex items-start gap-2">
+                    <span class="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60"></span>
+                    <span class="min-w-0 whitespace-pre-wrap">{{ todo }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div v-if="block.primaryText" :class="block.primaryTaskTrigger ? 'mt-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'">{{ block.primaryText }}</div>
+            <div v-if="block.primaryImages.length > 0" :class="block.primaryTaskTrigger || block.primaryText ? 'mt-2 grid gap-1' : 'grid gap-1'">
+              <template v-for="(img, idx) in block.primaryImages" :key="`${block.id}-img-${idx}`">
                 <img
                   v-if="isImageMime(img.mime)"
                   :src="`data:${img.mime};base64,${img.bytesBase64}`"
@@ -55,63 +100,63 @@
                 </div>
               </template>
             </div>
-            <div v-if="turn.userAudios.length > 0" class="mt-2 flex flex-col gap-1">
+            <div v-if="block.primaryAudios.length > 0" :class="block.primaryTaskTrigger || block.primaryText || block.primaryImages.length > 0 ? 'mt-2 flex flex-col gap-1' : 'flex flex-col gap-1'">
               <button
-                v-for="(aud, idx) in turn.userAudios"
-                :key="`${turn.id}-aud-${idx}`"
+                v-for="(aud, idx) in block.primaryAudios"
+                :key="`${block.id}-aud-${idx}`"
                 class="btn btn-sm bg-base-100/70 w-fit"
-                @click="toggleAudioPlayback(`${turn.id}-aud-${idx}`, aud)"
+                @click="toggleAudioPlayback(`${block.id}-aud-${idx}`, aud)"
               >
-                <Pause v-if="playingAudioId === `${turn.id}-aud-${idx}`" class="h-3 w-3" />
+                <Pause v-if="playingAudioId === `${block.id}-aud-${idx}`" class="h-3 w-3" />
                 <Play v-else class="h-3 w-3" />
                 <span>{{ t("chat.voice", { index: idx + 1 }) }}</span>
               </button>
             </div>
           </div>
         </div>
-        <div v-if="turn.assistantText || turn.assistantReasoningStandard || turn.assistantReasoningInline" class="chat chat-start">
-          <div class="chat-header mb-1 flex items-center gap-1">
-            <div v-if="turnAssistantAvatarUrl(turn)" class="avatar">
-              <div class="w-7 rounded-full">
-                <img :src="turnAssistantAvatarUrl(turn)" :alt="turnAssistantName(turn)" :title="turnAssistantName(turn)" />
+        <div v-if="block.replyText || block.replyReasoningStandard || block.replyReasoningInline" class="chat chat-start mt-3">
+          <div class="chat-image avatar self-start">
+            <div class="w-7 rounded-full">
+              <img v-if="replyMessageAvatarUrl(block)" :src="replyMessageAvatarUrl(block)" :alt="replyMessageName(block)" />
+              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
+                {{ avatarInitial(replyMessageName(block)) }}
               </div>
             </div>
-            <div v-else class="avatar placeholder">
-              <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(turnAssistantName(turn)) }}</span>
-              </div>
-            </div>
+          </div>
+          <div class="chat-header mb-1 flex items-center gap-2">
+            <span class="text-xs text-base-content">{{ replyMessageName(block) }}</span>
+            <time v-if="formattedBlockTime(block.replyCreatedAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.replyCreatedAt) }}</time>
+          </div>
+          <div v-if="block.replyText || block.replyReasoningStandard" class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
             <details
-              v-if="turn.assistantReasoningStandard"
-              class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
+              v-if="block.replyReasoningStandard"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
             >
-              <summary class="collapse-title py-2 px-3 min-h-0 text-sm italic flex items-center">
-                <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">
-                  {{ firstLinePreview(turn.assistantReasoningStandard) || "..." }}
+              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center text-base-content/80">
+                <span class="block min-w-0 flex-1 truncate">
+                  {{ firstLinePreview(block.replyReasoningStandard) || "..." }}
                 </span>
               </summary>
-              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-sm leading-relaxed text-base-content/80">
-                {{ turn.assistantReasoningStandard }}
+              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
+                {{ block.replyReasoningStandard }}
               </div>
             </details>
-          </div>
-          <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
             <details
-              v-if="resolvedTurnInlineReasoning(turn)"
-              class="collapse border border-base-content/10 bg-base-200/50 mb-2"
+              v-if="resolvedReplyInlineReasoning(block)"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
             >
-              <summary class="collapse-title py-1.5 px-2.5 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
-                <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">
-                  {{ firstLinePreview(resolvedTurnInlineReasoning(turn)) || "..." }}
+              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
+                <span class="block min-w-0 flex-1 truncate">
+                  {{ firstLinePreview(resolvedReplyInlineReasoning(block)) || "..." }}
                 </span>
               </summary>
-              <div class="collapse-content max-w-full px-2.5 pb-1.5 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
-                {{ resolvedTurnInlineReasoning(turn) }}
+              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
+                {{ resolvedReplyInlineReasoning(block) }}
               </div>
             </details>
             <div
               class="ecall-markdown-content prose prose-sm max-w-none"
-              v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
+              v-html="renderMarkdown(splitThinkText(block.replyText).visible)"
               @click="handleAssistantLinkClick"
             ></div>
             <div v-if="!chatting && !frozen" class="mt-2 flex items-center gap-1.5">
@@ -119,7 +164,7 @@
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.copy')"
-                @click="copyAssistantTurn(turn)"
+                @click="copyAssistantTurn(block)"
               >
                 <Copy class="h-3.5 w-3.5" />
               </button>
@@ -127,14 +172,14 @@
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.regenerate')"
-                @click="$emit('regenerateTurn', { turnId: turn.id })"
+                @click="$emit('regenerateTurn', { turnId: block.id })"
               >
                 <RotateCcw class="h-3.5 w-3.5" />
               </button>
             </div>
-            <div v-if="turn.assistantToolCallCount > 0" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
+            <div v-if="block.replyToolCallCount > 0" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
               <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
-              <span>{{ toolSummaryText(turn.assistantLastToolName, turn.assistantToolCallCount) }}</span>
+              <span>{{ toolSummaryText(block.replyLastToolName, block.replyToolCallCount) }}</span>
             </div>
           </div>
         </div>
@@ -143,18 +188,17 @@
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
         <!-- 用户消息 (与历史消息样式一致) -->
-        <div class="chat chat-end">
-          <div class="chat-header mb-1">
-            <div v-if="userAvatarUrl" class="avatar">
-              <div class="w-7 rounded-full">
-                <img :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" :title="userAlias || t('archives.roleUser')" />
+        <div class="chat chat-end mt-3">
+          <div class="chat-image avatar self-start">
+            <div class="w-7 rounded-full">
+              <img v-if="userAvatarUrl" :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" />
+              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
+                {{ avatarInitial(userAlias || t("archives.roleUser")) }}
               </div>
             </div>
-            <div v-else class="avatar placeholder">
-              <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(userAlias || t("archives.roleUser")) }}</span>
-              </div>
-            </div>
+          </div>
+          <div class="chat-header mb-1 flex items-center gap-2">
+            <span class="text-xs text-base-content">{{ userAlias || t("archives.roleUser") }}</span>
           </div>
           <div class="chat-bubble max-w-[92%]">
             <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
@@ -170,41 +214,40 @@
           </div>
         </div>
         <!-- 助手流式响应 -->
-        <div class="chat chat-start">
-          <div class="chat-header mb-1 flex items-center gap-1">
-            <div v-if="assistantAvatarUrl" class="avatar">
-              <div class="w-7 rounded-full">
-                <img :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" :title="personaName || t('archives.roleAssistant')" />
+        <div class="chat chat-start mt-3">
+          <div class="chat-image avatar self-start">
+            <div class="w-7 rounded-full">
+              <img v-if="assistantAvatarUrl" :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" />
+              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
+                {{ avatarInitial(personaName || t("archives.roleAssistant")) }}
               </div>
             </div>
-            <div v-else class="avatar placeholder">
-              <div class="bg-neutral text-neutral-content w-7 rounded-full">
-                <span>{{ avatarInitial(personaName || t("archives.roleAssistant")) }}</span>
-              </div>
-            </div>
-            <details
-              v-if="latestReasoningStandardText"
-              class="collapse bg-base-200 min-w-0 max-w-[min(90vw,40rem)]"
-            >
-              <summary class="collapse-title py-2 px-3 min-h-0 text-sm italic flex items-center gap-1">
-                <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
-                <span class="loading loading-dots loading-sm opacity-60"></span>
-              </summary>
-              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-sm leading-relaxed text-base-content/80">
-                {{ latestReasoningStandardText }}
-              </div>
-            </details>
+          </div>
+          <div class="chat-header mb-1 flex items-center gap-2">
+            <span class="text-xs text-base-content">{{ personaName || t("archives.roleAssistant") }}</span>
           </div>
           <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
             <details
-              v-if="latestInlineReasoningText"
-              class="collapse border border-base-content/10 bg-base-200/50 mb-2"
+              v-if="latestReasoningStandardText"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
             >
-              <summary class="collapse-title py-1.5 px-2.5 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
-                <span class="block min-w-0 flex-1 whitespace-normal wrap-break-word">{{ firstLinePreview(latestInlineReasoningText) || "..." }}</span>
+              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center gap-1 text-base-content/80">
+                <span class="block min-w-0 flex-1 truncate">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
                 <span class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
-              <div class="collapse-content max-w-full px-2.5 pb-1.5 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
+              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
+                {{ latestReasoningStandardText }}
+              </div>
+            </details>
+            <details
+              v-if="latestInlineReasoningText"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
+            >
+              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
+                <span class="block min-w-0 flex-1 truncate">{{ firstLinePreview(latestInlineReasoningText) || "..." }}</span>
+                <span class="loading loading-dots loading-sm opacity-60"></span>
+              </summary>
+              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
                 {{ latestInlineReasoningText }}
               </div>
             </details>
@@ -349,7 +392,7 @@ import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatTurn } from "../../../types/app";
+import type { ChatMessageBlock } from "../../../types/app";
 
 const props = defineProps<{
   userAlias: string;
@@ -377,8 +420,8 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   frozen: boolean;
-  turns: ChatTurn[];
-  hasMoreTurns: boolean;
+  messageBlocks: ChatMessageBlock[];
+  hasMoreMessageBlocks: boolean;
   currentWorkspaceName: string;
   workspaceLocked: boolean;
 }>();
@@ -390,7 +433,7 @@ const emit = defineEmits<{
   (e: "stopRecording"): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
-  (e: "loadMoreTurns"): void;
+  (e: "loadMoreMessageBlocks"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "lockWorkspace"): void;
@@ -565,16 +608,49 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 
-function turnAssistantName(turn: ChatTurn): string {
-  const id = String(turn.assistantAgentId || "").trim();
+function primaryMessageName(block: ChatMessageBlock): string {
+  const id = String(block.primaryAgentId || "").trim();
+  if (id && props.personaNameMap[id]) return props.personaNameMap[id];
+  return props.userAlias || t("archives.roleUser");
+}
+
+function primaryMessageAvatarUrl(block: ChatMessageBlock): string {
+  const id = String(block.primaryAgentId || "").trim();
+  if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
+  if (!id || id === "user-persona") return props.userAvatarUrl || "";
+  return "";
+}
+
+function isPrimaryUserPersonaMessage(block: ChatMessageBlock): boolean {
+  const id = String(block.primaryAgentId || "").trim();
+  return !id || id === "user-persona";
+}
+
+function replyMessageName(block: ChatMessageBlock): string {
+  const id = String(block.replyAgentId || "").trim();
   if (id && props.personaNameMap[id]) return props.personaNameMap[id];
   return props.personaName || t("archives.roleAssistant");
 }
 
-function turnAssistantAvatarUrl(turn: ChatTurn): string {
-  const id = String(turn.assistantAgentId || "").trim();
+function replyMessageAvatarUrl(block: ChatMessageBlock): string {
+  const id = String(block.replyAgentId || "").trim();
   if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
   return props.assistantAvatarUrl || "";
+}
+
+function formattedBlockTime(value?: string): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const parts = new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(parsed);
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value || "00";
+  return `${pick("hour")}:${pick("minute")}:${pick("second")}`;
 }
 
 function splitThinkText(raw: string): { visible: string; inline: string } {
@@ -630,8 +706,8 @@ const latestInlineReasoningText = computed(
 );
 const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts.value.visible));
 
-function resolvedTurnInlineReasoning(turn: ChatTurn): string {
-  return splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline || "";
+function resolvedReplyInlineReasoning(block: ChatMessageBlock): string {
+  return splitThinkText(block.replyText).inline || block.replyReasoningInline || "";
 }
 
 function toolSummaryText(lastToolName: string, count: number): string {
@@ -641,8 +717,8 @@ function toolSummaryText(lastToolName: string, count: number): string {
     : `调用 ${String(lastToolName || "-")}`;
 }
 
-async function copyAssistantTurn(turn: ChatTurn) {
-  const copyText = splitThinkText(turn.assistantText).visible || turn.assistantText || "";
+async function copyAssistantTurn(block: ChatMessageBlock) {
+  const copyText = splitThinkText(block.replyText).visible || block.replyText || "";
   if (!copyText) return;
   try {
     await navigator.clipboard.writeText(copyText);
@@ -657,11 +733,7 @@ function firstLinePreview(raw: string): string {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const last = lines.length ? lines[lines.length - 1] : raw.trim();
-  if (!last) return "";
-  const chars = Array.from(last);
-  if (chars.length <= 20) return last;
-  return chars.slice(0, 20).join("") + "...";
+  return lines.length ? lines[lines.length - 1] : raw.trim();
 }
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
@@ -776,10 +848,10 @@ function onScroll() {
     evaluateFollowState(el);
     followScrollRaf = 0;
   });
-  if (!props.chatting && scrollingUp && el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
+  if (!props.chatting && scrollingUp && el.scrollTop <= 20 && props.hasMoreMessageBlocks && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
-    emit("loadMoreTurns");
+    emit("loadMoreMessageBlocks");
   }
 }
 
@@ -787,10 +859,10 @@ function onWheel(event: WheelEvent) {
   const el = scrollContainer.value;
   if (!el) return;
   const pushingUpAtTop = event.deltaY < 0 && el.scrollTop <= 20;
-  if (!props.chatting && pushingUpAtTop && props.hasMoreTurns && !loadingMore) {
+  if (!props.chatting && pushingUpAtTop && props.hasMoreMessageBlocks && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
-    emit("loadMoreTurns");
+    emit("loadMoreMessageBlocks");
   }
 }
 
@@ -864,7 +936,7 @@ watch(
 );
 
 watch(
-  () => props.turns.length,
+  () => props.messageBlocks.length,
   (newLen, oldLen) => {
     if (loadingMore && newLen > oldLen) {
       nextTick(() => {
@@ -889,7 +961,7 @@ watch(
 );
 
 watch(
-  () => props.hasMoreTurns,
+  () => props.hasMoreMessageBlocks,
   (hasMore) => {
     if (hasMore) return;
     loadingMore = false;

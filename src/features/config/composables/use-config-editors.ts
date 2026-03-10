@@ -49,6 +49,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       avatarPath: undefined,
       avatarUpdatedAt: undefined,
       isBuiltInUser: false,
+      isBuiltInSystem: false,
     });
     options.selectedPersonaId.value = id;
     options.personaEditorId.value = id;
@@ -57,7 +58,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
   function removeSelectedPersona() {
     if (options.assistantPersonas.value.length <= 1) return;
     const target = options.selectedPersonaEditor.value;
-    if (!target || target.isBuiltInUser) return;
+    if (!target || target.isBuiltInUser || target.isBuiltInSystem) return;
     const idx = options.personas.value.findIndex((p) => p.id === target.id);
     if (idx >= 0) options.personas.value.splice(idx, 1);
     if (options.selectedPersonaId.value === target.id) {

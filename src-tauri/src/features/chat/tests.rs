@@ -33,6 +33,7 @@
         let prepared = build_prompt(
             &conv,
             &agent,
+            &[agent.clone(), default_user_persona()],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -56,6 +57,73 @@
     }
 
     #[test]
+    fn build_prompt_should_map_non_self_personas_to_user_with_speaker_block() {
+        let now = now_iso();
+        let agent = default_agent();
+        let system_persona = default_system_persona();
+        let messages = vec![
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(system_persona.id.clone()),
+                parts: vec![MessagePart::Text {
+                    text: "请检查今天的任务触发情况".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "assistant".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(agent.id.clone()),
+                parts: vec![MessagePart::Text {
+                    text: "我马上处理".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "assistant".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(system_persona.id.clone()),
+                parts: vec![MessagePart::Text {
+                    text: "现在补发第二次提醒".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona(), system_persona.clone()],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+        );
+
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert_eq!(prepared.history_messages[0].role, "user");
+        assert!(prepared.history_messages[0].text.contains("凯瑟琳"));
+        assert!(prepared.history_messages[0].text.contains("system-persona"));
+        assert_eq!(prepared.history_messages[1].role, "assistant");
+        assert!(prepared.latest_user_text.contains("凯瑟琳"));
+        assert!(prepared.latest_user_text.contains("现在补发第二次提醒"));
+    }
+    #[test]
     fn request_preview_should_keep_structured_tool_history_messages() {
         let api = ApiConfig {
             id: "api-a".to_string(),
@@ -71,6 +139,7 @@
             model: "gpt-x".to_string(),
             temperature: 0.7,
             context_window_tokens: 128_000,
+            failure_retry_count: 0,
         };
         let prepared = PreparedPrompt {
             preamble: "sys".to_string(),

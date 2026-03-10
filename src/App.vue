@@ -85,8 +85,8 @@
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
-      :visible-turns="displayTurns"
-      :has-more-turns="displayHasMoreTurns"
+      :visible-message-blocks="displayMessageBlocks"
+      :has-more-message-blocks="displayHasMoreMessageBlocks"
       :archives="archives"
       :selected-archive-id="selectedArchiveId"
       :archive-messages="archiveMessages"
@@ -143,7 +143,7 @@
       :stop-recording="() => stopRecording(false)"
       :send-chat="chatFlow.sendChat"
       :stop-chat="chatFlow.stopChat"
-      :load-more-turns="loadMoreTurns"
+      :load-more-message-blocks="loadMoreMessageBlocks"
       :on-recall-turn="handleRecallTurn"
       :on-regenerate-turn="handleRegenerateTurn"
       :on-lock-chat-workspace="lockChatWorkspaceFromPicker"
@@ -299,7 +299,7 @@ import { useArchivesView, type ArchiveImportPreview } from "./features/chat/comp
 import { useAvatarCache } from "./features/chat/composables/use-avatar-cache";
 import { useChatDialogActions } from "./features/chat/composables/use-chat-dialog-actions";
 import { useChatRuntime } from "./features/chat/composables/use-chat-runtime";
-import { useChatTurns } from "./features/chat/composables/use-chat-turns";
+import { useChatMessageBlocks } from "./features/chat/composables/use-chat-turns";
 import { useChatMedia } from "./features/chat/composables/use-chat-media";
 import { useHistoryViewer } from "./features/chat/composables/use-history-viewer";
 import { usePromptPreview } from "./features/chat/composables/use-prompt-preview";
@@ -357,7 +357,7 @@ const config = reactive<AppConfig>({
 const recordHotkeyProbeLastSeq = ref(0);
 const recordHotkeyProbeDown = ref(false);
 const chatWindowActiveSynced = ref<boolean | null>(null);
-const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about">("hotkey");
+const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
 const personaEditorId = ref("default-agent");
@@ -375,7 +375,7 @@ const chatErrorText = ref("");
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 
 const allMessages = shallowRef<ChatMessage[]>([]);
-const visibleTurnCount = ref(1);
+const visibleMessageBlockCount = ref(1);
 
 const status = ref("Ready.");
 const checkingUpdate = ref(false);
@@ -679,7 +679,7 @@ const userPersona = computed(
   () => personas.value.find((p) => p.isBuiltInUser || p.id === "user-persona") ?? null,
 );
 const assistantPersonas = computed(() =>
-  personas.value.filter((p) => !p.isBuiltInUser && p.id !== "user-persona"),
+  personas.value.filter((p) => !p.isBuiltInUser && !p.isBuiltInSystem && p.id !== "user-persona" && p.id !== "system-persona"),
 );
 const selectedPersona = computed(
   () =>
@@ -767,15 +767,15 @@ const { resolveAvatarUrl, ensureAvatarCached, preloadPersonaAvatars } = useAvata
 });
 const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
 const responseStyleIds = computed(() => responseStyleOptions.map((item) => item.id));
-const { visibleTurns, hasMoreTurns, chatContextUsageRatio, chatUsagePercent } = useChatTurns({
+const { visibleMessageBlocks, hasMoreMessageBlocks, chatContextUsageRatio, chatUsagePercent } = useChatMessageBlocks({
   allMessages,
-  visibleTurnCount,
+  visibleMessageBlockCount,
   activeChatApiConfig,
   perfDebug: PERF_DEBUG,
   perfNow,
 });
-const displayTurns = computed(() => chatting.value ? [] : visibleTurns.value);
-const displayHasMoreTurns = computed(() => hasMoreTurns.value);
+const displayMessageBlocks = computed(() => chatting.value ? [] : visibleMessageBlocks.value);
+const displayHasMoreMessageBlocks = computed(() => hasMoreMessageBlocks.value);
 const terminalApprovalCurrent = computed(() => terminalApprovalQueue.value[0] ?? null);
 const terminalApprovalDialogOpen = computed(() => !!terminalApprovalCurrent.value);
 const terminalApprovalDialogTitle = computed(
@@ -869,7 +869,7 @@ const chatRuntime = useChatRuntime({
   chatting,
   forcingArchive,
   allMessages,
-  visibleTurnCount,
+  visibleMessageBlockCount,
   perfNow,
   perfLog,
   perfDebug: PERF_DEBUG,
@@ -878,7 +878,7 @@ const {
   refreshConversationHistory,
   forceArchiveNow,
   loadAllMessages,
-  loadMoreTurns,
+  loadMoreMessageBlocks,
 } = chatRuntime;
 
 const {
@@ -925,7 +925,7 @@ const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal }
   refreshConversationHistory,
   loadArchives,
   resetVisibleTurnCount: () => {
-    visibleTurnCount.value = 1;
+    visibleMessageBlockCount.value = 1;
   },
   perfNow,
   perfLog,
@@ -961,7 +961,7 @@ const appBootstrap = useAppBootstrap({
     }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
-      visibleTurnCount.value = 1;
+      visibleMessageBlockCount.value = 1;
     }
   },
   onChatSettingsUpdated: async (payload) => {
@@ -979,7 +979,7 @@ const appBootstrap = useAppBootstrap({
     }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
-      visibleTurnCount.value = 1;
+      visibleMessageBlockCount.value = 1;
     }
   },
   onConfigUpdated: (payload) => {
@@ -1425,7 +1425,7 @@ const chatFlow = useChatFlow({
   toolStatusState,
   chatErrorText,
   allMessages,
-  visibleTurnCount,
+  visibleMessageBlockCount,
   t: tr,
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   removeBinaryPlaceholders,
@@ -1481,7 +1481,7 @@ async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage |
       },
     });
     await loadAllMessages();
-    visibleTurnCount.value = 1;
+    visibleMessageBlockCount.value = 1;
     return result.recalledUserMessage ?? null;
   } catch (error) {
     setStatusError("status.rewindConversationFailed", error);
@@ -1593,7 +1593,7 @@ useAppWatchers({
   refreshImageCacheStats,
   refreshConversationHistory,
   resetVisibleTurnCount: () => {
-    visibleTurnCount.value = 1;
+    visibleMessageBlockCount.value = 1;
   },
 });
 </script>

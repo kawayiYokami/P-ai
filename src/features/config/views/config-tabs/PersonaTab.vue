@@ -3,7 +3,7 @@
     <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.title") }}</span></div>
     <div class="flex gap-1">
       <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-        <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : "" }}</option>
+        <option v-for="p in personas" :key="p.id" :value="p.id">{{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : "") }}</option>
       </select>
       <button class="btn btn-sm btn-square text-primary bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
         <Plus class="h-3.5 w-3.5" />
@@ -11,7 +11,7 @@
       <button
         class="btn btn-sm btn-square text-error bg-base-100"
         :title="t('config.persona.remove')"
-        :disabled="!selectedPersona || selectedPersona.isBuiltInUser || assistantPersonas.length <= 1"
+        :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1"
         @click="$emit('removeSelectedPersona')"
       >
         <Trash2 class="h-3.5 w-3.5" />
@@ -51,12 +51,12 @@
         v-model="selectedPersona.systemPrompt"
         class="textarea textarea-bordered textarea-sm w-full"
         rows="12"
-        :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : t('config.persona.assistantPlaceholder')"
+        :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.isBuiltInSystem ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
       ></textarea>
     </label>
 
-    <div v-if="!selectedPersona.isBuiltInUser" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
-    <div v-if="!selectedPersona.isBuiltInUser" class="card bg-base-100 border border-base-300">
+    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
+    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="card bg-base-100 border border-base-300">
       <div class="card-body gap-3 p-3">
         <div class="flex items-center justify-between">
           <div class="text-sm">
@@ -92,7 +92,7 @@
         </div>
       </div>
     </div>
-    <div v-if="!selectedPersona.isBuiltInUser && privateMemoryError" class="text-sm text-error">
+    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
       {{ privateMemoryError }}
     </div>
 
@@ -284,7 +284,7 @@ async function confirmDisablePrivateMemory() {
       input: { agentId },
     });
     const persona = props.personas.find((p) => p.id === agentId);
-    if (persona && !persona.isBuiltInUser) {
+    if (persona && !persona.isBuiltInUser && !persona.isBuiltInSystem) {
       persona.privateMemoryEnabled = false;
     }
     pendingDisableAgentId.value = "";

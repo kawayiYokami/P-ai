@@ -122,6 +122,7 @@ async fn summarize_archived_conversation_with_model_v2(
         PromptBuildMode::Archive,
         source_conversation,
         agent,
+        &[],
         user_alias,
         "",
         "concise",

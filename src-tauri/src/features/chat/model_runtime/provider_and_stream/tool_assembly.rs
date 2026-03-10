@@ -27,6 +27,7 @@ async fn assemble_runtime_tools(
     let has_wait = tool_enabled(selected_api, "wait");
     let has_refresh_mcp_skills = tool_enabled(selected_api, "reload");
     let has_exec = tool_enabled(selected_api, "exec");
+    let has_task = tool_enabled(selected_api, "task");
 
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
@@ -237,6 +238,28 @@ async fn assemble_runtime_tools(
         tool_manifest.push(tool_manifest_item(
             "builtin",
             "exec",
+            false,
+            false,
+            Some("disabled in api tools config".to_string()),
+        ));
+    }
+
+    if has_task {
+        let state = app_state
+            .ok_or_else(|| "task requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTaskTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "task",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "task",
             false,
             false,
             Some("disabled in api tools config".to_string()),

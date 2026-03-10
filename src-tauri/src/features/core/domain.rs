@@ -3,6 +3,7 @@ const ARCHIVE_IDLE_SECONDS: i64 = 30 * 60;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const USER_PERSONA_ID: &str = "user-persona";
+const SYSTEM_PERSONA_ID: &str = "system-persona";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
 
@@ -280,6 +281,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             enabled: true,
             values: serde_json::json!({}),
         },
+        ApiToolConfig {
+            id: "task".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["task".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
     ]
 }
 
@@ -513,9 +521,15 @@ struct BinaryPart {
 #[serde(rename_all = "camelCase")]
 struct ChatInputPayload {
     text: Option<String>,
+    #[serde(default)]
+    display_text: Option<String>,
     images: Option<Vec<BinaryPart>>,
     audios: Option<Vec<BinaryPart>>,
     model: Option<String>,
+    #[serde(default)]
+    extra_text_blocks: Option<Vec<String>>,
+    #[serde(default)]
+    provider_meta: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,6 +538,8 @@ struct SendChatRequest {
     payload: ChatInputPayload,
     #[serde(default)]
     session: Option<SessionSelector>,
+    #[serde(default)]
+    speaker_agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -679,6 +695,8 @@ struct AgentProfile {
     #[serde(default)]
     is_built_in_user: bool,
     #[serde(default)]
+    is_built_in_system: bool,
+    #[serde(default)]
     private_memory_enabled: bool,
 }
 
@@ -819,7 +837,7 @@ impl Default for AppData {
     fn default() -> Self {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
-            agents: vec![default_agent(), default_user_persona()],
+            agents: vec![default_agent(), default_user_persona(), default_system_persona()],
             selected_agent_id: default_selected_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
@@ -900,6 +918,7 @@ struct AppState {
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     llm_round_logs: Arc<Mutex<std::collections::VecDeque<LlmRoundLogEntry>>>,
+    task_dispatch_queue: Arc<Mutex<std::collections::VecDeque<TaskDispatchQueueItem>>>,
 }
 
 impl AppState {
@@ -952,6 +971,7 @@ impl AppState {
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            task_dispatch_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
         })
     }
 }
@@ -1044,8 +1064,31 @@ fn format_local_datetime_to_seconds(dt: OffsetDateTime) -> String {
     )
 }
 
+fn format_local_datetime_to_rfc3339(dt: OffsetDateTime) -> String {
+    to_local_datetime(dt)
+        .replace_nanosecond(0)
+        .ok()
+        .and_then(|value| value.format(&Rfc3339).ok())
+        .unwrap_or_else(|| format_local_datetime_to_seconds(dt))
+}
+
 fn now_local_time_text_seconds() -> String {
     format_local_datetime_to_seconds(now_utc())
+}
+
+fn now_local_time_rfc3339() -> String {
+    format_local_datetime_to_rfc3339(now_utc())
+}
+
+fn format_message_time_rfc3339_local(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(dt) = parse_iso(trimmed) {
+        return format_local_datetime_to_rfc3339(dt);
+    }
+    trimmed.to_string()
 }
 
 fn format_message_time_text(raw: &str) -> String {
@@ -1056,12 +1099,13 @@ fn format_message_time_text(raw: &str) -> String {
     if let Some(dt) = parse_iso(trimmed) {
         let local = to_local_datetime(dt);
         return format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}",
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
             local.year(),
             local.month() as u8,
             local.day(),
             local.hour(),
-            local.minute()
+            local.minute(),
+            local.second()
         );
     }
     let mut normalized = trimmed.replace('T', " ");
@@ -1071,8 +1115,8 @@ fn format_message_time_text(raw: &str) -> String {
     if normalized.ends_with('Z') {
         normalized.pop();
     }
-    if normalized.chars().count() > 16 {
-        normalized.chars().take(16).collect::<String>()
+    if normalized.chars().count() > 19 {
+        normalized.chars().take(19).collect::<String>()
     } else {
         normalized
     }
@@ -1089,6 +1133,7 @@ fn default_agent() -> AgentProfile {
         avatar_path: None,
         avatar_updated_at: None,
         is_built_in_user: false,
+        is_built_in_system: false,
         private_memory_enabled: false,
     }
 }
@@ -1104,6 +1149,23 @@ fn default_user_persona() -> AgentProfile {
         avatar_path: None,
         avatar_updated_at: None,
         is_built_in_user: true,
+        is_built_in_system: false,
+        private_memory_enabled: false,
+    }
+}
+
+fn default_system_persona() -> AgentProfile {
+    let now = now_iso();
+    AgentProfile {
+        id: SYSTEM_PERSONA_ID.to_string(),
+        name: "凯瑟琳".to_string(),
+        system_prompt: "我是系统人格，负责代表任务中心与系统调度向当前助手传达信息。".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+        avatar_path: None,
+        avatar_updated_at: None,
+        is_built_in_user: false,
+        is_built_in_system: true,
         private_memory_enabled: false,
     }
 }
@@ -1113,11 +1175,16 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
     let old_prompt = "You are a concise and helpful assistant.";
     let mut has_assistant = false;
     let mut has_user_persona = false;
+    let mut has_system_persona = false;
     for agent in &mut data.agents {
         if agent.id == DEFAULT_AGENT_ID {
             has_assistant = true;
             if agent.is_built_in_user {
                 agent.is_built_in_user = false;
+                changed = true;
+            }
+            if agent.is_built_in_system {
+                agent.is_built_in_system = false;
                 changed = true;
             }
             if agent.name == "Default Agent" {
@@ -1134,7 +1201,17 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
                 agent.is_built_in_user = true;
                 changed = true;
             }
-        } else if !agent.is_built_in_user {
+            if agent.is_built_in_system {
+                agent.is_built_in_system = false;
+                changed = true;
+            }
+        } else if agent.id == SYSTEM_PERSONA_ID {
+            has_system_persona = true;
+            if !agent.is_built_in_system {
+                agent.is_built_in_system = true;
+                changed = true;
+            }
+        } else if !agent.is_built_in_user && !agent.is_built_in_system {
             has_assistant = true;
         }
     }
@@ -1146,11 +1223,15 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
         data.agents.push(default_user_persona());
         changed = true;
     }
+    if !has_system_persona {
+        data.agents.push(default_system_persona());
+        changed = true;
+    }
     if data.selected_agent_id.trim().is_empty()
         || !data
             .agents
             .iter()
-            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user && !a.is_built_in_system)
     {
         data.selected_agent_id = default_selected_agent_id();
         changed = true;
@@ -1182,7 +1263,7 @@ fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
                 .map(str::trim)
                 .unwrap_or("");
             if current.is_empty() {
-                message.speaker_agent_id = Some(host_agent_id.clone());
+                message.speaker_agent_id = Some(if message.role == "user" { USER_PERSONA_ID.to_string() } else { host_agent_id.clone() });
                 changed = true;
             }
         }
@@ -1210,5 +1291,6 @@ struct ConversationApiSettings {
     #[serde(default)]
     stt_auto_send: bool,
 }
+
 
 

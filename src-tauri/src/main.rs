@@ -63,6 +63,7 @@ include!("features/memory/providers.rs");
 // ==================== MCP ====================
 include!("features/mcp.rs");
 include!("features/skill.rs");
+include!("features/task.rs");
 
 include!("features/system/commands.rs");
 
@@ -159,6 +160,9 @@ fn main() {
             if let Err(err) = memory_store_open(&app_state.data_path) {
                 eprintln!("[BOOT] initialize memory store failed: {err}");
             }
+            if let Err(err) = task_store_open(&app_state.data_path) {
+                eprintln!("[BOOT] initialize task store failed: {err}");
+            }
             match memory_store_migrate_legacy_app_data_memories(&app_state.data_path) {
                 Ok(Some(report)) => {
                     eprintln!(
@@ -190,6 +194,7 @@ fn main() {
                 }
             }
             let startup_state = app_handle.state::<AppState>().inner().clone();
+            start_task_scheduler(startup_state.clone());
             tauri::async_runtime::spawn(async move {
                 match mcp_redeploy_all_from_policy(&startup_state).await {
                     Ok(errors) => {
@@ -285,6 +290,12 @@ fn main() {
             open_chat_shell_workspace_dir,
             reset_chat_shell_workspace,
             get_chat_shell_workspace,
+            task_list_tasks,
+            task_get_task,
+            task_create_task,
+            task_update_task,
+            task_complete_task,
+            task_list_run_logs,
             lock_chat_shell_workspace,
             unlock_chat_shell_workspace,
             resolve_terminal_approval

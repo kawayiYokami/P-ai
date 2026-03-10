@@ -10,6 +10,7 @@ fn show_chat_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn set_chat_window_active(active: bool) {
+    eprintln!("[系统] 聊天窗口激活状态变更，active={active}");
     set_record_hotkey_probe_chat_window_active(active);
 }
 
@@ -189,10 +190,20 @@ fn save_agents(
         .iter()
         .find(|a| a.id == USER_PERSONA_ID)
         .cloned();
+    let existing_system_persona = data
+        .agents
+        .iter()
+        .find(|a| a.id == SYSTEM_PERSONA_ID)
+        .cloned();
     data.agents = input.agents;
     if !data.agents.iter().any(|a| a.id == USER_PERSONA_ID) {
         if let Some(user_persona) = existing_user_persona {
             data.agents.push(user_persona);
+        }
+    }
+    if !data.agents.iter().any(|a| a.id == SYSTEM_PERSONA_ID) {
+        if let Some(system_persona) = existing_system_persona {
+            data.agents.push(system_persona);
         }
     }
     ensure_default_agent(&mut data);
@@ -208,14 +219,14 @@ fn save_agents(
         .collect::<std::collections::HashMap<_, _>>();
     let removed_agent_ids = previous_agents
         .iter()
-        .filter(|a| !a.is_built_in_user && a.id != USER_PERSONA_ID)
+        .filter(|a| !a.is_built_in_user && !a.is_built_in_system && a.id != USER_PERSONA_ID && a.id != SYSTEM_PERSONA_ID)
         .filter(|a| !next_ids.contains(&a.id))
         .map(|a| a.id.clone())
         .collect::<Vec<_>>();
     let disabled_private_memory_agent_ids = data
         .agents
         .iter()
-        .filter(|a| !a.is_built_in_user && a.id != USER_PERSONA_ID)
+        .filter(|a| !a.is_built_in_user && !a.is_built_in_system && a.id != USER_PERSONA_ID && a.id != SYSTEM_PERSONA_ID)
         .filter(|a| {
             previous_by_id
                 .get(&a.id)

@@ -50,11 +50,10 @@ fn is_retryable_model_error(error: &str) -> bool {
     normalized.contains("429") || normalized.contains("too many requests")
 }
 
-#[tauri::command]
-async fn send_chat_message(
+async fn send_chat_message_inner(
     input: SendChatRequest,
-    state: State<'_, AppState>,
-    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+    state: &AppState,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
     let requested_api_id = input
         .session
@@ -130,7 +129,7 @@ async fn send_chat_message(
             previous.abort();
         }
     }
-    let _ = abort_inflight_tool_abort_handle(state.inner(), &chat_key);
+    let _ = abort_inflight_tool_abort_handle(state, &chat_key);
 
     let chat_session_key = chat_key.clone();
     let state_for_run = state.clone();
@@ -382,11 +381,21 @@ async fn send_chat_message(
 
         let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id);
 
-        // 聊天记录保留用户原始多模态内容；模型请求使用 effective_payload（可能已做图转文）。
+        // 聊天记录保留用户可见内容；模型请求使用 effective_payload（可能已做图转文）。
         let mut storage_api = selected_api.clone();
         storage_api.enable_image = true;
         storage_api.enable_audio = true;
-        let mut user_parts = build_user_parts(&input.payload, &storage_api)?;
+        let mut storage_payload = input.payload.clone();
+        if let Some(display_text) = input
+            .payload
+            .display_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            storage_payload.text = Some(display_text.to_string());
+        }
+        let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
         externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
         let conversation_before = data.conversations[idx].clone();
         let recall_query_text = memory_recall_query_text(&conversation_before, &effective_user_text);
@@ -420,7 +429,7 @@ async fn send_chat_message(
             .find(|c| c.agent_id == effective_agent_id && !c.summary.trim().is_empty())
             .map(|c| c.summary.clone());
 
-        let mut extra_text_blocks = Vec::<String>::new();
+        let mut extra_text_blocks = input.payload.extra_text_blocks.clone().unwrap_or_default();
         if let Some(xml) = &memory_board_xml {
             extra_text_blocks.push(xml.clone());
         }
@@ -431,10 +440,10 @@ async fn send_chat_message(
             id: Uuid::new_v4().to_string(),
             role: "user".to_string(),
             created_at: now.clone(),
-            speaker_agent_id: Some(effective_agent_id.clone()),
+            speaker_agent_id: Some(input.speaker_agent_id.clone().unwrap_or_else(|| USER_PERSONA_ID.to_string())),
             parts: user_parts,
             extra_text_blocks,
-            provider_meta: None,
+            provider_meta: input.payload.provider_meta.clone(),
             tool_call: None,
             mcp_call: None,
         };
@@ -448,8 +457,27 @@ async fn send_chat_message(
         let conversation = data.conversations[idx].clone();
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
+        let latest_user_prompt_text = conversation
+            .messages
+            .last()
+            .map(|message| {
+                let speaker_block = build_prompt_speaker_block(
+                    message,
+                    &data.agents,
+                    &user_name,
+                    &app_config.ui_language,
+                );
+                if speaker_block.trim().is_empty() {
+                    latest_user_text.clone()
+                } else if latest_user_text.trim().is_empty() {
+                    speaker_block
+                } else {
+                    format!("{}\n{}", speaker_block, latest_user_text)
+                }
+            })
+            .unwrap_or_else(|| latest_user_text.clone());
         let mut chat_overrides = ChatPromptOverrides::default();
-        chat_overrides.latest_user_text = Some(latest_user_text.clone());
+        chat_overrides.latest_user_text = Some(latest_user_prompt_text);
         chat_overrides.latest_user_time_iso = Some(now.clone());
         chat_overrides
             .latest_user_system_blocks
@@ -457,12 +485,16 @@ async fn send_chat_message(
         if let Some(xml) = &memory_board_xml {
             chat_overrides.latest_user_system_blocks.push(xml.clone());
         }
+        if let Some(task_board) = build_hidden_task_board_block(&state) {
+            chat_overrides.latest_user_system_blocks.push(task_board);
+        }
         chat_overrides.latest_images = effective_images.clone();
         chat_overrides.latest_audios = effective_audios.clone();
         let prepared = build_prepared_prompt_for_mode(
             PromptBuildMode::Chat,
             &conversation,
             &agent,
+            &data.agents,
             &user_name,
             &user_intro,
             &data.response_style_id,
@@ -503,7 +535,7 @@ async fn send_chat_message(
             &model_name,
             prepared_prompt.clone(),
             Some(&state),
-            &on_delta,
+            on_delta,
             app_config.tool_max_iterations as usize,
             &chat_session_key,
         )
@@ -636,13 +668,12 @@ async fn send_chat_message(
             .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
         inflight.remove(&chat_key);
     }
-    if let Err(err) = clear_inflight_tool_abort_handle(state.inner(), &chat_key) {
+    if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
         eprintln!(
             "[WARN][CHAT] clear inflight tool abort handle failed (session={}): {}",
             chat_key, err
         );
     }
-
     match result {
         Ok(inner) => inner,
         Err(_) => {
@@ -653,6 +684,15 @@ async fn send_chat_message(
             Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
         }
     }
+}
+
+#[tauri::command]
+async fn send_chat_message(
+    input: SendChatRequest,
+    state: State<'_, AppState>,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<SendChatResult, String> {
+    send_chat_message_inner(input, state.inner(), &on_delta).await
 }
 
 #[tauri::command]
@@ -1343,6 +1383,7 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
         latest_updated_at: None,
     })
 }
+
 
 
 

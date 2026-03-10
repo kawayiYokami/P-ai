@@ -713,15 +713,18 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         .send()
         .await;
-    let Ok(resp) = resp else {
+    let resp = match resp {
+        Ok(resp) => resp,
+        Err(err) => {
         return Ok(serde_json::json!({
           "ok": false,
           "url": normalized_url,
           "status": Value::Null,
           "error": "request_failed",
-          "message": format!("Fetch url failed: {}", resp.err().unwrap()),
+          "message": format!("Fetch url failed: {}", err),
           "content": ""
         }));
+        }
     };
     let status = resp.status();
     let html = resp
@@ -760,94 +763,94 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
     }))
 }
 
+// ========== bing search ==========
+
+fn contains_cjk(text: &str) -> bool {
+    text.chars().any(|ch| {
+        ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+            || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+            || ('\u{3040}'..='\u{30FF}').contains(&ch)
+            || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
+    })
+}
+
+fn decode_b64_relaxed(input: &str) -> Option<String> {
+    let mut candidates = Vec::new();
+    candidates.push(input.trim().to_string());
+    candidates.push(input.trim().replace('-', "+").replace('_', "/"));
+    for mut candidate in candidates {
+        let rem = candidate.len() % 4;
+        if rem != 0 {
+            candidate.push_str(&"=".repeat(4 - rem));
+        }
+        if let Ok(bytes) = B64.decode(candidate.as_bytes()) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                let trimmed = text.trim().to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn normalize_bing_result_url(raw: &str) -> String {
+    let input = raw.trim();
+    if input.is_empty() {
+        return String::new();
+    }
+    let Ok(parsed) = reqwest::Url::parse(input) else {
+        return input.to_string();
+    };
+    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+    let path = parsed.path().to_ascii_lowercase();
+    if !host.ends_with("bing.com") || !path.starts_with("/ck/") {
+        return input.to_string();
+    }
+
+    for (k, v) in parsed.query_pairs() {
+        let key = k.as_ref();
+        let value = v.as_ref().trim();
+        if value.is_empty() {
+            continue;
+        }
+        if key == "url" && (value.starts_with("http://") || value.starts_with("https://")) {
+            return value.to_string();
+        }
+        if key == "u" {
+            let decoded_url = urlencoding::decode(value)
+                .map(|x| x.into_owned())
+                .unwrap_or_else(|_| value.to_string());
+            if decoded_url.starts_with("http://") || decoded_url.starts_with("https://") {
+                return decoded_url;
+            }
+            let b64_payload = decoded_url.strip_prefix("a1").unwrap_or(decoded_url.as_str());
+            if let Some(text) = decode_b64_relaxed(b64_payload) {
+                if text.starts_with("http://") || text.starts_with("https://") {
+                    return text;
+                }
+            }
+        }
+    }
+    input.to_string()
+}
+
+fn canonical_url_key(raw: &str) -> String {
+    let normalized = normalize_bing_result_url(raw);
+    if normalized.is_empty() {
+        return String::new();
+    }
+    let mut key = normalized.trim().trim_end_matches('/').to_ascii_lowercase();
+    if let Some(stripped) = key.strip_prefix("https://") {
+        key = stripped.to_string();
+    } else if let Some(stripped) = key.strip_prefix("http://") {
+        key = stripped.to_string();
+    }
+    key
+}
+
 async fn builtin_bing_search(query: &str) -> Result<Value, String> {
-    fn contains_cjk(text: &str) -> bool {
-        text.chars().any(|ch| {
-            ('\u{4E00}'..='\u{9FFF}').contains(&ch)
-                || ('\u{3400}'..='\u{4DBF}').contains(&ch)
-                || ('\u{3040}'..='\u{30FF}').contains(&ch)
-                || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
-        })
-    }
-    fn decode_b64_relaxed(input: &str) -> Option<String> {
-        let mut candidates = Vec::new();
-        candidates.push(input.trim().to_string());
-        candidates.push(input.trim().replace('-', "+").replace('_', "/"));
-        for mut candidate in candidates {
-            let rem = candidate.len() % 4;
-            if rem != 0 {
-                candidate.push_str(&"=".repeat(4 - rem));
-            }
-            if let Ok(bytes) = B64.decode(candidate.as_bytes()) {
-                if let Ok(text) = String::from_utf8(bytes) {
-                    let trimmed = text.trim().to_string();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn normalize_bing_result_url(raw: &str) -> String {
-        let input = raw.trim();
-        if input.is_empty() {
-            return String::new();
-        }
-        let Ok(parsed) = reqwest::Url::parse(input) else {
-            return input.to_string();
-        };
-        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let path = parsed.path().to_ascii_lowercase();
-        if !host.ends_with("bing.com") || !path.starts_with("/ck/") {
-            return input.to_string();
-        }
-
-        for (k, v) in parsed.query_pairs() {
-            let key = k.as_ref();
-            let value = v.as_ref().trim();
-            if value.is_empty() {
-                continue;
-            }
-            if key == "url" {
-                if value.starts_with("http://") || value.starts_with("https://") {
-                    return value.to_string();
-                }
-            }
-            if key == "u" {
-                let decoded_url = urlencoding::decode(value)
-                    .map(|x| x.into_owned())
-                    .unwrap_or_else(|_| value.to_string());
-                if decoded_url.starts_with("http://") || decoded_url.starts_with("https://") {
-                    return decoded_url;
-                }
-                // Bing often stores target as base64 with an `a1` prefix.
-                let b64_payload = decoded_url.strip_prefix("a1").unwrap_or(decoded_url.as_str());
-                if let Some(text) = decode_b64_relaxed(b64_payload) {
-                    if text.starts_with("http://") || text.starts_with("https://") {
-                        return text;
-                    }
-                }
-            }
-        }
-        input.to_string()
-    }
-
-    fn canonical_url_key(raw: &str) -> String {
-        let normalized = normalize_bing_result_url(raw);
-        if normalized.is_empty() {
-            return String::new();
-        }
-        let mut key = normalized.trim().trim_end_matches('/').to_ascii_lowercase();
-        if let Some(stripped) = key.strip_prefix("https://") {
-            key = stripped.to_string();
-        } else if let Some(stripped) = key.strip_prefix("http://") {
-            key = stripped.to_string();
-        }
-        key
-    }
-
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
         .build()
@@ -876,7 +879,7 @@ async fn builtin_bing_search(query: &str) -> Result<Value, String> {
         let url = format!("{base}/search?q={}", urlencoding::encode(raw_query));
         last_request_url = Some(url.clone());
         eprintln!(
-            "[TOOL-DEBUG] websearch request_url query={} url={}",
+            "[工具调试] websearch 请求地址，query={}，url={}",
             raw_query, url
         );
         let resp = client
@@ -1239,6 +1242,90 @@ struct TerminalExecToolArgs {
     timeout_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TaskToolArgsWire {
+    action: String,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    cause: Option<String>,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    flow: Option<String>,
+    #[serde(default)]
+    todos: Option<Vec<String>>,
+    #[serde(default)]
+    status_summary: Option<String>,
+    #[serde(default)]
+    stage_key: Option<String>,
+    #[serde(default)]
+    append_note: Option<String>,
+    #[serde(default)]
+    completion_state: Option<String>,
+    #[serde(default)]
+    completion_conclusion: Option<String>,
+    #[serde(default)]
+    trigger: Option<TaskTriggerInput>,
+}
+
+fn builtin_task(app_state: &AppState, args: TaskToolArgsWire) -> Result<Value, String> {
+    match args.action.trim() {
+        "list" => serde_json::to_value(task_store_list_tasks(&app_state.data_path)?)
+            .map_err(|err| format!("Serialize task list failed: {err}")),
+        "get" => {
+            let task_id = args.task_id.as_deref().map(str::trim).unwrap_or("");
+            if task_id.is_empty() {
+                return Err("task.taskId is required for action=get".to_string());
+            }
+            serde_json::to_value(task_store_get_task(&app_state.data_path, task_id)?)
+                .map_err(|err| format!("Serialize task get failed: {err}"))
+        }
+        "create" => serde_json::to_value(task_store_create_task(&app_state.data_path, &TaskCreateInput {
+            title: args.title.unwrap_or_default(),
+            cause: args.cause.unwrap_or_default(),
+            goal: args.goal.unwrap_or_default(),
+            flow: args.flow.unwrap_or_default(),
+            todos: args.todos.unwrap_or_default(),
+            status_summary: args.status_summary.unwrap_or_default(),
+            trigger: args.trigger.ok_or_else(|| "task.trigger is required for action=create".to_string())?,
+        })?)
+        .map_err(|err| format!("Serialize task create failed: {err}")),
+        "update" => {
+            let task_id = args.task_id.ok_or_else(|| "task.taskId is required for action=update".to_string())?;
+            serde_json::to_value(task_store_update_task(&app_state.data_path, &TaskUpdateInput {
+                task_id,
+                title: args.title,
+                cause: args.cause,
+                goal: args.goal,
+                flow: args.flow,
+                todos: args.todos,
+                status_summary: args.status_summary,
+                stage_key: args.stage_key,
+                append_note: args.append_note,
+                trigger: args.trigger,
+            })?)
+            .map_err(|err| format!("Serialize task update failed: {err}"))
+        }
+        "complete" => {
+            let task_id = args.task_id.ok_or_else(|| "task.taskId is required for action=complete".to_string())?;
+            let completion_state = args
+                .completion_state
+                .ok_or_else(|| "task.completionState is required for action=complete".to_string())?;
+            serde_json::to_value(task_store_complete_task(&app_state.data_path, &TaskCompleteInput {
+                task_id,
+                completion_state,
+                completion_conclusion: args.completion_conclusion.unwrap_or_default(),
+                status_summary: args.status_summary.unwrap_or_default(),
+                append_note: args.append_note,
+            })?)
+            .map_err(|err| format!("Serialize task complete failed: {err}"))
+        }
+        _ => Err("task.action must be one of: list, get, create, update, complete".to_string()),
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct BuiltinFetchTool;
@@ -1567,3 +1654,65 @@ impl Tool for BuiltinTerminalExecTool {
 }
 
 
+
+
+#[derive(Debug, Clone)]
+struct BuiltinTaskTool {
+    app_state: AppState,
+}
+
+impl Tool for BuiltinTaskTool {
+    const NAME: &'static str = "task";
+    type Error = ToolInvokeError;
+    type Args = TaskToolArgsWire;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "task".to_string(),
+            description: "Manage the persistent task board. Use action=list|get|create|update|complete. Trigger rules: if trigger.run_at is omitted, the task becomes active immediately; if trigger.run_at is set, it runs once at that local time; if trigger.every_minutes is also set, it repeats every N minutes starting from trigger.run_at and must also include trigger.end_at as the stop time. When writing trigger.run_at or trigger.end_at, copy the local RFC3339 time format shown in the hidden task/current-time hints, including timezone offset and second precision; do not use milliseconds.".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "action": { "type": "string", "enum": ["list", "get", "create", "update", "complete"] },
+                "task_id": { "type": "string" },
+                "title": { "type": "string" },
+                "cause": { "type": "string" },
+                "goal": { "type": "string" },
+                "flow": { "type": "string" },
+                "todos": { "type": "array", "items": { "type": "string" } },
+                "status_summary": { "type": "string" },
+                "stage_key": { "type": "string" },
+                "append_note": { "type": "string" },
+                "completion_state": { "type": "string", "enum": ["completed", "failed_completed"] },
+                "completion_conclusion": { "type": "string" },
+                "trigger": {
+                  "type": "object",
+                  "properties": {
+                    "run_at": { "type": "string", "description": "Optional. Copy the same local RFC3339 format shown in the task/current-time hints, for example 2026-03-10T09:30:00+08:00. Include timezone offset, keep second precision, and do not include milliseconds. If omitted, the task becomes active immediately." },
+                    "every_minutes": { "type": "integer", "minimum": 1, "description": "Optional. If set, repeat every N minutes starting from trigger.run_at. Requires trigger.run_at and trigger.end_at." },
+                    "end_at": { "type": "string", "description": "Optional unless trigger.every_minutes is set. Defines when a repeating task stops. Must be later than trigger.run_at. Use the same local RFC3339 format shown in the task/current-time hints." }
+                  }
+                }
+              },
+              "required": ["action"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=task args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        );
+        let result = builtin_task(&self.app_state, args).map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=task result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=task err={err}"),
+        }
+        result
+    }
+}

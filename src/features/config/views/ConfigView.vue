@@ -27,6 +27,9 @@
           <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
         </li>
         <li>
+          <a :class="{ 'active': props.configTab === 'task', 'menu-active': props.configTab === 'task', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('task')">{{ t("config.tabs.task") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': props.configTab === 'logs', 'menu-active': props.configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">{{ t("config.tabs.logs") }}</a>
         </li>
         <li>
@@ -134,6 +137,10 @@
           @sync-lock-change="onMemorySyncLockChange"
         />
 
+        <TaskTab
+          v-else-if="props.configTab === 'task'"
+        />
+
         <LogTab
           v-else-if="props.configTab === 'logs'"
         />
@@ -226,11 +233,12 @@ import SkillTab from "./config-tabs/SkillTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
+import TaskTab from "./config-tabs/TaskTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about";
+type ConfigTab = "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{

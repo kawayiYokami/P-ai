@@ -78,6 +78,7 @@ mod archive_host_selection_tests {
             avatar_path: None,
             avatar_updated_at: None,
             is_built_in_user: false,
+            is_built_in_system: false,
             private_memory_enabled,
         }
     }

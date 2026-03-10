@@ -22,6 +22,7 @@
       "persona": "Persona",
       "chatSettings": "Chat",
       "memory": "Memory",
+      "task": "Task",
       "logs": "Logs",
       "appearance": "Appearance",
       "about": "About"
@@ -123,6 +124,7 @@
       "descTerminalExec": "Run one stateless terminal command in controlled workspace.",
       "descTerminalPathAccess": "Set terminal root directory for current session (outside root is blocked).",
       "descReload": "Reload MCP and skill from workspace.",
+      "descTask": "Manage the persistent task board: create, update, complete, and inspect tasks.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
       "openDir": "Open Directory",
@@ -144,6 +146,7 @@
     "persona": {
       "title": "Persona",
       "userTag": "User",
+      "systemTag": "System",
       "add": "Add Persona",
       "remove": "Remove Persona",
       "name": "Persona Name",
@@ -151,6 +154,7 @@
       "editAvatar": "Edit Avatar",
       "prompt": "Persona Prompt",
       "userPlaceholder": "I am...",
+      "systemPlaceholder": "I am the task/system coordinator persona used to display system messages.",
       "assistantPlaceholder": "You are...",
       "uploadAvatar": "Upload Avatar",
       "clearAvatar": "Clear Avatar",
@@ -199,6 +203,56 @@
       "cacheEntries": "Entries: {entries} | Chars: {chars}",
       "cacheUpdatedAt": "Updated at: {value}",
       "cacheHint": "Cache is namespaced by vision API config. Switching vision API uses its own cache namespace."
+    },
+    "task": {
+      "title": "Task Board",
+      "subtitle": "Inspect the tracked task and maintain long-running tasks.",
+      "refresh": "Refresh",
+      "currentTracked": "Tracked Task",
+      "trackedShort": "Tracked",
+      "empty": "No tasks yet.",
+      "noStatus": "No status summary",
+      "detail": "Task Detail",
+      "readonlyHint": "Task detail is read-only, please use Task tool in chat to update.",
+      "createTask": "Create Task",
+      "newTask": "New",
+      "createAction": "Create",
+      "saveUpdate": "Save Update",
+      "selectHint": "Select a task on the left, or create a new one.",
+      "completeTitle": "Complete Task",
+      "completeAction": "Complete",
+      "reloadDetail": "Reload Detail",
+      "created": "Task created.",
+      "updated": "Task updated.",
+      "completed": "Task completed.",
+      "notes": "Progress Notes",
+      "runLogs": "Run Logs",
+      "noLogs": "No trigger logs yet.",
+      "todosPlaceholder": "One todo per line",
+      "filters": {
+        "active": "Active",
+        "tracked": "Tracked",
+        "completed": "Completed",
+        "all": "All"
+      },
+      "fields": {
+        "title": "Title",
+        "triggerKind": "Trigger",
+        "runAt": "Start Time",
+        "everyMinutes": "Every Minutes",
+        "statusSummary": "Status Summary",
+        "goal": "Goal",
+        "cause": "Cause",
+        "flow": "Flow",
+        "todos": "To-do",
+        "stageKey": "Stage Key",
+        "appendNote": "Append Note",
+        "completionConclusion": "Completion Conclusion",
+        "completionState": "Completion State",
+        "nextRunAt": "Next Run",
+        "updatedAt": "Updated At",
+        "endAt": "End Time"
+      }
     },
     "memory": {
       "syncing": "Embedding sync in progress",
@@ -319,7 +373,13 @@
     "alwaysOnTopOn": "Always on top",
     "archiving": "Archiving to optimize context...",
     "archivingLock": "Input is temporarily locked",
-    "currentHistoryTitle": "Current Session History (Unarchived)"
+    "currentHistoryTitle": "Current Session History (Unarchived)",
+    "taskTrigger": {
+      "badge": "Task Trigger",
+      "kindImmediate": "Immediate",
+      "kindEvery": "Recurring",
+      "kindAt": "Scheduled"
+    }
   },
   "memory": {
     "title": "Memories",

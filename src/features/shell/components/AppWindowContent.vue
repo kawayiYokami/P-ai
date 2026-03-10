@@ -104,8 +104,8 @@
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
         :frozen="forcingArchive"
-        :turns="visibleTurns"
-        :has-more-turns="hasMoreTurns"
+        :message-blocks="visibleMessageBlocks"
+        :has-more-message-blocks="hasMoreMessageBlocks"
         :current-workspace-name="currentChatWorkspaceName"
         :workspace-locked="chatWorkspaceLocked"
         @update:chat-input="updateChatInput"
@@ -114,7 +114,7 @@
         @stop-recording="stopRecording"
         @send-chat="sendChat"
         @stop-chat="stopChat"
-        @load-more-turns="loadMoreTurns"
+        @load-more-message-blocks="loadMoreMessageBlocks"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
         @lock-workspace="onLockChatWorkspace"
@@ -215,7 +215,7 @@ import type {
   AppConfig,
   ArchiveSummary,
   ChatMessage,
-  ChatTurn,
+  ChatMessageBlock,
   ImageTextCacheStats,
   PersonaProfile,
   ResponseStyleOption,
@@ -236,7 +236,7 @@ const props = defineProps<{
   t: (key: string, params?: Record<string, unknown>) => string;
   viewMode: "chat" | "archives" | "config";
   config: AppConfig;
-  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about";
+  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;
@@ -295,8 +295,8 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
-  visibleTurns: ChatTurn[];
-  hasMoreTurns: boolean;
+  visibleMessageBlocks: ChatMessageBlock[];
+  hasMoreMessageBlocks: boolean;
   currentChatWorkspaceName: string;
   chatWorkspaceLocked: boolean;
   archives: ArchiveSummary[];
@@ -322,7 +322,7 @@ const props = defineProps<{
   setHistoryDialogRef: (el: Element | null) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
-  updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;
@@ -355,7 +355,7 @@ const props = defineProps<{
   stopRecording: () => void;
   sendChat: () => void;
   stopChat: () => void;
-  loadMoreTurns: () => void;
+  loadMoreMessageBlocks: () => void;
   onRecallTurn: (payload: { turnId: string }) => void;
   onRegenerateTurn: (payload: { turnId: string }) => void;
   onLockChatWorkspace: () => void;

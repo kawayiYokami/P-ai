@@ -58,6 +58,11 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
         "workspace-guide",
         include_str!("../../../resources/preset-skills/workspace-guide/SKILL.md"),
     )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "task-guide",
+        include_str!("../../../resources/preset-skills/task-guide/SKILL.md"),
+    )?;
 
     Ok(())
 }

@@ -24,7 +24,7 @@ type UseChatRuntimeOptions = {
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
-  visibleTurnCount: Ref<number>;
+  visibleMessageBlockCount: Ref<number>;
   perfNow: () => number;
   perfLog: (label: string, startedAt: number) => void;
   perfDebug: boolean;
@@ -76,7 +76,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setChatError(result.summary);
       }
       await loadAllMessages();
-      options.visibleTurnCount.value = 1;
+      options.visibleMessageBlockCount.value = 1;
     } catch (e) {
       const errText = String(e ?? "");
       if (errText.includes("活动对话已变化")) {
@@ -115,14 +115,14 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     await loadAllMessages();
   }
 
-  function loadMoreTurns() {
-    options.visibleTurnCount.value++;
+  function loadMoreMessageBlocks() {
+    options.visibleMessageBlockCount.value++;
   }
 
   return {
     refreshConversationHistory,
     forceArchiveNow,
     loadAllMessages,
-    loadMoreTurns,
+    loadMoreMessageBlocks,
   };
 }

@@ -66,6 +66,7 @@ fn get_prompt_preview(
         PromptBuildMode::Chat,
         &conversation,
         &agent,
+        &data.agents,
         &user_name,
         &user_intro,
         &data.response_style_id,

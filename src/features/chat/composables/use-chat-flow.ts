@@ -25,7 +25,7 @@ type UseChatFlowOptions = {
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
   chatErrorText: Ref<string>;
   allMessages: Ref<ChatMessage[]>;
-  visibleTurnCount: Ref<number>;
+  visibleMessageBlockCount: Ref<number>;
   t: (key: string, params?: Record<string, unknown>) => string;
   formatRequestFailed: (error: unknown) => string;
   removeBinaryPlaceholders: (text: string) => string;
@@ -150,7 +150,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatInput.value = "";
     options.clipboardImages.value = [];
 
-    options.visibleTurnCount.value = 1;
+    options.visibleMessageBlockCount.value = 1;
 
     const gen = ++chatGeneration;
     clearStreamBuffer();
@@ -273,7 +273,19 @@ export function useChatFlow(options: UseChatFlowOptions) {
           partialReasoningInline,
         });
       } catch (error) {
-        console.warn("[CHAT] stop_chat_message failed:", error);
+        const errorText =
+          error instanceof Error
+            ? `${error.message}\n${error.stack || ""}`.trim()
+            : (() => {
+                try {
+                  return JSON.stringify(error);
+                } catch {
+                  return String(error);
+                }
+              })();
+        console.warn(
+          `[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，latestAssistantTextLength=${partialAssistantText.length}，错误=${errorText}`
+        );
       }
     }
     if (gen !== chatGeneration) return;

@@ -17,6 +17,7 @@ fn build_prepared_prompt_for_mode(
     mode: PromptBuildMode,
     conversation: &Conversation,
     agent: &AgentProfile,
+    agents: &[AgentProfile],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -31,6 +32,7 @@ fn build_prepared_prompt_for_mode(
             let mut prepared = build_prompt(
                 conversation,
                 agent,
+                agents,
                 user_name,
                 user_intro,
                 response_style_id,
@@ -217,7 +219,7 @@ fn apply_chat_latest_user_payload(
     latest_audios: Vec<(String, String)>,
 ) {
     prepared.latest_user_text = latest_user_text;
-    prepared.latest_user_time_text = format_message_time_text(latest_user_time_iso);
+    prepared.latest_user_time_text = format_message_time_rfc3339_local(latest_user_time_iso);
     prepared.latest_user_system_text = latest_user_system_blocks.join("\n\n");
     prepared.latest_images = latest_images;
     prepared.latest_audios = latest_audios;

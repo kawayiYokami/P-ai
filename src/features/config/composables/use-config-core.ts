@@ -50,6 +50,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enabled: true,
       values: {},
     },
+    { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
   ] as const;
   function normalizeUiFont(value: unknown): string {
     const text = String(value || "").trim();

@@ -242,6 +242,7 @@ function toolDescription(id: string): string {
   if (id === "exec") return t("config.tools.descTerminalExec");
   
   if (id === "reload") return t("config.tools.descReload");
+  if (id === "task") return t("config.tools.descTask");
   return t("config.tools.descGeneric");
 }
 

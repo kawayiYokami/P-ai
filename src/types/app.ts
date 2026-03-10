@@ -163,6 +163,7 @@ export type PersonaProfile = {
   avatarPath?: string;
   avatarUpdatedAt?: string;
   isBuiltInUser?: boolean;
+  isBuiltInSystem?: boolean;
 };
 
 export type MessagePart =
@@ -186,6 +187,20 @@ export type ToolCallMessage = {
   tool_calls?: ToolCallItem[];
 };
 
+export type TaskTriggerMessageCard = {
+  taskId?: string;
+  title: string;
+  cause?: string;
+  goal?: string;
+  flow?: string;
+  statusSummary?: string;
+  todos: string[];
+  runAt?: string;
+  endAt?: string;
+  nextRunAt?: string;
+  everyMinutes?: number;
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
@@ -196,6 +211,9 @@ export type ChatMessage = {
   providerMeta?: {
     reasoningStandard?: string;
     reasoningInline?: string;
+    messageKind?: string;
+    hiddenPromptText?: string;
+    taskTrigger?: TaskTriggerMessageCard;
     [key: string]: unknown;
   };
   toolCall?: ToolCallMessage[];
@@ -208,17 +226,21 @@ export type ChatSnapshot = {
   activeMessageCount: number;
 };
 
-export type ChatTurn = {
+export type ChatMessageBlock = {
   id: string;
-  assistantAgentId?: string;
-  userText: string;
-  userImages: Array<{ mime: string; bytesBase64: string }>;
-  userAudios: Array<{ mime: string; bytesBase64: string }>;
-  assistantText: string;
-  assistantReasoningStandard: string;
-  assistantReasoningInline: string;
-  assistantToolCallCount: number;
-  assistantLastToolName: string;
+  primaryAgentId?: string;
+  replyAgentId?: string;
+  primaryCreatedAt?: string;
+  replyCreatedAt?: string;
+  primaryText: string;
+  primaryImages: Array<{ mime: string; bytesBase64: string }>;
+  primaryAudios: Array<{ mime: string; bytesBase64: string }>;
+  primaryTaskTrigger?: TaskTriggerMessageCard;
+  replyText: string;
+  replyReasoningStandard: string;
+  replyReasoningInline: string;
+  replyToolCallCount: number;
+  replyLastToolName: string;
 };
 
 export type ArchiveSummary = {
@@ -257,3 +279,4 @@ export type ImageTextCacheStats = {
   totalChars: number;
   latestUpdatedAt?: string;
 };
+
