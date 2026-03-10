@@ -24,8 +24,14 @@ env:
 
 jobs:
   build:
-    name: Build (ubuntu-24.04)
-    runs-on: ubuntu-24.04
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-latest
 
     steps:
       - name: Checkout
@@ -43,6 +49,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -91,7 +98,7 @@ jobs:
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bundle-ubuntu-24.04
+          name: bundle-${{ matrix.os }}
           path: |
             src-tauri/target/release/bundle/**
           if-no-files-found: error
@@ -145,3 +152,5 @@ jobs:
             release-assets/**/bundle/**/*.deb
             release-assets/**/bundle/**/*.rpm
             release-assets/**/bundle/**/*.AppImage
+            release-assets/**/bundle/**/*.msi
+            release-assets/**/bundle/**/*.exe
