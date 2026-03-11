@@ -72,7 +72,7 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
     Ok(())
 }
 
-fn parse_skill_frontmatter_fields(skill_md_path: &PathBuf) -> Result<(String, String), String> {
+fn parse_skill_file(skill_md_path: &PathBuf) -> Result<(String, String, String), String> {
     let content = fs::read_to_string(skill_md_path)
         .map_err(|err| format!("Read SKILL.md failed ({}): {err}", skill_md_path.display()))?;
     let mut lines = content.lines();
@@ -119,7 +119,12 @@ fn parse_skill_frontmatter_fields(skill_md_path: &PathBuf) -> Result<(String, St
             .unwrap_or("skill")
             .to_string();
     }
-    Ok((name, description))
+    let body = if let Some((_, rest)) = content.split_once("\n---") {
+        rest.trim_start_matches(['\r', '\n']).trim().to_string()
+    } else {
+        String::new()
+    };
+    Ok((name, description, body))
 }
 
 pub(crate) fn load_workspace_skill_summaries_with_errors(
@@ -144,11 +149,12 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
             });
             continue;
         }
-        match parse_skill_frontmatter_fields(&skill_md) {
-            Ok((name, description)) => {
+        match parse_skill_file(&skill_md) {
+            Ok((name, description, content)) => {
                 skills.push(SkillSummaryItem {
                     name,
                     description,
+                    content,
                     path: dir.to_string_lossy().to_string(),
                 });
             }

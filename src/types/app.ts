@@ -125,6 +125,7 @@ export type McpListServerToolsResult = {
 export type SkillSummaryItem = {
   name: string;
   description: string;
+  content: string;
   path: string;
 };
 

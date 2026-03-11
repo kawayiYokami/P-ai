@@ -12,6 +12,7 @@ pub struct WorkspaceLoadError {
 pub struct SkillSummaryItem {
     pub name: String,
     pub description: String,
+    pub content: String,
     pub path: String,
 }
 
