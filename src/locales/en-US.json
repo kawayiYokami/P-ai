@@ -103,6 +103,7 @@
       "subtitle": "These cards check whether your key settings are ready. Finish the required items first, then the recommended ones.",
       "askLlmHint": "If you are unsure how to configure something, just send a screenshot to the LLM and ask it to guide you step by step.",
       "requiredBadge": "Required",
+      "stronglyRecommendedBadge": "Strongly Recommended",
       "recommendedBadge": "Recommended",
       "statusOk": "Ready",
       "statusMissing": "Missing",
@@ -149,9 +150,50 @@
           "summary": "If you want stronger memory, retrieval, and recall, you should prepare an embedding model.",
           "currentOk": "An embedding model was found: {name}",
           "currentMissing": "No embedding model was detected yet.",
-          "howToOk": "Later you can still add rerank or related retrieval abilities for even more stable results.",
-          "howToMissing": "Go to LLM and add an embedding config so memory and retrieval features can work more completely.",
           "action": "Open Embedding Setup"
+        },
+        "rerank": {
+          "title": "Rerank Model",
+          "summary": "This helps the AI pick the most relevant items from a lot of information. It is a strong quality upgrade for search and memory, so it is strongly recommended.",
+          "currentOk": "A rerank model was found: {name}",
+          "currentMissing": "No rerank model was detected yet.",
+          "action": "Open Rerank Setup"
+        },
+        "memory": {
+          "title": "Memory",
+          "summary": "Memory helps the AI remember important things more reliably. After you prepare embedding and rerank, it is a good idea to finish the setup here.",
+          "currentOk": "Memory is ready to use.",
+          "currentMissingModel": "You have not prepared memory models yet. That is fine for now if you do not need memory yet.",
+          "currentMissingBinding": "You already have embedding or rerank models, but memory has not been fully turned on in the Memory page yet.",
+          "action": "Open Memory"
+        },
+        "persona": {
+          "title": "Persona",
+          "summary": "Personas are different helper styles. You can make one for writing, one for execution, or one just for casual chatting.",
+          "currentOk": "{count} usable personas are ready.",
+          "currentMissing": "You do not have extra personas yet. The default assistant is enough to get started.",
+          "action": "Open Persona"
+        },
+        "department": {
+          "title": "Department",
+          "summary": "Departments are work groups. Later you can split collection, planning, and execution into different departments.",
+          "currentOk": "{count} extra departments are ready.",
+          "currentMissing": "You do not have extra departments yet. Using only the primary department is totally fine.",
+          "action": "Open Departments"
+        },
+        "skill": {
+          "title": "Skill",
+          "summary": "Skills are small how-to guides for the AI. If you are new, you can leave this empty for now and add them later.",
+          "currentOk": "{count} skills were detected.",
+          "currentMissing": "No skills were detected yet. That is okay for now.",
+          "action": "Open Skill"
+        },
+        "mcp": {
+          "title": "MCP",
+          "summary": "MCP connects extra outside tools or services to the AI. Beginners can safely skip this until they really need it.",
+          "currentOk": "{count} MCP services are enabled.",
+          "currentMissing": "No MCP services are enabled yet. That is not a problem.",
+          "action": "Open MCP"
         }
       }
     },
