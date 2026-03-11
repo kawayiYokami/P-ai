@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-6 pb-20 [&_div]:[transition:background-color_200ms,border-color_200ms,box-shadow_200ms,border-radius_200ms_ease-out]">
     <!-- 欢迎主卡片（全宽） -->
-    <div class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-gradient-to-bl to-50% card-sm overflow-hidden">
+        <div class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-gradient-to-bl to-50% card-sm overflow-hidden">
       <div class="card-body gap-6">
         <!-- 标题区域 -->
         <div class="flex items-start justify-between">
@@ -52,7 +52,7 @@
                 <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm3.844-8.791a.75.75 0 0 0-1.188-.918l-3.7 4.79-1.649-1.833a.75.75 0 1 0-1.114 1.004l2.25 2.5a.75.75 0 0 0 1.15-.043l4.25-5.5Z" clip-rule="evenodd" />
               </svg>
               <svg
-                v-else-if="card.required"
+                v-else-if="card.level === 'required'"
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 16 16"
                 fill="currentColor"
@@ -72,8 +72,8 @@
               <span class="font-semibold">{{ card.title }}</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="badge" :class="card.required ? 'badge-primary' : 'badge-secondary'">
-                {{ card.required ? t("config.welcome.requiredBadge") : t("config.welcome.recommendedBadge") }}
+              <span class="badge" :class="badgeClass(card.level)">
+                {{ badgeText(card.level) }}
               </span>
             </div>
           </div>
@@ -107,14 +107,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig } from "../../../../types/app";
+import type { ApiConfigItem, AppConfig, PersonaProfile } from "../../../../types/app";
+import { invokeTauri } from "../../../../services/tauri-api";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+type WelcomeCardLevel = "required" | "strong" | "optional";
+type MemoryProviderBindings = {
+  embeddingApiConfigId?: string;
+  rerankApiConfigId?: string;
+};
+type SkillListResult = {
+  skills?: Array<{ path: string }>;
+};
 
 const props = defineProps<{
   config: AppConfig;
+  personas: PersonaProfile[];
 }>();
 
 defineEmits<{
@@ -139,6 +149,31 @@ function firstEmbeddingModel(apiConfigs: ApiConfigItem[]) {
   return apiConfigs.find((item) => item.requestFormat === "openai_embedding" || item.requestFormat === "gemini_embedding");
 }
 
+function firstRerankModel(apiConfigs: ApiConfigItem[]) {
+  return apiConfigs.find((item) => item.requestFormat === "openai_rerank");
+}
+
+const memoryBindings = ref<MemoryProviderBindings>({});
+const skillCount = ref(0);
+
+async function loadWelcomeRuntimeState() {
+  try {
+    memoryBindings.value = await invokeTauri<MemoryProviderBindings>("get_memory_provider_bindings");
+  } catch {
+    memoryBindings.value = {};
+  }
+  try {
+    const result = await invokeTauri<SkillListResult>("mcp_list_skills");
+    skillCount.value = Array.isArray(result?.skills) ? result.skills.length : 0;
+  } catch {
+    skillCount.value = 0;
+  }
+}
+
+onMounted(() => {
+  void loadWelcomeRuntimeState();
+});
+
 const assistantDepartment = computed(() =>
   props.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant),
 );
@@ -149,6 +184,7 @@ const cards = computed(() => {
   const multimodalModel = firstMultimodalTextModel(apiConfigs);
   const sttModel = firstSttModel(apiConfigs);
   const embeddingModel = firstEmbeddingModel(apiConfigs);
+  const rerankModel = firstRerankModel(apiConfigs);
   const assistant = assistantDepartment.value;
   const assistantModelIds = Array.isArray(assistant?.apiConfigIds) && assistant?.apiConfigIds.length
     ? assistant.apiConfigIds
@@ -156,12 +192,17 @@ const cards = computed(() => {
   const assistantModels = assistantModelIds
     .map((id) => apiConfigs.find((api) => api.id === id && api.enableText))
     .filter((item): item is ApiConfigItem => !!item);
+  const customPersonaCount = Math.max(0, (props.personas || []).filter((item) => !item.isBuiltInUser && !item.isBuiltInSystem).length);
+  const customDepartmentCount = Math.max(0, (props.config.departments || []).filter((item) => !item.isBuiltInAssistant).length);
+  const enabledMcpCount = Math.max(0, (props.config.mcpServers || []).filter((item) => item.enabled).length);
+  const embeddingBound = !!String(memoryBindings.value.embeddingApiConfigId || "").trim();
+  const rerankBound = !!String(memoryBindings.value.rerankApiConfigId || "").trim();
 
   return [
     {
       id: "text-model",
       title: t("config.welcome.cards.textModel.title"),
-      required: true,
+      level: "required" as WelcomeCardLevel,
       ok: !!textModel,
       summary: t("config.welcome.cards.textModel.summary"),
       current: textModel
@@ -175,7 +216,7 @@ const cards = computed(() => {
     {
       id: "assistant-department-model",
       title: t("config.welcome.cards.assistantDepartment.title"),
-      required: true,
+      level: "required" as WelcomeCardLevel,
       ok: assistantModels.length > 0,
       summary: t("config.welcome.cards.assistantDepartment.summary"),
       current: assistantModels.length > 0
@@ -185,9 +226,33 @@ const cards = computed(() => {
       targetTab: "department" as ConfigTab,
     },
     {
+      id: "rerank",
+      title: t("config.welcome.cards.rerank.title"),
+      level: "strong" as WelcomeCardLevel,
+      ok: !!rerankModel,
+      summary: t("config.welcome.cards.rerank.summary"),
+      current: rerankModel
+        ? t("config.welcome.cards.rerank.currentOk", { name: rerankModel.name })
+        : t("config.welcome.cards.rerank.currentMissing"),
+      action: t("config.welcome.cards.rerank.action"),
+      targetTab: "api" as ConfigTab,
+    },
+    {
+      id: "embedding",
+      title: t("config.welcome.cards.embedding.title"),
+      level: "strong" as WelcomeCardLevel,
+      ok: !!embeddingModel,
+      summary: t("config.welcome.cards.embedding.summary"),
+      current: embeddingModel
+        ? t("config.welcome.cards.embedding.currentOk", { name: embeddingModel.name })
+        : t("config.welcome.cards.embedding.currentMissing"),
+      action: t("config.welcome.cards.embedding.action"),
+      targetTab: "api" as ConfigTab,
+    },
+    {
       id: "voice",
       title: t("config.welcome.cards.voice.title"),
-      required: false,
+      level: "optional" as WelcomeCardLevel,
       ok: !!sttModel,
       summary: t("config.welcome.cards.voice.summary"),
       current: sttModel
@@ -197,19 +262,81 @@ const cards = computed(() => {
       targetTab: "api" as ConfigTab,
     },
     {
-      id: "embedding",
-      title: t("config.welcome.cards.embedding.title"),
-      required: false,
-      ok: !!embeddingModel,
-      summary: t("config.welcome.cards.embedding.summary"),
-      current: embeddingModel
-        ? t("config.welcome.cards.embedding.currentOk", { name: embeddingModel.name })
-        : t("config.welcome.cards.embedding.currentMissing"),
-      action: t("config.welcome.cards.embedding.action"),
-      targetTab: "api" as ConfigTab,
+      id: "memory",
+      title: t("config.welcome.cards.memory.title"),
+      level: "optional" as WelcomeCardLevel,
+      ok: (!embeddingModel || embeddingBound) && (!rerankModel || rerankBound),
+      summary: t("config.welcome.cards.memory.summary"),
+      current: embeddingModel || rerankModel
+        ? ((embeddingModel && !embeddingBound) || (rerankModel && !rerankBound)
+            ? t("config.welcome.cards.memory.currentMissingBinding")
+            : t("config.welcome.cards.memory.currentOk"))
+        : t("config.welcome.cards.memory.currentMissingModel"),
+      action: t("config.welcome.cards.memory.action"),
+      targetTab: "memory" as ConfigTab,
+    },
+    {
+      id: "persona",
+      title: t("config.welcome.cards.persona.title"),
+      level: "optional" as WelcomeCardLevel,
+      ok: customPersonaCount > 1,
+      summary: t("config.welcome.cards.persona.summary"),
+      current: customPersonaCount > 1
+        ? t("config.welcome.cards.persona.currentOk", { count: customPersonaCount })
+        : t("config.welcome.cards.persona.currentMissing"),
+      action: t("config.welcome.cards.persona.action"),
+      targetTab: "persona" as ConfigTab,
+    },
+    {
+      id: "department",
+      title: t("config.welcome.cards.department.title"),
+      level: "optional" as WelcomeCardLevel,
+      ok: customDepartmentCount > 0,
+      summary: t("config.welcome.cards.department.summary"),
+      current: customDepartmentCount > 0
+        ? t("config.welcome.cards.department.currentOk", { count: customDepartmentCount })
+        : t("config.welcome.cards.department.currentMissing"),
+      action: t("config.welcome.cards.department.action"),
+      targetTab: "department" as ConfigTab,
+    },
+    {
+      id: "skill",
+      title: t("config.welcome.cards.skill.title"),
+      level: "optional" as WelcomeCardLevel,
+      ok: skillCount.value > 0,
+      summary: t("config.welcome.cards.skill.summary"),
+      current: skillCount.value > 0
+        ? t("config.welcome.cards.skill.currentOk", { count: skillCount.value })
+        : t("config.welcome.cards.skill.currentMissing"),
+      action: t("config.welcome.cards.skill.action"),
+      targetTab: "skill" as ConfigTab,
+    },
+    {
+      id: "mcp",
+      title: t("config.welcome.cards.mcp.title"),
+      level: "optional" as WelcomeCardLevel,
+      ok: enabledMcpCount > 0,
+      summary: t("config.welcome.cards.mcp.summary"),
+      current: enabledMcpCount > 0
+        ? t("config.welcome.cards.mcp.currentOk", { count: enabledMcpCount })
+        : t("config.welcome.cards.mcp.currentMissing"),
+      action: t("config.welcome.cards.mcp.action"),
+      targetTab: "mcp" as ConfigTab,
     },
   ];
 });
+
+function badgeText(level: WelcomeCardLevel) {
+  if (level === "required") return t("config.welcome.requiredBadge");
+  if (level === "strong") return t("config.welcome.stronglyRecommendedBadge");
+  return t("config.welcome.recommendedBadge");
+}
+
+function badgeClass(level: WelcomeCardLevel) {
+  if (level === "required") return "badge-primary";
+  if (level === "strong") return "badge-warning";
+  return "badge-secondary";
+}
 
 // 计算配置完成率
 const completionRate = computed(() => {

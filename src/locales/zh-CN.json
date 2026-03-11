@@ -103,6 +103,7 @@
       "subtitle": "下面这些大卡片会直接检查你的关键配置是否完整。先补必须项，再看建议项，就能比较稳定地开始用。",
       "askLlmHint": "如果你不知道怎么配，最简单的方法就是截图给 LLM，让它一步一步教你设置。",
       "requiredBadge": "必须",
+      "stronglyRecommendedBadge": "强烈建议",
       "recommendedBadge": "建议",
       "statusOk": "已设置",
       "statusMissing": "未设置",
@@ -149,9 +150,50 @@
           "summary": "如果你想把记忆、检索、知识召回这套能力跑顺，最好尽早准备一个嵌入模型。",
           "currentOk": "已找到嵌入模型：{name}",
           "currentMissing": "还没有检测到嵌入模型。",
-          "howToOk": "如果后面还要做更稳定的记忆检索，可以再补 rerank 等相关能力。",
-          "howToMissing": "去「LLM」页面新增一个 embedding 配置，后续记忆和检索功能会更完整。",
           "action": "去设置嵌入"
+        },
+        "rerank": {
+          "title": "重排模型",
+          "summary": "这会帮 AI 在很多资料里更稳地挑出最相关的内容，做检索和记忆时很有帮助，属于强烈建议尽早补上的配置。",
+          "currentOk": "已找到重排模型：{name}",
+          "currentMissing": "还没有检测到重排模型。",
+          "action": "去设置重排"
+        },
+        "memory": {
+          "title": "记忆功能",
+          "summary": "记忆能让 AI 更容易记住重要事情。前面准备好嵌入和重排之后，最好再来这里把它真正启用。",
+          "currentOk": "记忆功能已经准备好了。",
+          "currentMissingModel": "你还没准备好记忆用的模型，之后想用记忆时再来补就行。",
+          "currentMissingBinding": "你已经有嵌入或重排模型了，但记忆页里还没正式设置完成。",
+          "action": "去设置记忆"
+        },
+        "persona": {
+          "title": "人格",
+          "summary": "人格就像不同的助手风格。你可以做一个写作型、一个执行型，也可以做一个专门陪你聊天的。",
+          "currentOk": "你已经准备了 {count} 个可用人格。",
+          "currentMissing": "你现在还没有额外的人格，先用默认助理也完全可以。",
+          "action": "去看人格"
+        },
+        "department": {
+          "title": "部门",
+          "summary": "部门就像分工小组。以后你可以把收集、整理、执行这类工作拆给不同部门去做。",
+          "currentOk": "你已经准备了 {count} 个额外部门。",
+          "currentMissing": "你现在还没有额外部门，先只用主部门也没问题。",
+          "action": "去看部门"
+        },
+        "skill": {
+          "title": "技能",
+          "summary": "技能像是一张张小教程，告诉 AI 某件事应该怎么做。不会配置也没关系，后面慢慢加就行。",
+          "currentOk": "已检测到 {count} 个技能。",
+          "currentMissing": "还没有检测到技能，先空着也可以。",
+          "action": "去看技能"
+        },
+        "mcp": {
+          "title": "MCP",
+          "summary": "MCP 可以把更多外部能力接进来，比如连接别的服务或工具。新手可以先不碰，等需要时再加。",
+          "currentOk": "已启用 {count} 个 MCP 服务。",
+          "currentMissing": "还没有启用 MCP 服务，这不是问题。",
+          "action": "去看 MCP"
         }
       }
     },
