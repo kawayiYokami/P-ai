@@ -33,6 +33,7 @@ async fn call_model_gemini_with_tools(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .additional_params(gemini_safety_settings)
         .tools(tools)
         .build();

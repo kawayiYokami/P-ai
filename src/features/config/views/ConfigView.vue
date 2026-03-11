@@ -3,6 +3,9 @@
     <div class="w-36 shrink-0">
       <ul class="menu bg-base-200 rounded-box gap-1 [&>li>a]:min-w-30 [&>li>a]:w-full">
         <li>
+          <a :class="{ 'active': props.configTab === 'welcome', 'menu-active': props.configTab === 'welcome', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('welcome')">{{ t("config.tabs.welcome") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
         </li>
         <li>
@@ -46,8 +49,14 @@
 
     <div class="flex-1 min-w-0 overflow-y-auto">
       <SettingsContentContainer>
+        <WelcomeTab
+          v-if="props.configTab === 'welcome'"
+          :config="config"
+          @jump="$emit('update:configTab', $event)"
+        />
+
         <HotkeyTab
-          v-if="props.configTab === 'hotkey'"
+          v-else-if="props.configTab === 'hotkey'"
           :config="config"
           :hotkey-test-recording="hotkeyTestRecording"
           :hotkey-test-recording-ms="hotkeyTestRecordingMs"
@@ -141,8 +150,8 @@
           :personas="assistantPersonas"
           :assistant-department-agent-id="assistantDepartmentAgentId"
           :saving-config="savingConfig"
+          :save-config-action="saveConfigAction"
           @update:assistant-department-assignee-id="$emit('update:assistantDepartmentAgentId', $event)"
-          @save-api-config="$emit('saveApiConfig')"
         />
 
         <MemoryTab
@@ -239,6 +248,7 @@ import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import Cropper from "cropperjs";
 import SettingsContentContainer from "../components/SettingsContentContainer.vue";
+import WelcomeTab from "./config-tabs/WelcomeTab.vue";
 import HotkeyTab from "./config-tabs/HotkeyTab.vue";
 import ApiTab from "./config-tabs/ApiTab.vue";
 import ToolsTab from "./config-tabs/ToolsTab.vue";
@@ -253,7 +263,7 @@ import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{

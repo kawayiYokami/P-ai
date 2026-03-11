@@ -5,7 +5,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 type UseAppWatchersOptions = {
   config: AppConfig;
-  configTab: Ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">;
+  configTab: Ref<"welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">;
   viewMode: Ref<"chat" | "archives" | "config">;
   personas: Ref<PersonaProfile[]>;
   userPersona: ComputedRef<PersonaProfile | null>;
@@ -45,6 +45,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       enableTools: a.enableTools,
       temperature: a.temperature,
       contextWindowTokens: a.contextWindowTokens,
+      maxOutputTokens: a.maxOutputTokens,
       failureRetryCount: a.failureRetryCount,
     })),
     () => options.normalizeApiBindingsLocal(),

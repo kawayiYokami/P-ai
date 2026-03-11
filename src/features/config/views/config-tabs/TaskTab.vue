@@ -51,7 +51,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <div class="font-medium text-sm wrap-break-word">{{ task.title }}</div>
-                <span v-if="task.currentTracked" class="badge badge-xs badge-primary">{{ t("config.task.trackedShort") }}</span>
+                <span v-if="task.currentTracked" class="badge badge-primary">{{ t("config.task.trackedShort") }}</span>
               </div>
               <div class="text-[11px] opacity-60 line-clamp-1 mt-0.5">{{ task.statusSummary || t("config.task.noStatus") }}</div>
               <div class="flex items-center gap-2 mt-1 text-[11px] opacity-50">
@@ -96,10 +96,10 @@
         <div class="px-3 py-2 border-b border-base-300/70">
           <div class="text-lg font-semibold wrap-break-word">{{ selectedTask.title }}</div>
           <div class="flex flex-wrap gap-2 mt-1">
-            <span class="badge badge-xs" :class="selectedTask.currentTracked ? 'badge-primary' : 'badge-ghost'">
+            <span class="badge" :class="selectedTask.currentTracked ? 'badge-primary' : 'badge-ghost'">
               {{ selectedTask.currentTracked ? t("config.task.currentTracked") : selectedTask.completionState }}
             </span>
-            <span v-if="selectedTask.stageKey" class="badge badge-xs badge-outline">{{ selectedTask.stageKey }}</span>
+            <span v-if="selectedTask.stageKey" class="badge badge-outline">{{ selectedTask.stageKey }}</span>
           </div>
         </div>
 
@@ -194,7 +194,7 @@
           class="px-3 py-2"
         >
           <div class="flex items-center justify-between gap-2">
-            <span class="badge badge-xs" :class="runLogBadgeClass(log.outcome)">{{ runLogLabel(log.outcome) }}</span>
+            <span class="badge" :class="runLogBadgeClass(log.outcome)">{{ runLogLabel(log.outcome) }}</span>
             <span class="text-[11px] opacity-50">{{ formatTaskTime(log.triggeredAt) }}</span>
           </div>
           <div v-if="log.note" class="text-sm whitespace-pre-wrap wrap-break-word opacity-70 mt-1">{{ log.note }}</div>

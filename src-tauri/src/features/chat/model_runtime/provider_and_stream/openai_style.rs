@@ -23,6 +23,7 @@ async fn call_model_openai_with_tools(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .tools(tools)
         .build();
     run_unified_tool_loop(
@@ -60,6 +61,7 @@ async fn call_model_openai_responses_with_tools(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .tools(tools)
         .build();
     run_unified_tool_loop(

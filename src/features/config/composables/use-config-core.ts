@@ -42,6 +42,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   const DEFAULT_MAX_RECORD_SECONDS = 60;
   const MAX_RECORD_SECONDS = 600;
   const MAX_EMPTY_REPLY_RETRY_COUNT = 20;
+  function normalizeMaxOutputTokens(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 4096;
+    return Math.max(256, Math.min(32768, Math.round(parsed)));
+  }
   function normalizeFailureRetryCount(value: unknown): number {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 0;
@@ -77,6 +82,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       model: "gpt-4o-mini",
       temperature: 1,
       contextWindowTokens: 128000,
+      maxOutputTokens: 4096,
       failureRetryCount: 0,
     };
   }
@@ -101,6 +107,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         16000,
         Math.min(200000, Math.round(Number(api.contextWindowTokens ?? 128000))),
       );
+      api.maxOutputTokens = normalizeMaxOutputTokens(api.maxOutputTokens);
       api.failureRetryCount = Math.max(
         0,
         normalizeFailureRetryCount(api.failureRetryCount),
@@ -199,6 +206,14 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       });
     }
     options.config.mcpServers = normalizedMcpServers;
+
+    // Only normalize departments if they don't exist yet (initial load)
+    if (!options.config.departments || options.config.departments.length === 0) {
+      normalizeDepartments();
+    }
+  }
+
+  function normalizeDepartments() {
     const validTextChatApiIds = new Set(
       options.config.apiConfigs
         .filter((a) => !!a.enableText && isTextRequestFormat(a.requestFormat))
@@ -271,7 +286,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       const bRank = b.isBuiltInAssistant || b.id === "assistant-department" ? 0 : 1;
       return aRank - bRank || a.orderIndex - b.orderIndex;
     });
-    options.config.departments = normalizedDepartments.map((item, idx) => ({
+    const finalDepartments = normalizedDepartments.map((item, idx) => ({
       ...item,
       id: item.isBuiltInAssistant || item.id === "assistant-department" ? "assistant-department" : item.id,
       name: String(item.name || "").trim() || (item.isBuiltInAssistant || item.id === "assistant-department" ? assistantName : `部门 ${idx + 1}`),
@@ -290,6 +305,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiConfigIds: item.apiConfigIds.length > 0 ? item.apiConfigIds : (defaultAssistantDepartmentApiId ? [defaultAssistantDepartmentApiId] : []),
       apiConfigId: item.apiConfigIds[0] || defaultAssistantDepartmentApiId,
     }));
+
+    options.config.departments = finalDepartments;
     const assistantDept = options.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
     if (assistantDept) {
       options.config.assistantDepartmentApiConfigId = assistantDept.apiConfigId || defaultAssistantDepartmentApiId;
@@ -344,6 +361,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: Number(a.temperature ?? 1),
         contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
+        maxOutputTokens: normalizeMaxOutputTokens(a.maxOutputTokens),
         failureRetryCount: normalizeFailureRetryCount(a.failureRetryCount),
       })),
     };
@@ -387,6 +405,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model: a.model,
         temperature: a.temperature,
         contextWindowTokens: a.contextWindowTokens,
+        maxOutputTokens: normalizeMaxOutputTokens(a.maxOutputTokens),
         failureRetryCount: normalizeFailureRetryCount(a.failureRetryCount),
       })),
     });

@@ -19,6 +19,7 @@ async fn call_model_deepseek_rig_style(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .build();
     let mut stream = agent
         .stream_completion(current_prompt, chat_history)

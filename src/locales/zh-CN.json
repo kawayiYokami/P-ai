@@ -15,6 +15,7 @@
   },
   "config": {
     "tabs": {
+      "welcome": "欢迎",
       "hotkey": "快捷键",
       "api": "LLM",
       "tools": "工具",
@@ -80,18 +81,79 @@
       "openProviderSite": "打开官网/文档",
       "freeBadge": "免费",
       "model": "模型",
+      "showApiKey": "显示 API Key",
+      "hideApiKey": "隐藏 API Key",
       "pickModel": "选择模型",
       "searchModel": "搜索模型...",
       "noModelFound": "未找到匹配模型",
       "refreshModels": "刷新模型列表",
       "temperature": "温度",
       "contextWindow": "上下文窗口",
+      "maxOutputTokens": "最大输出",
+      "maxOutputTokensHint": "影响 LLM 的最大输出长度，建议为 4096。",
       "failureRetryCount": "失败重试",
       "failureRetryHint": "仅对空回复和 429 进行重试；每次等待时间递增。0 表示关闭。",
       "capabilities": "能力开关",
       "capText": "文本",
       "capImage": "图片",
       "capTools": "工具调用"
+    },
+    "welcome": {
+      "title": "首次设置欢迎页",
+      "subtitle": "下面这些大卡片会直接检查你的关键配置是否完整。先补必须项，再看建议项，就能比较稳定地开始用。",
+      "askLlmHint": "如果你不知道怎么配，最简单的方法就是截图给 LLM，让它一步一步教你设置。",
+      "requiredBadge": "必须",
+      "recommendedBadge": "建议",
+      "statusOk": "已设置",
+      "statusMissing": "未设置",
+      "currentState": "当前状态：",
+      "stats": {
+        "completed": "已完成配置",
+        "configurations": "项配置",
+        "required": "必需配置",
+        "requiredMissing": "项缺失",
+        "optional": "可选配置",
+        "optionalMissing": "项缺失"
+      },
+      "cards": {
+        "textModel": {
+          "title": "可用文本模型",
+          "summary": "系统至少需要一个可用的文本模型，建议优先准备一个同时支持图片的多模态模型。",
+          "currentOkMultimodal": "已找到可用多模态文本模型：{name}",
+          "currentOk": "已找到可用文本模型：{name}。但暂时还不是多模态。",
+          "currentMissing": "还没有检测到任何可用文本模型。",
+          "howToOk": "如果你还想让截图直接发给 LLM 识图，可以再补一个开启图片能力的文本模型。",
+          "howToMissing": "去「LLM」页面新增一个配置，填好链接、API Key、模型名，并确保开启文本能力。",
+          "action": "去设置 LLM"
+        },
+        "assistantDepartment": {
+          "title": "主部门驱动模型",
+          "summary": "主部门必须绑定至少一个驱动模型，否则助理无法正常工作。",
+          "currentOk": "主部门已经绑定驱动模型链：{names}",
+          "currentMissing": "主部门还没有绑定任何可用驱动模型。",
+          "howToOk": "如果你希望更稳，可以继续在主部门里增加候选模型，失败时会按顺序往后尝试。",
+          "howToMissing": "去「部门」页面，选中主部门，然后给它添加至少一个驱动模型。",
+          "action": "去设置部门"
+        },
+        "voice": {
+          "title": "语音识别",
+          "summary": "如果你想直接语音输入，这是非常值得补上的配置。",
+          "currentOk": "已找到语音识别模型：{name}",
+          "currentMissing": "还没有检测到语音识别模型。",
+          "howToOk": "现在已经可以继续补录音键、自动发送等体验项了。",
+          "howToMissing": "去「LLM」页面新增一个 STT 配置；配完后再到「对话」里选它作为语音模型。",
+          "action": "去设置语音"
+        },
+        "embedding": {
+          "title": "嵌入模型",
+          "summary": "如果你想把记忆、检索、知识召回这套能力跑顺，最好尽早准备一个嵌入模型。",
+          "currentOk": "已找到嵌入模型：{name}",
+          "currentMissing": "还没有检测到嵌入模型。",
+          "howToOk": "如果后面还要做更稳定的记忆检索，可以再补 rerank 等相关能力。",
+          "howToMissing": "去「LLM」页面新增一个 embedding 配置，后续记忆和检索功能会更完整。",
+          "action": "去设置嵌入"
+        }
+      }
     },
     "tools": {
       "basicConfig": "基本配置",
@@ -221,6 +283,13 @@
       "moveDown": "下移",
       "modelFallbackHint": "按从上到下的顺序尝试；上方失败时会自动切换到下一个。",
       "allowedModelsNote": "仅允许选择可用于文本对话的模型。",
+      "validation": {
+        "emptyName": "部门名称不能为空，当前不会自动保存。",
+        "duplicateName": "部门名称不能重复，当前不会自动保存。",
+        "invalidModel": "部门「{name}」包含无效的驱动模型，请重新选择后再自动保存。",
+        "missingAssistant": "缺少主部门，请先恢复主部门配置。",
+        "assistantNeedsModel": "主部门必须至少配置一个驱动模型，当前不会自动保存。"
+      },
       "summary": "部门概述",
       "summaryPlaceholder": "写给上级领导看：这个部门适合承接什么任务。",
       "guide": "办事指南",

@@ -45,6 +45,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.enable_audio = false;
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 200_000);
+        api.max_output_tokens = api.max_output_tokens.clamp(256, 32_768);
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
         for tool in &mut api.tools {
             match tool.id.as_str() {
@@ -829,6 +830,7 @@ fn resolve_api_config(
                     .temperature
                     .unwrap_or(default_api_temperature())
                     .clamp(0.0, 2.0),
+                max_output_tokens: default_max_output_tokens(),
             });
         }
     }
@@ -849,6 +851,7 @@ fn resolve_api_config(
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),
         temperature: selected.temperature.clamp(0.0, 2.0),
+        max_output_tokens: selected.max_output_tokens.clamp(256, 32_768),
     })
 }
 

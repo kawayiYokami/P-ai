@@ -28,7 +28,7 @@
       <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.name") }}</span></div>
       <div class="flex items-center gap-2">
         <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :disabled="selectedPersonaIsPrivateWorkspace" :placeholder="t('config.persona.name')" />
-        <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-xs badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
+        <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
         <button
           class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
           :disabled="avatarSaving || selectedPersonaIsPrivateWorkspace"

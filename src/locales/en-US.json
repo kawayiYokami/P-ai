@@ -15,6 +15,7 @@
   },
   "config": {
     "tabs": {
+      "welcome": "Welcome",
       "hotkey": "Hotkey",
       "api": "LLM",
       "tools": "Tools",
@@ -80,18 +81,79 @@
       "openProviderSite": "Open official docs",
       "freeBadge": "Free",
       "model": "Model",
+      "showApiKey": "Show API Key",
+      "hideApiKey": "Hide API Key",
       "pickModel": "Pick Model",
       "searchModel": "Search models...",
       "noModelFound": "No matching models",
       "refreshModels": "Refresh Model List",
       "temperature": "Temperature",
       "contextWindow": "Context Window",
+      "maxOutputTokens": "Max Output",
+      "maxOutputTokensHint": "Controls the LLM's maximum output length. 4096 is recommended.",
       "failureRetryCount": "Failure Retry Count",
       "failureRetryHint": "Only retries empty replies and HTTP 429, with progressively longer delay each time (0 disables).",
       "capabilities": "Capabilities",
       "capText": "Text",
       "capImage": "Image",
       "capTools": "Tools"
+    },
+    "welcome": {
+      "title": "Welcome Setup Check",
+      "subtitle": "These cards check whether your key settings are ready. Finish the required items first, then the recommended ones.",
+      "askLlmHint": "If you are unsure how to configure something, just send a screenshot to the LLM and ask it to guide you step by step.",
+      "requiredBadge": "Required",
+      "recommendedBadge": "Recommended",
+      "statusOk": "Ready",
+      "statusMissing": "Missing",
+      "currentState": "Current state: ",
+      "stats": {
+        "completed": "Completed",
+        "configurations": "configurations",
+        "required": "Required",
+        "requiredMissing": "missing",
+        "optional": "Optional",
+        "optionalMissing": "missing"
+      },
+      "cards": {
+        "textModel": {
+          "title": "Available Text Model",
+          "summary": "The app needs at least one working text model. A multimodal one is recommended.",
+          "currentOkMultimodal": "A working multimodal text model was found: {name}",
+          "currentOk": "A working text model was found: {name}. It is not multimodal yet.",
+          "currentMissing": "No working text model was detected yet.",
+          "howToOk": "If you also want screenshot-to-LLM workflows, add a text model with image capability.",
+          "howToMissing": "Go to LLM, add a config, fill in base URL, API key, and model name, then make sure text is enabled.",
+          "action": "Open LLM"
+        },
+        "assistantDepartment": {
+          "title": "Primary Department Model",
+          "summary": "The primary department must have at least one driver model, otherwise the assistant cannot run normally.",
+          "currentOk": "The primary department currently uses this model chain: {names}",
+          "currentMissing": "The primary department does not have any usable driver model yet.",
+          "howToOk": "You can add more fallback models to make the primary department more stable.",
+          "howToMissing": "Go to Departments, select the primary department, and add at least one driver model.",
+          "action": "Open Departments"
+        },
+        "voice": {
+          "title": "Speech Recognition",
+          "summary": "If you want voice input, this is a very worthwhile setup.",
+          "currentOk": "A speech recognition model was found: {name}",
+          "currentMissing": "No speech recognition model was detected yet.",
+          "howToOk": "You can now continue with record hotkey and auto-send settings.",
+          "howToMissing": "Go to LLM and add an STT config. Then select it in Chat settings as your speech model.",
+          "action": "Open Voice Setup"
+        },
+        "embedding": {
+          "title": "Embedding Model",
+          "summary": "If you want stronger memory, retrieval, and recall, you should prepare an embedding model.",
+          "currentOk": "An embedding model was found: {name}",
+          "currentMissing": "No embedding model was detected yet.",
+          "howToOk": "Later you can still add rerank or related retrieval abilities for even more stable results.",
+          "howToMissing": "Go to LLM and add an embedding config so memory and retrieval features can work more completely.",
+          "action": "Open Embedding Setup"
+        }
+      }
     },
     "tools": {
       "basicConfig": "Basic Config",
@@ -221,6 +283,13 @@
       "moveDown": "Move down",
       "modelFallbackHint": "Tried from top to bottom. If the upper model fails, the next one is used automatically.",
       "allowedModelsNote": "Only models that support text conversations can be selected.",
+      "validation": {
+        "emptyName": "Department name cannot be empty. Auto-save is paused.",
+        "duplicateName": "Department names must be unique. Auto-save is paused.",
+        "invalidModel": "Department \"{name}\" contains an invalid driver model. Please reselect it before auto-save resumes.",
+        "missingAssistant": "The primary department is missing. Restore it first.",
+        "assistantNeedsModel": "The primary department must have at least one driver model. Auto-save is paused."
+      },
       "summary": "Department Summary",
       "summaryPlaceholder": "Visible to the leader: what kind of work this department should receive.",
       "guide": "Guide",

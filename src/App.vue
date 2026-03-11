@@ -359,7 +359,7 @@ const config = reactive<AppConfig>({
 const recordHotkeyProbeLastSeq = ref(0);
 const recordHotkeyProbeDown = ref(false);
 const chatWindowActiveSynced = ref<boolean | null>(null);
-const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
+const configTab = ref<"welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("welcome");
 const personas = ref<PersonaProfile[]>([]);
 const assistantDepartmentAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");
@@ -893,8 +893,10 @@ const {
   disposeAutosaveTimers,
 } = useConfigAutosave({
   suppressAutosave,
+  configAutosaveReady,
   personasAutosaveReady,
   chatSettingsAutosaveReady,
+  saveConfig,
   savePersonas,
   saveChatPreferences,
 });

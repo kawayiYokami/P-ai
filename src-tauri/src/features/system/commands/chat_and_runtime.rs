@@ -92,7 +92,7 @@ async fn send_chat_message_inner(
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
 
-    let (app_config, selected_api, resolved_api, effective_agent_id) = {
+    let (app_config, selected_api, resolved_api, effective_agent_id, candidate_api_ids) = {
         let guard = state
             .state_lock
             .lock()
@@ -140,8 +140,30 @@ async fn send_chat_message_inner(
                 .map(|a| a.id.clone())
                 .ok_or_else(|| "No assistant agent configured.".to_string())?
         };
+        let mut candidate_api_ids = department_for_agent_id(&app_config, &effective_agent_id)
+            .map(department_api_config_ids)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|api_id| {
+                app_config
+                    .api_configs
+                    .iter()
+                    .any(|api| api.id == *api_id && api.request_format.is_chat_text())
+            })
+            .collect::<Vec<_>>();
+        if candidate_api_ids.is_empty() {
+            candidate_api_ids.push(selected_api.id.clone());
+        } else if !candidate_api_ids.iter().any(|api_id| api_id == &selected_api.id) {
+            candidate_api_ids.insert(0, selected_api.id.clone());
+        }
         drop(guard);
-        (app_config, selected_api, resolved_api, effective_agent_id)
+        (
+            app_config,
+            selected_api,
+            resolved_api,
+            effective_agent_id,
+            candidate_api_ids,
+        )
     };
 
     let chat_key = inflight_chat_key(&selected_api.id, &effective_agent_id);
@@ -399,7 +421,7 @@ async fn send_chat_message_inner(
     }
 
     let (
-        model_name,
+        _primary_model_name,
         prepared_prompt,
         conversation_id,
         latest_user_text,
@@ -612,74 +634,128 @@ async fn send_chat_message_inner(
         )
     };
 
-    let max_failure_retries = selected_api.failure_retry_count as usize;
     let mut model_reply: Option<ModelReply> = None;
-    for attempt in 0..=max_failure_retries {
-        let reply_result = call_model_openai_style(
-            &resolved_api,
-            &app_config,
-            &selected_api,
-            &current_agent,
-            &model_name,
-            prepared_prompt.clone(),
-            Some(&state),
-            on_delta,
-            app_config.tool_max_iterations as usize,
-            &chat_session_key,
-        )
-        .await;
-
-        let (reason_text, final_error_text) = match reply_result {
-            Ok(reply) => {
-                if model_reply_has_visible_content(&reply) {
-                    model_reply = Some(reply);
-                    break;
+    let mut active_selected_api = selected_api.clone();
+    let mut active_resolved_api = resolved_api.clone();
+    let mut fallback_errors = Vec::<String>::new();
+    for (candidate_index, candidate_api_id) in candidate_api_ids.iter().enumerate() {
+        let candidate_selected_api = if candidate_api_id == &selected_api.id {
+            selected_api.clone()
+        } else {
+            match resolve_selected_api_config(&app_config, Some(candidate_api_id.as_str())) {
+                Some(api) => api,
+                None => {
+                    fallback_errors.push(format!("{candidate_api_id}: 候选模型不存在"));
+                    continue;
                 }
-                (
-                    "Model returned an empty reply".to_string(),
-                    "Model kept returning empty replies. Stopped retrying. Please try again later or switch model."
-                        .to_string(),
-                )
-            }
-            Err(error) => {
-                if !is_retryable_model_error(&error) {
-                    return Err(error);
-                }
-                (
-                    "Model request was rate-limited (429)".to_string(),
-                    format!("Model remained rate-limited (429) after retries: {error}"),
-                )
             }
         };
+        let candidate_resolved_api =
+            match resolve_api_config(&app_config, Some(candidate_selected_api.id.as_str())) {
+                Ok(api) => api,
+                Err(error) => {
+                    fallback_errors.push(format!("{}: {}", candidate_selected_api.name, error));
+                    continue;
+                }
+            };
+        let candidate_model_name = if candidate_selected_api.model.trim().is_empty() {
+            candidate_resolved_api.model.clone()
+        } else {
+            candidate_selected_api.model.trim().to_string()
+        };
+        let max_failure_retries = candidate_selected_api.failure_retry_count as usize;
+        let mut candidate_final_error: Option<String> = None;
+        for attempt in 0..=max_failure_retries {
+            let reply_result = call_model_openai_style(
+                &candidate_resolved_api,
+                &app_config,
+                &candidate_selected_api,
+                &current_agent,
+                &candidate_model_name,
+                prepared_prompt.clone(),
+                Some(&state),
+                on_delta,
+                app_config.tool_max_iterations as usize,
+                &chat_session_key,
+            )
+            .await;
 
-        if attempt < max_failure_retries {
-            let retry_index = attempt + 1;
-            let wait_seconds = (retry_index as u64) * 5;
+            let (reason_text, final_error_text) = match reply_result {
+                Ok(reply) => {
+                    if model_reply_has_visible_content(&reply) {
+                        active_selected_api = candidate_selected_api.clone();
+                        active_resolved_api = candidate_resolved_api.clone();
+                        model_reply = Some(reply);
+                        candidate_final_error = None;
+                        break;
+                    }
+                    (
+                        "Model returned an empty reply".to_string(),
+                        "Model kept returning empty replies. Stopped retrying. Please try again later or switch model."
+                            .to_string(),
+                    )
+                }
+                Err(error) => {
+                    if !is_retryable_model_error(&error) {
+                        candidate_final_error = Some(error);
+                        break;
+                    }
+                    (
+                        "Model request was rate-limited (429)".to_string(),
+                        format!("Model remained rate-limited (429) after retries: {error}"),
+                    )
+                }
+            };
+
+            if attempt < max_failure_retries {
+                let retry_index = attempt + 1;
+                let wait_seconds = (retry_index as u64) * 5;
+                let _ = on_delta.send(AssistantDeltaEvent {
+                    delta: "".to_string(),
+                    kind: Some("tool_status".to_string()),
+                    tool_name: None,
+                    tool_status: Some("running".to_string()),
+                    message: Some(format!(
+                        "{reason_text}. Retrying ({retry_index}/{max_failure_retries}) in {wait_seconds}s..."
+                    )),
+                });
+                tokio::time::sleep(std::time::Duration::from_secs(wait_seconds)).await;
+                continue;
+            }
+            let total_attempts = max_failure_retries + 1;
+            candidate_final_error = Some(format!(
+                "{final_error_text} (attempted {total_attempts} times)"
+            ));
+        }
+        if model_reply.is_some() {
+            break;
+        }
+        if let Some(error) = candidate_final_error {
+            fallback_errors.push(format!("{}: {}", candidate_selected_api.name, error));
+        }
+        if candidate_index + 1 < candidate_api_ids.len() {
             let _ = on_delta.send(AssistantDeltaEvent {
                 delta: "".to_string(),
                 kind: Some("tool_status".to_string()),
                 tool_name: None,
                 tool_status: Some("running".to_string()),
                 message: Some(format!(
-                    "{reason_text}. Retrying ({retry_index}/{max_failure_retries}) in {wait_seconds}s..."
+                    "当前模型失败，正在切换到下一个候选模型（{}/{}）...",
+                    candidate_index + 2,
+                    candidate_api_ids.len()
                 )),
             });
-            tokio::time::sleep(std::time::Duration::from_secs(wait_seconds)).await;
-            continue;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
-        let total_attempts = max_failure_retries + 1;
-        let final_error = format!("{final_error_text} (attempted {total_attempts} times)");
-        let _ = on_delta.send(AssistantDeltaEvent {
-            delta: "".to_string(),
-            kind: Some("tool_status".to_string()),
-            tool_name: None,
-            tool_status: Some("failed".to_string()),
-            message: Some(final_error.clone()),
-        });
-        return Err(final_error);
     }
     let model_reply =
-        model_reply.ok_or_else(|| "Model reply was invalid: no usable content received.".to_string())?;
+        model_reply.ok_or_else(|| {
+            if fallback_errors.is_empty() {
+                "Model reply was invalid: no usable content received.".to_string()
+            } else {
+                format!("所有候选模型均失败：{}", fallback_errors.join(" | "))
+            }
+        })?;
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
@@ -689,7 +765,7 @@ async fn send_chat_message_inner(
     let (effective_prompt_tokens, effective_prompt_source) =
         effective_prompt_tokens_from_provider(estimated_prompt_tokens, trusted_input_tokens);
     let context_usage_ratio =
-        effective_prompt_tokens as f64 / f64::from(selected_api.context_window_tokens.max(1));
+        effective_prompt_tokens as f64 / f64::from(active_selected_api.context_window_tokens.max(1));
     let context_usage_percent = context_usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
 
     let assistant_text_for_storage = assistant_text.clone();
@@ -751,6 +827,7 @@ async fn send_chat_message_inner(
                 conversation.updated_at = now.clone();
                 conversation.last_assistant_at = Some(now);
             }
+            conversation.api_config_id = active_selected_api.id.clone();
             conversation.last_effective_prompt_tokens = effective_prompt_tokens;
             conversation.last_context_usage_ratio = context_usage_ratio;
             if !suppress_assistant_message && conversation.last_context_usage_ratio >= 0.82 {
@@ -771,8 +848,8 @@ async fn send_chat_message_inner(
         });
         let archive_res = run_archive_pipeline(
             &state,
-            &selected_api,
-            &resolved_api,
+            &active_selected_api,
+            &active_resolved_api,
             &source,
             &effective_agent_id,
             "force_context_usage_82_after_reply",

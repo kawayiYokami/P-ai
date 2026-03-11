@@ -109,7 +109,23 @@
 
     <div class="flex w-full items-center gap-2">
       <span class="w-24 shrink-0 text-sm font-medium">API Key</span>
-      <input v-model="props.selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm min-w-0 flex-1" placeholder="api key" />
+      <div class="flex min-w-0 flex-1 gap-1">
+        <input
+          v-model="props.selectedApiConfig.apiKey"
+          :type="showApiKey ? 'text' : 'password'"
+          class="input input-bordered input-sm min-w-0 flex-1"
+          placeholder="api key"
+        />
+        <button
+          class="btn btn-sm btn-square bg-base-100"
+          type="button"
+          :title="showApiKey ? t('config.api.hideApiKey') : t('config.api.showApiKey')"
+          @click="showApiKey = !showApiKey"
+        >
+          <EyeOff v-if="showApiKey" class="h-3.5 w-3.5" />
+          <Eye v-else class="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
 
     <div class="flex w-full flex-col gap-1">
@@ -184,6 +200,29 @@
     </div>
 
     <div v-if="isTextMode" class="flex w-full items-center gap-2">
+      <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.maxOutputTokens") }}</span>
+      <div class="min-w-0 flex-1">
+        <div class="mb-1 flex items-center justify-end">
+          <span class="text-sm opacity-70">{{ Math.round(Number(props.selectedApiConfig.maxOutputTokens ?? 4096)) }}</span>
+        </div>
+        <input
+          v-model.number="props.selectedApiConfig.maxOutputTokens"
+          type="range"
+          min="256"
+          max="32768"
+          step="256"
+          class="range range-sm w-full"
+        />
+        <div class="mt-1 flex justify-between text-[10px] opacity-60">
+          <span>256</span>
+          <span>4K</span>
+          <span>32K</span>
+        </div>
+        <div class="mt-1 text-[11px] opacity-70">{{ t("config.api.maxOutputTokensHint") }}</div>
+      </div>
+    </div>
+
+    <div v-if="isTextMode" class="flex w-full items-center gap-2">
       <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.failureRetryCount") }}</span>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center justify-end">
@@ -219,7 +258,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronsUpDown, ExternalLink, Link, Plus, RefreshCw, Save, Trash2, WandSparkles } from "lucide-vue-next";
+import { ChevronsUpDown, ExternalLink, Eye, EyeOff, Link, Plus, RefreshCw, Save, Trash2, WandSparkles } from "lucide-vue-next";
 import type { ApiConfigItem, ApiRequestFormat, AppConfig } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 
@@ -257,6 +296,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const baseUrlHelperOpen = ref(false);
+const showApiKey = ref(false);
 const selectedProviderId = ref("openai-official");
 const modelSearch = ref("");
 const activeCapability = ref<ApiCapability>("text");

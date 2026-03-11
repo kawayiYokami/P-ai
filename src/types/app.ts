@@ -32,6 +32,7 @@ export type ApiConfigItem = {
   model: string;
   temperature: number;
   contextWindowTokens: number;
+  maxOutputTokens?: number;
   failureRetryCount?: number;
 };
 

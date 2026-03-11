@@ -26,8 +26,8 @@
       {
         "label": "chat",
         "title": "Easy Call AI - 对话窗口",
-        "width": 420,
-        "height": 700,
+        "width": 618,
+        "height": 1000,
         "devtools": false,
         "dragDropEnabled": false,
         "resizable": true,

@@ -276,6 +276,7 @@ async fn call_model_openai_rig_style_internal(
                 .agent(model_name)
                 .preamble(&prepared.preamble)
                 .temperature(api_config.temperature)
+                .max_tokens(api_config.max_output_tokens as u64)
                 .build();
             let mut stream = agent
                 .stream_completion(current_prompt, chat_history)
@@ -292,6 +293,7 @@ async fn call_model_openai_rig_style_internal(
                 .agent(model_name)
                 .preamble(&prepared.preamble)
                 .temperature(api_config.temperature)
+                .max_tokens(api_config.max_output_tokens as u64)
                 .build();
             let mut stream = agent
                 .stream_completion(current_prompt, chat_history)
@@ -383,6 +385,7 @@ async fn call_model_gemini_rig_style(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .additional_params(gemini_safety_settings)
         .build();
 
@@ -476,6 +479,7 @@ async fn call_model_anthropic_rig_style(
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
+        .max_tokens(api_config.max_output_tokens as u64)
         .build();
     let mut stream = agent
         .stream_completion(current_prompt, chat_history)
