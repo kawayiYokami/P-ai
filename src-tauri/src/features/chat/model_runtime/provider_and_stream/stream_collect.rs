@@ -3,12 +3,14 @@ async fn collect_streaming_model_reply<R, S>(
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String>
 where
+    R: rig::completion::GetTokenUsage,
     S: futures_util::Stream<
             Item = Result<StreamedAssistantContent<R>, rig::completion::CompletionError>,
         > + Unpin,
 {
     let mut assistant_text = String::new();
     let mut reasoning_standard = String::new();
+    let mut trusted_input_tokens: Option<u64> = None;
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(StreamedAssistantContent::Text(text)) => {
@@ -57,7 +59,11 @@ where
             }
             Ok(StreamedAssistantContent::ToolCall { .. }) => {}
             Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
-            Ok(StreamedAssistantContent::Final(_)) => {}
+            Ok(StreamedAssistantContent::Final(res)) => {
+                trusted_input_tokens = rig::completion::GetTokenUsage::token_usage(&res)
+                    .map(|usage| usage.input_tokens.saturating_add(usage.cached_input_tokens))
+                    .filter(|value| *value > 0);
+            }
             Err(err) => return Err(format!("rig streaming failed: {err}")),
         }
     }
@@ -67,5 +73,6 @@ where
         reasoning_inline: String::new(),
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
+        trusted_input_tokens,
     })
 }

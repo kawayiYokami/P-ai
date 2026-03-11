@@ -136,6 +136,7 @@ where
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
+    let mut trusted_input_tokens: Option<u64> = None;
     let (mut current_prompt, mut chat_history) = build_tool_loop_prompt(&prepared)?;
 
     let max_rounds = std::cmp::max(1usize, max_tool_iterations);
@@ -254,7 +255,11 @@ where
                     tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
                     tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
                 }
-                Ok(StreamedAssistantContent::Final(_)) => {}
+                Ok(StreamedAssistantContent::Final(res)) => {
+                    trusted_input_tokens = rig::completion::GetTokenUsage::token_usage(&res)
+                        .map(|usage| usage.input_tokens.saturating_add(usage.cached_input_tokens))
+                        .filter(|value| *value > 0);
+                }
                 Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
                     let merged = reasoning.display_text();
                     if !merged.is_empty() {
@@ -307,6 +312,7 @@ where
                 reasoning_inline: String::new(),
                 tool_history_events,
                 suppress_assistant_message: false,
+                trusted_input_tokens,
             });
         }
 
@@ -333,6 +339,7 @@ where
                     reasoning_inline: String::new(),
                     tool_history_events: tool_history_without_organize_context(&tool_history_events),
                     suppress_assistant_message: true,
+                    trusted_input_tokens: None,
                 });
             }
             let (tool_result_for_model, screenshot_forward) =
@@ -395,6 +402,7 @@ where
         reasoning_inline: String::new(),
         tool_history_events,
         suppress_assistant_message: false,
+        trusted_input_tokens,
     })
 }
 

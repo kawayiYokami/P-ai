@@ -877,6 +877,8 @@ struct Conversation {
     last_assistant_at: Option<String>,
     #[serde(default)]
     last_context_usage_ratio: f64,
+    #[serde(default)]
+    last_effective_prompt_tokens: u64,
     status: String,
     #[serde(default)]
     summary: String,

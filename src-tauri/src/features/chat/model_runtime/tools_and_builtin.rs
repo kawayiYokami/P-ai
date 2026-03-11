@@ -5,6 +5,7 @@ struct ModelReply {
     reasoning_inline: String,
     tool_history_events: Vec<Value>,
     suppress_assistant_message: bool,
+    trusted_input_tokens: Option<u64>,
 }
 
 fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<RigMessage>, String> {

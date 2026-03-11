@@ -94,6 +94,7 @@ fn build_conversation_record(
         last_user_at: None,
         last_assistant_at: None,
         last_context_usage_ratio: 0.0,
+        last_effective_prompt_tokens: 0,
         status: "active".to_string(),
         summary: String::new(),
         archived_at: None,
@@ -184,7 +185,19 @@ fn estimate_conversation_tokens(conversation: &Conversation) -> u32 {
 
 fn compute_context_usage_ratio(conversation: &Conversation, context_window_tokens: u32) -> f64 {
     let max_tokens = context_window_tokens.max(1) as f64;
-    (estimate_conversation_tokens(conversation) as f64 / max_tokens).max(0.0)
+    (effective_prompt_tokens_for_conversation(conversation) as f64 / max_tokens).max(0.0)
+}
+
+fn effective_prompt_tokens_for_conversation(conversation: &Conversation) -> u32 {
+    let last_role = conversation
+        .messages
+        .last()
+        .map(|message| message.role.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    if last_role == "assistant" && conversation.last_effective_prompt_tokens > 0 {
+        return conversation.last_effective_prompt_tokens.min(u64::from(u32::MAX)) as u32;
+    }
+    estimate_conversation_tokens(conversation)
 }
 
 fn decide_archive_before_user_message(

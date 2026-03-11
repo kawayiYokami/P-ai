@@ -46,6 +46,21 @@ fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
         || reply.suppress_assistant_message
 }
 
+fn effective_prompt_tokens_from_provider(
+    estimated_prompt_tokens: u64,
+    trusted_input_tokens: Option<u64>,
+) -> (u64, &'static str) {
+    let estimated = estimated_prompt_tokens.max(1);
+    let Some(provider) = trusted_input_tokens.filter(|value| *value > 0) else {
+        return (estimated_prompt_tokens, "estimate_no_provider");
+    };
+    let gap = provider.abs_diff(estimated) as f64 / estimated as f64;
+    if gap > 0.5 {
+        return (estimated_prompt_tokens, "estimate_large_gap");
+    }
+    (provider, "provider")
+}
+
 fn is_retryable_model_error(error: &str) -> bool {
     let normalized = error.trim().to_ascii_lowercase();
     normalized.contains("429") || normalized.contains("too many requests")
@@ -383,7 +398,14 @@ async fn send_chat_message_inner(
         }
     }
 
-    let (model_name, prepared_prompt, conversation_id, latest_user_text, current_agent) = {
+    let (
+        model_name,
+        prepared_prompt,
+        conversation_id,
+        latest_user_text,
+        current_agent,
+        estimated_prompt_tokens,
+    ) = {
         let guard = state
             .state_lock
             .lock()
@@ -573,6 +595,7 @@ async fn send_chat_message_inner(
             model_name
         };
         let conversation_id = conversation.id.clone();
+        let estimated_prompt_tokens = u64::from(estimate_conversation_tokens(&conversation));
 
         if !trigger_only {
             write_app_data(&state.data_path, &data)?;
@@ -585,6 +608,7 @@ async fn send_chat_message_inner(
             conversation_id,
             latest_user_text,
             agent,
+            estimated_prompt_tokens,
         )
     };
 
@@ -661,17 +685,33 @@ async fn send_chat_message_inner(
     let reasoning_inline = model_reply.reasoning_inline;
     let tool_history_events = model_reply.tool_history_events;
     let suppress_assistant_message = model_reply.suppress_assistant_message;
+    let trusted_input_tokens = model_reply.trusted_input_tokens;
+    let (effective_prompt_tokens, effective_prompt_source) =
+        effective_prompt_tokens_from_provider(estimated_prompt_tokens, trusted_input_tokens);
+    let context_usage_ratio =
+        effective_prompt_tokens as f64 / f64::from(selected_api.context_window_tokens.max(1));
+    let context_usage_percent = context_usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
 
     let assistant_text_for_storage = assistant_text.clone();
     let provider_meta = {
         let standard = reasoning_standard.trim();
         let inline = reasoning_inline.trim();
-        if standard.is_empty() && inline.is_empty() {
+        if standard.is_empty()
+            && inline.is_empty()
+            && trusted_input_tokens.is_none()
+            && estimated_prompt_tokens == 0
+        {
             None
         } else {
             Some(serde_json::json!({
                 "reasoningStandard": standard,
-                "reasoningInline": inline
+                "reasoningInline": inline,
+                "providerPromptTokens": trusted_input_tokens,
+                "estimatedPromptTokens": estimated_prompt_tokens,
+                "effectivePromptTokens": effective_prompt_tokens,
+                "effectivePromptSource": effective_prompt_source,
+                "contextUsagePercent": context_usage_percent,
+                "contextUsageRatio": context_usage_ratio
             }))
         }
     };
@@ -711,8 +751,8 @@ async fn send_chat_message_inner(
                 conversation.updated_at = now.clone();
                 conversation.last_assistant_at = Some(now);
             }
-            conversation.last_context_usage_ratio =
-                compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+            conversation.last_effective_prompt_tokens = effective_prompt_tokens;
+            conversation.last_context_usage_ratio = context_usage_ratio;
             if !suppress_assistant_message && conversation.last_context_usage_ratio >= 0.82 {
                 post_reply_forced_archive_source = Some(conversation.clone());
             }
