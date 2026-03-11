@@ -1606,7 +1606,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "easy-call-ai"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "aho-corasick",
  "arboard",
@@ -2309,7 +2309,7 @@ dependencies = [
 
 [[package]]
 name = "getopts"
-version = "0.2.24"
+version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
 dependencies = [
