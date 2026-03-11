@@ -95,14 +95,22 @@ jobs:
       - name: Build Tauri app
         run: pnpm tauri build
 
-      - name: Upload bundle artifacts
+      - name: Upload bundle artifacts (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.os }}
           path: |
             src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
             src-tauri/target/release/bundle/**/*.AppImage
+          if-no-files-found: error
+
+      - name: Upload bundle artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          path: |
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
           if-no-files-found: error
@@ -154,7 +162,6 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/**/*.deb
-            release-assets/**/*.rpm
             release-assets/**/*.AppImage
             release-assets/**/*.msi
             release-assets/**/*.exe

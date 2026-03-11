@@ -61,6 +61,6 @@
     "macOS": {
       "infoPlist": "Info.plist"
     },
-    "targets": ["deb", "appimage"]
+    "targets": ["deb", "appimage", "msi", "nsis"]
   }
 }
