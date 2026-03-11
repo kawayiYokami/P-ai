@@ -24,7 +24,10 @@
 
     <div v-if="selectedSkill" class="rounded-md border border-base-300 bg-base-100 p-3 space-y-2">
       <div class="text-sm font-semibold">{{ selectedSkill.name }}</div>
+      <div class="text-xs opacity-60">描述</div>
       <div class="text-sm opacity-80 whitespace-pre-wrap">{{ selectedSkill.description || "(无描述)" }}</div>
+      <div class="text-xs opacity-60 pt-2">正文</div>
+      <div class="rounded-md border border-base-300 bg-base-200/50 px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">{{ selectedSkill.content || "(无正文)" }}</div>
       <div class="text-[11px] opacity-60 break-all">{{ selectedSkill.path }}</div>
     </div>
 
