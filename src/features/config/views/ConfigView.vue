@@ -119,11 +119,14 @@
           :selected-persona-avatar-url="selectedPersonaAvatarUrl"
           :avatar-saving="avatarSaving"
           :avatar-error="avatarError"
+          :persona-saving="personaSaving"
+          :persona-dirty="personaDirty"
           @update:persona-editor-id="$emit('update:personaEditorId', $event)"
           @add-persona="$emit('addPersona')"
           @remove-selected-persona="$emit('removeSelectedPersona')"
           @open-avatar-editor="openAvatarEditorForSelected"
           @import-persona-memories="$emit('importPersonaMemories', $event)"
+          @save-personas="$emit('savePersonas')"
         />
 
         <ChatSettingsTab
@@ -151,6 +154,7 @@
           :assistant-department-agent-id="assistantDepartmentAgentId"
           :saving-config="savingConfig"
           :save-config-action="saveConfigAction"
+          :set-status-action="setStatusAction"
           @update:assistant-department-assignee-id="$emit('update:assistantDepartmentAgentId', $event)"
         />
 
@@ -298,6 +302,8 @@ const props = defineProps<{
   cacheStatsLoading: boolean;
   avatarSaving: boolean;
   avatarError: string;
+  personaSaving: boolean;
+  personaDirty: boolean;
   configDirty: boolean;
   savingConfig: boolean;
   hotkeyTestRecording: boolean;
@@ -305,6 +311,7 @@ const props = defineProps<{
   hotkeyTestAudioReady: boolean;
   checkingUpdate: boolean;
   saveConfigAction: () => Promise<boolean> | boolean;
+  setStatusAction: (text: string) => void;
 }>();
 
 const emit = defineEmits<{
@@ -322,6 +329,7 @@ const emit = defineEmits<{
   (e: "saveApiConfig"): void;
   (e: "addPersona"): void;
   (e: "removeSelectedPersona"): void;
+  (e: "savePersonas"): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;
