@@ -200,6 +200,7 @@ fn main() {
                 .and_then(|a| a.avatar_path.clone());
             drop(guard);
             let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
+            attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
             if let Err(err) = show_window(&app_handle, "main") {
                 eprintln!("[BOOT] show_window(main) failed: {err}");
