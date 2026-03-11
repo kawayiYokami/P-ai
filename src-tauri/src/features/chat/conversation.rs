@@ -1,17 +1,14 @@
 fn latest_active_conversation_index(
     data: &AppData,
-    api_config_id: &str,
-    agent_id: &str,
+    _api_config_id: &str,
+    _agent_id: &str,
 ) -> Option<usize> {
-    let requested_api_config_id = api_config_id.trim();
     data.conversations
         .iter()
         .enumerate()
         .filter(|(_, c)| {
             c.status == "active"
                 && c.summary.trim().is_empty()
-                && (requested_api_config_id.is_empty() || c.api_config_id == requested_api_config_id)
-                && c.agent_id == agent_id
                 && !conversation_is_delegate(c)
         })
         .max_by(|(idx_a, a), (idx_b, b)| {
@@ -25,6 +22,48 @@ fn latest_active_conversation_index(
                 .then_with(|| idx_a.cmp(idx_b))
         })
         .map(|(idx, _)| idx)
+}
+
+fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
+    let Some(keep_idx) = latest_active_conversation_index(data, "", "") else {
+        return false;
+    };
+    let keep_id = data
+        .conversations
+        .get(keep_idx)
+        .map(|item| item.id.clone())
+        .unwrap_or_default();
+    if keep_id.trim().is_empty() {
+        return false;
+    }
+    let removable_count = data
+        .conversations
+        .iter()
+        .filter(|conversation| {
+            !conversation_is_delegate(conversation)
+                && conversation.status == "active"
+                && conversation.summary.trim().is_empty()
+                && conversation.id != keep_id
+        })
+        .count();
+    if removable_count == 0 {
+        return false;
+    }
+    let before = data.conversations.len();
+    data.conversations.retain(|conversation| {
+        conversation_is_delegate(conversation)
+            || conversation.status != "active"
+            || !conversation.summary.trim().is_empty()
+            || conversation.id == keep_id
+    });
+    let changed = data.conversations.len() != before;
+    if changed {
+        eprintln!(
+            "[INFO][会话] 归一化未归档主会话: kept_conversation_id={}, removed_count={}",
+            keep_id, removable_count
+        );
+    }
+    changed
 }
 
 fn conversation_is_delegate(conversation: &Conversation) -> bool {
@@ -110,6 +149,7 @@ fn ensure_active_conversation_index(
     api_config_id: &str,
     agent_id: &str,
 ) -> usize {
+    let _ = normalize_single_active_main_conversation(data);
     if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
         // Keep conversation metadata aligned with the currently selected chat API.
         if data.conversations[idx].api_config_id != api_config_id {
@@ -270,7 +310,10 @@ fn archive_conversation_now(
     conv.archived_at = Some(now.clone());
     conv.updated_at = now;
     let archive_id = conv.id.clone();
-    let _ = reason;
+    eprintln!(
+        "[会话] 已归档: conversation_id={}, reason=\"{}\", summary=\"{}\"",
+        conv.id, reason, summary
+    );
     clear_screenshot_artifact_cache();
     Some(archive_id)
 }
@@ -1096,5 +1139,3 @@ fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
         _ => None,
     }
 }
-
-

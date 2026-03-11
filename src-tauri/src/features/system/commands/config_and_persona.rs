@@ -1072,7 +1072,7 @@ fn get_chat_snapshot(
         .cloned();
 
     if data.conversations.len() != before_len {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
 
@@ -1177,8 +1177,9 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
 
     let mut summaries = data
         .conversations
@@ -1212,9 +1213,12 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
             .unwrap_or(a.updated_at.as_str());
         bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
     });
+    if summaries.len() > 1 {
+        summaries.truncate(1);
+    }
 
-    if defaults_changed {
-        write_app_data(&state.data_path, &data)?;
+    if defaults_changed || normalized_changed {
+        state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
     Ok(summaries)
@@ -1281,14 +1285,19 @@ fn get_unarchived_conversation_messages(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     drop(guard);
 
-    let mut messages = data
+    let requested_messages = data
         .conversations
         .iter()
-        .find(|c| c.summary.trim().is_empty() && c.id == conversation_id)
-        .map(|c| c.messages.clone())
+        .find(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c) && c.id == conversation_id)
+        .map(|c| c.messages.clone());
+    let fallback_messages = latest_active_conversation_index(&data, "", "")
+        .and_then(|idx| data.conversations.get(idx))
+        .map(|c| c.messages.clone());
+    let mut messages = requested_messages
+        .or(fallback_messages)
         .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
@@ -1333,34 +1342,33 @@ fn get_delegate_conversation_messages(
     Ok(messages)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeleteUnarchivedConversationInput {
-    conversation_id: String,
-}
-
 #[tauri::command]
 fn delete_unarchived_conversation(
-    input: DeleteUnarchivedConversationInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conversation_id = input.conversation_id.trim();
-    if conversation_id.is_empty() {
-        return Err("conversationId is required.".to_string());
-    }
+    eprintln!("[会话] 请求删除当前未归档主会话");
     let guard = state
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let before = data.conversations.len();
+    let removed_count = data
+        .conversations
+        .iter()
+        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
+        .count();
     data.conversations
-        .retain(|c| !(c.summary.trim().is_empty() && c.id == conversation_id));
+        .retain(|c| !(c.summary.trim().is_empty() && !conversation_is_delegate(c)));
     if data.conversations.len() == before {
         drop(guard);
         return Err("Unarchived conversation not found.".to_string());
     }
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
+    eprintln!(
+        "[会话] 已删除未归档主会话残留: removed_count={}",
+        removed_count
+    );
     drop(guard);
     Ok(())
 }
@@ -1375,12 +1383,13 @@ fn get_active_conversation_messages(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let mut app_config = read_config(&state.config_path)?;
+    let mut app_config = state_read_config_cached(&state)?;
 
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
-    if defaults_changed {
-        write_app_data(&state.data_path, &data)?;
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
+    if defaults_changed || normalized_changed {
+        state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
@@ -1410,7 +1419,41 @@ fn get_active_conversation_messages(
     };
 
     let before_len = data.conversations.len();
-    let idx = if let Some(existing_idx) =
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let idx = if let Some(conversation_id) = requested_conversation_id {
+        if let Some(idx) = data.conversations
+            .iter()
+            .position(|item| {
+                item.id == conversation_id
+                    && item.summary.trim().is_empty()
+                    && !conversation_is_delegate(item)
+            })
+        {
+            idx
+        } else if let Some(existing_idx) =
+            latest_active_conversation_index(&data, "", &effective_agent_id)
+        {
+            eprintln!(
+                "[INFO][会话] 指定会话消息读取回退到当前未归档主会话: requested_conversation_id={}, reason=not_found_or_delegate, agent_id={}",
+                conversation_id,
+                effective_agent_id
+            );
+            existing_idx
+        } else {
+            eprintln!(
+                "[INFO][会话] 指定会话消息读取未命中，创建新的未归档主会话: requested_conversation_id={}, reason=not_found_and_no_active_main_conversation, agent_id={}",
+                conversation_id,
+                effective_agent_id
+            );
+            let api_config = resolve_selected_api_config(&app_config, None)
+                .ok_or_else(|| "No API config available".to_string())?;
+            ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
+        }
+    } else if let Some(existing_idx) =
         latest_active_conversation_index(&data, "", &effective_agent_id)
     {
         existing_idx
@@ -1422,7 +1465,7 @@ fn get_active_conversation_messages(
     let mut messages = data.conversations[idx].messages.clone();
 
     if data.conversations.len() != before_len {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);

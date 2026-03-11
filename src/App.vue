@@ -372,6 +372,7 @@ const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
 const chatInput = ref("");
+const currentChatConversationId = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
@@ -468,10 +469,11 @@ const {
   delegateMessages,
   selectedDelegateConversationId,
   loadArchives,
+  loadUnarchivedConversations,
   selectArchive,
   selectUnarchivedConversation,
   selectDelegateConversation,
-  deleteUnarchivedConversation,
+  deleteUnarchivedConversation: deleteUnarchivedConversationFromArchives,
   deleteArchive,
   exportArchive,
   buildArchiveImportPreview,
@@ -941,6 +943,7 @@ const chatRuntime = useChatRuntime({
   },
   activeChatApiConfigId: assistantDepartmentApiConfigId,
   assistantDepartmentAgentId: activeAssistantAgentId,
+  currentConversationId: currentChatConversationId,
   chatting,
   forcingArchive,
   allMessages,
@@ -1521,6 +1524,7 @@ const chatFlow = useChatFlow({
     if (!apiConfigId || !agentId) return null;
     return { apiConfigId, agentId };
   },
+  getConversationId: () => String(currentChatConversationId.value || "").trim(),
   chatInput,
   clipboardImages,
   latestUserText,
@@ -1543,6 +1547,7 @@ const chatFlow = useChatFlow({
         session: {
           apiConfigId: session.apiConfigId,
           agentId: session.agentId,
+          conversationId: session.conversationId || null,
         },
       },
       onDelta,
@@ -1553,6 +1558,7 @@ const chatFlow = useChatFlow({
         session: {
           apiConfigId: session.apiConfigId,
           agentId: session.agentId,
+          conversationId: session.conversationId || null,
         },
         partialAssistantText,
         partialReasoningStandard,
@@ -1560,7 +1566,11 @@ const chatFlow = useChatFlow({
       },
     }),
   onReloadMessages: () => loadAllMessages(),
-  onHistoryFlushed: async ({ conversationId: _conversationId, messageCount, pendingMessages }) => {
+  onHistoryFlushed: async ({ conversationId, messageCount, pendingMessages }) => {
+    const flushedConversationId = String(conversationId || "").trim();
+    if (flushedConversationId) {
+      currentChatConversationId.value = flushedConversationId;
+    }
     // 优先合并前端本地批次：history_flushed 到达后先把前端已确认批次并入当前视图，
     // 避免流式开始前还阻塞等待后端全量历史。
     {
@@ -1574,6 +1584,7 @@ const chatFlow = useChatFlow({
       }
       allMessages.value = merged.map((item) => mergedMap.get(item.id) as ChatMessage);
     }
+    await loadUnarchivedConversations();
   },
 });
 
@@ -1627,6 +1638,7 @@ function buildPersonasSnapshotJson() {
 async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage | null> {
   const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
   const agentId = String(activeAssistantAgentId.value || "").trim();
+  const conversationId = String(currentChatConversationId.value || "").trim();
   const messageId = String(turnId || "").trim();
   if (!apiConfigId || !agentId || !messageId) return null;
   const currentMessages = [...allMessages.value];
@@ -1638,6 +1650,7 @@ async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage |
         session: {
           apiConfigId,
           agentId,
+          conversationId: conversationId || null,
         },
         messageId,
       },
@@ -1649,6 +1662,15 @@ async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage |
   } catch (error) {
     setStatusError("status.rewindConversationFailed", error);
     return null;
+  }
+}
+
+async function deleteUnarchivedConversation(conversationId: string) {
+  await deleteUnarchivedConversationFromArchives(conversationId);
+  if (String(currentChatConversationId.value || "").trim() === String(conversationId || "").trim()) {
+    currentChatConversationId.value = "";
+    allMessages.value = [];
+    visibleMessageBlockCount.value = 1;
   }
 }
 
