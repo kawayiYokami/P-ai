@@ -267,6 +267,15 @@ export type ChatMessageBlock = {
   lastToolName: string;
 };
 
+export type ChatPersonaPresenceChip = {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  departmentName: string;
+  isFrontSpeaking: boolean;
+  hasBackgroundTask: boolean;
+};
+
 export type ArchiveSummary = {
   archiveId: string;
   archivedAt: string;

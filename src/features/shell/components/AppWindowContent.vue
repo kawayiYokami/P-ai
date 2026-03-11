@@ -40,6 +40,8 @@
       :cache-stats-loading="imageCacheStatsLoading"
       :avatar-saving="avatarSaving"
       :avatar-error="avatarError"
+      :persona-saving="personaSaving"
+      :persona-dirty="personaDirty"
       :config-dirty="configDirty"
       :saving-config="saving"
       :hotkey-test-recording="hotkeyTestRecording"
@@ -47,6 +49,7 @@
       :hotkey-test-audio-ready="!!hotkeyTestAudio"
       :checking-update="checkingUpdate"
       :save-config-action="saveConfig"
+      :set-status-action="setStatus"
       @update:config-tab="updateConfigTab"
       @update:ui-language="setUiLanguage"
       @update:persona-editor-id="updatePersonaEditorId"
@@ -60,6 +63,7 @@
       @remove-selected-api-config="removeSelectedApiConfig"
       @add-persona="addPersona"
       @remove-selected-persona="removeSelectedPersona"
+      @save-personas="savePersonas"
       @import-persona-memories="importPersonaMemories"
       @open-current-history="openCurrentHistory"
       @open-prompt-preview="openPromptPreview"
@@ -86,6 +90,7 @@
         :assistant-avatar-url="selectedPersonaAvatarUrl"
         :persona-name-map="chatPersonaNameMap"
         :persona-avatar-url-map="chatPersonaAvatarUrlMap"
+        :persona-presence-chips="chatPersonaPresenceChips"
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
@@ -120,7 +125,6 @@
         @regenerate-turn="onRegenerateTurn"
         @lock-workspace="onLockChatWorkspace"
         @unlock-workspace="onUnlockChatWorkspace"
-        @open-skill-list="onOpenSkillPanel"
       />
       <div
         v-if="forcingArchive"
@@ -211,6 +215,7 @@ import type {
   ArchiveSummary,
   ChatMessage,
   ChatMessageBlock,
+  ChatPersonaPresenceChip,
   DelegateConversationSummary,
   ImageTextCacheStats,
   PersonaProfile,
@@ -261,18 +266,22 @@ const props = defineProps<{
   imageCacheStatsLoading: boolean;
   avatarSaving: boolean;
   avatarError: string;
+  personaSaving: boolean;
+  personaDirty: boolean;
   configDirty: boolean;
   saving: boolean;
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudio: unknown;
   checkingUpdate: boolean;
+  setStatus: (text: string) => void;
   userAlias: string;
   selectedPersonaName: string;
   userAvatarUrl: string;
   selectedPersonaAvatarUrl: string;
   chatPersonaNameMap: Record<string, string>;
   chatPersonaAvatarUrlMap: Record<string, string>;
+  chatPersonaPresenceChips: ChatPersonaPresenceChip[];
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
@@ -333,6 +342,7 @@ const props = defineProps<{
   removeSelectedApiConfig: () => void;
   addPersona: () => void;
   removeSelectedPersona: () => void;
+  savePersonas: () => Promise<boolean> | boolean;
   importPersonaMemories: (payload: { agentId: string; file: File }) => void;
   openCurrentHistory: () => void;
   openPromptPreview: () => void;
@@ -358,7 +368,6 @@ const props = defineProps<{
   onRegenerateTurn: (payload: { turnId: string }) => void;
   onLockChatWorkspace: () => void;
   onUnlockChatWorkspace: () => void;
-  onOpenSkillPanel: () => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;

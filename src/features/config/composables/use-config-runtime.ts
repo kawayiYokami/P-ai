@@ -33,6 +33,18 @@ type UseConfigRuntimeOptions = {
 };
 
 export function useConfigRuntime(options: UseConfigRuntimeOptions) {
+  function normalizeAvatarError(error: unknown): string {
+    const raw = String(error ?? "").trim();
+    if (!raw) return "unknown";
+    if (raw.includes("当前人格来自私有工作区")) {
+      return options.t("config.persona.privateWorkspaceAvatarReadonly");
+    }
+    if (raw.includes("Agent not found")) {
+      return options.t("config.persona.avatarTargetMissing");
+    }
+    return raw;
+  }
+
   async function syncTrayIcon(agentId?: string) {
     try {
       await invokeTauri("sync_tray_icon", {
@@ -68,7 +80,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
       }
       options.setStatus(options.t("status.avatarSaved"));
     } catch (e) {
-      const err = String(e);
+      const err = normalizeAvatarError(e);
       options.avatarError.value = err;
       options.setStatus(options.t("status.avatarSaveFailed", { err }));
     } finally {
@@ -91,7 +103,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
       }
       options.setStatus(options.t("status.avatarCleared"));
     } catch (e) {
-      const err = String(e);
+      const err = normalizeAvatarError(e);
       options.avatarError.value = err;
       options.setStatus(options.t("status.avatarClearFailed", { err }));
     }

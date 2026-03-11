@@ -1,49 +1,39 @@
 <template>
-  <div class="flex flex-col gap-6 [&_div]:[transition:background-color_200ms,border-color_200ms,box-shadow_200ms,border-radius_200ms_ease-out]">
-    <!-- 操作栏 -->
-    <div class="flex items-center justify-between">
-      <div class="text-sm opacity-60">{{ t("config.department.hint") }}</div>
-      <div class="flex items-center gap-2">
-        <button class="btn btn-sm btn-ghost" :disabled="savingConfig" @click="addDepartment">{{ t("config.department.add") }}</button>
+  <div class="grid gap-2">
+    <label class="flex w-full flex-col gap-1">
+      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.department.title") }}</span></div>
+      <div class="flex gap-1">
+        <select :value="selectedDepartmentId" class="select select-bordered select-sm flex-1" @change="switchSelectedDepartment(($event.target as HTMLSelectElement).value)">
+          <option v-for="department in sortedDepartments" :key="department.id" :value="department.id">
+            {{ department.name }}{{ department.isBuiltInAssistant ? `（${t("config.department.assistantBadge")}）` : (department.source === "private_workspace" ? `（${t("config.department.privateWorkspaceBadge")}）` : "") }}
+          </option>
+        </select>
+        <button class="btn btn-sm btn-square bg-base-100" :title="t('config.department.add')" :disabled="savingConfig" @click="addDepartment">
+          <Plus class="h-3.5 w-3.5" />
+        </button>
+        <button
+          class="btn btn-sm btn-square"
+          :class="!selectedDepartment || !!selectedDepartment.isBuiltInAssistant || selectedDepartmentIsPrivateWorkspace ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'bg-base-100'"
+          :title="t('config.department.remove')"
+          :disabled="!selectedDepartment || !!selectedDepartment.isBuiltInAssistant || selectedDepartmentIsPrivateWorkspace || savingConfig"
+          @click="removeSelectedDepartment"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
+        </button>
+        <button
+          class="btn btn-sm btn-square"
+          :class="departmentDirty ? 'btn-primary' : 'bg-base-100'"
+          :disabled="!selectedDepartment || selectedDepartmentIsPrivateWorkspace || !!departmentValidationMessage || !departmentDirty || savingConfig"
+          :title="savingConfig ? t('config.api.saving') : departmentDirty ? t('common.save') : t('status.configSaved')"
+          @click="saveDepartments"
+        >
+          <Save v-if="!savingConfig" class="h-3.5 w-3.5" />
+          <span v-else class="loading loading-spinner loading-sm"></span>
+        </button>
       </div>
-    </div>
-
-    <div class="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <!-- 部门列表 -->
-      <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-        <div class="flex items-center gap-2 px-4 py-3 border-b border-base-300">
-          <div class="font-medium">{{ t("config.department.title") }}<span v-if="sortedDepartments.length" class="opacity-60">（{{ sortedDepartments.length }}）</span></div>
-        </div>
-        <div class="divide-y divide-base-300">
-          <button
-            v-for="department in pagedDepartments"
-            :key="department.id"
-            class="w-full text-left px-4 py-3 hover:bg-base-200/40 transition-colors"
-            :class="selectedDepartmentId === department.id ? 'bg-base-200/60' : ''"
-            @click="selectedDepartmentId = department.id"
-          >
-            <div class="flex items-center gap-2">
-              <div class="font-medium text-sm">{{ department.name }}</div>
-              <span v-if="department.isBuiltInAssistant" class="badge badge-soft badge-primary">{{ t("config.department.assistantBadge") }}</span>
-              <span v-else-if="department.source === 'private_workspace'" class="badge badge-soft badge-secondary">{{ t("config.department.privateWorkspaceBadge") }}</span>
-            </div>
-            <div class="text-[11px] opacity-50 mt-1 line-clamp-2">
-              {{ department.summary || t("config.department.emptySummary") }}
-            </div>
-          </button>
-        </div>
-        <!-- 分页 -->
-        <div v-if="totalPages > 1" class="flex justify-center border-t border-base-300 px-4 py-3">
-          <div class="join">
-            <button class="btn btn-xs join-item" :disabled="page <= 1" @click="page--">‹</button>
-            <button class="btn btn-xs join-item btn-active">{{ page }} / {{ totalPages }}</button>
-            <button class="btn btn-xs join-item" :disabled="page >= totalPages" @click="page++">›</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 部门详情 -->
-      <div v-if="selectedDepartment" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
+    </label>
+    <div class="text-sm opacity-60">{{ t("config.department.hint") }}</div>
+    <div v-if="selectedDepartment" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
         <div v-if="departmentValidationMessage" class="border-b border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-content">
           {{ departmentValidationMessage }}
         </div>
@@ -160,21 +150,18 @@
           </div>
         </div>
       </div>
-
-      <div v-else class="border border-base-300 rounded-box bg-base-100 p-12 text-center">
-        <div class="text-sm opacity-40">{{ t("config.department.selectHint") }}</div>
-      </div>
+    <div v-else class="border border-base-300 rounded-box bg-base-100 p-12 text-center">
+      <div class="text-sm opacity-40">{{ t("config.department.selectHint") }}</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from "vue";
+import { computed, ref, watch } from "vue";
+import { Plus, Save, Trash2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, DepartmentConfig, PersonaProfile } from "../../../../types/app";
 import { validateDepartmentConfig } from "../../utils/department-validation";
-
-const PAGE_SIZE = 5;
 
 const props = defineProps<{
   config: AppConfig;
@@ -183,6 +170,7 @@ const props = defineProps<{
   assistantDepartmentAgentId: string;
   savingConfig: boolean;
   saveConfigAction: () => Promise<boolean> | boolean;
+  setStatusAction: (text: string) => void;
 }>();
 
 const emit = defineEmits<{
@@ -191,7 +179,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const selectedDepartmentId = ref("assistant-department");
-const page = ref(1);
 
 const sortedDepartments = computed(() =>
   [...(props.config.departments || [])].sort((a, b) => {
@@ -200,12 +187,6 @@ const sortedDepartments = computed(() =>
     return aRank - bRank || a.orderIndex - b.orderIndex;
   }),
 );
-
-const totalPages = computed(() => Math.max(1, Math.ceil(sortedDepartments.value.length / PAGE_SIZE)));
-const pagedDepartments = computed(() => {
-  const start = (page.value - 1) * PAGE_SIZE;
-  return sortedDepartments.value.slice(start, start + PAGE_SIZE);
-});
 
 const selectedDepartment = computed(
   () => props.config.departments.find((item) => item.id === selectedDepartmentId.value) ?? sortedDepartments.value[0] ?? null,
@@ -253,7 +234,6 @@ const hasEmptyDepartmentName = computed(() =>
 const departmentValidationMessage = computed(() =>
   validateDepartmentConfig(props.config, props.apiConfigs, (key, params) => t(key, params)),
 );
-let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 const departmentSnapshot = computed(() => JSON.stringify(
   (props.config.departments || []).map((item) => ({
     id: item.id,
@@ -267,7 +247,7 @@ const departmentSnapshot = computed(() => JSON.stringify(
   })),
 ));
 const lastSavedDepartmentSnapshot = ref(departmentSnapshot.value);
-let departmentAutosaveReady = false;
+const departmentDirty = computed(() => departmentSnapshot.value !== lastSavedDepartmentSnapshot.value);
 
 watch(
   () => sortedDepartments.value.map((item) => item.id).join("|"),
@@ -278,14 +258,6 @@ watch(
   },
   { immediate: true },
 );
-
-// 分页变化时检查选中项是否还在当前页
-watch(page, () => {
-  const ids = pagedDepartments.value.map((d) => d.id);
-  if (!ids.includes(selectedDepartmentId.value) && pagedDepartments.value.length > 0) {
-    selectedDepartmentId.value = pagedDepartments.value[0].id;
-  }
-});
 
 function syncAssistantDepartmentState() {
   const assistant = props.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
@@ -319,9 +291,6 @@ function addDepartment() {
     source: "main_config",
     scope: "global",
   });
-  // 计算新部门在哪一页并跳转
-  const newIndex = props.config.departments.length - 1;
-  page.value = Math.floor(newIndex / PAGE_SIZE) + 1;
   selectedDepartmentId.value = id;
 }
 
@@ -422,31 +391,22 @@ function moveDepartmentApiConfig(index: number, delta: number) {
   syncAssistantDepartmentState();
 }
 
-watch(
-  () => departmentSnapshot.value,
-  (snapshot) => {
-    if (!departmentAutosaveReady) {
-      lastSavedDepartmentSnapshot.value = snapshot;
-      departmentAutosaveReady = true;
-      return;
-    }
-    if (snapshot === lastSavedDepartmentSnapshot.value) return;
-    if (autosaveTimer) clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(async () => {
-      syncAssistantDepartmentState();
-      if (departmentValidationMessage.value) return;
-      const saved = await Promise.resolve(props.saveConfigAction());
-      if (saved) {
-        lastSavedDepartmentSnapshot.value = departmentSnapshot.value;
-      }
-    }, 1000);
-  },
-);
-
-onUnmounted(() => {
-  if (autosaveTimer) {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = null;
+function switchSelectedDepartment(nextId: string) {
+  const trimmedId = String(nextId || "").trim();
+  if (!trimmedId || trimmedId === selectedDepartmentId.value) return;
+  if (departmentDirty.value) {
+    const currentName = String(selectedDepartment.value?.name || selectedDepartmentId.value || "").trim() || t("config.department.title");
+    props.setStatusAction(t("status.departmentUnsavedSwitchHint", { name: currentName }));
   }
-});
+  selectedDepartmentId.value = trimmedId;
+}
+
+async function saveDepartments() {
+  syncAssistantDepartmentState();
+  if (departmentValidationMessage.value) return;
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (saved) {
+    lastSavedDepartmentSnapshot.value = departmentSnapshot.value;
+  }
+}
 </script>

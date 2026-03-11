@@ -282,22 +282,29 @@
           </button>
           <div class="ml-auto flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
             <button
-              v-for="persona in workspacePersonaChips"
+              v-for="persona in props.personaPresenceChips"
               :key="persona.id"
               type="button"
-              class="btn btn-ghost btn-sm btn-circle p-0 shrink-0 border"
-              :class="persona.active ? 'border-primary/60 bg-primary/10' : 'border-base-300/70 bg-base-100/70'"
-              :title="persona.name"
-              disabled
+              class="btn btn-ghost btn-sm btn-circle p-0 shrink-0 border relative"
+              :class="persona.isFrontSpeaking ? 'border-primary/60 bg-primary/10' : 'border-base-300/70 bg-base-100/70'"
+              :title="`部门：${persona.departmentName}\n人格：${persona.name}`"
+              @click.prevent
             >
               <div class="avatar">
-                <div class="w-7 rounded-full">
+                <div
+                  class="w-7 rounded-full"
+                  :class="persona.isFrontSpeaking ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''"
+                >
                   <img v-if="persona.avatarUrl" :src="persona.avatarUrl" :alt="persona.name" />
                   <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-[10px]">
                     {{ avatarInitial(persona.name) }}
                   </div>
                 </div>
               </div>
+              <span
+                v-if="persona.hasBackgroundTask"
+                class="absolute right-0.5 top-0.5 inline-block h-2.5 w-2.5 rounded-full bg-error ring-2 ring-base-100"
+              ></span>
             </button>
           </div>
         </div>
@@ -401,7 +408,7 @@ import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessageBlock } from "../../../types/app";
+import type { ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
 import ChatQueuePreview from "../components/ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
 
@@ -412,6 +419,7 @@ const props = defineProps<{
   assistantAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
+  personaPresenceChips: ChatPersonaPresenceChip[];
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
@@ -449,7 +457,6 @@ const emit = defineEmits<{
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "lockWorkspace"): void;
   (e: "unlockWorkspace"): void;
-  (e: "openSkillList"): void;
 }>();
 const { t } = useI18n();
 
@@ -643,38 +650,6 @@ function messageAvatarUrl(block: ChatMessageBlock): string {
   if (!id || id === "user-persona") return props.userAvatarUrl || "";
   return "";
 }
-
-const workspacePersonaChips = computed(() => {
-  const ids = new Set<string>([
-    ...Object.keys(props.personaNameMap || {}),
-    ...Object.keys(props.personaAvatarUrlMap || {}),
-  ]);
-  const currentAssistantName = String(props.personaName || "").trim();
-  const items = [...ids]
-    .map((id) => {
-      const trimmedId = String(id || "").trim();
-      if (!trimmedId) return null;
-      const name =
-        String(props.personaNameMap[trimmedId] || "").trim()
-        || (trimmedId === "user-persona" ? props.userAlias || t("archives.roleUser") : trimmedId);
-      const avatarUrl =
-        String(props.personaAvatarUrlMap[trimmedId] || "").trim()
-        || (trimmedId === "user-persona" ? props.userAvatarUrl || "" : "");
-      return {
-        id: trimmedId,
-        name,
-        avatarUrl,
-        active: name === currentAssistantName,
-      };
-    })
-    .filter((item): item is { id: string; name: string; avatarUrl: string; active: boolean } => !!item);
-  return items.sort((left, right) => {
-    if (left.active !== right.active) return left.active ? -1 : 1;
-    if (left.id === "user-persona" && right.id !== "user-persona") return -1;
-    if (right.id === "user-persona" && left.id !== "user-persona") return 1;
-    return left.name.localeCompare(right.name, "zh-CN");
-  });
-});
 
 function isOwnMessage(block: ChatMessageBlock): boolean {
   const id = String(block.speakerAgentId || "").trim();
@@ -1108,18 +1083,13 @@ watch(
   min-height: 0;
 }
 
-:deep(.chat-input-no-focus:focus),
-:deep(.chat-input-no-focus:focus-visible) {
-  outline: none !important;
-  box-shadow: none !important;
-  border-color: transparent !important;
-}
-
 :deep(.chat-input-no-focus),
 :deep(.chat-input-no-focus:hover),
 :deep(.chat-input-no-focus:focus),
 :deep(.chat-input-no-focus:focus-visible) {
-  border-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 </style>
