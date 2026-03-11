@@ -97,19 +97,13 @@ jobs:
       - name: Build Tauri app
         run: pnpm tauri build
 
-      - name: Prepare portable exe
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Copy-Item "src-tauri/target/release/easy-call-ai.exe" "src-tauri/target/release/easy-call-ai-portable.exe" -Force
-
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.os }}
           path: |
             src-tauri/target/release/bundle/**
-            src-tauri/target/release/easy-call-ai-portable.exe
+            src-tauri/target/release/easy-call-ai.exe
           if-no-files-found: error
 
   release:
