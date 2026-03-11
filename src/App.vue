@@ -54,6 +54,8 @@
       :image-cache-stats-loading="imageCacheStatsLoading"
       :avatar-saving="avatarSaving"
       :avatar-error="avatarError"
+      :persona-saving="personaSaving"
+      :persona-dirty="personaDirty"
       :config-dirty="configDirty"
       :saving="saving"
       :hotkey-test-recording="hotkeyTestRecording"
@@ -67,6 +69,7 @@
       :selected-persona-avatar-url="selectedPersonaAvatarUrl"
       :chat-persona-name-map="chatPersonaNameMap"
       :chat-persona-avatar-url-map="chatPersonaAvatarUrlMap"
+      :chat-persona-presence-chips="chatPersonaPresenceChips"
       :latest-user-text="latestUserText"
       :latest-user-images="latestUserImages"
       :latest-assistant-text="latestAssistantText"
@@ -112,9 +115,10 @@
       :prompt-preview-latest-audios="promptPreviewLatestAudios"
       :set-memory-dialog-ref="setMemoryDialogRef"
       :set-prompt-preview-dialog-ref="setPromptPreviewDialogRef"
+      :set-status="setStatus"
       :update-config-tab="(value) => { configTab = value; }"
       :set-ui-language="setUiLanguage"
-      :update-persona-editor-id="(value) => { personaEditorId = value; }"
+      :update-persona-editor-id="updatePersonaEditorIdWithNotice"
       :update-selected-persona-id="(value) => { assistantDepartmentAgentId.value = value; }"
       :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
       :set-theme="setTheme"
@@ -125,6 +129,7 @@
       :remove-selected-api-config="removeSelectedApiConfig"
       :add-persona="addPersona"
       :remove-selected-persona="removeSelectedPersona"
+      :save-personas="savePersonas"
       :import-persona-memories="importPersonaMemories"
       :open-current-history="openCurrentHistory"
       :open-prompt-preview="openPromptPreview"
@@ -322,6 +327,7 @@ import type {
   ApiConfigItem,
   AppConfig,
   ChatMessage,
+  ChatPersonaPresenceChip,
   ImageTextCacheStats,
   ResponseStyleOption,
   ToolLoadStatus,
@@ -412,6 +418,7 @@ const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
 const imageCacheStatsLoading = ref(false);
 const avatarSaving = ref(false);
 const avatarError = ref("");
+const personaSaving = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const configAutosaveReady = ref(false);
 const personasAutosaveReady = ref(false);
@@ -419,6 +426,7 @@ const chatSettingsAutosaveReady = ref(false);
 const suppressAutosave = ref(false);
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
+const lastSavedPersonasJson = ref("");
 const PERF_DEBUG = import.meta.env.DEV;
 const { perfNow, perfLog, setStatus, setStatusError, localeOptions, applyUiLanguage } = useAppCore({
   t: tr,
@@ -723,6 +731,54 @@ const chatPersonaAvatarUrlMap = computed<Record<string, string>>(() => {
   }
   return next;
 });
+const chatPersonaDepartmentNameMap = computed<Record<string, string>>(() => {
+  const next: Record<string, string> = {};
+  for (const department of config.departments) {
+    const departmentName = String(department.name || "").trim();
+    if (!departmentName) continue;
+    for (const agentId of department.agentIds || []) {
+      const trimmedId = String(agentId || "").trim();
+      if (!trimmedId) continue;
+      next[trimmedId] = departmentName;
+    }
+  }
+  return next;
+});
+const activeDelegateAgentIds = computed(() => {
+  const next = new Set<string>();
+  for (const item of delegateConversations.value) {
+    if (String(item.archivedAt || "").trim()) continue;
+    const agentId = String(item.agentId || "").trim();
+    if (!agentId) continue;
+    next.add(agentId);
+  }
+  return next;
+});
+const chatPersonaPresenceChips = computed<ChatPersonaPresenceChip[]>(() => {
+  const items: ChatPersonaPresenceChip[] = [];
+  for (const persona of personas.value) {
+    if (persona.isBuiltInSystem || persona.id === "system-persona") continue;
+    const id = String(persona.id || "").trim();
+    if (!id) continue;
+    items.push({
+      id,
+      name: String(persona.name || "").trim() || id,
+      avatarUrl: String(chatPersonaAvatarUrlMap.value[id] || "").trim(),
+      departmentName:
+        String(chatPersonaDepartmentNameMap.value[id] || "").trim()
+        || (id === "user-persona" ? "用户" : "未归属部门"),
+      isFrontSpeaking: chatting.value && id === activeAssistantAgentId.value,
+      hasBackgroundTask: activeDelegateAgentIds.value.has(id),
+    });
+  }
+  return items.sort((left, right) => {
+    if (left.isFrontSpeaking !== right.isFrontSpeaking) return left.isFrontSpeaking ? -1 : 1;
+    if (left.hasBackgroundTask !== right.hasBackgroundTask) return left.hasBackgroundTask ? -1 : 1;
+    if (left.id === "user-persona" && right.id !== "user-persona") return -1;
+    if (right.id === "user-persona" && left.id !== "user-persona") return 1;
+    return left.name.localeCompare(right.name, config.uiLanguage === "en-US" ? "en" : "zh-CN");
+  });
+});
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
   if (!id) return [];
@@ -769,6 +825,7 @@ const { resolveAvatarUrl, ensureAvatarCached, preloadPersonaAvatars } = useAvata
   personas,
 });
 const configDirty = computed(() => buildConfigSnapshotJson() !== lastSavedConfigJson.value);
+const personaDirty = computed(() => buildPersonasSnapshotJson() !== lastSavedPersonasJson.value);
 const responseStyleIds = computed(() => responseStyleOptions.map((item) => item.id));
 const { visibleMessageBlocks, hasMoreMessageBlocks, chatContextUsageRatio, chatUsagePercent } = useChatMessageBlocks({
   allMessages,
@@ -793,6 +850,16 @@ function syncUserAliasFromPersona() {
   if (userAlias.value !== next) {
     userAlias.value = next;
   }
+}
+
+function updatePersonaEditorIdWithNotice(value: string) {
+  const nextId = String(value || "").trim();
+  if (!nextId || nextId === personaEditorId.value) return;
+  if (personaDirty.value) {
+    const currentName = String(selectedPersonaEditor.value?.name || personaEditorId.value || "").trim() || t("config.persona.title");
+    status.value = t("status.personaUnsavedSwitchHint", { name: currentName });
+  }
+  personaEditorId.value = nextId;
 }
 
 const {
@@ -836,6 +903,7 @@ const configPersistence = useConfigPersistence({
   suppressAutosave,
   loading,
   saving,
+  savingPersonas: personaSaving,
   personas,
   assistantPersonas,
   assistantDepartmentAgentId,
@@ -847,7 +915,9 @@ const configPersistence = useConfigPersistence({
   normalizeApiBindingsLocal,
   buildConfigPayload,
   buildConfigSnapshotJson,
+  buildPersonasSnapshotJson,
   lastSavedConfigJson,
+  lastSavedPersonasJson,
   syncUserAliasFromPersona,
   preloadPersonaAvatars,
   syncTrayIcon,
@@ -888,7 +958,6 @@ const {
 
 const {
   scheduleConfigAutosave,
-  schedulePersonasAutosave,
   scheduleChatSettingsAutosave,
   disposeAutosaveTimers,
 } = useConfigAutosave({
@@ -1531,6 +1600,30 @@ function resetVisibleBlocksAfterRewind(nextMessages: ChatMessage[]) {
   visibleMessageBlockCount.value = Math.max(1, nextMessages.length - startIndex);
 }
 
+function buildPersonasSnapshotJson() {
+  return JSON.stringify(
+    personas.value.map((item) => ({
+      id: item.id,
+      name: item.name,
+      systemPrompt: item.systemPrompt,
+      privateMemoryEnabled: !!item.privateMemoryEnabled,
+      avatarPath: item.avatarPath || "",
+      avatarUpdatedAt: item.avatarUpdatedAt || "",
+      isBuiltInUser: !!item.isBuiltInUser,
+      isBuiltInSystem: !!item.isBuiltInSystem,
+      source: item.source || "",
+      scope: item.scope || "",
+      tools: (item.tools || []).map((tool) => ({
+        id: tool.id,
+        enabled: !!tool.enabled,
+        command: tool.command || "",
+        args: Array.isArray(tool.args) ? [...tool.args] : [],
+        values: tool.values ?? null,
+      })),
+    })),
+  );
+}
+
 async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage | null> {
   const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
   const agentId = String(activeAssistantAgentId.value || "").trim();
@@ -1648,7 +1741,6 @@ useAppWatchers({
   toolStatuses,
   defaultApiTools,
   t: tr,
-  schedulePersonasAutosave,
   scheduleChatSettingsAutosave,
   normalizeApiBindingsLocal,
   syncUserAliasFromPersona,

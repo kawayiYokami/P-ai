@@ -7,17 +7,27 @@
           {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
         </option>
       </select>
-      <button class="btn btn-sm btn-square text-primary bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
+      <button class="btn btn-sm btn-square bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
         <Plus class="h-3.5 w-3.5" />
       </button>
       <button
         class="btn btn-sm btn-square"
-        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'text-error bg-base-100'"
+        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'bg-base-100'"
         :title="t('config.persona.remove')"
         :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1"
         @click="$emit('removeSelectedPersona')"
       >
         <Trash2 class="h-3.5 w-3.5" />
+      </button>
+      <button
+        class="btn btn-sm btn-square"
+        :class="personaDirty ? 'btn-primary' : 'bg-base-100'"
+        :disabled="!selectedPersona || selectedPersonaIsPrivateWorkspace || !personaDirty || personaSaving"
+        :title="personaSaving ? t('config.api.saving') : personaDirty ? t('common.save') : t('status.personaSaved')"
+        @click="$emit('savePersonas')"
+      >
+        <Save v-if="!personaSaving" class="h-3.5 w-3.5" />
+        <span v-else class="loading loading-spinner loading-sm"></span>
       </button>
     </div>
   </label>
@@ -46,6 +56,9 @@
             </div>
           </div>
         </button>
+      </div>
+      <div v-if="selectedPersonaIsPrivateWorkspace" class="flex items-center justify-between py-1">
+        <span class="text-xs opacity-70">{{ t("config.persona.privateWorkspaceAvatarReadonly") }}</span>
       </div>
       <div v-if="avatarError" class="flex items-center justify-between py-1"><span class="text-error break-all">{{ avatarError }}</span></div>
     </label>
@@ -151,7 +164,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, Trash2 } from "lucide-vue-next";
+import { Plus, Save, Trash2 } from "lucide-vue-next";
 import type { PersonaProfile } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 
@@ -163,6 +176,8 @@ const props = defineProps<{
   selectedPersonaAvatarUrl: string;
   avatarSaving: boolean;
   avatarError: string;
+  personaSaving: boolean;
+  personaDirty: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -171,6 +186,7 @@ const emit = defineEmits<{
   (e: "removeSelectedPersona"): void;
   (e: "openAvatarEditor"): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
+  (e: "savePersonas"): void;
 }>();
 
 const { t } = useI18n();

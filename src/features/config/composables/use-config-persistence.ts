@@ -25,6 +25,7 @@ type UseConfigPersistenceOptions = {
   suppressAutosave: Ref<boolean>;
   loading: Ref<boolean>;
   saving: Ref<boolean>;
+  savingPersonas: Ref<boolean>;
   personas: Ref<PersonaProfile[]>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
   assistantDepartmentAgentId: Ref<string>;
@@ -37,6 +38,8 @@ type UseConfigPersistenceOptions = {
   buildConfigPayload: () => AppConfig;
   buildConfigSnapshotJson: () => string;
   lastSavedConfigJson: Ref<string>;
+  buildPersonasSnapshotJson: () => string;
+  lastSavedPersonasJson: Ref<string>;
   syncUserAliasFromPersona: () => void;
   preloadPersonaAvatars: () => Promise<void>;
   syncTrayIcon: (agentId?: string) => Promise<void>;
@@ -318,6 +321,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.syncUserAliasFromPersona();
       await options.preloadPersonaAvatars();
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
     } catch (e) {
       options.setStatusError("status.loadPersonasFailed", e);
     } finally {
@@ -353,6 +357,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
   async function savePersonas() {
     options.suppressAutosave.value = true;
+    options.savingPersonas.value = true;
     try {
       options.personas.value = await invokeTauri<PersonaProfile[]>("save_agents", {
         input: { agents: options.personas.value },
@@ -362,12 +367,14 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         tools: normalizeToolBindings(item.tools),
       }));
       options.syncUserAliasFromPersona();
+      options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
       options.setStatus(options.t("status.personaSaved"));
       return true;
     } catch (e) {
       options.setStatusError("status.savePersonasFailed", e);
       return false;
     } finally {
+      options.savingPersonas.value = false;
       options.suppressAutosave.value = false;
     }
   }

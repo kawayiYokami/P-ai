@@ -22,7 +22,6 @@ type UseAppWatchersOptions = {
   toolStatuses: Ref<ToolLoadStatus[]>;
   defaultApiTools: () => ApiConfigItem["tools"];
   t: TrFn;
-  schedulePersonasAutosave: () => void;
   scheduleChatSettingsAutosave: () => void;
   normalizeApiBindingsLocal: () => void;
   syncUserAliasFromPersona: () => void;
@@ -49,21 +48,6 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       failureRetryCount: a.failureRetryCount,
     })),
     () => options.normalizeApiBindingsLocal(),
-    { deep: true },
-  );
-
-  watch(
-    () => options.personas.value.map((p) => ({
-      id: p.id,
-      name: p.name,
-      systemPrompt: p.systemPrompt,
-      tools: (p.tools || []).map((tool) => `${tool.id}:${tool.enabled ? 1 : 0}`),
-      updatedAt: p.updatedAt,
-      avatarPath: p.avatarPath,
-      avatarUpdatedAt: p.avatarUpdatedAt,
-      isBuiltInUser: p.isBuiltInUser,
-    })),
-    () => options.schedulePersonasAutosave(),
     { deep: true },
   );
 
