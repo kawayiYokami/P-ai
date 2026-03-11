@@ -735,7 +735,7 @@ const streamingPreviewDuplicatedInHistory = computed(() => {
   if (!lastAssistant) return false;
   if (!props.latestAssistantText.trim()) return false;
   return (
-    String(lastAssistant.text || "").trim() === latestAssistantParts.value.visible.trim()
+    String(splitThinkText(lastAssistant.text || "").visible).trim() === latestAssistantParts.value.visible.trim()
     && String(lastAssistant.reasoningStandard || "").trim() === String(props.latestReasoningStandardText || "").trim()
     && String(resolvedInlineReasoning(lastAssistant) || "").trim() === String(latestInlineReasoningText.value || "").trim()
   );

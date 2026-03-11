@@ -201,9 +201,8 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   async function deleteUnarchivedConversation(conversationId: string) {
     if (!conversationId) return;
     try {
-      await invokeTauri("delete_unarchived_conversation", {
-        input: { conversationId },
-      });
+      console.info("[ARCHIVES] delete current unarchived main conversation", { conversationId });
+      await invokeTauri("delete_unarchived_conversation");
       options.setStatus(options.t("status.unarchivedConversationDeleted"));
       if (selectedUnarchivedConversationId.value === conversationId) {
         selectedUnarchivedConversationId.value = "";

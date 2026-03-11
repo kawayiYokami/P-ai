@@ -21,6 +21,7 @@ type UseChatRuntimeOptions = {
   setChatError: (text: string) => void;
   activeChatApiConfigId: Ref<string>;
   assistantDepartmentAgentId: Ref<string>;
+  currentConversationId?: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
@@ -31,6 +32,11 @@ type UseChatRuntimeOptions = {
 };
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
+  function currentConversationIdOrNull(): string | null {
+    const value = String(options.currentConversationId?.value || "").trim();
+    return value || null;
+  }
+
   async function forceArchiveNow() {
     const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
     const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
@@ -61,6 +67,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         input: {
           apiConfigId,
           agentId,
+          conversationId: currentConversationIdOrNull(),
         },
       });
       if (result.warning) {
@@ -100,6 +107,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         input: {
           apiConfigId: options.activeChatApiConfigId.value,
           agentId: options.assistantDepartmentAgentId.value,
+          conversationId: currentConversationIdOrNull(),
         },
       });
       if (options.perfDebug) console.log(`[PERF] loadAllMessages count=${msgs.length}`);

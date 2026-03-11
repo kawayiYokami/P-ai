@@ -465,14 +465,24 @@ async fn send_chat_message_inner(
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
         let idx = if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            data.conversations
+            if let Some(idx) = data.conversations
                 .iter()
                 .position(|item| {
                     item.id == conversation_id
                         && item.summary.trim().is_empty()
-                        && item.agent_id == effective_agent_id
+                        && !conversation_is_delegate(item)
                 })
-                .ok_or_else(|| format!("指定会话不存在，conversationId={conversation_id}"))?
+            {
+                idx
+            } else {
+                eprintln!(
+                    "[INFO][会话] 指定会话不可用，回退到当前未归档主会话: requested_conversation_id={}, reason=not_found_or_delegate, agent_id={}, api_config_id={}",
+                    conversation_id,
+                    effective_agent_id,
+                    selected_api.id
+                );
+                ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id)
+            }
         } else {
             ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id)
         };

@@ -20,6 +20,7 @@ type UseChatFlowOptions = {
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   getSession: () => { apiConfigId: string; agentId: string } | null;
+  getConversationId?: () => string;
   chatInput: Ref<string>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
   latestUserText: Ref<string>;
@@ -38,7 +39,7 @@ type UseChatFlowOptions = {
   invokeSendChatMessage: (input: {
     text: string;
     images: Array<{ mime: string; bytesBase64: string }>;
-    session: { apiConfigId: string; agentId: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     onDelta: Channel<AssistantDeltaEvent>;
   }) => Promise<{
     assistantText: string;
@@ -49,7 +50,7 @@ type UseChatFlowOptions = {
     assistantMessage?: ChatMessage;
   }>;
   invokeStopChatMessage?: (input: {
-    session: { apiConfigId: string; agentId: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     partialAssistantText: string;
     partialReasoningStandard: string;
     partialReasoningInline: string;
@@ -271,7 +272,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
             options.chatting.value = true;
           } catch (error) {
             const err = error as { message?: unknown; stack?: unknown };
-            console.error("[CHAT] history_flushed 处理失败", {
+            console.error("[聊天] 历史已清理 处理失败", {
               action: "history_flushed",
               message: String(err?.message ?? error ?? ""),
               stack: String(err?.stack ?? ""),
@@ -319,7 +320,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const result = await options.invokeSendChatMessage({
         text,
         images: sentImages,
-        session: sendSession,
+        session: {
+          ...sendSession,
+          conversationId: options.getConversationId ? options.getConversationId() : "",
+        },
         onDelta: deltaChannel,
       });
       if (gen !== activeDisplayGeneration) return;
@@ -358,7 +362,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       }
     } catch (error) {
       const err = error as { message?: unknown; stack?: unknown };
-      console.error("[CHAT] chat flow request failed", {
+      console.error("[聊天] 聊天流程请求失败", {
         action: "sendChat",
         apiConfigId: sendSession.apiConfigId,
         agentId: sendSession.agentId,
@@ -422,8 +426,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const partialReasoningInline = options.latestReasoningInlineText.value;
     if (stopSession && options.invokeStopChatMessage) {
       try {
+        const conversationId = options.getConversationId ? options.getConversationId() : "";
         await options.invokeStopChatMessage({
-          session: stopSession,
+          session: conversationId
+            ? {
+                ...stopSession,
+                conversationId,
+              }
+            : stopSession,
           partialAssistantText,
           partialReasoningStandard,
           partialReasoningInline,
