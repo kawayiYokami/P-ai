@@ -18,6 +18,17 @@ type UseChatMessageBlocksOptions = {
 };
 
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
+  function latestBackendContextUsagePercent(messages: ChatMessage[]): number | null {
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      const message = messages[idx];
+      if (message.role !== "assistant") continue;
+      const raw = Number((message.providerMeta || {}).contextUsagePercent);
+      if (!Number.isFinite(raw)) continue;
+      return Math.min(100, Math.max(0, Math.round(raw)));
+    }
+    return null;
+  }
+
   function resolveSpeakerAgentId(message: ChatMessage): string {
     const direct = String(message.speakerAgentId || "").trim();
     if (direct) return direct;
@@ -141,6 +152,10 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   const hasMoreMessageBlocks = computed(() => options.visibleMessageBlockCount.value < allMessageBlocks.value.length);
 
   const chatContextUsageRatio = computed(() => {
+    const backendPercent = latestBackendContextUsagePercent(options.allMessages.value);
+    if (backendPercent !== null) {
+      return backendPercent / 100;
+    }
     const api = options.activeChatApiConfig.value;
     if (!api) return 0;
     const maxTokens = Math.max(16000, Math.min(200000, Number(api.contextWindowTokens ?? 128000)));

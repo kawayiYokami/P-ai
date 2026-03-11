@@ -227,6 +227,7 @@ async fn call_model_deepseek_with_tools(
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
+    let mut trusted_input_tokens: Option<u64> = None;
 
     for _ in 0..max_rounds {
         let req = serde_json::json!({
@@ -234,7 +235,10 @@ async fn call_model_deepseek_with_tools(
             "messages": messages,
             "tools": tool_defs,
             "temperature": api_config.temperature,
-            "stream": true
+            "stream": true,
+            "stream_options": {
+                "include_usage": true
+            }
         });
         let mut stream: std::pin::Pin<
             Box<
@@ -254,6 +258,15 @@ async fn call_model_deepseek_with_tools(
 
         while let Some(item) = stream.next().await {
             let chunk = item.map_err(|err| format!("async-openai deepseek stream failed: {err}"))?;
+            if let Some(usage) = chunk.get("usage").and_then(Value::as_object) {
+                let prompt_tokens = usage
+                    .get("prompt_tokens")
+                    .and_then(Value::as_u64)
+                    .filter(|value| *value > 0);
+                if prompt_tokens.is_some() {
+                    trusted_input_tokens = prompt_tokens;
+                }
+            }
             let Some(choice0) = chunk
                 .get("choices")
                 .and_then(Value::as_array)
@@ -366,6 +379,7 @@ async fn call_model_deepseek_with_tools(
                 reasoning_inline: String::new(),
                 tool_history_events,
                 suppress_assistant_message: false,
+                trusted_input_tokens,
             });
         }
 
@@ -533,6 +547,7 @@ async fn call_model_deepseek_with_tools(
         reasoning_inline: String::new(),
         tool_history_events,
         suppress_assistant_message: false,
+        trusted_input_tokens,
     })
 }
 
