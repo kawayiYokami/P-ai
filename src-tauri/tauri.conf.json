@@ -61,6 +61,6 @@
     "macOS": {
       "infoPlist": "Info.plist"
     },
-    "targets": "all"
+    "targets": ["deb", "appimage"]
   }
 }
