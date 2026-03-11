@@ -92,21 +92,10 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     };
   }
 
-  function latestUserAnchorIndex(messages: ChatMessage[]): number {
-    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
-      const item = messages[idx];
-      if (item.role !== "user") continue;
-      const speaker = resolveSpeakerAgentId(item);
-      if (!speaker || speaker === "user-persona") return idx;
-    }
-    return 0;
-  }
-
   const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
     const startedAt = options.perfNow();
     const messages = options.allMessages.value;
-    const startIndex = latestUserAnchorIndex(messages);
-    const blocks = messages.slice(startIndex).map((message) => {
+    const blocks = messages.map((message) => {
       const rendered = removeBinaryPlaceholders(renderMessage(message));
       const parsed = parseAssistantStoredText(rendered);
       const meta = (message.providerMeta || {}) as Record<string, unknown>;
