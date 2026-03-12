@@ -2583,8 +2583,7 @@ impl Tool for BuiltinTerminalExecTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "exec".to_string(),
-            description: "Execute a command inside current shell workspace root."
-                .to_string(),
+            description: terminal_exec_tool_description(&self.app_state.terminal_shell),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {

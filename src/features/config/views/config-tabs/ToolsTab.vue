@@ -137,6 +137,12 @@
                 <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
               </div>
               <div v-if="item.id === 'exec'" class="mt-2">
+                <div v-if="isWindowsHost" class="text-[11px] bg-warning/10 text-base-content mb-2 rounded px-2 py-1 flex items-center gap-2">
+                  <span>{{ t("config.tools.powershell7RecommendedHint") }}</span>
+                  <button class="btn btn-sm bg-base-100" @click="openPowerShell7Link">
+                    {{ t("config.tools.installPowerShell7") }}
+                  </button>
+                </div>
                 <div class="flex items-center justify-between gap-2">
                   <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
                   <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning || toolSwitchDisabled(item.id)" @click="runTerminalSelfCheck">
@@ -232,6 +238,8 @@ const shellWorkspaceResetting = ref(false);
 const shellWorkspaceStatus = ref("");
 const shellWorkspaceStatusError = ref(false);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
+const POWERSHELL7_DOWNLOAD_URL = "https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows";
+const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 
 function setShellWorkspaceStatus(text: string, isError = false) {
   shellWorkspaceStatus.value = text;
@@ -382,6 +390,10 @@ function showGitInstallLink(id: string): boolean {
 
 function openGitDownloadLink() {
   void invokeTauri("open_external_url", { url: GIT_DOWNLOAD_URL });
+}
+
+function openPowerShell7Link() {
+  void invokeTauri("open_external_url", { url: POWERSHELL7_DOWNLOAD_URL });
 }
 
 function normalizeOutputText(value: unknown): string {
