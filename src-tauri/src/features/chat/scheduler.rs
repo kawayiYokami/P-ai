@@ -600,6 +600,13 @@ async fn process_conversation_batch(
                 reasoning_inline: String::new(),
                 archived_before_send: false,
                 assistant_message: None,
+                provider_prompt_tokens: None,
+                estimated_prompt_tokens: None,
+                effective_prompt_tokens: None,
+                effective_prompt_source: None,
+                context_window_tokens: None,
+                max_output_tokens: None,
+                context_usage_percent: None,
             },
         )?;
     }
