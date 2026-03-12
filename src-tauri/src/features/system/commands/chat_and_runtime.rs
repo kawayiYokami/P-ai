@@ -119,6 +119,53 @@ fn effective_prompt_tokens_from_provider(
     (provider, "provider")
 }
 
+fn estimate_prepared_prompt_tokens(
+    prepared: &PreparedPrompt,
+    selected_api: &ApiConfig,
+    current_agent: &AgentProfile,
+) -> u64 {
+    let mut total = 0.0f64;
+    total += estimated_tokens_for_text(&prepared.preamble);
+    for hm in &prepared.history_messages {
+        total += 10.0;
+        total += estimated_tokens_for_text(&hm.text);
+        if let Some(v) = hm.user_time_text.as_deref() {
+            total += estimated_tokens_for_text(v);
+        }
+        if let Some(v) = hm.reasoning_content.as_deref() {
+            total += estimated_tokens_for_text(v);
+        }
+        if let Some(calls) = hm.tool_calls.as_ref() {
+            let text = serde_json::to_string(calls).unwrap_or_default();
+            total += estimated_tokens_for_text(&text);
+        }
+    }
+    for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
+        total += estimated_tokens_for_text(&text_block);
+    }
+    total += prepared.latest_images.len() as f64 * 280.0;
+    total += prepared.latest_audios.len() as f64 * 320.0;
+
+    if selected_api.enable_tools {
+        let mut seen = std::collections::HashSet::<String>::new();
+        for tool in selected_api
+            .tools
+            .iter()
+            .chain(current_agent.tools.iter())
+            .filter(|tool| tool.enabled)
+        {
+            let key = tool.id.trim().to_ascii_lowercase();
+            if key.is_empty() || !seen.insert(key) {
+                continue;
+            }
+            let text = serde_json::to_string(tool).unwrap_or_default();
+            total += estimated_tokens_for_text(&text);
+        }
+    }
+
+    total.ceil().max(0.0).min(u64::MAX as f64) as u64
+}
+
 fn is_retryable_model_error(error: &str) -> bool {
     let normalized = error.trim().to_ascii_lowercase();
     normalized.contains("429") || normalized.contains("too many requests")
@@ -830,7 +877,8 @@ async fn send_chat_message_inner(
             model_name
         };
         let conversation_id = conversation.id.clone();
-        let estimated_prompt_tokens = u64::from(estimate_conversation_tokens(&conversation));
+        let estimated_prompt_tokens =
+            estimate_prepared_prompt_tokens(&prepared, &selected_api, &agent);
 
         if !trigger_only && !is_runtime_conversation {
             state_write_app_data_cached(&state, &data)?;
