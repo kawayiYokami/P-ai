@@ -32,6 +32,22 @@
           <div class="text-sm opacity-70">
             耗时 {{ entry.elapsedMs }}ms | {{ entry.baseUrl || "-" }}
           </div>
+          <div v-if="entry.traceId" class="text-xs opacity-60 break-all">
+            trace: {{ entry.traceId }}
+          </div>
+
+          <details v-if="entry.timeline?.length" class="collapse collapse-arrow bg-base-200 border border-base-300">
+            <summary class="collapse-title text-sm py-2 min-h-0">
+              Timeline（{{ entry.timeline.length }} 阶段）
+            </summary>
+            <div class="collapse-content text-sm space-y-2">
+              <div class="opacity-70 break-all">
+                慢阶段：
+                {{ topSlowStages(entry).map((item) => `${item.stage} +${item.sincePrevMs}ms`).join(" | ") || "-" }}
+              </div>
+              <pre class="whitespace-pre-wrap break-all">{{ toPretty(entry.timeline) }}</pre>
+            </div>
+          </details>
 
           <details class="collapse collapse-arrow bg-base-200 border border-base-300">
             <summary class="collapse-title text-sm py-2 min-h-0">Headers</summary>
@@ -85,6 +101,12 @@ function toPretty(input: unknown): string {
   } catch {
     return String(input ?? "");
   }
+}
+
+function topSlowStages(entry: LlmRoundLogEntry) {
+  return [...(entry.timeline ?? [])]
+    .sort((a, b) => b.sincePrevMs - a.sincePrevMs)
+    .slice(0, 3);
 }
 
 async function reload() {

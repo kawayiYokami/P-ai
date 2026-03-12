@@ -9,9 +9,19 @@ struct LlmRoundLogHeader {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct LlmRoundLogStage {
+    stage: String,
+    elapsed_ms: u64,
+    since_prev_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct LlmRoundLogEntry {
     id: String,
     created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
     scene: String,
     request_format: String,
     provider: String,
@@ -23,6 +33,8 @@ struct LlmRoundLogEntry {
     response: Option<Value>,
     error: Option<String>,
     elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeline: Option<Vec<LlmRoundLogStage>>,
     success: bool,
 }
 
@@ -228,6 +240,7 @@ fn model_reply_to_log_value(reply: &ModelReply) -> Value {
 
 fn push_llm_round_log(
     state: Option<&AppState>,
+    trace_id: Option<String>,
     scene: &str,
     request_format: RequestFormat,
     provider_name: &str,
@@ -239,6 +252,7 @@ fn push_llm_round_log(
     response: Option<Value>,
     error: Option<String>,
     elapsed_ms: u64,
+    timeline: Option<Vec<LlmRoundLogStage>>,
 ) {
     let Some(app_state) = state else {
         return;
@@ -250,6 +264,7 @@ fn push_llm_round_log(
     logs.push_back(LlmRoundLogEntry {
         id: Uuid::new_v4().to_string(),
         created_at: now_iso(),
+        trace_id,
         scene: scene.to_string(),
         request_format: request_format.as_str().to_string(),
         provider: provider_name.to_string(),
@@ -261,6 +276,7 @@ fn push_llm_round_log(
         response,
         error: error.filter(|v| !v.trim().is_empty()),
         elapsed_ms,
+        timeline,
         success,
     });
     while logs.len() > LLM_ROUND_LOG_CAPACITY {

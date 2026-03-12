@@ -626,6 +626,11 @@ async fn activate_main_assistant(
         oldest_queue_created_at,
     );
 
+    let trace_id = activation
+        .as_ref()
+        .map(|item| format!("queue-{}", item.event_id))
+        .unwrap_or_else(|| format!("queue-{}", Uuid::new_v4()));
+
     // 设置状态为 AssistantStreaming
     set_main_session_state(state, MainSessionState::AssistantStreaming)?;
 
@@ -647,6 +652,8 @@ async fn activate_main_assistant(
             provider_meta: None,
         },
         speaker_agent_id: None,
+        trace_id: Some(trace_id),
+        oldest_queue_created_at: Some(oldest_queue_created_at.to_string()),
     };
 
     // 创建一个空的 delta channel

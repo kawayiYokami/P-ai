@@ -684,6 +684,10 @@ struct SendChatRequest {
     #[serde(default)]
     speaker_agent_id: Option<String>,
     #[serde(default)]
+    trace_id: Option<String>,
+    #[serde(default)]
+    oldest_queue_created_at: Option<String>,
+    #[serde(default)]
     trigger_only: bool,
 }
 

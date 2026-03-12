@@ -1643,6 +1643,8 @@ async fn delegate_execute_agent_run(
             conversation_id: Some(delegate_conversation_id.to_string()),
         }),
         speaker_agent_id: Some(delegate.source_agent_id.clone()),
+        trace_id: Some(format!("delegate-{}", delegate.delegate_id)),
+        oldest_queue_created_at: None,
         trigger_only: false,
     };
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));

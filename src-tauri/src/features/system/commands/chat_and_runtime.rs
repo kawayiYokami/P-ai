@@ -129,12 +129,50 @@ async fn send_chat_message_inner(
     state: &AppState,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
+    let trace_id = input
+        .trace_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("chat-{}", Uuid::new_v4()));
+    let oldest_queue_created_at = input
+        .oldest_queue_created_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let queue_wait_ms = oldest_queue_created_at
+        .as_deref()
+        .and_then(parse_iso)
+        .map(|created_at| (now_utc() - created_at).whole_milliseconds())
+        .filter(|ms| *ms > 0)
+        .map(|ms| ms.min(i128::from(u64::MAX)) as u64);
+    let session_for_log = input.session.clone();
+
     let chat_started_at = std::time::Instant::now();
+    let stage_timeline = std::sync::Arc::new(std::sync::Mutex::new(Vec::<LlmRoundLogStage>::new()));
+    let stage_timeline_for_chat = stage_timeline.clone();
     let log_chat_stage = |stage: &str| {
+        let elapsed_ms = chat_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        if let Ok(mut timeline) = stage_timeline_for_chat.lock() {
+            let since_prev_ms = timeline
+                .last()
+                .map(|last| elapsed_ms.saturating_sub(last.elapsed_ms))
+                .unwrap_or(elapsed_ms);
+            timeline.push(LlmRoundLogStage {
+                stage: stage.to_string(),
+                elapsed_ms,
+                since_prev_ms,
+            });
+        }
         eprintln!(
             "[聊天耗时] stage={}, elapsed_ms={}",
             stage,
-            chat_started_at.elapsed().as_millis()
+            elapsed_ms
         );
     };
     log_chat_stage("send_chat_message_inner.start");
@@ -253,15 +291,33 @@ async fn send_chat_message_inner(
     let _ = abort_inflight_tool_abort_handle(state, &chat_key);
 
     let chat_session_key = chat_key.clone();
+    let chat_session_key_for_log = chat_session_key.clone();
+    let selected_api_for_log = selected_api.clone();
+    let resolved_api_for_log = resolved_api.clone();
     let state_for_run = state.clone();
+    let stage_timeline_for_run = stage_timeline.clone();
     let run = async move {
     let state = state_for_run;
-    let run_started_at = std::time::Instant::now();
     let log_run_stage = |stage: &str| {
+        let elapsed_ms = chat_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        if let Ok(mut timeline) = stage_timeline_for_run.lock() {
+            let since_prev_ms = timeline
+                .last()
+                .map(|last| elapsed_ms.saturating_sub(last.elapsed_ms))
+                .unwrap_or(elapsed_ms);
+            timeline.push(LlmRoundLogStage {
+                stage: stage.to_string(),
+                elapsed_ms,
+                since_prev_ms,
+            });
+        }
         eprintln!(
             "[聊天耗时] stage={}, elapsed_ms={}",
             stage,
-            run_started_at.elapsed().as_millis()
+            elapsed_ms
         );
     };
     log_run_stage("run.begin");
@@ -799,10 +855,11 @@ async fn send_chat_message_inner(
     for (candidate_index, candidate_api_id) in candidate_api_ids.iter().enumerate() {
         eprintln!(
             "[聊天耗时] stage=model_candidate.start, elapsed_ms={}, candidate_index={}, candidate_api_id={}",
-            run_started_at.elapsed().as_millis(),
+            chat_started_at.elapsed().as_millis(),
             candidate_index,
             candidate_api_id
         );
+        log_run_stage("model_candidate.start");
         let candidate_selected_api = if candidate_api_id == &selected_api.id {
             selected_api.clone()
         } else {
@@ -832,10 +889,11 @@ async fn send_chat_message_inner(
         for attempt in 0..=max_failure_retries {
             eprintln!(
                 "[聊天耗时] stage=model_request.start, elapsed_ms={}, candidate_api_id={}, attempt={}",
-                run_started_at.elapsed().as_millis(),
+                chat_started_at.elapsed().as_millis(),
                 candidate_selected_api.id,
                 attempt + 1
             );
+            log_run_stage("model_request.start");
             let reply_result = call_model_openai_style(
                 &candidate_resolved_api,
                 &app_config,
@@ -851,10 +909,11 @@ async fn send_chat_message_inner(
             .await;
             eprintln!(
                 "[聊天耗时] stage=model_request.finish, elapsed_ms={}, candidate_api_id={}, attempt={}",
-                run_started_at.elapsed().as_millis(),
+                chat_started_at.elapsed().as_millis(),
                 candidate_selected_api.id,
                 attempt + 1
             );
+            log_run_stage("model_request.finish");
 
             let (reason_text, final_error_text) = match reply_result {
                 Ok(reply) => {
@@ -1123,7 +1182,7 @@ async fn send_chat_message_inner(
             chat_key, err
         );
     }
-    match result {
+    let final_result = match result {
         Ok(inner) => inner,
         Err(_) => {
             eprintln!(
@@ -1132,7 +1191,39 @@ async fn send_chat_message_inner(
             );
             Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
         }
-    }
+    };
+    let timeline = stage_timeline.lock().ok().map(|items| items.clone());
+    push_llm_round_log(
+        Some(state),
+        Some(trace_id),
+        "chat_pipeline",
+        resolved_api_for_log.request_format,
+        &selected_api_for_log.name,
+        &selected_api_for_log.model,
+        &resolved_api_for_log.base_url,
+        Vec::new(),
+        None,
+        serde_json::json!({
+            "triggerOnly": trigger_only,
+            "queueWaitMs": queue_wait_ms,
+            "oldestQueueCreatedAt": oldest_queue_created_at,
+            "chatSessionKey": chat_session_key_for_log,
+            "session": session_for_log,
+        }),
+        final_result
+            .as_ref()
+            .ok()
+            .map(|value| serde_json::json!({
+                "conversationId": value.conversation_id,
+                "assistantTextLength": value.assistant_text.chars().count(),
+                "reasoningStandardLength": value.reasoning_standard.chars().count(),
+                "reasoningInlineLength": value.reasoning_inline.chars().count(),
+            })),
+        final_result.as_ref().err().cloned(),
+        chat_started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        timeline,
+    );
+    final_result
 }
 
 #[tauri::command]
