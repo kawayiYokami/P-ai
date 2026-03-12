@@ -297,7 +297,6 @@ import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle"
 import { useAppTheme } from "./features/shell/composables/use-app-theme";
 import { useViewRefresh } from "./features/shell/composables/use-view-refresh";
 import { useWindowShell } from "./features/shell/composables/use-window-shell";
-import { useConfigAutosave } from "./features/config/composables/use-config-autosave";
 import { useConfigCore } from "./features/config/composables/use-config-core";
 import { useConfigEditors } from "./features/config/composables/use-config-editors";
 import { useConfigPersistence, type ConfigSaveErrorInfo } from "./features/config/composables/use-config-persistence";
@@ -422,9 +421,6 @@ const avatarSaving = ref(false);
 const avatarError = ref("");
 const personaSaving = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
-const configAutosaveReady = ref(false);
-const personasAutosaveReady = ref(false);
-const chatSettingsAutosaveReady = ref(false);
 const suppressAutosave = ref(false);
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
@@ -806,7 +802,6 @@ const chatInputPlaceholder = computed(() => {
   if (hints.length === 0) return t("chat.placeholder");
   return t("chat.placeholder");
 });
-let toolSwitchAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 const {
   defaultApiTools,
   createApiConfig,
@@ -954,22 +949,6 @@ const {
 } = chatRuntime;
 
 const {
-  scheduleConfigAutosave,
-  scheduleChatSettingsAutosave,
-  disposeAutosaveTimers,
-} = useConfigAutosave({
-  suppressAutosave,
-  configAutosaveReady,
-  personasAutosaveReady,
-  chatSettingsAutosaveReady,
-  saveConfig,
-  savePersonas: async () => {
-    await savePersonas();
-  },
-  saveChatPreferences,
-});
-
-const {
   addApiConfig,
   removeSelectedApiConfig,
   addPersona,
@@ -990,9 +969,6 @@ const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal }
   viewMode,
   recordHotkeySuppressAfterPopup: recordHotkey.suppressAfterPopup,
   recordHotkeySuppressMs: RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS,
-  configAutosaveReady,
-  personasAutosaveReady,
-  chatSettingsAutosaveReady,
   loadConfig,
   loadPersonas,
   loadChatSettings,
@@ -1720,15 +1696,18 @@ async function handleRegenerateTurn(payload: { turnId: string }) {
 }
 
 function handleToolsChanged() {
-  if (toolSwitchAutosaveTimer) {
-    clearTimeout(toolSwitchAutosaveTimer);
+  if (selectedPersonaEditor.value?.source === "private_workspace") {
+    setStatus(t("config.tools.privateWorkspaceReadonly"));
+    return;
   }
-  toolSwitchAutosaveTimer = setTimeout(async () => {
-    const saved = await savePersonas();
-    if (saved && configTab.value === "tools") {
-      await refreshToolsStatus();
-    }
-  }, 250);
+  if (configTab.value === "tools") {
+    void refreshToolsStatus();
+  }
+}
+
+async function saveChatSettingsNow() {
+  await saveConversationApiSettings();
+  await saveChatPreferences();
 }
 const { openCurrentHistory, openPromptPreview, openSystemPromptPreview } = useChatDialogActions({
   activeChatApiConfigId: assistantDepartmentApiConfigId,
@@ -1759,12 +1738,8 @@ useAppLifecycle({
   recordHotkeyMount: recordHotkey.mount,
   recordHotkeyUnmount: recordHotkey.unmount,
   refreshAllViewData,
-  configAutosaveReady,
-  personasAutosaveReady,
-  chatSettingsAutosaveReady,
   viewMode,
   syncAlwaysOnTop,
-  disposeAutosaveTimers,
   clearStreamBuffer,
   stopRecording,
   cleanupSpeechRecording,
@@ -1791,11 +1766,10 @@ useAppWatchers({
   toolStatuses,
   defaultApiTools,
   t: tr,
-  scheduleChatSettingsAutosave,
   normalizeApiBindingsLocal,
   syncUserAliasFromPersona,
   syncTrayIcon,
-  saveConversationApiSettings,
+  saveChatSettings: saveChatSettingsNow,
   refreshToolsStatus,
   refreshImageCacheStats,
   refreshConversationHistory,

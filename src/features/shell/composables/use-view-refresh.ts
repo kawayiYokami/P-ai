@@ -6,9 +6,6 @@ type UseViewRefreshOptions = {
   viewMode: Ref<ViewMode>;
   recordHotkeySuppressAfterPopup: (ms: number) => void;
   recordHotkeySuppressMs: number;
-  configAutosaveReady: Ref<boolean>;
-  personasAutosaveReady: Ref<boolean>;
-  chatSettingsAutosaveReady: Ref<boolean>;
   loadConfig: () => Promise<void>;
   loadPersonas: () => Promise<void>;
   loadChatSettings: () => Promise<void>;
@@ -68,20 +65,11 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
   async function handleWindowRefreshSignal() {
     options.recordHotkeySuppressAfterPopup(options.recordHotkeySuppressMs);
     if (!windowBootstrapped.value) {
-      options.configAutosaveReady.value = false;
-      options.personasAutosaveReady.value = false;
-      options.chatSettingsAutosaveReady.value = false;
       try {
         await refreshAllViewData();
         windowBootstrapped.value = true;
-        options.configAutosaveReady.value = true;
-        options.personasAutosaveReady.value = true;
-        options.chatSettingsAutosaveReady.value = true;
       } catch (error) {
         console.error("[VIEW] window bootstrap refresh failed:", error);
-        options.configAutosaveReady.value = false;
-        options.personasAutosaveReady.value = false;
-        options.chatSettingsAutosaveReady.value = false;
       }
       return;
     }
