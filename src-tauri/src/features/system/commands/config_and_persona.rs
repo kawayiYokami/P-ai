@@ -254,7 +254,7 @@ fn save_agents(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let base_config = read_config(&state.config_path)?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
     let previous_agents = data.agents.clone();
@@ -330,7 +330,7 @@ fn save_agents(
         );
     }
 
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     let mut config = read_config(&state.config_path)?;
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     let valid_agent_ids = runtime_agents
@@ -444,7 +444,7 @@ fn get_agent_private_memory_count(
         return Err("agentId is required".to_string());
     }
     let config = read_config(&state.config_path)?;
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &config, &data.agents)?;
     if private_agent_ids.contains(agent_id) {
@@ -469,7 +469,7 @@ fn set_agent_private_memory_enabled(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
@@ -499,7 +499,7 @@ fn set_agent_private_memory_enabled(
 
     if input.enabled {
         data.agents[agent_idx].private_memory_enabled = true;
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
         drop(guard);
         return Ok(SetAgentPrivateMemoryEnabledResult {
             agent_id: agent_id.to_string(),
@@ -513,7 +513,7 @@ fn set_agent_private_memory_enabled(
     let export = memory_store_export_agent_private_memories(&state.data_path, agent_id)?;
     let deleted = memory_store_delete_memories_by_owner_agent_id(&state.data_path, agent_id)?;
     data.agents[agent_idx].private_memory_enabled = false;
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
     Ok(SetAgentPrivateMemoryEnabledResult {
@@ -535,7 +535,7 @@ fn export_agent_private_memories(
         return Err("agentId is required".to_string());
     }
     let config = read_config(&state.config_path)?;
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &config, &data.agents)?;
     if private_agent_ids.contains(agent_id) {
@@ -562,7 +562,7 @@ fn disable_agent_private_memory(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
@@ -589,7 +589,7 @@ fn disable_agent_private_memory(
 
     let deleted = memory_store_delete_memories_by_owner_agent_id(&state.data_path, agent_id)?;
     data.agents[agent_idx].private_memory_enabled = false;
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
     Ok(DisableAgentPrivateMemoryResult {
@@ -613,7 +613,7 @@ fn import_agent_memories(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
@@ -649,7 +649,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut config = read_config(&state.config_path)?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let changed = ensure_default_agent(&mut data);
     let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
     let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
@@ -659,7 +659,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         false
     };
     if changed || runtime_changed {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut runtime_data)?;
@@ -683,7 +683,7 @@ fn save_chat_settings(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
     let config = read_config(&state.config_path)?;
     let mut runtime_config = config.clone();
@@ -700,7 +700,7 @@ fn save_chat_settings(
     data.assistant_department_agent_id = target_agent_id.clone();
     data.user_alias = user_persona_name(&data);
     data.response_style_id = normalize_response_style_id(&input.response_style_id);
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
     let payload = ChatSettings {
@@ -807,7 +807,7 @@ fn save_agent_avatar(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let _ = ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
@@ -838,7 +838,7 @@ fn save_agent_avatar(
     data.agents[idx].avatar_path = Some(path.to_string_lossy().to_string());
     data.agents[idx].avatar_updated_at = Some(now.clone());
     data.agents[idx].updated_at = now.clone();
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
     Ok(AvatarMeta {
@@ -860,7 +860,7 @@ fn clear_agent_avatar(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let _ = ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
@@ -884,7 +884,7 @@ fn clear_agent_avatar(
     data.agents[idx].avatar_path = None;
     data.agents[idx].avatar_updated_at = None;
     data.agents[idx].updated_at = now_iso();
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
     Ok(())
 }
@@ -945,10 +945,10 @@ fn sync_tray_icon(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let changed = ensure_default_agent(&mut data);
     if changed {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     let target_agent_id = input
         .agent_id

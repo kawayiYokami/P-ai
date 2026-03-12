@@ -1573,7 +1573,7 @@ async fn stop_chat_message(
     if let Some(conversation) = runtime_conversation {
         delegate_runtime_thread_conversation_update(state.inner(), &conversation_id, conversation)?;
     } else {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
 
