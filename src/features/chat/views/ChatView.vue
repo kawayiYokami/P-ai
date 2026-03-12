@@ -110,6 +110,20 @@
                 {{ resolvedInlineReasoning(block) }}
               </div>
             </details>
+            <div v-if="block.toolCalls.length > 0" class="mb-2 flex flex-col gap-1 text-[11px] opacity-90">
+              <details
+                v-for="(toolCall, idx) in block.toolCalls"
+                :key="`${block.id}-tool-${idx}`"
+                class="collapse bg-base-200 border-base-300 border"
+              >
+                <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold">
+                  调用 {{ toolCall.name }}
+                </summary>
+                <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
+                  <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
+                </div>
+              </details>
+            </div>
             <div
               v-if="block.text"
               :class="block.taskTrigger ? 'mt-3' : ''"
@@ -170,10 +184,6 @@
               >
                 <RotateCcw class="h-3.5 w-3.5" />
               </button>
-            </div>
-            <div v-if="block.toolCallCount > 0" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
-              <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
-              <span>{{ toolSummaryText(block.lastToolName, block.toolCallCount) }}</span>
             </div>
           </div>
         </div>
@@ -751,13 +761,6 @@ function resolvedInlineReasoning(block: ChatMessageBlock): string {
   return splitThinkText(block.text).inline || block.reasoningInline || "";
 }
 
-function toolSummaryText(lastToolName: string, count: number): string {
-  const extraCount = Math.max(0, Number(count || 0) - 1);
-  return extraCount > 0
-    ? `调用 ${String(lastToolName || "-")} (+${extraCount})`
-    : `调用 ${String(lastToolName || "-")}`;
-}
-
 async function copyMessage(block: ChatMessageBlock) {
   const copyText = splitThinkText(block.text).visible || block.text || "";
   if (!copyText) return;
@@ -889,7 +892,7 @@ function onScroll() {
     evaluateFollowState(el);
     followScrollRaf = 0;
   });
-  if (!props.chatting && scrollingUp && el.scrollTop <= 20 && props.hasMoreMessageBlocks && !loadingMore) {
+  if (scrollingUp && el.scrollTop <= 20 && props.hasMoreMessageBlocks && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
     emit("loadMoreMessageBlocks");
@@ -900,7 +903,7 @@ function onWheel(event: WheelEvent) {
   const el = scrollContainer.value;
   if (!el) return;
   const pushingUpAtTop = event.deltaY < 0 && el.scrollTop <= 20;
-  if (!props.chatting && pushingUpAtTop && props.hasMoreMessageBlocks && !loadingMore) {
+  if (pushingUpAtTop && props.hasMoreMessageBlocks && !loadingMore) {
     loadingMore = true;
     loadingMoreOldHeight = el.scrollHeight;
     emit("loadMoreMessageBlocks");

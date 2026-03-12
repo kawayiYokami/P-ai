@@ -49,12 +49,20 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return "";
   }
 
+  function toolArgumentsPreview(raw: unknown): string {
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!text) return "{}";
+    const compact = text.replace(/\s+/g, " ");
+    return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+  }
+
   function summarizeToolHistory(
     toolHistory: ChatMessage["toolCall"],
-  ): { count: number; lastToolName: string } {
+  ): { count: number; lastToolName: string; calls: Array<{ name: string; argsText: string }> } {
     if (!Array.isArray(toolHistory) || toolHistory.length === 0) {
-      return { count: 0, lastToolName: "" };
+      return { count: 0, lastToolName: "", calls: [] };
     }
+    const calls = [] as Array<{ name: string; argsText: string }>;
     let count = 0;
     let lastToolName = "";
     for (const event of toolHistory) {
@@ -62,11 +70,13 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       for (const call of event.tool_calls) {
         const name = String(call?.function?.name || "").trim();
         if (!name) continue;
+        const argsText = toolArgumentsPreview(call?.function?.arguments);
+        calls.push({ name, argsText });
         count += 1;
         lastToolName = name;
       }
     }
-    return { count, lastToolName };
+    return { count, lastToolName, calls };
   }
 
   function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | undefined {
@@ -117,6 +127,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
           || String(meta.reasoningInline || "").trim(),
         toolCallCount: toolSummary.count,
         lastToolName: toolSummary.lastToolName,
+        toolCalls: toolSummary.calls,
       };
     }).filter((block) =>
       block.text
