@@ -1457,7 +1457,7 @@ fn builtin_task(app_state: &AppState, args: TaskToolArgsWire) -> Result<Value, S
     }
 }
 
-fn delegate_parse_session_parts(session_id: &str) -> (String, String) {
+fn delegate_parse_session_parts(session_id: &str) -> (String, String, Option<String>) {
     let mut parts = session_id.split("::");
     let api_config_id = parts.next().unwrap_or("").trim().to_string();
     let agent_id = parts
@@ -1466,50 +1466,12 @@ fn delegate_parse_session_parts(session_id: &str) -> (String, String) {
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_AGENT_ID)
         .to_string();
-    (api_config_id, agent_id)
-}
-
-#[derive(Debug, Clone)]
-struct DelegateRuntimeContext {
-    delegate_id: String,
-    root_conversation_id: String,
-    call_stack: Vec<String>,
-}
-
-fn delegate_runtime_context_from_message(message: &ChatMessage) -> Option<DelegateRuntimeContext> {
-    let meta = message.provider_meta.as_ref()?.as_object()?;
-    let delegate_id = meta.get("delegateId").and_then(Value::as_str)?.trim().to_string();
-    let root_conversation_id = meta
-        .get("rootConversationId")
-        .and_then(Value::as_str)?
-        .trim()
-        .to_string();
-    let source_department_id = meta
-        .get("sourceDepartmentId")
-        .and_then(Value::as_str)?
-        .trim()
-        .to_string();
-    if delegate_id.is_empty() || root_conversation_id.is_empty() || source_department_id.is_empty() {
-        return None;
-    }
-    let call_stack = meta
-        .get("callStack")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Some(DelegateRuntimeContext {
-        delegate_id,
-        root_conversation_id,
-        call_stack,
-    })
+    let conversation_id = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    (api_config_id, agent_id, conversation_id)
 }
 
 fn delegate_build_task_prompt_block(
@@ -1615,6 +1577,16 @@ fn delegate_enqueue_result_message(
     Ok(())
 }
 
+const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work.start";
+const AGENT_WORK_EVENT_STOP: &str = "easy-call:agent-work.stop";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentWorkSignalPayload {
+    agent_id: String,
+    delegate_id: String,
+}
+
 fn emit_refresh_signal(app_state: &AppState) -> Result<(), String> {
     let app_handle = {
         let guard = app_state
@@ -1629,6 +1601,33 @@ fn emit_refresh_signal(app_state: &AppState) -> Result<(), String> {
     app_handle
         .emit("easy-call:refresh", ())
         .map_err(|err| format!("Emit refresh signal failed: {err}"))
+}
+
+fn emit_agent_work_signal(
+    app_state: &AppState,
+    event_name: &str,
+    agent_id: &str,
+    delegate_id: &str,
+) -> Result<(), String> {
+    let app_handle = {
+        let guard = app_state
+            .app_handle
+            .lock()
+            .map_err(|_| "Failed to lock app handle".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "App handle is not ready".to_string())?
+    };
+    app_handle
+        .emit(
+            event_name,
+            AgentWorkSignalPayload {
+                agent_id: agent_id.to_string(),
+                delegate_id: delegate_id.to_string(),
+            },
+        )
+        .map_err(|err| format!("Emit agent work signal failed: {err}"))
 }
 
 async fn delegate_execute_agent_run(
@@ -1667,81 +1666,71 @@ async fn delegate_execute_agent_run(
     send_chat_message_inner(request, app_state, &noop_channel).await
 }
 
-fn delegate_create_conversation(
+fn delegate_runtime_thread_update_api_config_id(
     app_state: &AppState,
-    delegate: &DelegateEntry,
-    target_api_config_id: &str,
-    root_conversation_id: &str,
-) -> Result<String, String> {
-    let guard = app_state
-        .state_lock
-        .lock()
-        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-    let mut data = read_app_data(&app_state.data_path)?;
-    let conversation = build_conversation_record(
-        target_api_config_id,
-        &delegate.target_agent_id,
-        &delegate.title,
-        CONVERSATION_KIND_DELEGATE,
-        Some(root_conversation_id.to_string()),
-        Some(delegate.delegate_id.clone()),
-    );
-    let conversation_id = conversation.id.clone();
-    data.conversations.push(conversation);
-    write_app_data(&app_state.data_path, &data)?;
-    drop(guard);
-    Ok(conversation_id)
-}
-
-fn delegate_update_conversation_api_config_id(
-    app_state: &AppState,
-    conversation_id: &str,
+    delegate_id: &str,
     api_config_id: &str,
 ) -> Result<(), String> {
-    let guard = app_state
-        .state_lock
-        .lock()
-        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-    let mut data = read_app_data(&app_state.data_path)?;
-    if let Some(conversation) = data.conversations.iter_mut().find(|item| item.id == conversation_id) {
-        conversation.api_config_id = api_config_id.to_string();
-        conversation.updated_at = now_iso();
-        write_app_data(&app_state.data_path, &data)?;
-    }
-    drop(guard);
-    Ok(())
+    delegate_runtime_thread_modify(app_state, delegate_id, |thread| {
+        thread.conversation.api_config_id = api_config_id.to_string();
+        thread.conversation.updated_at = now_iso();
+        Ok(())
+    })
 }
 
-async fn delegate_finish_and_publish_result(
+async fn delegate_run_thread_to_completion(
     app_state: AppState,
     delegate: DelegateEntry,
-    root_conversation_id: String,
     target_api_config_ids: Vec<String>,
 ) -> Result<SendChatResult, String> {
     let primary_api_config_id = target_api_config_ids
         .first()
         .cloned()
         .ok_or_else(|| format!("部门没有可用模型，departmentId={}", delegate.target_department_id))?;
-    let delegate_conversation_id = delegate_create_conversation(
+    let delegate_thread_id =
+        delegate_runtime_thread_create(&app_state, &delegate, &primary_api_config_id)?;
+    if let Err(err) = emit_agent_work_signal(
         &app_state,
-        &delegate,
-        &primary_api_config_id,
-        &root_conversation_id,
-    )?;
+        AGENT_WORK_EVENT_START,
+        &delegate.target_agent_id,
+        &delegate.delegate_id,
+    ) {
+        eprintln!(
+            "[委托线程] 推送开工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
+            delegate_thread_id,
+            delegate.delegate_id,
+            delegate.target_agent_id,
+            err
+        );
+    }
+    if let Err(err) = emit_refresh_signal(&app_state) {
+        eprintln!(
+            "[委托线程] 刷新前端失败: stage=create, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
+            delegate_thread_id,
+            delegate.delegate_id,
+            err
+        );
+    }
     let mut run_result = Err("未尝试任何候选模型".to_string());
     let mut errors = Vec::<String>::new();
     for api_config_id in target_api_config_ids {
-        let _ = delegate_update_conversation_api_config_id(
-            &app_state,
-            &delegate_conversation_id,
-            &api_config_id,
-        );
+        if let Err(err) =
+            delegate_runtime_thread_update_api_config_id(&app_state, &delegate_thread_id, &api_config_id)
+        {
+            eprintln!(
+                "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
+                delegate_thread_id,
+                delegate.delegate_id,
+                api_config_id,
+                err
+            );
+        }
         match delegate_execute_agent_run(
             &app_state,
             &delegate,
             &api_config_id,
-            &root_conversation_id,
-            &delegate_conversation_id,
+            &delegate.conversation_id,
+            &delegate_thread_id,
         )
         .await
         {
@@ -1757,59 +1746,97 @@ async fn delegate_finish_and_publish_result(
     }
     match run_result {
         Ok(result) => {
-            let _ = delegate_store_update_status(
+            if let Err(err) = delegate_runtime_thread_remove(&app_state, &delegate_thread_id) {
+                eprintln!(
+                    "[委托线程] 清理运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    DELEGATE_STATUS_COMPLETED,
+                    err
+                );
+            }
+            if let Err(err) = delegate_store_update_status(
                 &app_state.data_path,
                 &delegate.delegate_id,
                 DELEGATE_STATUS_COMPLETED,
-            );
-            let text = if result.assistant_text.trim().is_empty() {
-                format!("《{}》已处理完成。", delegate.title.trim())
-            } else {
-                result.assistant_text.clone()
-            };
-            delegate_enqueue_result_message(
+            ) {
+                eprintln!(
+                    "[委托线程] 更新委托状态失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    DELEGATE_STATUS_COMPLETED,
+                    err
+                );
+            }
+            if let Err(err) = emit_agent_work_signal(
                 &app_state,
-                &root_conversation_id,
+                AGENT_WORK_EVENT_STOP,
                 &delegate.target_agent_id,
-                &text,
-                serde_json::json!({
-                    "messageKind": "delegate_result",
-                    "delegateId": delegate.delegate_id,
-                    "delegateKind": delegate.kind,
-                    "resultStatus": "completed",
-                    "speakerAgentId": delegate.target_agent_id,
-                    "sourceAgentId": delegate.source_agent_id,
-                    "targetAgentId": delegate.target_agent_id,
-                    "reasoningStandard": result.reasoning_standard,
-                }),
-                delegate.notify_assistant_when_done,  // 根据配置决定是否激活助理
-            )?;
+                &delegate.delegate_id,
+            ) {
+                eprintln!(
+                    "[委托线程] 推送停工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    delegate.target_agent_id,
+                    err
+                );
+            }
+            if let Err(err) = emit_refresh_signal(&app_state) {
+                eprintln!(
+                    "[委托线程] 刷新前端失败: stage=completed, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    err
+                );
+            }
             Ok(result)
         }
         Err(err) => {
-            let _ = delegate_store_update_status(
+            if let Err(remove_err) = delegate_runtime_thread_remove(&app_state, &delegate_thread_id) {
+                eprintln!(
+                    "[委托线程] 清理运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    DELEGATE_STATUS_FAILED,
+                    remove_err
+                );
+            }
+            if let Err(status_err) = delegate_store_update_status(
                 &app_state.data_path,
                 &delegate.delegate_id,
                 DELEGATE_STATUS_FAILED,
-            );
-            let fail_text = format!("《{}》执行失败：{}", delegate.title.trim(), err);
-            let _ = delegate_enqueue_result_message(
+            ) {
+                eprintln!(
+                    "[委托线程] 更新委托状态失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    DELEGATE_STATUS_FAILED,
+                    status_err
+                );
+            }
+            if let Err(stop_err) = emit_agent_work_signal(
                 &app_state,
-                &root_conversation_id,
+                AGENT_WORK_EVENT_STOP,
                 &delegate.target_agent_id,
-                &fail_text,
-                serde_json::json!({
-                    "messageKind": "delegate_result",
-                    "delegateId": delegate.delegate_id,
-                    "delegateKind": delegate.kind,
-                    "resultStatus": "failed",
-                    "speakerAgentId": delegate.target_agent_id,
-                    "sourceAgentId": delegate.source_agent_id,
-                    "targetAgentId": delegate.target_agent_id,
-                    "error": err,
-                }),
-                delegate.notify_assistant_when_done,  // 根据配置决定是否激活助理
-            );
+                &delegate.delegate_id,
+            ) {
+                eprintln!(
+                    "[委托线程] 推送停工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    delegate.target_agent_id,
+                    stop_err
+                );
+            }
+            if let Err(refresh_err) = emit_refresh_signal(&app_state) {
+                eprintln!(
+                    "[委托线程] 刷新前端失败: stage=failed, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    refresh_err
+                );
+            }
             Err(err)
         }
     }
@@ -1818,6 +1845,7 @@ async fn delegate_finish_and_publish_result(
 fn delegate_resolve_context(
     app_state: &AppState,
     source_agent_id: &str,
+    source_conversation_id: Option<&str>,
     target_department_id: &str,
 ) -> Result<
     (
@@ -1827,7 +1855,7 @@ fn delegate_resolve_context(
         DepartmentConfig,
         String,
         String,
-        Option<DelegateRuntimeContext>,
+        Option<DelegateRuntimeThread>,
     ),
     String,
 > {
@@ -1859,18 +1887,28 @@ fn delegate_resolve_context(
         drop(guard);
         return Err(format!("目标委任人不存在，agentId={target_agent_id}"));
     }
-    let conversation_idx = latest_active_conversation_index(&data, "", source_agent_id)
-        .ok_or_else(|| format!("未找到当前活动对话，agentId={source_agent_id}"))?;
-    let source_conversation = data
-        .conversations
-        .get(conversation_idx)
-        .cloned()
-        .ok_or_else(|| format!("未找到当前活动对话，agentId={source_agent_id}"))?;
-    let runtime_context = source_conversation
-        .messages
-        .iter()
-        .rev()
-        .find_map(delegate_runtime_context_from_message);
+    let thread_context = if let Some(conversation_id) = source_conversation_id {
+        delegate_runtime_thread_get(app_state, conversation_id)?
+    } else {
+        None
+    };
+    let source_conversation_id = if let Some(thread) = thread_context.as_ref() {
+        thread.root_conversation_id.clone()
+    } else {
+        let requested_conversation_id = source_conversation_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "主代理缺少当前会话 ID，无法发起委托".to_string())?;
+        data.conversations
+            .iter()
+            .find(|item| {
+                item.id == requested_conversation_id
+                    && item.summary.trim().is_empty()
+                    && !conversation_is_delegate(item)
+            })
+            .map(|item| item.id.clone())
+            .ok_or_else(|| format!("未找到指定主会话，conversationId={requested_conversation_id}"))?
+    };
     drop(guard);
     Ok((
         config,
@@ -1878,8 +1916,8 @@ fn delegate_resolve_context(
         source_department,
         target_department,
         target_agent_id,
-        source_conversation.id,
-        runtime_context,
+        source_conversation_id,
+        thread_context,
     ))
 }
 
@@ -1888,7 +1926,7 @@ fn builtin_delegate(
     session_id: &str,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
-    let (_, source_agent_id) = delegate_parse_session_parts(session_id);
+    let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
     let target_department_id = args.department_id.trim();
     if target_department_id.is_empty() {
         return Ok(serde_json::json!({
@@ -1903,8 +1941,13 @@ fn builtin_delegate(
             "reason": "delegate.instruction is required"
         }));
     }
-    let (_config, data, source_department, target_department, target_agent_id, source_conversation_id, runtime_context) =
-        match delegate_resolve_context(app_state, &source_agent_id, target_department_id) {
+    let (_config, data, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
+        match delegate_resolve_context(
+            app_state,
+            &source_agent_id,
+            source_conversation_id.as_deref(),
+            target_department_id,
+        ) {
             Ok(value) => value,
             Err(err) => return Ok(serde_json::json!({ "status": "委托无法送达", "reason": err })),
         };
@@ -1914,9 +1957,9 @@ fn builtin_delegate(
             "reason": "不能把委托发送给当前部门自己"
         }));
     }
-    let mut call_stack = runtime_context
+    let mut call_stack = current_thread
         .as_ref()
-        .map(|ctx| ctx.call_stack.clone())
+        .map(|thread| thread.call_stack.clone())
         .unwrap_or_else(|| vec![source_department.id.clone()]);
     if call_stack.iter().any(|item| item == &target_department.id) {
         return Ok(serde_json::json!({
@@ -1932,10 +1975,6 @@ fn builtin_delegate(
         .filter(|value| !value.is_empty())
         .unwrap_or("未命名委托")
         .to_string();
-    let root_conversation_id = runtime_context
-        .as_ref()
-        .map(|ctx| ctx.root_conversation_id.clone())
-        .unwrap_or_else(|| source_conversation_id.clone());
     let delegate = delegate_store_create_delegate(
         &app_state.data_path,
         &DelegateCreateInput {
@@ -1964,17 +2003,80 @@ fn builtin_delegate(
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| target_agent_id.clone());
 
-    let app_state_clone = app_state.clone();
-    let delegate_clone = delegate.clone();
+    let app_state_for_run = app_state.clone();
+    let app_state_for_publish = app_state.clone();
+    let delegate_for_run = delegate.clone();
+    let delegate_for_publish = delegate.clone();
     let target_api_config_ids = department_api_config_ids(&target_department);
     tokio::spawn(async move {
-        let _ = delegate_finish_and_publish_result(
-            app_state_clone,
-            delegate_clone,
-            root_conversation_id,
+        let run_result = delegate_run_thread_to_completion(
+            app_state_for_run,
+            delegate_for_run,
             target_api_config_ids,
         )
         .await;
+        match run_result {
+            Ok(result) => {
+                let text = if result.assistant_text.trim().is_empty() {
+                    format!("《{}》已处理完成。", delegate_for_publish.title.trim())
+                } else {
+                    result.assistant_text.clone()
+                };
+                if let Err(err) = delegate_enqueue_result_message(
+                    &app_state_for_publish,
+                    &root_conversation_id,
+                    &delegate_for_publish.target_agent_id,
+                    &text,
+                    serde_json::json!({
+                        "messageKind": "delegate_result",
+                        "delegateId": delegate_for_publish.delegate_id,
+                        "delegateKind": delegate_for_publish.kind,
+                        "resultStatus": "completed",
+                        "speakerAgentId": delegate_for_publish.target_agent_id,
+                        "sourceAgentId": delegate_for_publish.source_agent_id,
+                        "targetAgentId": delegate_for_publish.target_agent_id,
+                        "reasoningStandard": result.reasoning_standard,
+                    }),
+                    delegate_for_publish.notify_assistant_when_done,
+                ) {
+                    eprintln!(
+                        "[委托线程] 投递委托完成消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
+                        delegate_for_publish.delegate_id,
+                        delegate_for_publish.target_agent_id,
+                        root_conversation_id,
+                        err
+                    );
+                }
+            }
+            Err(err) => {
+                let fail_text = format!("《{}》执行失败：{}", delegate_for_publish.title.trim(), err);
+                if let Err(enqueue_err) = delegate_enqueue_result_message(
+                    &app_state_for_publish,
+                    &root_conversation_id,
+                    &delegate_for_publish.target_agent_id,
+                    &fail_text,
+                    serde_json::json!({
+                        "messageKind": "delegate_result",
+                        "delegateId": delegate_for_publish.delegate_id,
+                        "delegateKind": delegate_for_publish.kind,
+                        "resultStatus": "failed",
+                        "speakerAgentId": delegate_for_publish.target_agent_id,
+                        "sourceAgentId": delegate_for_publish.source_agent_id,
+                        "targetAgentId": delegate_for_publish.target_agent_id,
+                        "error": err,
+                    }),
+                    delegate_for_publish.notify_assistant_when_done,
+                ) {
+                    eprintln!(
+                        "[委托线程] 投递委托失败消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
+                        delegate_for_publish.delegate_id,
+                        delegate_for_publish.target_agent_id,
+                        root_conversation_id,
+                        enqueue_err
+                    );
+                }
+            }
+        }
     });
 
     Ok(serde_json::json!({
@@ -1989,7 +2091,7 @@ async fn builtin_handoff(
     session_id: &str,
     args: HandoffToolArgs,
 ) -> Result<Value, String> {
-    let (_, source_agent_id) = delegate_parse_session_parts(session_id);
+    let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
     let target_department_id = args.department_id.trim();
     if target_department_id.is_empty() {
         return Ok(serde_json::json!({
@@ -2004,12 +2106,17 @@ async fn builtin_handoff(
             "reason": "handoff.instruction is required"
         }));
     }
-    let (_config, _data, source_department, target_department, target_agent_id, source_conversation_id, runtime_context) =
-        match delegate_resolve_context(app_state, &source_agent_id, target_department_id) {
+    let (_config, _data, source_department, target_department, target_agent_id, source_conversation_id, current_thread) =
+        match delegate_resolve_context(
+            app_state,
+            &source_agent_id,
+            source_conversation_id.as_deref(),
+            target_department_id,
+        ) {
             Ok(value) => value,
             Err(err) => return Ok(serde_json::json!({ "status": "转办无法送达", "reason": err })),
         };
-    let Some(runtime_context) = runtime_context else {
+    let Some(current_thread) = current_thread else {
         return Ok(serde_json::json!({
             "status": "转办无法送达",
             "reason": "当前不是可转办的委托执行上下文"
@@ -2021,13 +2128,13 @@ async fn builtin_handoff(
             "reason": "不能把转办发送给当前部门自己"
         }));
     }
-    if runtime_context.call_stack.iter().any(|item| item == &target_department.id) {
+    if current_thread.call_stack.iter().any(|item| item == &target_department.id) {
         return Ok(serde_json::json!({
             "status": "转办无法送达",
             "reason": format!("目标部门已在当前调用链中，departmentId={}", target_department.id)
         }));
     }
-    let mut call_stack = runtime_context.call_stack.clone();
+    let mut call_stack = current_thread.call_stack.clone();
     call_stack.push(target_department.id.clone());
     let title = args
         .task_name
@@ -2040,8 +2147,8 @@ async fn builtin_handoff(
         &app_state.data_path,
         &DelegateCreateInput {
             kind: DELEGATE_TOOL_KIND_HANDOFF.to_string(),
-            conversation_id: runtime_context.root_conversation_id.clone(),
-            parent_delegate_id: Some(runtime_context.delegate_id.clone()),
+            conversation_id: current_thread.root_conversation_id.clone(),
+            parent_delegate_id: Some(current_thread.delegate_id.clone()),
             source_department_id: source_department.id.clone(),
             target_department_id: target_department.id.clone(),
             source_agent_id: source_agent_id.clone(),
@@ -2055,10 +2162,9 @@ async fn builtin_handoff(
             call_stack,
         },
     )?;
-    match delegate_finish_and_publish_result(
+    match delegate_run_thread_to_completion(
         app_state.clone(),
         delegate.clone(),
-        runtime_context.root_conversation_id.clone(),
         department_api_config_ids(&target_department),
     )
     .await

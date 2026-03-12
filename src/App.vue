@@ -302,6 +302,7 @@ import { useConfigCore } from "./features/config/composables/use-config-core";
 import { useConfigEditors } from "./features/config/composables/use-config-editors";
 import { useConfigPersistence, type ConfigSaveErrorInfo } from "./features/config/composables/use-config-persistence";
 import { useConfigRuntime } from "./features/config/composables/use-config-runtime";
+import { useAgentWorkPresence } from "./features/chat/composables/use-agent-work-presence";
 import { useArchivesView, type ArchiveImportPreview } from "./features/chat/composables/use-archives-view";
 import { useAvatarCache } from "./features/chat/composables/use-avatar-cache";
 import { useChatDialogActions } from "./features/chat/composables/use-chat-dialog-actions";
@@ -469,6 +470,7 @@ const {
   delegateMessages,
   selectedDelegateConversationId,
   loadArchives,
+  loadDelegateConversations,
   loadUnarchivedConversations,
   selectArchive,
   selectUnarchivedConversation,
@@ -483,6 +485,7 @@ const {
   setStatus,
   setStatusError,
 });
+const agentWorkPresence = useAgentWorkPresence();
 
 const {
   memoryDialog,
@@ -746,22 +749,13 @@ const chatPersonaDepartmentNameMap = computed<Record<string, string>>(() => {
   }
   return next;
 });
-const activeDelegateAgentIds = computed(() => {
-  const next = new Set<string>();
-  for (const item of delegateConversations.value) {
-    if (String(item.archivedAt || "").trim()) continue;
-    const agentId = String(item.agentId || "").trim();
-    if (!agentId) continue;
-    next.add(agentId);
-  }
-  return next;
-});
 const chatPersonaPresenceChips = computed<ChatPersonaPresenceChip[]>(() => {
   const items: ChatPersonaPresenceChip[] = [];
   for (const persona of personas.value) {
     if (persona.isBuiltInSystem || persona.id === "system-persona") continue;
     const id = String(persona.id || "").trim();
     if (!id) continue;
+    const backgroundTaskCount = agentWorkPresence.activeWorkCountForAgent(id);
     items.push({
       id,
       name: String(persona.name || "").trim() || id,
@@ -770,7 +764,7 @@ const chatPersonaPresenceChips = computed<ChatPersonaPresenceChip[]>(() => {
         String(chatPersonaDepartmentNameMap.value[id] || "").trim()
         || (id === "user-persona" ? "用户" : "未归属部门"),
       isFrontSpeaking: chatting.value && id === activeAssistantAgentId.value,
-      hasBackgroundTask: activeDelegateAgentIds.value.has(id),
+      hasBackgroundTask: backgroundTaskCount > 0,
     });
   }
   return items.sort((left, right) => {
@@ -1004,6 +998,7 @@ const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal }
   loadChatSettings,
   refreshImageCacheStats,
   refreshConversationHistory,
+  loadDelegateConversations,
   loadArchives,
   resetVisibleTurnCount: () => {
     visibleMessageBlockCount.value = 1;
@@ -1028,6 +1023,12 @@ const appBootstrap = useAppBootstrap({
   onRefreshSignal: async () => {
     await handleWindowRefreshSignal();
     void tryPrewarmChatMic();
+  },
+  onAgentWorkStarted: (payload) => {
+    agentWorkPresence.markAgentWorkStarted(payload);
+  },
+  onAgentWorkStopped: (payload) => {
+    agentWorkPresence.markAgentWorkStopped(payload);
   },
   onTerminalApprovalRequested: (payload) => {
     enqueueTerminalApprovalRequest(payload);
@@ -1152,11 +1153,20 @@ onBeforeUnmount(() => {
   window.removeEventListener("blur", handleWindowBlurForStateSync);
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
   clearRecordHotkeyProbeState();
+  agentWorkPresence.cleanup();
   chatWindowActiveSynced.value = null;
   void invokeTauri("set_chat_window_active", { active: false }).catch(() => {});
   window.removeEventListener("focus", handleWindowFocusForMicPrewarm);
   document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
 });
+
+watch(
+  () => delegateConversations.value,
+  (items) => {
+    agentWorkPresence.seedFromDelegateConversations(items);
+  },
+  { deep: true, immediate: true },
+);
 
 watch(
   () => viewMode.value,
@@ -1642,8 +1652,6 @@ async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage |
   const messageId = String(turnId || "").trim();
   if (!apiConfigId || !agentId || !messageId) return null;
   const currentMessages = [...allMessages.value];
-  const removeFrom = currentMessages.findIndex((item) => item.id === messageId && item.role === "user");
-  if (removeFrom < 0) return null;
   try {
     const result = await invokeTauri<RewindConversationResult>("rewind_conversation_from_message", {
       input: {
@@ -1655,10 +1663,14 @@ async function rewindConversationFromTurn(turnId: string): Promise<ChatMessage |
         messageId,
       },
     });
-    const nextMessages = currentMessages.slice(0, removeFrom);
+    const keepCount = Math.max(0, Math.min(currentMessages.length, Number(result.remainingCount) || 0));
+    const nextMessages = currentMessages.slice(0, keepCount);
     allMessages.value = nextMessages;
     resetVisibleBlocksAfterRewind(nextMessages);
-    return result.recalledUserMessage ?? currentMessages[removeFrom] ?? null;
+    return result.recalledUserMessage
+      ?? currentMessages[keepCount]
+      ?? currentMessages.find((item) => item.id === messageId && item.role === "user")
+      ?? null;
   } catch (error) {
     setStatusError("status.rewindConversationFailed", error);
     return null;

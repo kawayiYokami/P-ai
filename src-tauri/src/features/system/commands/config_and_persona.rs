@@ -1148,26 +1148,29 @@ fn conversation_preview_title(conversation: &Conversation) -> String {
     }
 }
 
-fn delegate_conversation_summary_from_conversation(
-    conversation: &Conversation,
-    archived_at: Option<String>,
+fn delegate_conversation_summary_from_runtime_thread(
+    thread: &DelegateRuntimeThread,
 ) -> DelegateConversationSummary {
-    let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
+    let last_message_at = thread
+        .conversation
+        .messages
+        .last()
+        .map(|m| m.created_at.clone());
     DelegateConversationSummary {
-        conversation_id: conversation.id.clone(),
-        title: if conversation.title.trim().is_empty() {
-            conversation_preview_title(conversation)
+        conversation_id: thread.delegate_id.clone(),
+        title: if thread.title.trim().is_empty() {
+            conversation_preview_title(&thread.conversation)
         } else {
-            conversation.title.clone()
+            thread.title.clone()
         },
-        updated_at: conversation.updated_at.clone(),
+        updated_at: thread.conversation.updated_at.clone(),
         last_message_at,
-        message_count: conversation.messages.len(),
-        agent_id: conversation.agent_id.clone(),
-        api_config_id: conversation.api_config_id.clone(),
-        delegate_id: conversation.delegate_id.clone(),
-        root_conversation_id: conversation.root_conversation_id.clone(),
-        archived_at,
+        message_count: thread.conversation.messages.len(),
+        agent_id: thread.target_agent_id.clone(),
+        api_config_id: thread.conversation.api_config_id.clone(),
+        delegate_id: Some(thread.delegate_id.clone()),
+        root_conversation_id: Some(thread.root_conversation_id.clone()),
+        archived_at: None,
     }
 }
 
@@ -1228,27 +1231,9 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
 fn list_delegate_conversations(
     state: State<'_, AppState>,
 ) -> Result<Vec<DelegateConversationSummary>, String> {
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-
-    let mut summaries = data
-        .conversations
+    let mut summaries = delegate_runtime_thread_list(state.inner())?
         .iter()
-        .filter(|conversation| conversation_is_delegate(conversation))
-        .map(|conversation| delegate_conversation_summary_from_conversation(conversation, None))
-        .chain(
-            data.archived_conversations
-                .iter()
-                .map(|archive| (&archive.source_conversation, Some(archive.archived_at.clone())))
-                .filter(|(conversation, _)| conversation_is_delegate(conversation))
-                .map(|(conversation, archived_at)| {
-                    delegate_conversation_summary_from_conversation(conversation, archived_at)
-                }),
-        )
+        .map(delegate_conversation_summary_from_runtime_thread)
         .collect::<Vec<_>>();
     summaries.sort_by(|a, b| {
         let bk = b
@@ -1318,25 +1303,8 @@ fn get_delegate_conversation_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let data = read_app_data(&state.data_path)?;
-    drop(guard);
-
-    let mut messages = data
-        .conversations
-        .iter()
-        .find(|conversation| conversation_is_delegate(conversation) && conversation.id == conversation_id)
+    let mut messages = delegate_runtime_thread_conversation_get(state.inner(), conversation_id)?
         .map(|conversation| conversation.messages.clone())
-        .or_else(|| {
-            data.archived_conversations
-                .iter()
-                .map(|archive| &archive.source_conversation)
-                .find(|conversation| conversation_is_delegate(conversation) && conversation.id == conversation_id)
-                .map(|conversation| conversation.messages.clone())
-        })
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
@@ -1505,10 +1473,10 @@ fn rewind_conversation_from_message(
 
     let mut app_config = read_config(&state.config_path)?;
 
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
     if defaults_changed {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
@@ -1534,8 +1502,28 @@ fn rewind_conversation_from_message(
     if requested_api_config_id.is_empty() {
         return Err("apiConfigId is required.".to_string());
     }
-    let idx = latest_active_conversation_index(&data, requested_api_config_id, requested_agent_id)
-        .ok_or_else(|| "No active conversation found for current agent.".to_string())?;
+    let requested_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let idx = if let Some(conversation_id) = requested_conversation_id {
+        data.conversations
+            .iter()
+            .position(|item| {
+                item.id == conversation_id
+                    && item.status == "active"
+                    && item.summary.trim().is_empty()
+                    && !conversation_is_delegate(item)
+            })
+            .ok_or_else(|| {
+                format!("Target active conversation not found, conversationId={conversation_id}")
+            })?
+    } else {
+        latest_active_conversation_index(&data, requested_api_config_id, requested_agent_id)
+            .ok_or_else(|| "No active conversation found for current agent.".to_string())?
+    };
     let conversation = data
         .conversations
         .get_mut(idx)
@@ -1576,7 +1564,7 @@ fn rewind_conversation_from_message(
     };
 
     if data.conversations.len() != before_len || removed_count > 0 {
-        write_app_data(&state.data_path, &data)?;
+        state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
 

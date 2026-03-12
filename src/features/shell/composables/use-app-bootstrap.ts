@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AppConfig } from "../../../types/app";
+import type { AgentWorkSignalPayload, AppConfig } from "../../../types/app";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
@@ -38,6 +38,8 @@ type AppBootstrapOptions = {
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
   onConfigUpdated?: (payload: AppConfig) => void;
+  onAgentWorkStarted?: (payload: AgentWorkSignalPayload) => void;
+  onAgentWorkStopped?: (payload: AgentWorkSignalPayload) => void;
   onRecordHotkeyProbe?: (payload: { state: "pressed" | "released"; seq: number }) => void;
 };
 
@@ -95,6 +97,16 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       unlisteners.push(
         await listen<AppConfig>("easy-call:config-updated", (event) => {
           options.onConfigUpdated?.(event.payload);
+        }),
+      );
+      unlisteners.push(
+        await listen<AgentWorkSignalPayload>("easy-call:agent-work.start", (event) => {
+          options.onAgentWorkStarted?.(event.payload);
+        }),
+      );
+      unlisteners.push(
+        await listen<AgentWorkSignalPayload>("easy-call:agent-work.stop", (event) => {
+          options.onAgentWorkStopped?.(event.payload);
         }),
       );
       unlisteners.push(
