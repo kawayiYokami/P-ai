@@ -22,7 +22,11 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
             .ok_or_else(|| "No assistant agent configured for task dispatch.".to_string())?
     };
     drop(guard);
-    Ok((selected_api.id.clone(), agent_id.clone(), inflight_chat_key(&selected_api.id, &agent_id)))
+    Ok((
+        selected_api.id.clone(),
+        agent_id.clone(),
+        inflight_chat_key(&selected_api.id, &agent_id, None),
+    ))
 }
 
 fn task_is_chat_busy(state: &AppState, chat_key: &str) -> Result<bool, String> {

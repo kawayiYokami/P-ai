@@ -940,6 +940,16 @@ struct Conversation {
     memory_recall_table: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct DelegateRuntimeThread {
+    delegate_id: String,
+    root_conversation_id: String,
+    target_agent_id: String,
+    title: String,
+    call_stack: Vec<String>,
+    conversation: Conversation,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConversationArchive {
@@ -1203,6 +1213,8 @@ struct AppState {
         Arc<Mutex<std::collections::HashMap<String, tauri::ipc::Channel<AssistantDeltaEvent>>>>,
     main_session_state: Arc<Mutex<MainSessionState>>,
     dequeue_lock: Arc<Mutex<()>>,
+    delegate_runtime_threads:
+        Arc<Mutex<std::collections::HashMap<String, DelegateRuntimeThread>>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -1277,6 +1289,7 @@ impl AppState {
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
             main_session_state: Arc::new(Mutex::new(MainSessionState::Idle)),
             dequeue_lock: Arc::new(Mutex::new(())),
+            delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 }

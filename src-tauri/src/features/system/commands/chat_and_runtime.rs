@@ -1,5 +1,17 @@
-fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
-    format!("{}::{}", api_config_id.trim(), agent_id.trim())
+fn inflight_chat_key(
+    api_config_id: &str,
+    agent_id: &str,
+    conversation_id: Option<&str>,
+) -> String {
+    match conversation_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(conversation_id) => format!(
+            "{}::{}::{}",
+            api_config_id.trim(),
+            agent_id.trim(),
+            conversation_id
+        ),
+        None => format!("{}::{}", api_config_id.trim(), agent_id.trim()),
+    }
 }
 
 fn register_inflight_tool_abort_handle(
@@ -177,7 +189,11 @@ async fn send_chat_message_inner(
     };
     log_chat_stage("runtime_and_session_ready");
 
-    let chat_key = inflight_chat_key(&selected_api.id, &effective_agent_id);
+    let chat_key = inflight_chat_key(
+        &selected_api.id,
+        &effective_agent_id,
+        requested_conversation_id.as_deref(),
+    );
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     {
         let mut inflight = state
@@ -464,30 +480,63 @@ async fn send_chat_message_inner(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        let idx = if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            if let Some(idx) = data.conversations
-                .iter()
-                .position(|item| {
-                    item.id == conversation_id
-                        && item.summary.trim().is_empty()
-                        && !conversation_is_delegate(item)
-                })
-            {
-                idx
-            } else {
-                eprintln!(
-                    "[INFO][会话] 指定会话不可用，回退到当前未归档主会话: requested_conversation_id={}, reason=not_found_or_delegate, agent_id={}, api_config_id={}",
-                    conversation_id,
-                    effective_agent_id,
-                    selected_api.id
-                );
-                ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id)
-            }
+        let runtime_conversation_id = requested_conversation_id
+            .as_deref()
+            .filter(|conversation_id| {
+                delegate_runtime_thread_conversation_get(&state, conversation_id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            .map(ToOwned::to_owned);
+        let mut runtime_conversation = if let Some(conversation_id) = runtime_conversation_id.as_deref() {
+            delegate_runtime_thread_conversation_get(&state, conversation_id)?
+                .ok_or_else(|| format!("指定临时会话不存在：{conversation_id}"))?
         } else {
-            ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id)
+            Conversation {
+                id: String::new(),
+                title: String::new(),
+                api_config_id: String::new(),
+                agent_id: String::new(),
+                conversation_kind: String::new(),
+                root_conversation_id: None,
+                delegate_id: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+                last_user_at: None,
+                last_assistant_at: None,
+                last_context_usage_ratio: 0.0,
+                last_effective_prompt_tokens: 0,
+                status: String::new(),
+                summary: String::new(),
+                archived_at: None,
+                messages: Vec::new(),
+                memory_recall_table: Vec::new(),
+            }
         };
-        let conversation_before = data.conversations[idx].clone();
-        let last_archive_summary = if conversation_is_delegate(&conversation_before) {
+        let is_runtime_conversation = runtime_conversation_id.is_some();
+        let idx = if is_runtime_conversation {
+            None
+        } else if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            Some(
+                data.conversations
+                    .iter()
+                    .position(|item| {
+                        item.id == conversation_id
+                            && item.summary.trim().is_empty()
+                            && !conversation_is_delegate(item)
+                    })
+                    .ok_or_else(|| format!("指定会话不存在或不可用：{conversation_id}"))?,
+            )
+        } else {
+            Some(ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id))
+        };
+        let conversation_before = if let Some(idx) = idx {
+            data.conversations[idx].clone()
+        } else {
+            runtime_conversation.clone()
+        };
+        let last_archive_summary = if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
             None
         } else {
             data.conversations
@@ -511,7 +560,6 @@ async fn send_chat_message_inner(
             }
             conversation_before.clone()
         } else {
-            // 聊天记录保留用户可见内容；模型请求使用 effective_payload（可能已做图转文）。
             let mut storage_api = selected_api.clone();
             storage_api.enable_image = true;
             storage_api.enable_audio = true;
@@ -541,13 +589,6 @@ async fn send_chat_message_inner(
             )?;
             let recall_hit_ids =
                 memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
-
-            for memory_id in &recall_hit_ids {
-                data.conversations[idx]
-                    .memory_recall_table
-                    .push(memory_id.clone());
-            }
-
             let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
             let memory_board_xml =
                 build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
@@ -555,7 +596,6 @@ async fn send_chat_message_inner(
             if let Some(xml) = &memory_board_xml {
                 extra_text_blocks.push(xml.clone());
             }
-
             let now = now_iso();
             let user_message = ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -568,13 +608,34 @@ async fn send_chat_message_inner(
                 tool_call: None,
                 mcp_call: None,
             };
-
-            data.conversations[idx].messages.push(user_message);
-            data.conversations[idx].updated_at = now.clone();
-            data.conversations[idx].last_user_at = Some(now_iso());
-            data.conversations[idx].last_context_usage_ratio =
-                compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
-            data.conversations[idx].clone()
+            if let Some(idx) = idx {
+                for memory_id in &recall_hit_ids {
+                    data.conversations[idx]
+                        .memory_recall_table
+                        .push(memory_id.clone());
+                }
+                data.conversations[idx].messages.push(user_message);
+                data.conversations[idx].updated_at = now.clone();
+                data.conversations[idx].last_user_at = Some(now_iso());
+                data.conversations[idx].last_context_usage_ratio =
+                    compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
+                data.conversations[idx].clone()
+            } else {
+                for memory_id in &recall_hit_ids {
+                    runtime_conversation.memory_recall_table.push(memory_id.clone());
+                }
+                runtime_conversation.messages.push(user_message);
+                runtime_conversation.updated_at = now.clone();
+                runtime_conversation.last_user_at = Some(now_iso());
+                runtime_conversation.last_context_usage_ratio =
+                    compute_context_usage_ratio(&runtime_conversation, selected_api.context_window_tokens);
+                delegate_runtime_thread_conversation_update(
+                    &state,
+                    runtime_conversation_id.as_deref().unwrap_or_default(),
+                    runtime_conversation.clone(),
+                )?;
+                runtime_conversation.clone()
+            }
         };
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
@@ -651,7 +712,7 @@ async fn send_chat_message_inner(
         let conversation_id = conversation.id.clone();
         let estimated_prompt_tokens = u64::from(estimate_conversation_tokens(&conversation));
 
-        if !trigger_only {
+        if !trigger_only && !is_runtime_conversation {
             state_write_app_data_cached(&state, &data)?;
         }
         drop(guard);
@@ -889,6 +950,37 @@ async fn send_chat_message_inner(
                 post_reply_forced_archive_source = Some(conversation.clone());
             }
             state_write_app_data_cached(&state, &data)?;
+        } else if let Some(mut conversation) =
+            delegate_runtime_thread_conversation_get(&state, &conversation_id)?
+        {
+            let now = now_iso();
+            if !suppress_assistant_message {
+                let assistant_message = ChatMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: "assistant".to_string(),
+                    created_at: now.clone(),
+                    speaker_agent_id: Some(effective_agent_id.clone()),
+                    parts: vec![MessagePart::Text {
+                        text: assistant_text_for_storage.clone(),
+                    }],
+                    extra_text_blocks: Vec::new(),
+                    provider_meta: provider_meta.clone(),
+                    tool_call: if tool_history_events.is_empty() {
+                        None
+                    } else {
+                        Some(tool_history_events.clone())
+                    },
+                    mcp_call: None,
+                };
+                conversation.messages.push(assistant_message.clone());
+                persisted_assistant_message = Some(assistant_message);
+                conversation.updated_at = now.clone();
+                conversation.last_assistant_at = Some(now);
+            }
+            conversation.api_config_id = active_selected_api.id.clone();
+            conversation.last_effective_prompt_tokens = effective_prompt_tokens;
+            conversation.last_context_usage_ratio = context_usage_ratio;
+            delegate_runtime_thread_conversation_update(&state, &conversation_id, conversation)?;
         }
         drop(guard);
     }
@@ -1136,7 +1228,11 @@ async fn stop_chat_message(
         return Err("Missing session.agentId".to_string());
     }
 
-    let chat_key = inflight_chat_key(&api_config_id, &agent_id);
+    let chat_key = inflight_chat_key(
+        &api_config_id,
+        &agent_id,
+        input.session.conversation_id.as_deref(),
+    );
     let aborted_chat = {
         let mut inflight = state
             .inflight_chat_abort_handles
@@ -1180,19 +1276,47 @@ async fn stop_chat_message(
     let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
 
-    let idx = latest_active_conversation_index(&data, &api_config_id, &agent_id);
-    let Some(idx) = idx else {
-        drop(guard);
-        return Ok(StopChatResult {
-            aborted,
-            persisted: false,
-            conversation_id: None,
-        });
+    let requested_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let runtime_requested = requested_conversation_id
+        .as_deref()
+        .filter(|conversation_id| {
+            delegate_runtime_thread_conversation_get(state.inner(), conversation_id)
+                .ok()
+                .flatten()
+                .is_some()
+        })
+        .map(ToOwned::to_owned);
+    let mut runtime_conversation = if let Some(conversation_id) = runtime_requested.as_deref() {
+        delegate_runtime_thread_conversation_get(state.inner(), conversation_id)?
+    } else {
+        None
     };
-    let conversation = data
-        .conversations
-        .get_mut(idx)
-        .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
+    let idx = if runtime_conversation.is_some() {
+        None
+    } else {
+        latest_active_conversation_index(&data, &api_config_id, &agent_id)
+    };
+    let conversation = if let Some(conversation) = runtime_conversation.as_mut() {
+        conversation
+    } else {
+        let Some(idx) = idx else {
+            drop(guard);
+            return Ok(StopChatResult {
+                aborted,
+                persisted: false,
+                conversation_id: None,
+            });
+        };
+        data.conversations
+            .get_mut(idx)
+            .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?
+    };
 
     // If the latest message is already an assistant message, do not append duplicate partial output.
     if conversation
@@ -1240,7 +1364,11 @@ async fn stop_chat_message(
         compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
     let conversation_id = conversation.id.clone();
 
-    write_app_data(&state.data_path, &data)?;
+    if let Some(conversation) = runtime_conversation {
+        delegate_runtime_thread_conversation_update(state.inner(), &conversation_id, conversation)?;
+    } else {
+        write_app_data(&state.data_path, &data)?;
+    }
     drop(guard);
 
     Ok(StopChatResult {

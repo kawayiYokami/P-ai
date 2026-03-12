@@ -14,6 +14,7 @@ type UseViewRefreshOptions = {
   loadChatSettings: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
   refreshConversationHistory: () => Promise<void>;
+  loadDelegateConversations: () => Promise<void>;
   loadArchives: () => Promise<void>;
   resetVisibleTurnCount: () => void;
   perfNow: () => number;
@@ -46,6 +47,9 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
         const tMessages = options.perfNow();
         await options.refreshConversationHistory();
         options.perfLog("refreshAll/refreshConversationHistory", tMessages);
+        const tDelegates = options.perfNow();
+        await options.loadDelegateConversations();
+        options.perfLog("refreshAll/loadDelegateConversations", tDelegates);
         options.resetVisibleTurnCount();
       } else if (options.viewMode.value === "archives") {
         const tMessages = options.perfNow();
@@ -83,6 +87,7 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
     }
     if (options.viewMode.value === "chat") {
       await options.refreshConversationHistory();
+      await options.loadDelegateConversations();
     } else if (options.viewMode.value === "config") {
       await refreshAllViewData();
     } else if (options.viewMode.value === "archives") {

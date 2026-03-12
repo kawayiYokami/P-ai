@@ -306,6 +306,11 @@ export type DelegateConversationSummary = {
   archivedAt?: string;
 };
 
+export type AgentWorkSignalPayload = {
+  agentId: string;
+  delegateId: string;
+};
+
 export type ResponseStyleOption = {
   id: string;
   name: string;
