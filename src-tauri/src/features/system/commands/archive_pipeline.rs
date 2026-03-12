@@ -195,6 +195,55 @@ async fn summarize_archived_conversation_with_model_v2(
     })
 }
 
+fn archive_pipeline_message_plain_text(message: &ChatMessage) -> String {
+    let mut blocks = Vec::<String>::new();
+    for part in &message.parts {
+        if let MessagePart::Text { text } = part {
+            let cleaned = clean_text(text.trim());
+            if !cleaned.is_empty() {
+                blocks.push(cleaned);
+            }
+        }
+    }
+    for block in &message.extra_text_blocks {
+        let cleaned = clean_text(block.trim());
+        if !cleaned.is_empty() {
+            blocks.push(cleaned);
+        }
+    }
+    clean_text(blocks.join("\n").trim())
+}
+
+fn build_archive_summary_from_last_three_rounds(source: &Conversation) -> String {
+    let mut recent = Vec::<(String, String)>::new();
+    for message in source.messages.iter().rev() {
+        let role = message.role.trim();
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let text = archive_pipeline_message_plain_text(message);
+        if text.is_empty() {
+            continue;
+        }
+        recent.push((role.to_string(), text));
+        if recent.len() >= 6 {
+            break;
+        }
+    }
+    recent.reverse();
+    if recent.is_empty() {
+        return "归档降级摘要：最近对话暂无可用正文。".to_string();
+    }
+    let mut lines = Vec::<String>::new();
+    lines.push("归档降级摘要（最后三轮正文对话）：".to_string());
+    for (idx, (role, text)) in recent.iter().enumerate() {
+        let speaker = if role == "user" { "用户" } else { "助理" };
+        let snippet = text.chars().take(240).collect::<String>();
+        lines.push(format!("{}. {}：{}", idx + 1, speaker, snippet));
+    }
+    lines.join("\n")
+}
+
 #[tauri::command]
 async fn force_archive_current(
     input: SessionSelector,
@@ -369,7 +418,8 @@ async fn run_archive_pipeline_inner(
         host_agent_id
     );
 
-    let parsed = summarize_archived_conversation_with_model_v2(
+    let mut archive_warning: Option<String> = None;
+    let parsed = match summarize_archived_conversation_with_model_v2(
         state,
         resolved_api,
         selected_api,
@@ -381,7 +431,23 @@ async fn run_archive_pipeline_inner(
         trace_tag,
         &trace_id,
     )
-    .await?;
+    .await {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            let fallback_summary = build_archive_summary_from_last_three_rounds(source);
+            archive_warning = Some(format!("归档模型失败，已使用最后三轮正文对话降级摘要：{err}"));
+            eprintln!(
+                "[ARCHIVE-PIPELINE] summary model failed, fallback to last-three-rounds summary: trace_id={}, conversation_id={}, err={}",
+                trace_id, source.id, err
+            );
+            ArchiveSummaryDraft {
+                summary: fallback_summary,
+                useful_memory_ids: Vec::new(),
+                new_memories: Vec::new(),
+                merge_groups: Vec::new(),
+            }
+        }
+    };
     let summary = parsed.summary;
     let useful_memory_ids = parsed.useful_memory_ids;
     let summary_memories = parsed.new_memories;
@@ -436,7 +502,7 @@ async fn run_archive_pipeline_inner(
         archive_id: Some(archive_id),
         summary,
         merged_memories,
-        warning: None,
+        warning: archive_warning,
         reason_code: None,
         elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
         memory_feedback: Some(memory_feedback),
