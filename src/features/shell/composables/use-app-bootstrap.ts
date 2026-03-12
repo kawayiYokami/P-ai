@@ -100,12 +100,12 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
         }),
       );
       unlisteners.push(
-        await listen<AgentWorkSignalPayload>("easy-call:agent-work.start", (event) => {
+        await listen<AgentWorkSignalPayload>("easy-call:agent-work-start", (event) => {
           options.onAgentWorkStarted?.(event.payload);
         }),
       );
       unlisteners.push(
-        await listen<AgentWorkSignalPayload>("easy-call:agent-work.stop", (event) => {
+        await listen<AgentWorkSignalPayload>("easy-call:agent-work-stop", (event) => {
           options.onAgentWorkStopped?.(event.payload);
         }),
       );

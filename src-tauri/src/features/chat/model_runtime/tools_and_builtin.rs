@@ -1577,8 +1577,8 @@ fn delegate_enqueue_result_message(
     Ok(())
 }
 
-const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work.start";
-const AGENT_WORK_EVENT_STOP: &str = "easy-call:agent-work.stop";
+const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work-start";
+const AGENT_WORK_EVENT_STOP: &str = "easy-call:agent-work-stop";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

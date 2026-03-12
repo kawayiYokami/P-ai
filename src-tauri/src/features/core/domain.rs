@@ -1114,7 +1114,7 @@ fn tool_restricted_by_department(
     }
     if !matches!(
         tool_id,
-        "wait" | "reload" | "screenshot" | "delegate" | "organize_context"
+        "wait" | "reload" | "screenshot" | "organize_context" | "task" | "delegate"
     ) {
         return None;
     }
