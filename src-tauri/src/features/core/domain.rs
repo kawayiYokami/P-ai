@@ -714,6 +714,20 @@ struct SendChatResult {
     archived_before_send: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     assistant_message: Option<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_prompt_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    estimated_prompt_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effective_prompt_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effective_prompt_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_window_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_usage_percent: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

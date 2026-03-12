@@ -1164,6 +1164,13 @@ async fn send_chat_message_inner(
         reasoning_inline,
         archived_before_send,
         assistant_message: persisted_assistant_message,
+        provider_prompt_tokens: trusted_input_tokens,
+        estimated_prompt_tokens: Some(estimated_prompt_tokens),
+        effective_prompt_tokens: Some(effective_prompt_tokens),
+        effective_prompt_source: Some(effective_prompt_source.to_string()),
+        context_window_tokens: Some(active_selected_api.context_window_tokens),
+        max_output_tokens: Some(active_selected_api.max_output_tokens),
+        context_usage_percent: Some(context_usage_percent),
     })
     };
 
@@ -1228,6 +1235,15 @@ async fn send_chat_message_inner(
                 "assistantTextLength": value.assistant_text.chars().count(),
                 "reasoningStandardLength": value.reasoning_standard.chars().count(),
                 "reasoningInlineLength": value.reasoning_inline.chars().count(),
+                "usage": {
+                    "rigPromptTokens": value.provider_prompt_tokens,
+                    "estimatedPromptTokens": value.estimated_prompt_tokens,
+                    "effectivePromptTokens": value.effective_prompt_tokens,
+                    "effectivePromptSource": value.effective_prompt_source,
+                    "contextWindowTokens": value.context_window_tokens,
+                    "maxOutputTokens": value.max_output_tokens,
+                    "contextUsagePercent": value.context_usage_percent
+                }
             })),
         final_result.as_ref().err().cloned(),
         chat_started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
