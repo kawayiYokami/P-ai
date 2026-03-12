@@ -555,6 +555,7 @@ async fn send_chat_message_inner(
                 kind: Some("tool_status".to_string()),
                 tool_name: Some("archive".to_string()),
                 tool_status: Some("running".to_string()),
+                tool_args: None,
                 message: Some("正在归档优化上下文...".to_string()),
             });
         }
@@ -587,6 +588,7 @@ async fn send_chat_message_inner(
                         kind: Some("tool_status".to_string()),
                         tool_name: Some("archive".to_string()),
                         tool_status: Some("done".to_string()),
+                        tool_args: None,
                         message: Some(done_message),
                     });
                 }
@@ -598,6 +600,7 @@ async fn send_chat_message_inner(
                         kind: Some("tool_status".to_string()),
                         tool_name: Some("archive".to_string()),
                         tool_status: Some("failed".to_string()),
+                        tool_args: None,
                         message: Some(format!("归档失败：{err}")),
                     });
                 }
@@ -998,6 +1001,7 @@ async fn send_chat_message_inner(
                     kind: Some("tool_status".to_string()),
                     tool_name: None,
                     tool_status: Some("running".to_string()),
+                    tool_args: None,
                     message: Some(format!(
                         "{reason_text}，正在重试 ({retry_index}/{max_failure_retries})，等待 {wait_seconds} 秒..."
                     )),
@@ -1022,6 +1026,7 @@ async fn send_chat_message_inner(
                 kind: Some("tool_status".to_string()),
                 tool_name: None,
                 tool_status: Some("running".to_string()),
+                tool_args: None,
                 message: Some(format!(
                     "当前模型失败，正在切换到下一个候选模型（{}/{}）...",
                     candidate_index + 2,
@@ -1163,6 +1168,7 @@ async fn send_chat_message_inner(
             kind: Some("tool_status".to_string()),
             tool_name: Some("archive".to_string()),
             tool_status: Some("running".to_string()),
+            tool_args: None,
             message: Some("回复后上下文已达到 82%，正在自动归档...".to_string()),
         });
         let archive_res = run_archive_pipeline(
@@ -1187,6 +1193,7 @@ async fn send_chat_message_inner(
                     kind: Some("tool_status".to_string()),
                     tool_name: Some("archive".to_string()),
                     tool_status: Some("done".to_string()),
+                    tool_args: None,
                     message: Some(done_message),
                 });
             }
@@ -1196,6 +1203,7 @@ async fn send_chat_message_inner(
                     kind: Some("tool_status".to_string()),
                     tool_name: Some("archive".to_string()),
                     tool_status: Some("failed".to_string()),
+                    tool_args: None,
                     message: Some(format!("自动归档失败：{err}")),
                 });
                 return Err(format!("自动归档失败：{err}"));

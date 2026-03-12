@@ -98,6 +98,7 @@
         :latest-reasoning-inline-text="latestReasoningInlineText"
         :tool-status-text="toolStatusText"
         :tool-status-state="toolStatusState"
+        :stream-tool-calls="streamToolCalls"
         :chat-error-text="chatErrorText"
         :clipboard-images="clipboardImages"
         :chat-input="chatInput"
@@ -289,6 +290,7 @@ const props = defineProps<{
   latestReasoningInlineText: string;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
+  streamToolCalls: Array<{ name: string; argsText: string }>;
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   chatInput: string;

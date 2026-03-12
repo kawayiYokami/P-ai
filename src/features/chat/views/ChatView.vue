@@ -116,8 +116,9 @@
                 :key="`${block.id}-tool-${idx}`"
                 class="collapse bg-base-200 border-base-300 border"
               >
-                <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold">
-                  调用 {{ toolCall.name }}
+                <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold flex items-center gap-1.5">
+                  <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
+                  <span>调用 {{ toolCall.name }}</span>
                 </summary>
                 <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
                   <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
@@ -244,6 +245,24 @@
                 {{ latestInlineReasoningText }}
               </div>
             </details>
+            <div
+              v-if="streamToolCalls.length > 0"
+              class="mb-2 flex flex-col gap-1 text-[11px] opacity-90"
+            >
+              <details
+                v-for="(toolCall, idx) in streamToolCalls"
+                :key="`stream-tool-${idx}`"
+                class="collapse bg-base-200 border-base-300 border"
+              >
+                <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold flex items-center gap-1.5">
+                  <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
+                  <span>调用 {{ toolCall.name }}</span>
+                </summary>
+                <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
+                  <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
+                </div>
+              </details>
+            </div>
             <div
               v-if="latestAssistantText"
               class="ecall-markdown-content prose prose-sm max-w-none"
@@ -437,6 +456,7 @@ const props = defineProps<{
   latestReasoningInlineText: string;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
+  streamToolCalls: Array<{ name: string; argsText: string }>;
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   chatInput: string;

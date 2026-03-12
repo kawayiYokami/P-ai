@@ -21,6 +21,7 @@ where
                         kind: None,
                         tool_name: None,
                         tool_status: None,
+                        tool_args: None,
                         message: None,
                     });
                 }
@@ -38,6 +39,7 @@ where
                             kind: Some("reasoning_standard".to_string()),
                             tool_name: None,
                             tool_status: None,
+                            tool_args: None,
                             message: None,
                         });
                     }
@@ -52,6 +54,7 @@ where
                             kind: Some("reasoning_standard".to_string()),
                             tool_name: None,
                             tool_status: None,
+                            tool_args: None,
                             message: None,
                         });
                     }

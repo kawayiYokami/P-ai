@@ -165,6 +165,7 @@ where
                         kind: None,
                         tool_name: None,
                         tool_status: None,
+                        tool_args: None,
                         message: None,
                     });
                     turn_text.push_str(&text.text);
@@ -177,16 +178,17 @@ where
                     let tool_call_id = tool_call.id.clone();
                     let tool_name = tool_call.function.name.clone();
                     let tool_args_value = tool_call.function.arguments.clone();
-                    send_tool_status_event(
-                        on_delta,
-                        &tool_name,
-                        "running",
-                        &format!("正在调用工具：{}", tool_name),
-                    );
                     let tool_args = match &tool_args_value {
                         Value::String(raw) => raw.clone(),
                         other => other.to_string(),
                     };
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_name,
+                        "running",
+                        Some(tool_args.as_str()),
+                        &format!("正在调用工具：{}", tool_name),
+                    );
                     let tool_result = match call_tool_with_user_abort(
                         tool_abort_state,
                         chat_session_key,
@@ -199,6 +201,7 @@ where
                                 on_delta,
                                 &tool_name,
                                 "done",
+                                None,
                                 &format!("工具调用完成：{}", tool_name),
                             );
                             output
@@ -216,6 +219,7 @@ where
                                 on_delta,
                                 &tool_name,
                                 "failed",
+                                None,
                                 &format!("工具调用失败：{} ({})", tool_name, err_text),
                             );
                             serde_json::json!({
@@ -276,6 +280,7 @@ where
                             kind: Some("reasoning_standard".to_string()),
                             tool_name: None,
                             tool_status: None,
+                            tool_args: None,
                             message: None,
                         });
                     }
@@ -289,6 +294,7 @@ where
                             kind: Some("reasoning_standard".to_string()),
                             tool_name: None,
                             tool_status: None,
+                            tool_args: None,
                             message: None,
                         });
                     }
@@ -394,6 +400,7 @@ where
         on_delta,
         "tools",
         "failed",
+        None,
         "工具调用达到上限，停止继续调用并立刻汇报。",
     );
     Ok(ModelReply {

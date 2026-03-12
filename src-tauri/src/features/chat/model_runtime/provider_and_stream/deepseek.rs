@@ -287,6 +287,7 @@ async fn call_model_deepseek_with_tools(
                         kind: None,
                         tool_name: None,
                         tool_status: None,
+                        tool_args: None,
                         message: None,
                     });
                 }
@@ -303,6 +304,7 @@ async fn call_model_deepseek_with_tools(
                     kind: Some("reasoning_standard".to_string()),
                     tool_name: None,
                     tool_status: None,
+                    tool_args: None,
                     message: None,
                 });
             }
@@ -422,6 +424,7 @@ async fn call_model_deepseek_with_tools(
                 on_delta,
                 &tool_name,
                 "running",
+                Some(args_str.as_str()),
                 &format!("正在调用工具：{}", tool_name),
             );
             let tool_result = if let Some(idx) = tool_map.get(&tool_name) {
@@ -437,6 +440,7 @@ async fn call_model_deepseek_with_tools(
                             on_delta,
                             &tool_name,
                             "done",
+                            None,
                             &format!("工具调用完成：{}", tool_name),
                         );
                         output
@@ -454,6 +458,7 @@ async fn call_model_deepseek_with_tools(
                             on_delta,
                             &tool_name,
                             "failed",
+                            None,
                             &format!("工具调用失败：{} ({})", tool_name, err_text),
                         );
                         serde_json::json!({
@@ -470,6 +475,7 @@ async fn call_model_deepseek_with_tools(
                     on_delta,
                     &tool_name,
                     "failed",
+                    None,
                     &format!("工具调用失败：{} ({})", tool_name, err_text),
                 );
                 serde_json::json!({
@@ -543,6 +549,7 @@ async fn call_model_deepseek_with_tools(
         on_delta,
         "tools",
         "failed",
+        None,
         "工具调用达到上限，停止继续调用并立刻汇报。",
     );
     Ok(ModelReply {

@@ -77,6 +77,7 @@
       :latest-reasoning-inline-text="latestReasoningInlineText"
       :tool-status-text="toolStatusText"
       :tool-status-state="toolStatusState"
+      :stream-tool-calls="streamToolCalls"
       :chat-error-text="chatErrorText"
       :clipboard-images="clipboardImages"
       :chat-input="chatInput"
@@ -381,6 +382,7 @@ const latestReasoningStandardText = ref("");
 const latestReasoningInlineText = ref("");
 const toolStatusText = ref("");
 const toolStatusState = ref<"running" | "done" | "failed" | "">("");
+const streamToolCalls = ref<Array<{ name: string; argsText: string }>>([]);
 const chatErrorText = ref("");
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 
@@ -1524,6 +1526,7 @@ const chatFlow = useChatFlow({
   latestReasoningInlineText,
   toolStatusText,
   toolStatusState,
+  streamToolCalls,
   chatErrorText,
   allMessages,
   visibleMessageBlockCount,

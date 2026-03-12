@@ -487,6 +487,7 @@ fn send_tool_status_event(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     tool_name: &str,
     tool_status: &str,
+    tool_args: Option<&str>,
     message: &str,
 ) {
     let send_result = on_delta.send(AssistantDeltaEvent {
@@ -494,6 +495,7 @@ fn send_tool_status_event(
         kind: Some("tool_status".to_string()),
         tool_name: Some(tool_name.to_string()),
         tool_status: Some(tool_status.to_string()),
+        tool_args: tool_args.map(|v| v.to_string()),
         message: Some(message.to_string()),
     });
     eprintln!(
