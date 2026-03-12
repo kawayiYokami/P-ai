@@ -1,14 +1,16 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PromptBuildMode {
     Chat,
+    Delegate,
     Archive,
 }
 
 #[derive(Debug, Clone, Default)]
 struct ChatPromptOverrides {
     latest_user_text: Option<String>,
-    latest_user_time_iso: Option<String>,
-    latest_user_system_blocks: Vec<String>,
+    latest_user_meta_text: Option<String>,
+    latest_user_extra_blocks: Vec<String>,
+    system_preamble_blocks: Vec<String>,
     latest_images: Vec<(String, String)>,
     latest_audios: Vec<(String, String)>,
 }
@@ -73,15 +75,48 @@ fn build_prepared_prompt_for_mode(
                 terminal_block,
             );
             if let Some(overrides) = chat_overrides {
+                append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
                 let latest_user_text = overrides
                     .latest_user_text
                     .unwrap_or_else(|| prepared.latest_user_text.clone());
-                let latest_user_time_iso = overrides.latest_user_time_iso.unwrap_or_default();
+                let latest_user_meta_text = overrides
+                    .latest_user_meta_text
+                    .unwrap_or_else(|| prepared.latest_user_meta_text.clone());
                 apply_chat_latest_user_payload(
                     &mut prepared,
                     latest_user_text,
-                    &latest_user_time_iso,
-                    &overrides.latest_user_system_blocks,
+                    latest_user_meta_text,
+                    &overrides.latest_user_extra_blocks,
+                    overrides.latest_images,
+                    overrides.latest_audios,
+                );
+            }
+            prepared
+        }
+        PromptBuildMode::Delegate => {
+            let mut prepared = build_delegate_prompt(
+                conversation,
+                agent,
+                agents,
+                departments,
+                response_style_id,
+                ui_language,
+                data_path,
+            );
+            prepared = enrich_prepared_prompt_with_common_preamble(prepared, None, terminal_block);
+            if let Some(overrides) = chat_overrides {
+                append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
+                let latest_user_text = overrides
+                    .latest_user_text
+                    .unwrap_or_else(|| prepared.latest_user_text.clone());
+                let latest_user_meta_text = overrides
+                    .latest_user_meta_text
+                    .unwrap_or_else(|| prepared.latest_user_meta_text.clone());
+                apply_chat_latest_user_payload(
+                    &mut prepared,
+                    latest_user_text,
+                    latest_user_meta_text,
+                    &overrides.latest_user_extra_blocks,
                     overrides.latest_images,
                     overrides.latest_audios,
                 );
@@ -93,8 +128,8 @@ fn build_prepared_prompt_for_mode(
             preamble: "你是一个严格遵循用户指令的助手。".to_string(),
             history_messages: build_archive_history_messages(conversation),
             latest_user_text: String::new(),
-            latest_user_time_text: String::new(),
-            latest_user_system_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         },
@@ -241,18 +276,51 @@ fn enrich_prepared_prompt_with_common_preamble(
     prepared
 }
 
+fn append_preamble_blocks(preamble: &mut String, blocks: &[String]) {
+    for block in blocks {
+        let trimmed = block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !preamble.ends_with('\n') {
+            preamble.push('\n');
+        }
+        preamble.push('\n');
+        preamble.push_str(trimmed);
+        preamble.push('\n');
+    }
+}
+
 fn apply_chat_latest_user_payload(
     prepared: &mut PreparedPrompt,
     latest_user_text: String,
-    latest_user_time_iso: &str,
-    latest_user_system_blocks: &[String],
+    latest_user_meta_text: String,
+    latest_user_extra_blocks: &[String],
     latest_images: Vec<(String, String)>,
     latest_audios: Vec<(String, String)>,
 ) {
     prepared.latest_user_text = latest_user_text;
-    prepared.latest_user_time_text = format_message_time_rfc3339_local(latest_user_time_iso);
-    prepared.latest_user_system_text = latest_user_system_blocks.join("\n\n");
+    prepared.latest_user_meta_text = latest_user_meta_text;
+    prepared.latest_user_extra_text = merge_latest_user_extra_text(
+        &prepared.latest_user_extra_text,
+        latest_user_extra_blocks,
+    );
     prepared.latest_images = latest_images;
     prepared.latest_audios = latest_audios;
+}
+
+fn merge_latest_user_extra_text(existing: &str, appended_blocks: &[String]) -> String {
+    let mut merged = Vec::<String>::new();
+    if !existing.trim().is_empty() {
+        merged.push(existing.trim().to_string());
+    }
+    for block in appended_blocks {
+        let trimmed = block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        merged.push(trimmed.to_string());
+    }
+    merged.join("\n\n")
 }
 

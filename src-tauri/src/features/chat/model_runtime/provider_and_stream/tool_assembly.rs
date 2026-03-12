@@ -14,6 +14,28 @@ fn tool_manifest_item(
     })
 }
 
+fn delegate_tool_runtime_disabled_reason(
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> Option<String> {
+    let state = app_state?;
+    let (_, _, conversation_id) = delegate_parse_session_parts(tool_session_id);
+    let conversation_id = conversation_id?;
+    match delegate_runtime_thread_get(state, &conversation_id) {
+        Ok(Some(_)) => Some("委托线程中禁止再次调用 delegate".to_string()),
+        Ok(None) => None,
+        Err(err) => {
+            eprintln!(
+                "[INFO][TOOL] delegate disabled because delegate runtime lookup failed: session_id={}, conversation_id={}, error={}",
+                tool_session_id,
+                conversation_id,
+                err
+            );
+            Some("delegate 运行态检查失败，已禁止在当前委托线程中继续委托".to_string())
+        }
+    }
+}
+
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -33,8 +55,22 @@ async fn assemble_runtime_tools(
     let has_organize_context = tool_enabled(selected_api, agent, current_department, "organize_context");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
-    let has_delegate = tool_enabled(selected_api, agent, current_department, "delegate");
-    let has_handoff = tool_enabled(selected_api, agent, current_department, "handoff");
+    let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
+    let delegate_runtime_reason = if has_delegate_base {
+        delegate_tool_runtime_disabled_reason(app_state, tool_session_id)
+    } else {
+        None
+    };
+    let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
+    if has_delegate_base {
+        if let Some(reason) = delegate_runtime_reason.as_deref() {
+            eprintln!(
+                "[INFO][TOOL] delegate removed from runtime toolset: session_id={}, reason={}",
+                tool_session_id,
+                reason
+            );
+        }
+    }
 
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
@@ -321,32 +357,9 @@ async fn assemble_runtime_tools(
             "delegate",
             false,
             false,
-            department_reason("delegate").or_else(|| Some("当前人格未启用该工具".to_string())),
-        ));
-    }
-
-    if has_handoff {
-        let state = app_state
-            .ok_or_else(|| "handoff requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinHandoffTool {
-            app_state: state,
-            session_id: tool_session_id.to_string(),
-        }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "handoff",
-            true,
-            true,
-            None,
-        ));
-    } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "handoff",
-            false,
-            false,
-            department_reason("handoff").or_else(|| Some("当前人格未启用该工具".to_string())),
+            delegate_runtime_reason
+                .or_else(|| department_reason("delegate"))
+                .or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -394,4 +407,3 @@ async fn try_attach_desktop_screenshot_mcp_tool(
     }
     Ok(client)
 }
-

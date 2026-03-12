@@ -1,4 +1,4 @@
-fn task_resolve_default_session(state: &AppState) -> Result<(String, String, String), String> {
+fn task_resolve_default_session(state: &AppState) -> Result<(String, String, String, String), String> {
     let guard = state
         .state_lock
         .lock()
@@ -6,8 +6,9 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
     let app_config = read_config(&state.config_path)?;
     let selected_api = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config configured for task dispatch.".to_string())?;
-    let mut data = read_app_data(&state.data_path)?;
-    ensure_default_agent(&mut data);
+    let mut data = state_read_app_data_cached(state)?;
+    let mut changed = ensure_default_agent(&mut data);
+    let before_conversation_count = data.conversations.len();
     let agent_id = if data
         .agents
         .iter()
@@ -21,11 +22,29 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
             .map(|a| a.id.clone())
             .ok_or_else(|| "No assistant agent configured for task dispatch.".to_string())?
     };
+    let active_conversation_api_aligned = latest_active_conversation_index(&data, &selected_api.id, &agent_id)
+        .and_then(|idx| data.conversations.get(idx))
+        .map(|conversation| conversation.api_config_id == selected_api.id)
+        .unwrap_or(false);
+    let conversation_idx = ensure_active_conversation_index(&mut data, &selected_api.id, &agent_id);
+    let conversation_id = data
+        .conversations
+        .get(conversation_idx)
+        .map(|item| item.id.clone())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "No active main conversation configured for task dispatch.".to_string())?;
+    changed = changed
+        || data.conversations.len() != before_conversation_count
+        || !active_conversation_api_aligned;
+    if changed {
+        state_write_app_data_cached(state, &data)?;
+    }
     drop(guard);
     Ok((
         selected_api.id.clone(),
         agent_id.clone(),
-        inflight_chat_key(&selected_api.id, &agent_id, None),
+        conversation_id.clone(),
+        inflight_chat_key(&selected_api.id, &agent_id, Some(&conversation_id)),
     ))
 }
 
@@ -64,7 +83,7 @@ fn task_dequeue_dispatch(state: &AppState, chat_key: &str) -> Result<Option<Task
 }
 
 async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskEntry) -> Result<(), String> {
-    let (_api_id, _agent_id, chat_key) = task_resolve_default_session(state)?;
+    let (_api_id, _agent_id, _conversation_id, chat_key) = task_resolve_default_session(state)?;
     if task_is_chat_busy(state, &chat_key)? {
         let queued = task_enqueue_dispatch(state, &task.task_id)?;
         if queued {
@@ -86,7 +105,7 @@ async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskEntry) -> Res
 }
 
 pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), String> {
-    let (_api_id, _agent_id, chat_key) = task_resolve_default_session(state)?;
+    let (_api_id, _agent_id, _conversation_id, chat_key) = task_resolve_default_session(state)?;
     let Some(item) = task_dequeue_dispatch(state, &chat_key)? else {
         return Ok(());
     };
@@ -299,7 +318,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
     task_store_mark_triggered(&state.data_path, &task.task_id)?;
 
     // 获取会话信息
-    let (api_id, agent_id, _) = task_resolve_default_session(state)?;
+    let (api_id, agent_id, conversation_id, _) = task_resolve_default_session(state)?;
 
     // 构造任务消息
     let task_message = ChatMessage {
@@ -319,7 +338,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
     // 创建事件并入队
     let event = ChatPendingEvent {
         id: Uuid::new_v4().to_string(),
-        conversation_id: "main".to_string(),  // 任务总是进入主会话
+        conversation_id: conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::Task,
         messages: vec![task_message],
@@ -351,8 +370,9 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
                 &task.task_id,
                 "queued",
                 &format!(
-                    "任务已入队，title={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}",
+                    "任务已入队，title={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}",
                     task.title.trim(),
+                    conversation_id,
                     trigger_label,
                     todo_count,
                     task.trigger.run_at.is_some(),
@@ -369,8 +389,9 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
                 &task.task_id,
                 "failed",
                 &format!(
-                    "任务入队失败，title={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，error={}",
+                    "任务入队失败，title={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，error={}",
                     task.title.trim(),
+                    conversation_id,
                     trigger_label,
                     todo_count,
                     task.trigger.run_at.is_some(),

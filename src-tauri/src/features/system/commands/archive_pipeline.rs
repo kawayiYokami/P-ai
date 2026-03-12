@@ -206,7 +206,7 @@ async fn force_archive_current(
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut app_config = read_config(&state.config_path)?;
-        let mut data = read_app_data(&state.data_path)?;
+        let mut data = state_read_app_data_cached(&state)?;
         ensure_default_agent(&mut data);
         merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
         let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
@@ -338,7 +338,7 @@ async fn run_archive_pipeline_inner(
             .state_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = read_app_data(&state.data_path)?;
+        let mut data = state_read_app_data_cached(&state)?;
         ensure_default_agent(&mut data);
         let user_alias = data.user_alias.clone();
         let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
@@ -391,7 +391,7 @@ async fn run_archive_pipeline_inner(
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
     let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary)
         .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
@@ -417,7 +417,7 @@ async fn run_archive_pipeline_inner(
         merge_memories_into_store(&state.data_path, &summary_memories, owner_agent_id)?;
     let merged_groups =
         merge_memory_groups_into_store(&state.data_path, &merge_groups, owner_agent_id)?;
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
     eprintln!(

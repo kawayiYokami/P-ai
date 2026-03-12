@@ -86,6 +86,13 @@ pub(crate) struct ChatPendingEvent {
 struct QueuedChatActivation {
     event_id: String,
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+    source: QueuedChatActivationSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueuedChatActivationSource {
+    PendingEvent,
+    ActiveViewBinding,
 }
 
 // ==================== 队列查询和管理 ====================
@@ -101,12 +108,21 @@ pub(crate) struct ChatQueueEventSummary {
     pub conversation_id: String,
 }
 
+fn lock_chat_pending_queue(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, std::collections::VecDeque<ChatPendingEvent>>, String> {
+    match state.chat_pending_queue.lock() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            eprintln!("[聊天调度] 警告: chat_pending_queue 锁已 poison，正在继续恢复使用");
+            Ok(poisoned.into_inner())
+        }
+    }
+}
+
 /// 获取队列状态
 pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventSummary>, String> {
-    let queue = state
-        .chat_pending_queue
-        .lock()
-        .map_err(|_| "Failed to lock chat pending queue".to_string())?;
+    let queue = lock_chat_pending_queue(state)?;
 
     let summaries = queue
         .iter()
@@ -122,8 +138,8 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
                 })
                 .unwrap_or_default();
 
-            let preview = if message_preview.len() > 50 {
-                format!("{}...", &message_preview[..50])
+            let preview = if message_preview.chars().count() > 50 {
+                format!("{}...", message_preview.chars().take(50).collect::<String>())
             } else {
                 message_preview
             };
@@ -143,10 +159,7 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
 
 /// 从队列中移除指定事件
 pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Option<ChatPendingEvent>, String> {
-    let mut queue = state
-        .chat_pending_queue
-        .lock()
-        .map_err(|_| "Failed to lock chat pending queue".to_string())?;
+    let mut queue = lock_chat_pending_queue(state)?;
 
     if let Some(pos) = queue.iter().position(|e| e.id == event_id) {
         let removed = queue.remove(pos);
@@ -170,10 +183,7 @@ pub(crate) fn enqueue_chat_event(
     event: ChatPendingEvent,
 ) -> Result<(), String> {
     let started_at = std::time::Instant::now();
-    let mut queue = state
-        .chat_pending_queue
-        .lock()
-        .map_err(|_| "Failed to lock chat pending queue".to_string())?;
+    let mut queue = lock_chat_pending_queue(state)?;
 
     let queue_len_before = queue.len();
     queue.push_back(event.clone());
@@ -206,6 +216,50 @@ pub(crate) fn register_chat_event_runtime(
     Ok(())
 }
 
+pub(crate) fn set_active_chat_view_stream_binding(
+    state: &AppState,
+    window_label: &str,
+    conversation_id: Option<&str>,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<(), String> {
+    let mut bindings = state
+        .active_chat_view_bindings
+        .lock()
+        .map_err(|_| "Failed to lock active chat view bindings".to_string())?;
+    let trimmed_window_label = window_label.trim();
+    if trimmed_window_label.is_empty() {
+        return Err("Missing window label when binding active chat stream".to_string());
+    }
+    let trimmed_conversation_id = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    if let Some(conversation_id) = trimmed_conversation_id {
+        bindings.insert(
+            trimmed_window_label.to_string(),
+            ActiveChatViewBinding {
+                conversation_id,
+                on_delta,
+            },
+        );
+    } else {
+        bindings.remove(trimmed_window_label);
+    }
+    Ok(())
+}
+
+pub(crate) fn clear_active_chat_view_stream_binding(
+    state: &AppState,
+    window_label: &str,
+) -> Result<(), String> {
+    let mut bindings = state
+        .active_chat_view_bindings
+        .lock()
+        .map_err(|_| "Failed to lock active chat view bindings".to_string())?;
+    bindings.remove(window_label.trim());
+    Ok(())
+}
+
 pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
     let state_clone = state.clone();
     tauri::async_runtime::spawn(async move {
@@ -223,10 +277,7 @@ pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
 fn dequeue_batch(
     state: &AppState,
 ) -> Result<Vec<ChatPendingEvent>, String> {
-    let mut queue = state
-        .chat_pending_queue
-        .lock()
-        .map_err(|_| "Failed to lock chat pending queue".to_string())?;
+    let mut queue = lock_chat_pending_queue(state)?;
 
     let batch: Vec<ChatPendingEvent> = queue.drain(..).collect();
     Ok(batch)
@@ -289,10 +340,7 @@ pub(crate) fn set_main_session_state(
 /// 3. 每一轮开始前，输入集都是稳定且封闭的一批消息。
 pub(crate) fn can_dequeue(state: &AppState) -> Result<bool, String> {
     let current_state = get_main_session_state(state)?;
-    let queue = state
-        .chat_pending_queue
-        .lock()
-        .map_err(|_| "Failed to lock chat pending queue".to_string())?;
+    let queue = lock_chat_pending_queue(state)?;
 
     let can = current_state == MainSessionState::Idle && !queue.is_empty();
 
@@ -458,32 +506,40 @@ async fn process_conversation_batch(
         activate_status,
         oldest_queue_created_at,
     );
+    if let Err(err) = emit_refresh_signal(state) {
+        eprintln!(
+            "[聊天调度] 刷新前端失败: stage=history_flushed, conversation_id={}, error={}",
+            conversation_id,
+            err
+        );
+    }
+
+    let mut activations = take_queued_chat_activations(state, &event_ids)?;
+    if activations.is_empty() {
+        activations = collect_active_chat_view_activations(state, conversation_id)?;
+        if !activations.is_empty() {
+            eprintln!(
+                "[聊天调度] 使用当前聊天窗口绑定通道: conversation_id={}, binding_count={}",
+                conversation_id,
+                activations.len()
+            );
+        }
+    }
+    let history_flushed_message = serde_json::json!({
+        "conversationId": conversation_id,
+        "messageCount": batch_message_count,
+        "messages": persisted_batch_messages,
+        "activateAssistant": should_activate,
+    })
+    .to_string();
+    for active in &activations {
+        send_history_flushed_event(active, &history_flushed_message);
+    }
 
     // 3. 如果需要激活，调用主助理。
     if should_activate {
         // 取第一个事件的会话信息
         if let Some(first_event) = events.first() {
-            let mut activations = take_queued_chat_activations(state, &event_ids)?;
-            // 先向当前批次相关的前端监听方广播 history_flushed。
-            //
-            // 前端在收到这个信号后，才允许把本批消息视为“正式进入当前窗口”，
-            // 然后再切换到新的主助理流式显示。
-            for active in &activations {
-                let _ = active.on_delta.send(AssistantDeltaEvent {
-                    delta: String::new(),
-                    kind: Some("history_flushed".to_string()),
-                    tool_name: None,
-                    tool_status: None,
-                    message: Some(
-                        serde_json::json!({
-                            "conversationId": conversation_id,
-                            "messageCount": batch_message_count,
-                            "messages": persisted_batch_messages,
-                        })
-                        .to_string(),
-                    ),
-                });
-            }
             // 同一批里可能有多个激活请求，但前台主助理轮次只能有一个。
             // 因此这里只保留最后一个激活请求作为实际流式绑定对象。
             let activation = activations.pop();
@@ -497,13 +553,33 @@ async fn process_conversation_batch(
                 state,
                 &first_event.session_info,
                 conversation_id,
-                activation,
+                activation.clone(),
                 oldest_queue_created_at,
             ).await {
                 Ok(result) => {
+                    if let Some(active) = activation.as_ref() {
+                        send_round_completed_event(active, &result);
+                    }
+                    if let Err(err) = emit_refresh_signal(state) {
+                        eprintln!(
+                            "[聊天调度] 刷新前端失败: stage=round_completed, conversation_id={}, error={}",
+                            conversation_id,
+                            err
+                        );
+                    }
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                 }
                 Err(err) => {
+                    if let Some(active) = activation.as_ref() {
+                        send_round_failed_event(active, &err);
+                    }
+                    if let Err(refresh_err) = emit_refresh_signal(state) {
+                        eprintln!(
+                            "[聊天调度] 刷新前端失败: stage=round_failed, conversation_id={}, error={}",
+                            conversation_id,
+                            refresh_err
+                        );
+                    }
                     complete_pending_chat_events_with_error(state, &event_ids, &err)?;
                     return Err(err);
                 }
@@ -612,6 +688,89 @@ fn latest_user_text_from_events(events: &[ChatPendingEvent]) -> String {
         .unwrap_or_default()
 }
 
+fn send_history_flushed_event(
+    activation: &QueuedChatActivation,
+    payload_json: &str,
+) {
+    let _ = activation.on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("history_flushed".to_string()),
+        tool_name: None,
+        tool_status: None,
+        message: Some(payload_json.to_string()),
+    });
+}
+
+fn send_round_completed_event(
+    activation: &QueuedChatActivation,
+    result: &SendChatResult,
+) {
+    if activation.source != QueuedChatActivationSource::ActiveViewBinding {
+        return;
+    }
+    let payload_json = serde_json::to_string(result).unwrap_or_else(|_| {
+        serde_json::json!({
+            "conversationId": result.conversation_id,
+            "assistantText": result.assistant_text,
+            "reasoningStandard": result.reasoning_standard,
+            "reasoningInline": result.reasoning_inline,
+            "archivedBeforeSend": result.archived_before_send,
+            "assistantMessage": result.assistant_message,
+        })
+        .to_string()
+    });
+    let _ = activation.on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("round_completed".to_string()),
+        tool_name: None,
+        tool_status: None,
+        message: Some(payload_json),
+    });
+}
+
+fn send_round_failed_event(
+    activation: &QueuedChatActivation,
+    error_text: &str,
+) {
+    if activation.source != QueuedChatActivationSource::ActiveViewBinding {
+        return;
+    }
+    let payload_json = serde_json::json!({
+        "error": error_text,
+    })
+    .to_string();
+    let _ = activation.on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("round_failed".to_string()),
+        tool_name: None,
+        tool_status: None,
+        message: Some(payload_json),
+    });
+}
+
+fn collect_active_chat_view_activations(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Vec<QueuedChatActivation>, String> {
+    let bindings = state
+        .active_chat_view_bindings
+        .lock()
+        .map_err(|_| "Failed to lock active chat view bindings".to_string())?;
+    Ok(bindings
+        .iter()
+        .filter_map(|(window_label, binding)| {
+            if binding.conversation_id != conversation_id.trim() {
+                return None;
+            }
+            Some(QueuedChatActivation {
+                event_id: format!("active-view:{window_label}"),
+                on_delta: binding.on_delta.clone(),
+                source: QueuedChatActivationSource::ActiveViewBinding,
+            })
+        })
+        .collect())
+}
+
 fn take_queued_chat_activations(
     state: &AppState,
     event_ids: &[String],
@@ -626,6 +785,7 @@ fn take_queued_chat_activations(
             activations.push(QueuedChatActivation {
                 event_id: event_id.clone(),
                 on_delta,
+                source: QueuedChatActivationSource::PendingEvent,
             });
         }
     }

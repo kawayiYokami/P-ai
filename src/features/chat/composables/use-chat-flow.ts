@@ -14,6 +14,20 @@ type HistoryFlushedPayload = {
   conversationId: string;
   messageCount: number;
   messages: ChatMessage[];
+  activateAssistant?: boolean;
+};
+
+type RoundCompletedPayload = {
+  conversationId: string;
+  assistantText: string;
+  reasoningStandard?: string;
+  reasoningInline?: string;
+  archivedBeforeSend?: boolean;
+  assistantMessage?: ChatMessage;
+};
+
+type RoundFailedPayload = {
+  error: string;
 };
 
 type UseChatFlowOptions = {
@@ -54,6 +68,10 @@ type UseChatFlowOptions = {
     partialAssistantText: string;
     partialReasoningStandard: string;
     partialReasoningInline: string;
+  }) => Promise<void>;
+  invokeBindActiveChatViewStream?: (input: {
+    conversationId?: string;
+    onDelta: Channel<AssistantDeltaEvent>;
   }) => Promise<void>;
   onReloadMessages: () => Promise<void>;
   onHistoryFlushed?: (input: {
@@ -170,12 +188,53 @@ export function useChatFlow(options: UseChatFlowOptions) {
         conversationId,
         messageCount,
         messages: Array.isArray(parsed.messages) ? (parsed.messages as ChatMessage[]) : [],
+        activateAssistant: !!parsed.activateAssistant,
       };
     } catch {
       return {
         conversationId: text,
         messageCount: 0,
         messages: [],
+        activateAssistant: false,
+      };
+    }
+  }
+
+  function readRoundCompletedPayload(
+    raw: string | undefined,
+  ): RoundCompletedPayload | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return {
+        conversationId: String(parsed.conversationId || "").trim(),
+        assistantText: String(parsed.assistantText || ""),
+        reasoningStandard:
+          typeof parsed.reasoningStandard === "string" ? parsed.reasoningStandard : undefined,
+        reasoningInline:
+          typeof parsed.reasoningInline === "string" ? parsed.reasoningInline : undefined,
+        archivedBeforeSend: !!parsed.archivedBeforeSend,
+        assistantMessage: (parsed.assistantMessage as ChatMessage | undefined) || undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function readRoundFailedPayload(
+    raw: string | undefined,
+  ): RoundFailedPayload | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return {
+        error: String(parsed.error || ""),
+      };
+    } catch {
+      return {
+        error: text,
       };
     }
   }
@@ -211,79 +270,137 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
   }
 
-  async function sendChat() {
-    // 注意：不再检查 forcingArchive 和 chatting，因为后端已通过状态机（MainSessionState）和队列处理并发控制
-    // 流式期间和归档期间的消息都会入队，由后端串行处理
-    const text = options.chatInput.value.trim();
-    if (!text && options.clipboardImages.value.length === 0) return;
-    const sendSession = options.getSession();
-    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId)
-      return;
-
-    const wasChatting = options.chatting.value;
-    options.toolStatusText.value = "";
-    options.toolStatusState.value = "";
-    options.chatErrorText.value = "";
-
-    const sentImages = [...options.clipboardImages.value];
-    options.chatInput.value = "";
-    options.clipboardImages.value = [];
-
-    const gen = ++requestGeneration;
-    if (!wasChatting) {
-      // 非对话中发送时，先只完成“入队”。
-      // 当前轮次必须等到 history_flushed 之后，才允许进入前台可见状态。
-      activeDisplayGeneration = gen;
-      resetDisplayedRoundState();
+  async function handleHistoryFlushedEvent(gen: number, parsed: AssistantDeltaEvent) {
+    const flushed = readHistoryFlushedPayload(parsed.message);
+    const batchVisibleCount = Math.max(1, flushed?.messageCount || 0);
+    activeDisplayGeneration = gen;
+    activeHistoryMessageCount = batchVisibleCount;
+    options.visibleMessageBlockCount.value = batchVisibleCount;
+    resetDisplayedRoundState();
+    if (options.onHistoryFlushed) {
+      await options.onHistoryFlushed({
+        conversationId: String(flushed?.conversationId || "").trim(),
+        messageCount: batchVisibleCount,
+        pendingMessages: flushed?.messages || [],
+      });
+    } else {
+      await options.onReloadMessages();
     }
-    const deltaChannel = new Channel<AssistantDeltaEvent>();
-    deltaChannel.onmessage = (event) => {
+    options.chatting.value = !!flushed?.activateAssistant;
+  }
+
+  async function applyRoundCompleted(
+    gen: number,
+    result: {
+      assistantText: string;
+      reasoningStandard?: string;
+      reasoningInline?: string;
+      assistantMessage?: ChatMessage;
+    },
+  ) {
+    if (gen !== activeDisplayGeneration) return;
+    clearStreamBuffer();
+    options.latestAssistantText.value = String(result.assistantText || "");
+    if (typeof result.reasoningStandard === "string") {
+      options.latestReasoningStandardText.value = result.reasoningStandard;
+    }
+    if (typeof result.reasoningInline === "string") {
+      options.latestReasoningInlineText.value = result.reasoningInline;
+    }
+    options.chatErrorText.value = "";
+    if ((options.toolStatusState.value as string) === "running") {
+      options.toolStatusState.value = "done";
+      options.toolStatusText.value =
+        summarizeToolCallsText() || options.t("status.toolCallDone");
+    }
+    if (result.assistantMessage) {
+      const currentMessages = options.allMessages.value;
+      if (!currentMessages.some((item) => item.id === result.assistantMessage?.id)) {
+        options.allMessages.value = [...currentMessages, result.assistantMessage];
+      }
+    } else {
+      await options.onReloadMessages();
+    }
+    options.visibleMessageBlockCount.value =
+      activeHistoryMessageCount + (hasAssistantVisibleOutput(result) ? 1 : 0);
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+  }
+
+  async function applyRoundFailed(gen: number, error: unknown) {
+    if (gen !== activeDisplayGeneration) return;
+    clearStreamBuffer();
+    options.latestAssistantText.value = "";
+    options.latestReasoningStandardText.value = "";
+    options.latestReasoningInlineText.value = "";
+    options.chatErrorText.value = options.formatRequestFailed(error);
+    if (!options.toolStatusText.value) {
+      options.toolStatusState.value = "failed";
+      options.toolStatusText.value =
+        summarizeToolCallsText() || options.t("status.toolCallFailed");
+    }
+    options.visibleMessageBlockCount.value = activeHistoryMessageCount;
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+    await options.onReloadMessages();
+  }
+
+  function attachDeltaHandler(
+    channel: Channel<AssistantDeltaEvent>,
+    getGeneration: () => number,
+    nextGenerationOnHistoryFlushed: () => number,
+  ) {
+    channel.onmessage = (event) => {
       const parsed = readAssistantEvent(event);
       if (parsed.kind === "history_flushed") {
-        void (async () => {
-          try {
-            const flushed = readHistoryFlushedPayload(parsed.message);
-            const batchVisibleCount = Math.max(1, flushed?.messageCount || 0);
-            // history_flushed 表示：当前批次的所有消息已经正式写入历史。
-            // 只有到这一刻，前端才允许切换“前台可见轮次”。
-            //
-            // 如果这是排队中的下一轮请求，它会在这里接管前台显示；
-            // 如果这是空闲状态下的直接对话，也同样通过这条边界完成
-            // “队列/临时态 -> 正式历史 -> 新一轮流式”的切换。
-            activeDisplayGeneration = gen;
-            activeHistoryMessageCount = batchVisibleCount;
-            // 前台窗口的单位不再是“最后 1 条消息”，
-            // 而是“当前批次刚刚刷入历史的全部消息块”。
-            options.visibleMessageBlockCount.value = batchVisibleCount;
-            resetDisplayedRoundState();
-            // 优先消费前端已持有的“已确认批次”，减少每轮都回源后端带来的等待。
-            // 未提供本地批次消费器时，退化到原有整段历史重载。
-            if (options.onHistoryFlushed) {
-              await options.onHistoryFlushed({
-                conversationId: String(flushed?.conversationId || "").trim(),
-                messageCount: batchVisibleCount,
-                pendingMessages: flushed?.messages || [],
-              });
-            } else {
-              await options.onReloadMessages();
-            }
-            // 只有当本批消息已经真正刷新到当前窗口之后，
-            // 才允许出现新的助理流式气泡和停止按钮。
-            options.chatting.value = true;
-          } catch (error) {
-            const err = error as { message?: unknown; stack?: unknown };
-            console.error("[聊天] 历史已清理 处理失败", {
-              action: "history_flushed",
-              message: String(err?.message ?? error ?? ""),
-              stack: String(err?.stack ?? ""),
-              requestGeneration: gen,
-            });
-            options.chatErrorText.value = options.formatRequestFailed(error);
-          }
-        })();
+        const gen = nextGenerationOnHistoryFlushed();
+        void handleHistoryFlushedEvent(gen, parsed).catch((error) => {
+          const err = error as { message?: unknown; stack?: unknown };
+          console.error("[聊天] history_flushed 处理失败", {
+            action: "history_flushed",
+            message: String(err?.message ?? error ?? ""),
+            stack: String(err?.stack ?? ""),
+            requestGeneration: gen,
+          });
+          options.chatErrorText.value = options.formatRequestFailed(error);
+        });
         return;
       }
-      if (gen !== activeDisplayGeneration) return;
+      const gen = getGeneration();
+      if (!gen || gen !== activeDisplayGeneration) return;
+      if (parsed.kind === "round_completed") {
+        const payload = readRoundCompletedPayload(parsed.message);
+        void applyRoundCompleted(gen, {
+          assistantText: String(payload?.assistantText || ""),
+          reasoningStandard: payload?.reasoningStandard,
+          reasoningInline: payload?.reasoningInline,
+          assistantMessage: payload?.assistantMessage,
+        }).catch((error) => {
+          const err = error as { message?: unknown; stack?: unknown };
+          console.error("[聊天] round_completed 处理失败", {
+            action: "round_completed",
+            message: String(err?.message ?? error ?? ""),
+            stack: String(err?.stack ?? ""),
+            requestGeneration: gen,
+          });
+          options.chatErrorText.value = options.formatRequestFailed(error);
+        });
+        return;
+      }
+      if (parsed.kind === "round_failed") {
+        const payload = readRoundFailedPayload(parsed.message);
+        void applyRoundFailed(gen, payload?.error || parsed.message || "round_failed").catch((error) => {
+          const err = error as { message?: unknown; stack?: unknown };
+          console.error("[聊天] round_failed 处理失败", {
+            action: "round_failed",
+            message: String(err?.message ?? error ?? ""),
+            stack: String(err?.stack ?? ""),
+            requestGeneration: gen,
+          });
+          options.chatErrorText.value = options.formatRequestFailed(error);
+        });
+        return;
+      }
       if (parsed.kind === "tool_status") {
         const toolName = String(parsed.toolName || "").trim();
         if (parsed.toolStatus === "running" && toolName) {
@@ -315,6 +432,61 @@ export function useChatFlow(options: UseChatFlowOptions) {
       }
       enqueueStreamDelta(gen, readDeltaMessage(parsed));
     };
+  }
+
+  let boundConversationId = "";
+  let boundDisplayGeneration = 0;
+  const boundDeltaChannel = new Channel<AssistantDeltaEvent>();
+  attachDeltaHandler(
+    boundDeltaChannel,
+    () => boundDisplayGeneration,
+    () => {
+      boundDisplayGeneration = ++requestGeneration;
+      return boundDisplayGeneration;
+    },
+  );
+
+  async function bindActiveConversationStream(conversationId: string) {
+    if (!options.invokeBindActiveChatViewStream) return;
+    const trimmedConversationId = String(conversationId || "").trim();
+    if (trimmedConversationId === boundConversationId) return;
+    await options.invokeBindActiveChatViewStream({
+      conversationId: trimmedConversationId || undefined,
+      onDelta: boundDeltaChannel,
+    });
+    boundConversationId = trimmedConversationId;
+    if (!trimmedConversationId) {
+      boundDisplayGeneration = 0;
+    }
+  }
+
+  async function sendChat() {
+    // 注意：不再检查 forcingArchive 和 chatting，因为后端已通过状态机（MainSessionState）和队列处理并发控制
+    // 流式期间和归档期间的消息都会入队，由后端串行处理
+    const text = options.chatInput.value.trim();
+    if (!text && options.clipboardImages.value.length === 0) return;
+    const sendSession = options.getSession();
+    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId)
+      return;
+
+    const wasChatting = options.chatting.value;
+    options.toolStatusText.value = "";
+    options.toolStatusState.value = "";
+    options.chatErrorText.value = "";
+
+    const sentImages = [...options.clipboardImages.value];
+    options.chatInput.value = "";
+    options.clipboardImages.value = [];
+
+    const gen = ++requestGeneration;
+    if (!wasChatting) {
+      // 非对话中发送时，先只完成“入队”。
+      // 当前轮次必须等到 history_flushed 之后，才允许进入前台可见状态。
+      activeDisplayGeneration = gen;
+      resetDisplayedRoundState();
+    }
+    const deltaChannel = new Channel<AssistantDeltaEvent>();
+    attachDeltaHandler(deltaChannel, () => gen, () => gen);
 
     try {
       const result = await options.invokeSendChatMessage({
@@ -326,40 +498,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
         },
         onDelta: deltaChannel,
       });
-      if (gen !== activeDisplayGeneration) return;
-      // Always align to backend final text to avoid stream/snapshot race drift.
-      clearStreamBuffer();
-      options.latestAssistantText.value = String(result.assistantText || "");
-      if (typeof result.reasoningStandard === "string") {
-        options.latestReasoningStandardText.value = result.reasoningStandard;
-      }
-      if (typeof result.reasoningInline === "string") {
-        options.latestReasoningInlineText.value = result.reasoningInline;
-      }
-      options.chatErrorText.value = "";
-      if ((options.toolStatusState.value as string) === "running") {
-        options.toolStatusState.value = "done";
-        options.toolStatusText.value =
-          summarizeToolCallsText() || options.t("status.toolCallDone");
-      }
       const currentSession = options.getSession();
       const sameSession =
         !!currentSession &&
         currentSession.apiConfigId === sendSession.apiConfigId &&
         currentSession.agentId === sendSession.agentId;
-      if (sameSession) {
-        if (result.assistantMessage) {
-          const currentMessages = options.allMessages.value;
-          if (!currentMessages.some((item) => item.id === result.assistantMessage?.id)) {
-            options.allMessages.value = [...currentMessages, result.assistantMessage];
-          }
-        } else {
-          await options.onReloadMessages();
-        }
-        options.visibleMessageBlockCount.value =
-          activeHistoryMessageCount +
-          (hasAssistantVisibleOutput(result) ? 1 : 0);
-      }
+      if (!sameSession) return;
+      await applyRoundCompleted(gen, {
+        assistantText: String(result.assistantText || ""),
+        reasoningStandard: result.reasoningStandard,
+        reasoningInline: result.reasoningInline,
+        assistantMessage: result.assistantMessage,
+      });
     } catch (error) {
       const err = error as { message?: unknown; stack?: unknown };
       console.error("[聊天] 聊天流程请求失败", {
@@ -390,8 +540,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         currentSession.apiConfigId === sendSession.apiConfigId &&
         currentSession.agentId === sendSession.agentId;
       if (sameSession) {
-        options.visibleMessageBlockCount.value = activeHistoryMessageCount;
-        await options.onReloadMessages();
+        await applyRoundFailed(gen, error);
       }
     } finally {
       if (gen === activeDisplayGeneration) {
@@ -462,6 +611,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   return {
     sendChat,
     stopChat,
+    bindActiveConversationStream,
     clearStreamBuffer,
     reasoningStartedAtMs,
   };

@@ -2,14 +2,8 @@ fn build_tool_loop_prompt(
     prepared: &PreparedPrompt,
 ) -> Result<(RigMessage, Vec<RigMessage>), String> {
     let mut prompt_blocks: Vec<UserContent> = Vec::new();
-    if !prepared.latest_user_text.trim().is_empty() {
-        prompt_blocks.push(UserContent::text(prepared.latest_user_text.clone()));
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        prompt_blocks.push(UserContent::text(prepared.latest_user_time_text.clone()));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
+        prompt_blocks.push(UserContent::text(text_block));
     }
     let current_prompt_content = OneOrMany::many(prompt_blocks)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;

@@ -171,22 +171,10 @@ fn prepared_prompt_to_equivalent_request_json(
     }
 
     let mut latest_user_content = Vec::<Value>::new();
-    if !prepared.latest_user_text.trim().is_empty() {
+    for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
         latest_user_content.push(serde_json::json!({
             "type": "text",
-            "text": prepared.latest_user_text
-        }));
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        latest_user_content.push(serde_json::json!({
-            "type": "text",
-            "text": prepared.latest_user_time_text
-        }));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        latest_user_content.push(serde_json::json!({
-            "type": "text",
-            "text": prepared.latest_user_system_text
+            "text": text_block
         }));
     }
     for (mime, bytes_base64) in &prepared.latest_images {

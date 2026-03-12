@@ -814,6 +814,50 @@ fn build_prompt(
     ui_language: &str,
     data_path: Option<&PathBuf>,
 ) -> PreparedPrompt {
+    build_prompt_with_mode(
+        conversation,
+        agent,
+        agents,
+        departments,
+        Some((user_name, user_intro)),
+        response_style_id,
+        ui_language,
+        data_path,
+    )
+}
+
+fn build_delegate_prompt(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
+    response_style_id: &str,
+    ui_language: &str,
+    data_path: Option<&PathBuf>,
+) -> PreparedPrompt {
+    build_prompt_with_mode(
+        conversation,
+        agent,
+        agents,
+        departments,
+        None,
+        response_style_id,
+        ui_language,
+        data_path,
+    )
+}
+
+fn build_prompt_with_mode(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
+    user_profile: Option<(&str, &str)>,
+    response_style_id: &str,
+    ui_language: &str,
+    data_path: Option<&PathBuf>,
+) -> PreparedPrompt {
+    let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let latest_user_index = conversation
         .messages
         .iter()
@@ -890,7 +934,7 @@ fn build_prompt(
             role: role.clone(),
             text,
             user_time_text: if role == "user" {
-                build_prompt_user_meta_text(message, agents, user_name, ui_language)
+                build_prompt_user_meta_text(message, agents, prompt_user_name, ui_language)
             } else {
                 None
             },
@@ -958,18 +1002,18 @@ fn build_prompt(
             "默认使用中文回答。",
         ),
     };
-    let user_intro_display = if user_intro.trim().is_empty() {
-        not_provided_label.to_string()
-    } else {
-        user_intro.trim().to_string()
-    };
-    let role_identity_text = role_identity_line
-        .replacen("{}", &xml_escape_prompt(&agent.name), 1)
-        .replacen("{}", &xml_escape_prompt(user_name), 1);
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
-
-    let preamble = format!(
-        "{}\n\
+    let preamble = if let Some((user_name, user_intro)) = user_profile {
+        let user_intro_display = if user_intro.trim().is_empty() {
+            not_provided_label.to_string()
+        } else {
+            user_intro.trim().to_string()
+        };
+        let role_identity_text = role_identity_line
+            .replacen("{}", &xml_escape_prompt(&agent.name), 1)
+            .replacen("{}", &xml_escape_prompt(user_name), 1);
+        format!(
+            "{}\n\
 {}\n\
 ## {}\n\
 {}\n\
@@ -990,25 +1034,67 @@ fn build_prompt(
 - {}\n\
 - {}\n\
 \n",
-        highest_instruction_md,
-        departments_block,
-        assistant_settings_label,
-        agent.system_prompt,
-        user_settings_label,
-        user_nickname_label,
-        xml_escape_prompt(user_name),
-        user_intro_label,
-        xml_escape_prompt(&user_intro_display),
-        role_constraints_label,
-        role_identity_text,
-        role_confusion_line,
-        conversation_style_label,
-        response_style.name,
-        response_style.prompt,
-        language_settings_label,
-        language_instruction,
-        language_follow_user_line
-    );
+            highest_instruction_md,
+            departments_block,
+            assistant_settings_label,
+            agent.system_prompt,
+            user_settings_label,
+            user_nickname_label,
+            xml_escape_prompt(user_name),
+            user_intro_label,
+            xml_escape_prompt(&user_intro_display),
+            role_constraints_label,
+            role_identity_text,
+            role_confusion_line,
+            conversation_style_label,
+            response_style.name,
+            response_style.prompt,
+            language_settings_label,
+            language_instruction,
+            language_follow_user_line
+        )
+    } else {
+        let delegate_role_line = match ui_language.trim() {
+            "en-US" => "- This is a delegate thread. There is no default user persona in this thread.",
+            "zh-TW" => "- 這是一條委託執行緒。此執行緒不存在預設使用者人格。",
+            _ => "- 这是一条委托线程。此线程不存在默认用户人格。",
+        };
+        let delegate_scope_line = match ui_language.trim() {
+            "en-US" => "- Only use the current delegate task block and this thread's own history. Do not invent user profile, nickname, or main-thread background.",
+            "zh-TW" => "- 只依據本輪委託任務塊與本執行緒歷史處理工作，不要自行補充使用者設定、暱稱或主會話背景。",
+            _ => "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或主会话背景。",
+        };
+        format!(
+            "{}\n\
+{}\n\
+## {}\n\
+{}\n\
+\n\
+## {}\n\
+{}\n\
+{}\n\
+\n\
+## {}\n\
+- 当前风格：{}\n\
+{}\n\
+\n\
+## {}\n\
+- {}\n\
+\n",
+            highest_instruction_md,
+            departments_block,
+            assistant_settings_label,
+            agent.system_prompt,
+            role_constraints_label,
+            delegate_role_line,
+            delegate_scope_line,
+            conversation_style_label,
+            response_style.name,
+            response_style.prompt,
+            language_settings_label,
+            language_instruction,
+        )
+    };
 
     let latest_user = conversation
         .messages
@@ -1018,19 +1104,20 @@ fn build_prompt(
         .cloned();
 
     let mut latest_user_text = String::new();
-    let mut latest_user_time_text = String::new();
-    let mut latest_user_system_text = String::new();
+    let mut latest_user_meta_text = String::new();
+    let mut latest_user_extra_text = String::new();
     let mut latest_images = Vec::<(String, String)>::new();
     let mut latest_audios = Vec::<(String, String)>::new();
 
     if let Some(msg) = latest_user {
-        let user_meta_text = build_prompt_user_meta_text(&msg, agents, user_name, ui_language);
+        let user_meta_text =
+            build_prompt_user_meta_text(&msg, agents, prompt_user_name, ui_language);
         let ChatMessage {
             parts,
             extra_text_blocks,
             ..
         } = msg;
-        latest_user_time_text = user_meta_text.unwrap_or_default();
+        latest_user_meta_text = user_meta_text.unwrap_or_default();
         for part in parts {
             match part {
                 MessagePart::Text { text } => {
@@ -1097,10 +1184,10 @@ fn build_prompt(
             if extra.trim().is_empty() {
                 continue;
             }
-            if !latest_user_system_text.is_empty() {
-                latest_user_system_text.push('\n');
+            if !latest_user_extra_text.is_empty() {
+                latest_user_extra_text.push('\n');
             }
-            latest_user_system_text.push_str(&extra);
+            latest_user_extra_text.push_str(&extra);
         }
     }
 
@@ -1108,8 +1195,8 @@ fn build_prompt(
         preamble,
         history_messages,
         latest_user_text,
-        latest_user_time_text,
-        latest_user_system_text,
+        latest_user_meta_text,
+        latest_user_extra_text,
         latest_images,
         latest_audios,
     }

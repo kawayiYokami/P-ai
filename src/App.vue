@@ -1149,6 +1149,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  void chatFlow.bindActiveConversationStream("");
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
@@ -1575,8 +1576,15 @@ const chatFlow = useChatFlow({
         partialReasoningInline,
       },
     }),
+  invokeBindActiveChatViewStream: ({ conversationId, onDelta }) =>
+    invokeTauri("bind_active_chat_view_stream", {
+      input: {
+        conversationId: conversationId || null,
+      },
+      onDelta,
+    }),
   onReloadMessages: () => loadAllMessages(),
-  onHistoryFlushed: async ({ conversationId, messageCount, pendingMessages }) => {
+  onHistoryFlushed: async ({ conversationId, pendingMessages }) => {
     const flushedConversationId = String(conversationId || "").trim();
     if (flushedConversationId) {
       currentChatConversationId.value = flushedConversationId;
@@ -1597,6 +1605,14 @@ const chatFlow = useChatFlow({
     await loadUnarchivedConversations();
   },
 });
+
+watch(
+  () => String(currentChatConversationId.value || "").trim(),
+  (conversationId) => {
+    void chatFlow.bindActiveConversationStream(conversationId);
+  },
+  { immediate: true },
+);
 
 function clearStreamBuffer() {
   chatFlow.clearStreamBuffer();

@@ -222,14 +222,8 @@ fn build_openai_rig_prompt(
 ) -> Result<(Vec<RigMessage>, RigMessage), String> {
     let chat_history = prepared_history_to_rig_messages(prepared)?;
     let mut content_items: Vec<UserContent> = Vec::new();
-    if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
+        content_items.push(UserContent::text(text_block));
     }
 
     for (mime, bytes) in &prepared.latest_images {
@@ -390,14 +384,8 @@ async fn call_model_gemini_rig_style(
         .build();
 
     let mut content_items: Vec<UserContent> = Vec::new();
-    if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
+        content_items.push(UserContent::text(text_block));
     }
 
     for (mime, bytes) in &prepared.latest_images {
@@ -438,14 +426,8 @@ async fn call_model_anthropic_rig_style(
 ) -> Result<ModelReply, String> {
     let chat_history = prepared_history_to_rig_messages(&prepared)?;
     let mut content_items: Vec<UserContent> = Vec::new();
-    if !prepared.latest_user_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_text.clone()));
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_time_text.clone()));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        content_items.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
+        content_items.push(UserContent::text(text_block));
     }
 
     for (mime, bytes) in &prepared.latest_images {
@@ -1346,6 +1328,8 @@ struct TerminalExecToolArgs {
 struct DelegateToolArgs {
     department_id: String,
     #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
     task_name: Option<String>,
     instruction: String,
     #[serde(default)]
@@ -1358,18 +1342,21 @@ struct DelegateToolArgs {
     notify_assistant_when_done: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct HandoffToolArgs {
-    department_id: String,
-    #[serde(default)]
-    task_name: Option<String>,
-    instruction: String,
-    #[serde(default)]
-    background: Option<String>,
-    #[serde(default)]
-    specific_goal: Option<String>,
-    #[serde(default)]
-    deliverable_requirement: Option<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DelegateMode {
+    Async,
+    Sync,
+}
+
+fn parse_delegate_mode(raw: Option<&str>) -> Result<DelegateMode, String> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Err("delegate.mode is required".to_string()),
+        Some("async") => Ok(DelegateMode::Async),
+        Some("sync") => Ok(DelegateMode::Sync),
+        Some(other) => Err(format!(
+            "delegate.mode 必须是 `async` 或 `sync`，当前收到：{other}"
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1481,7 +1468,7 @@ fn delegate_build_task_prompt_block(
     specific_goal: &str,
     deliverable_requirement: &str,
 ) -> String {
-    let mut lines = vec![format!("委托任务：{}", title.trim())];
+    let mut lines = vec!["[DELEGATE TASK]".to_string(), format!("委托任务：{}", title.trim())];
     lines.push(format!("核心指令：{}", instruction.trim()));
     if !background.trim().is_empty() {
         lines.push(format!("背景：{}", background.trim()));
@@ -1492,7 +1479,6 @@ fn delegate_build_task_prompt_block(
     if !deliverable_requirement.trim().is_empty() {
         lines.push(format!("交付要求：{}", deliverable_requirement.trim()));
     }
-    lines.push("你应以当前部门身份处理这份工作；如确有必要，再继续转办。".to_string());
     lines.join("\n")
 }
 
@@ -1501,7 +1487,7 @@ fn delegate_build_trigger_provider_meta(
     root_conversation_id: &str,
 ) -> Value {
     serde_json::json!({
-        "messageKind": if delegate.kind == DELEGATE_TOOL_KIND_HANDOFF { "handoff_trigger" } else { "delegate_trigger" },
+        "messageKind": "delegate_trigger",
         "delegateId": delegate.delegate_id,
         "delegateKind": delegate.kind,
         "rootConversationId": root_conversation_id,
@@ -1570,9 +1556,6 @@ fn delegate_enqueue_result_message(
 
     // 异步触发出队处理
     trigger_chat_queue_processing(app_state);
-
-    // 发送UI刷新信号
-    let _ = emit_refresh_signal(app_state);
 
     Ok(())
 }
@@ -1646,12 +1629,12 @@ async fn delegate_execute_agent_run(
     );
     let request = SendChatRequest {
         payload: ChatInputPayload {
-            text: Some(format!("请处理《{}》", delegate.title.trim())),
-            display_text: Some(format!("委托任务《{}》", delegate.title.trim())),
+            text: Some(hidden_prompt),
+            display_text: None,
             images: None,
             audios: None,
             model: None,
-            extra_text_blocks: Some(vec![hidden_prompt]),
+            extra_text_blocks: None,
             provider_meta: Some(delegate_build_trigger_provider_meta(delegate, root_conversation_id)),
         },
         session: Some(SessionSelector {
@@ -1682,13 +1665,18 @@ async fn delegate_run_thread_to_completion(
     app_state: AppState,
     delegate: DelegateEntry,
     target_api_config_ids: Vec<String>,
+    parent_chat_session_key: Option<String>,
 ) -> Result<SendChatResult, String> {
     let primary_api_config_id = target_api_config_ids
         .first()
         .cloned()
         .ok_or_else(|| format!("部门没有可用模型，departmentId={}", delegate.target_department_id))?;
-    let delegate_thread_id =
-        delegate_runtime_thread_create(&app_state, &delegate, &primary_api_config_id)?;
+    let delegate_thread_id = delegate_runtime_thread_create(
+        &app_state,
+        &delegate,
+        &primary_api_config_id,
+        parent_chat_session_key,
+    )?;
     if let Err(err) = emit_agent_work_signal(
         &app_state,
         AGENT_WORK_EVENT_START,
@@ -1746,12 +1734,16 @@ async fn delegate_run_thread_to_completion(
     }
     match run_result {
         Ok(result) => {
-            if let Err(err) = delegate_runtime_thread_remove(&app_state, &delegate_thread_id) {
+            let completed_at = now_iso();
+            if let Err(err) =
+                delegate_runtime_thread_archive(&app_state, &delegate_thread_id, &completed_at)
+            {
                 eprintln!(
-                    "[委托线程] 清理运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    "[委托线程] 归档运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, archived_at={}, error={}",
                     delegate_thread_id,
                     delegate.delegate_id,
                     DELEGATE_STATUS_COMPLETED,
+                    completed_at,
                     err
                 );
             }
@@ -1793,12 +1785,16 @@ async fn delegate_run_thread_to_completion(
             Ok(result)
         }
         Err(err) => {
-            if let Err(remove_err) = delegate_runtime_thread_remove(&app_state, &delegate_thread_id) {
+            let archived_at = now_iso();
+            if let Err(remove_err) =
+                delegate_runtime_thread_archive(&app_state, &delegate_thread_id, &archived_at)
+            {
                 eprintln!(
-                    "[委托线程] 清理运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
+                    "[委托线程] 归档运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, archived_at={}, error={}",
                     delegate_thread_id,
                     delegate.delegate_id,
                     DELEGATE_STATUS_FAILED,
+                    archived_at,
                     remove_err
                 );
             }
@@ -1921,11 +1917,60 @@ fn delegate_resolve_context(
     ))
 }
 
-fn builtin_delegate(
+fn delegate_create_record(
+    app_state: &AppState,
+    root_conversation_id: &str,
+    parent_delegate_id: Option<String>,
+    source_department_id: &str,
+    target_department_id: &str,
+    source_agent_id: &str,
+    target_agent_id: &str,
+    title: &str,
+    instruction: &str,
+    background: String,
+    specific_goal: String,
+    deliverable_requirement: String,
+    notify_assistant_when_done: bool,
+    call_stack: Vec<String>,
+) -> Result<DelegateEntry, String> {
+    delegate_store_create_delegate(
+        &app_state.data_path,
+        &DelegateCreateInput {
+            kind: DELEGATE_TOOL_KIND_DELEGATE.to_string(),
+            conversation_id: root_conversation_id.to_string(),
+            parent_delegate_id,
+            source_department_id: source_department_id.to_string(),
+            target_department_id: target_department_id.to_string(),
+            source_agent_id: source_agent_id.to_string(),
+            target_agent_id: target_agent_id.to_string(),
+            title: title.to_string(),
+            instruction: instruction.to_string(),
+            background,
+            specific_goal,
+            deliverable_requirement,
+            notify_assistant_when_done,
+            call_stack,
+        },
+    )
+}
+
+async fn builtin_delegate(
     app_state: &AppState,
     session_id: &str,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
+    let mode = match parse_delegate_mode(args.mode.as_deref()) {
+        Ok(value) => value,
+        Err(err) => {
+            return Ok(serde_json::json!({
+                "status": "委托无法送达",
+                "reason": err,
+            }));
+        }
+    };
+    if mode == DelegateMode::Sync {
+        return delegate_execute_sync(app_state, session_id, args).await;
+    }
     let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
     let target_department_id = args.department_id.trim();
     if target_department_id.is_empty() {
@@ -1951,6 +1996,24 @@ fn builtin_delegate(
             Ok(value) => value,
             Err(err) => return Ok(serde_json::json!({ "status": "委托无法送达", "reason": err })),
         };
+    if current_thread.is_some() {
+        eprintln!(
+            "[INFO][TOOL] delegate blocked inside delegate thread: mode=async, session_id={}",
+            session_id
+        );
+        return Ok(serde_json::json!({
+            "status": "委托无法送达",
+            "reason": "委托线程中禁止再次调用 delegate"
+        }));
+    }
+    let is_main_assistant = source_department.id == ASSISTANT_DEPARTMENT_ID
+        || source_department.is_built_in_assistant;
+    if !is_main_assistant {
+        return Ok(serde_json::json!({
+            "status": "委托无法送达",
+            "reason": "delegate.mode=async 只能由主助理发起；需要当前线程等待结果时请使用 mode=sync"
+        }));
+    }
     if source_department.id == target_department.id {
         return Ok(serde_json::json!({
             "status": "委托无法送达",
@@ -1975,24 +2038,21 @@ fn builtin_delegate(
         .filter(|value| !value.is_empty())
         .unwrap_or("未命名委托")
         .to_string();
-    let delegate = delegate_store_create_delegate(
-        &app_state.data_path,
-        &DelegateCreateInput {
-            kind: DELEGATE_TOOL_KIND_DELEGATE.to_string(),
-            conversation_id: root_conversation_id.clone(),
-            parent_delegate_id: None,
-            source_department_id: source_department.id.clone(),
-            target_department_id: target_department.id.clone(),
-            source_agent_id: source_agent_id.clone(),
-            target_agent_id: target_agent_id.clone(),
-            title: title.clone(),
-            instruction: instruction.to_string(),
-            background: args.background.unwrap_or_default(),
-            specific_goal: args.specific_goal.unwrap_or_default(),
-            deliverable_requirement: args.deliverable_requirement.unwrap_or_default(),
-            notify_assistant_when_done: args.notify_assistant_when_done,
-            call_stack,
-        },
+    let delegate = delegate_create_record(
+        app_state,
+        &root_conversation_id,
+        None,
+        &source_department.id,
+        &target_department.id,
+        &source_agent_id,
+        &target_agent_id,
+        &title,
+        instruction,
+        args.background.unwrap_or_default(),
+        args.specific_goal.unwrap_or_default(),
+        args.deliverable_requirement.unwrap_or_default(),
+        args.notify_assistant_when_done,
+        call_stack,
     )?;
 
     let target_name = data
@@ -2013,6 +2073,7 @@ fn builtin_delegate(
             app_state_for_run,
             delegate_for_run,
             target_api_config_ids,
+            None,
         )
         .await;
         match run_result {
@@ -2086,27 +2147,27 @@ fn builtin_delegate(
     }))
 }
 
-async fn builtin_handoff(
+async fn delegate_execute_sync(
     app_state: &AppState,
     session_id: &str,
-    args: HandoffToolArgs,
+    args: DelegateToolArgs,
 ) -> Result<Value, String> {
     let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
     let target_department_id = args.department_id.trim();
     if target_department_id.is_empty() {
         return Ok(serde_json::json!({
-            "status": "转办无法送达",
-            "reason": "handoff.department_id is required"
+            "status": "委托无法送达",
+            "reason": "delegate.department_id is required"
         }));
     }
     let instruction = args.instruction.trim();
     if instruction.is_empty() {
         return Ok(serde_json::json!({
-            "status": "转办无法送达",
-            "reason": "handoff.instruction is required"
+            "status": "委托无法送达",
+            "reason": "delegate.instruction is required"
         }));
     }
-    let (_config, _data, source_department, target_department, target_agent_id, source_conversation_id, current_thread) =
+    let (_config, _data, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
         match delegate_resolve_context(
             app_state,
             &source_agent_id,
@@ -2114,71 +2175,77 @@ async fn builtin_handoff(
             target_department_id,
         ) {
             Ok(value) => value,
-            Err(err) => return Ok(serde_json::json!({ "status": "转办无法送达", "reason": err })),
+            Err(err) => return Ok(serde_json::json!({ "status": "委托无法送达", "reason": err })),
         };
-    let Some(current_thread) = current_thread else {
+    if current_thread.is_some() {
+        eprintln!(
+            "[INFO][TOOL] delegate blocked inside delegate thread: mode=sync, session_id={}",
+            session_id
+        );
         return Ok(serde_json::json!({
-            "status": "转办无法送达",
-            "reason": "当前不是可转办的委托执行上下文"
-        }));
-    };
-    if source_department.id == target_department.id {
-        return Ok(serde_json::json!({
-            "status": "转办无法送达",
-            "reason": "不能把转办发送给当前部门自己"
+            "status": "委托无法送达",
+            "reason": "委托线程中禁止再次调用 delegate"
         }));
     }
-    if current_thread.call_stack.iter().any(|item| item == &target_department.id) {
+    if source_department.id == target_department.id {
         return Ok(serde_json::json!({
-            "status": "转办无法送达",
+            "status": "委托无法送达",
+            "reason": "不能把委托发送给当前部门自己"
+        }));
+    }
+    let mut call_stack = current_thread
+        .as_ref()
+        .map(|thread| thread.call_stack.clone())
+        .unwrap_or_else(|| vec![source_department.id.clone()]);
+    if call_stack.iter().any(|item| item == &target_department.id) {
+        return Ok(serde_json::json!({
+            "status": "委托无法送达",
             "reason": format!("目标部门已在当前调用链中，departmentId={}", target_department.id)
         }));
     }
-    let mut call_stack = current_thread.call_stack.clone();
     call_stack.push(target_department.id.clone());
+    let parent_delegate_id = current_thread.as_ref().map(|thread| thread.delegate_id.clone());
     let title = args
         .task_name
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("未命名转办")
+        .unwrap_or("未命名委托")
         .to_string();
-    let delegate = delegate_store_create_delegate(
-        &app_state.data_path,
-        &DelegateCreateInput {
-            kind: DELEGATE_TOOL_KIND_HANDOFF.to_string(),
-            conversation_id: current_thread.root_conversation_id.clone(),
-            parent_delegate_id: Some(current_thread.delegate_id.clone()),
-            source_department_id: source_department.id.clone(),
-            target_department_id: target_department.id.clone(),
-            source_agent_id: source_agent_id.clone(),
-            target_agent_id: target_agent_id.clone(),
-            title: title.clone(),
-            instruction: instruction.to_string(),
-            background: args.background.unwrap_or_default(),
-            specific_goal: args.specific_goal.unwrap_or_default(),
-            deliverable_requirement: args.deliverable_requirement.unwrap_or_default(),
-            notify_assistant_when_done: false,
-            call_stack,
-        },
+    let delegate = delegate_create_record(
+        app_state,
+        &root_conversation_id,
+        parent_delegate_id,
+        &source_department.id,
+        &target_department.id,
+        &source_agent_id,
+        &target_agent_id,
+        &title,
+        instruction,
+        args.background.unwrap_or_default(),
+        args.specific_goal.unwrap_or_default(),
+        args.deliverable_requirement.unwrap_or_default(),
+        false,
+        call_stack,
     )?;
     match delegate_run_thread_to_completion(
         app_state.clone(),
         delegate.clone(),
         department_api_config_ids(&target_department),
+        Some(session_id.to_string()),
     )
     .await
     {
         Ok(run) => Ok(serde_json::json!({
-            "status": "转办完成",
+            "status": "委托完成",
             "delegate": delegate,
-            "conversationId": source_conversation_id,
+            "conversationId": root_conversation_id,
             "assistantText": run.assistant_text,
             "reasoningStandard": run.reasoning_standard,
             "targetAgentId": target_agent_id,
         })),
         Err(err) => Ok(serde_json::json!({
-            "status": "转办无法送达",
+            "status": "委托无法送达",
             "delegate": delegate,
             "reason": err,
         })),
@@ -2633,19 +2700,20 @@ impl Tool for BuiltinDelegateTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "delegate".to_string(),
-            description: "向某个部门发起一份独立委托。这个工具只负责送达，不负责直接返回执行完成或失败；送达成功后会立刻返回“委托已送达”，后续结果应由被委托人自己发言。".to_string(),
+            description: "向某个部门发起委托。mode=async 仅主助理可用，表示后台处理并立即返回送达结果；mode=sync 表示当前线程等待下级完成后再继续。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
                 "department_id": { "type": "string", "description": "目标部门 ID" },
+                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托模式。async=仅主助理可用，后台处理并立即返回；sync=当前线程等待结果再继续。" },
                 "task_name": { "type": "string", "description": "委托标题" },
                 "instruction": { "type": "string", "description": "明确委托内容" },
                 "background": { "type": "string", "description": "当前已知背景" },
                 "specific_goal": { "type": "string", "description": "具体目标" },
                 "deliverable_requirement": { "type": "string", "description": "交付要求" },
-                "notify_assistant_when_done": { "type": "boolean", "description": "完成后是否额外提醒助理", "default": true }
+                "notify_assistant_when_done": { "type": "boolean", "description": "仅在 mode=async 时生效；完成后是否额外提醒主助理。mode=sync 会忽略此字段。", "default": true }
               },
-              "required": ["department_id", "instruction"]
+              "required": ["department_id", "mode", "instruction"]
             }),
         }
     }
@@ -2655,63 +2723,15 @@ impl Tool for BuiltinDelegateTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=delegate args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
-        let result = builtin_delegate(&self.app_state, &self.session_id, args).map_err(ToolInvokeError::from);
+        let result = builtin_delegate(&self.app_state, &self.session_id, args)
+            .await
+            .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => eprintln!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=delegate result={}",
                 debug_value_snippet(v, 240)
             ),
             Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=delegate err={err}"),
-        }
-        result
-    }
-}
-
-#[derive(Debug, Clone)]
-struct BuiltinHandoffTool {
-    app_state: AppState,
-    session_id: String,
-}
-
-impl Tool for BuiltinHandoffTool {
-    const NAME: &'static str = "handoff";
-    type Error = ToolInvokeError;
-    type Args = HandoffToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "handoff".to_string(),
-            description: "向下级或协作部门发起一次同步转办。这个工具会等待被转办部门返回结果，再把结果交还给当前部门继续处理。".to_string(),
-            parameters: serde_json::json!({
-              "type": "object",
-              "properties": {
-                "department_id": { "type": "string", "description": "目标部门 ID" },
-                "task_name": { "type": "string", "description": "转办标题" },
-                "instruction": { "type": "string", "description": "明确转办内容" },
-                "background": { "type": "string", "description": "当前已知背景" },
-                "specific_goal": { "type": "string", "description": "具体目标" },
-                "deliverable_requirement": { "type": "string", "description": "交付要求" }
-              },
-              "required": ["department_id", "instruction"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=handoff args={}",
-            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
-        let result = builtin_handoff(&self.app_state, &self.session_id, args)
-            .await
-            .map_err(ToolInvokeError::from);
-        match &result {
-            Ok(v) => eprintln!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=handoff result={}",
-                debug_value_snippet(v, 240)
-            ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=handoff err={err}"),
         }
         result
     }

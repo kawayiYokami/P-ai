@@ -51,6 +51,52 @@ fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<
     }
 }
 
+fn delegate_thread_chat_key(thread: &DelegateRuntimeThread) -> String {
+    inflight_chat_key(
+        &thread.conversation.api_config_id,
+        &thread.target_agent_id,
+        Some(&thread.conversation.id),
+    )
+}
+
+fn abort_delegate_runtime_descendants_by_parent_session(
+    state: &AppState,
+    parent_chat_key: &str,
+) -> Result<usize, String> {
+    let children = delegate_runtime_thread_list(state)?
+        .into_iter()
+        .filter(|thread| thread.parent_chat_session_key.as_deref() == Some(parent_chat_key))
+        .collect::<Vec<_>>();
+    let mut aborted_count = 0usize;
+    for thread in children {
+        let child_chat_key = delegate_thread_chat_key(&thread);
+        let aborted_chat = {
+            let mut inflight = state
+                .inflight_chat_abort_handles
+                .lock()
+                .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+            if let Some(handle) = inflight.remove(&child_chat_key) {
+                handle.abort();
+                true
+            } else {
+                false
+            }
+        };
+        let aborted_tool = abort_inflight_tool_abort_handle(state, &child_chat_key)?;
+        if aborted_chat || aborted_tool {
+            aborted_count += 1;
+            eprintln!(
+                "[INFO][CHAT] aborted sync delegate child session: parent_session={}, child_session={}, delegate_id={}",
+                parent_chat_key,
+                child_chat_key,
+                thread.delegate_id
+            );
+        }
+        aborted_count += abort_delegate_runtime_descendants_by_parent_session(state, &child_chat_key)?;
+    }
+    Ok(aborted_count)
+}
+
 fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
     !reply.assistant_text.trim().is_empty()
         || !reply.reasoning_standard.trim().is_empty()
@@ -536,6 +582,8 @@ async fn send_chat_message_inner(
         } else {
             runtime_conversation.clone()
         };
+        let is_delegate_conversation =
+            conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
         let last_archive_summary = if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
             None
         } else {
@@ -575,23 +623,29 @@ async fn send_chat_message_inner(
             }
             let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
             externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
-            let recall_query_text = memory_recall_query_text(&conversation_before, &effective_user_text);
-            let private_memory_enabled = data
-                .agents
-                .iter()
-                .find(|a| a.id == effective_agent_id)
-                .map(|a| a.private_memory_enabled)
-                .unwrap_or(false);
-            let store_memories = memory_store_list_memories_visible_for_agent(
-                &state.data_path,
-                &effective_agent_id,
-                private_memory_enabled,
-            )?;
-            let recall_hit_ids =
-                memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
-            let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
-            let memory_board_xml =
-                build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
+            let (recall_hit_ids, memory_board_xml) = if is_delegate_conversation {
+                (Vec::<String>::new(), None)
+            } else {
+                let recall_query_text =
+                    memory_recall_query_text(&conversation_before, &effective_user_text);
+                let private_memory_enabled = data
+                    .agents
+                    .iter()
+                    .find(|a| a.id == effective_agent_id)
+                    .map(|a| a.private_memory_enabled)
+                    .unwrap_or(false);
+                let store_memories = memory_store_list_memories_visible_for_agent(
+                    &state.data_path,
+                    &effective_agent_id,
+                    private_memory_enabled,
+                )?;
+                let recall_hit_ids =
+                    memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
+                let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
+                let memory_board_xml =
+                    build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
+                (recall_hit_ids, memory_board_xml)
+            };
             let mut extra_text_blocks = input.payload.extra_text_blocks.clone().unwrap_or_default();
             if let Some(xml) = &memory_board_xml {
                 extra_text_blocks.push(xml.clone());
@@ -650,43 +704,53 @@ async fn send_chat_message_inner(
         } else {
             effective_user_text.clone()
         };
-        let chat_overrides = if trigger_only {
-            None
-        } else {
-            let latest_user_prompt_text = conversation
-                .messages
-                .last()
-                .map(|message| {
-                    let speaker_block = build_prompt_speaker_block(
-                        message,
-                        &data.agents,
-                        &user_name,
-                        &app_config.ui_language,
-                    );
-                    if speaker_block.trim().is_empty() {
-                        latest_user_text.clone()
-                    } else if latest_user_text.trim().is_empty() {
-                        speaker_block
-                    } else {
-                        format!("{}\n{}", speaker_block, latest_user_text)
-                    }
-                })
-                .unwrap_or_else(|| latest_user_text.clone());
-            let mut chat_overrides = ChatPromptOverrides::default();
-            chat_overrides.latest_user_text = Some(latest_user_prompt_text);
-            chat_overrides.latest_user_time_iso = Some(now_iso());
-            chat_overrides
-                .latest_user_system_blocks
-                .push(build_hidden_skill_snapshot_block(&state));
-            if let Some(task_board) = build_hidden_task_board_block(&state) {
-                chat_overrides.latest_user_system_blocks.push(task_board);
+        let is_delegate_conversation =
+            conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
+        let latest_user_meta_text = conversation
+            .messages
+            .last()
+            .map(|message| {
+                let speaker_block = build_prompt_speaker_block(
+                    message,
+                    &data.agents,
+                    &user_name,
+                    &app_config.ui_language,
+                );
+                let time_text = if is_delegate_conversation {
+                    message.created_at.trim().to_string()
+                } else {
+                    format_message_time_rfc3339_local(&message.created_at)
+                };
+                match (speaker_block.trim().is_empty(), time_text.trim().is_empty()) {
+                    (false, false) => format!("{speaker_block} {time_text}"),
+                    (false, true) => speaker_block,
+                    (true, false) => time_text,
+                    (true, true) => String::new(),
+                }
+            })
+            .unwrap_or_default();
+        let mut chat_overrides = ChatPromptOverrides::default();
+        chat_overrides
+            .system_preamble_blocks
+            .push(build_hidden_skill_snapshot_block(&state));
+        if !trigger_only {
+            chat_overrides.latest_user_text = Some(latest_user_text.clone());
+            chat_overrides.latest_user_meta_text = Some(latest_user_meta_text);
+            if !is_delegate_conversation {
+                if let Some(task_board) = build_hidden_task_board_block(&state) {
+                    chat_overrides.latest_user_extra_blocks.push(task_board);
+                }
             }
             chat_overrides.latest_images = effective_images.clone();
             chat_overrides.latest_audios = effective_audios.clone();
-            Some(chat_overrides)
-        };
+        }
+        let chat_overrides = Some(chat_overrides);
         let prepared = build_prepared_prompt_for_mode(
-            PromptBuildMode::Chat,
+            if is_delegate_conversation {
+                PromptBuildMode::Delegate
+            } else {
+                PromptBuildMode::Chat
+            },
             &conversation,
             &agent,
             &data.agents,
@@ -1210,6 +1274,48 @@ async fn send_chat_message(
         .map_err(|_| "聊天请求已取消或调度结果丢失".to_string())?
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BindActiveChatViewStreamInput {
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+#[tauri::command]
+async fn bind_active_chat_view_stream(
+    input: BindActiveChatViewStreamInput,
+    state: State<'_, AppState>,
+    window: tauri::Window,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<(), String> {
+    let window_label = window.label().to_string();
+    let conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(conversation_id) = conversation_id {
+        set_active_chat_view_stream_binding(
+            state.inner(),
+            &window_label,
+            Some(conversation_id),
+            on_delta,
+        )?;
+        eprintln!(
+            "[INFO][CHAT] active chat stream bound: window={}, conversation_id={}",
+            window_label,
+            conversation_id
+        );
+    } else {
+        clear_active_chat_view_stream_binding(state.inner(), &window_label)?;
+        eprintln!(
+            "[INFO][CHAT] active chat stream unbound: window={}",
+            window_label
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn stop_chat_message(
     input: StopChatRequest,
@@ -1246,7 +1352,16 @@ async fn stop_chat_message(
         }
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
-    let aborted = aborted_chat || aborted_tool;
+    let aborted_delegate_children =
+        abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
+    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    if aborted_delegate_children > 0 {
+        eprintln!(
+            "[INFO][CHAT] stop request cascaded to sync delegate children: session={}, child_count={}",
+            chat_key,
+            aborted_delegate_children
+        );
+    }
 
     let partial_assistant_text = input.partial_assistant_text.trim().to_string();
     let partial_reasoning_standard = input.partial_reasoning_standard.trim().to_string();
@@ -1959,10 +2074,6 @@ fn check_tools_status(
             "delegate" => (
                 "loaded".to_string(),
                 "委托工具可用".to_string(),
-            ),
-            "handoff" => (
-                "loaded".to_string(),
-                "同步转办工具可用".to_string(),
             ),
             "exec" => {
                 #[cfg(target_os = "windows")]

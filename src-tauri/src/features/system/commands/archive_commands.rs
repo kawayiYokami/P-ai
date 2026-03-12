@@ -80,22 +80,16 @@ fn get_prompt_preview(
         Some(&state.data_path),
         last_archive_summary.as_deref(),
         terminal_prompt_trusted_roots_block(&state, &api_config),
-        None,
+        Some(ChatPromptOverrides {
+            system_preamble_blocks: vec![build_hidden_skill_snapshot_block(&state)],
+            ..Default::default()
+        }),
     );
-    let mut user_content = vec![serde_json::json!({
-        "type": "text",
-        "text": prepared.latest_user_text,
-    })];
-    if !prepared.latest_user_time_text.trim().is_empty() {
+    let mut user_content = Vec::<Value>::new();
+    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
         user_content.push(serde_json::json!({
             "type": "text",
-            "text": prepared.latest_user_time_text,
-        }));
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        user_content.push(serde_json::json!({
-            "type": "text",
-            "text": prepared.latest_user_system_text,
+            "text": text_block,
         }));
     }
     for (mime, bytes_base64) in &prepared.latest_images {
@@ -306,7 +300,7 @@ fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, Stri
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     let app_config = read_config(&state.config_path)?;
     drop(guard);
 
@@ -340,7 +334,7 @@ fn get_archive_messages(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     drop(guard);
 
     let archive = data
@@ -364,7 +358,7 @@ fn get_archive_summary(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let data = read_app_data(&state.data_path)?;
+    let data = state_read_app_data_cached(&state)?;
     drop(guard);
 
     let archive = data
@@ -387,7 +381,7 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(&state)?;
     let before = data.conversations.len();
     data.conversations
         .retain(|c| !(c.id == archive_id && !c.summary.trim().is_empty()));
@@ -397,7 +391,7 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
         return Err("Archive not found".to_string());
     }
 
-    write_app_data(&state.data_path, &data)?;
+    state_write_app_data_cached(&state, &data)?;
     drop(guard);
     Ok(())
 }

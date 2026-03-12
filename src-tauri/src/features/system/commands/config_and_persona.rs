@@ -1170,7 +1170,7 @@ fn delegate_conversation_summary_from_runtime_thread(
         api_config_id: thread.conversation.api_config_id.clone(),
         delegate_id: Some(thread.delegate_id.clone()),
         root_conversation_id: Some(thread.root_conversation_id.clone()),
-        archived_at: None,
+        archived_at: thread.archived_at.clone(),
     }
 }
 
@@ -1231,7 +1231,9 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
 fn list_delegate_conversations(
     state: State<'_, AppState>,
 ) -> Result<Vec<DelegateConversationSummary>, String> {
-    let mut summaries = delegate_runtime_thread_list(state.inner())?
+    let mut threads = delegate_runtime_thread_list(state.inner())?;
+    threads.extend(delegate_recent_thread_list(state.inner())?);
+    let mut summaries = threads
         .iter()
         .map(delegate_conversation_summary_from_runtime_thread)
         .collect::<Vec<_>>();
@@ -1303,7 +1305,7 @@ fn get_delegate_conversation_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    let mut messages = delegate_runtime_thread_conversation_get(state.inner(), conversation_id)?
+    let mut messages = delegate_runtime_thread_conversation_get_any(state.inner(), conversation_id)?
         .map(|conversation| conversation.messages.clone())
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);

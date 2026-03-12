@@ -83,6 +83,7 @@ export function useAgentWorkPresence() {
     const now = Date.now();
     const next = pruneExpiredRegistry(workRegistry.value, now);
     for (const item of items) {
+      if (trim_text(item.archivedAt)) continue;
       const agentId = trim_text(item.agentId);
       const delegateId = trim_text(item.delegateId || item.conversationId);
       if (!agentId || !delegateId) continue;

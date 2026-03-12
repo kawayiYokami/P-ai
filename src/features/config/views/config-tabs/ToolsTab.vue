@@ -312,7 +312,6 @@ function toolDescription(id: string): string {
   if (id === "organize_context") return t("config.tools.descOrganizeContext");
   if (id === "task") return t("config.tools.descTask");
   if (id === "delegate") return t("config.tools.descDelegate");
-  if (id === "handoff") return t("config.tools.descHandoff");
   return t("config.tools.descGeneric");
 }
 

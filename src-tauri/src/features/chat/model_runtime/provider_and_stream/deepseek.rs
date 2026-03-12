@@ -54,18 +54,24 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
     }
     for hm in &prepared.history_messages {
         if hm.role == "user" {
-            let mut pieces = Vec::<String>::new();
+            let mut content = Vec::<Value>::new();
             if !hm.text.trim().is_empty() {
-                pieces.push(hm.text.clone());
+                content.push(serde_json::json!({
+                    "type": "text",
+                    "text": hm.text.clone()
+                }));
             }
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
-                    pieces.push(time_text.clone());
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": time_text.clone()
+                    }));
                 }
             }
             messages.push(serde_json::json!({
                 "role": "user",
-                "content": pieces.join("\n")
+                "content": content
             }));
         } else if hm.role == "assistant" && hm.tool_calls.is_some() {
             let mut msg = serde_json::Map::new();
@@ -121,20 +127,17 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
             messages.push(Value::Object(msg));
         }
     }
-    let mut latest_pieces = Vec::<String>::new();
-    if !prepared.latest_user_text.trim().is_empty() {
-        latest_pieces.push(prepared.latest_user_text.clone());
-    }
-    if !prepared.latest_user_time_text.trim().is_empty() {
-        latest_pieces.push(prepared.latest_user_time_text.clone());
-    }
-    if !prepared.latest_user_system_text.trim().is_empty() {
-        latest_pieces.push(prepared.latest_user_system_text.clone());
-    }
-    if !latest_pieces.is_empty() {
+    let latest_blocks = prepared_prompt_latest_user_text_blocks(prepared);
+    if !latest_blocks.is_empty() {
         messages.push(serde_json::json!({
             "role": "user",
-            "content": latest_pieces.join("\n")
+            "content": latest_blocks
+                .into_iter()
+                .map(|text| serde_json::json!({
+                    "type": "text",
+                    "text": text
+                }))
+                .collect::<Vec<_>>()
         }));
     }
     messages

@@ -56,20 +56,94 @@ where
     save_window_layouts(&state.data_path, &layouts)
 }
 
-fn adaptive_window_size(label: &str, monitor: &tauri::Monitor) -> (u32, u32) {
-    let screen_w = monitor.size().width.max(1);
-    let screen_h = monitor.size().height.max(1);
-    let (width_ratio, height_ratio, min_w, min_h, max_w, max_h) = match label {
-        "chat" => (0.36_f64, 0.88_f64, 560_u32, 760_u32, 920_u32, 1400_u32),
-        "archives" => (0.72_f64, 0.82_f64, 820_u32, 720_u32, 1680_u32, 1320_u32),
-        _ => (0.70_f64, 0.82_f64, 820_u32, 720_u32, 1600_u32, 1280_u32),
-    };
-    let width = ((screen_w as f64) * width_ratio).round() as u32;
-    let height = ((screen_h as f64) * height_ratio).round() as u32;
+fn default_window_size(label: &str) -> (u32, u32) {
+    match label {
+        "chat" => (618_u32, 1000_u32),
+        "archives" => (900_u32, 900_u32),
+        _ => (900_u32, 900_u32),
+    }
+}
+
+fn minimum_window_size(label: &str) -> (u32, u32) {
+    match label {
+        "chat" => (560_u32, 760_u32),
+        "archives" => (820_u32, 720_u32),
+        _ => (820_u32, 720_u32),
+    }
+}
+
+fn preferred_window_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        return Some(monitor);
+    }
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        return Some(monitor);
+    }
+    window
+        .available_monitors()
+        .ok()
+        .and_then(|mut monitors| monitors.drain(..).next())
+}
+
+fn resolved_window_size_for_monitor(
+    label: &str,
+    monitor: &tauri::Monitor,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> (u32, u32) {
+    let (default_width, default_height) = default_window_size(label);
+    let (min_width, min_height) = minimum_window_size(label);
+    let max_width = monitor.size().width.max(1);
+    let max_height = monitor.size().height.max(1);
     (
-        width.clamp(min_w, max_w).min(screen_w),
-        height.clamp(min_h, max_h).min(screen_h),
+        width
+            .unwrap_or(default_width)
+            .max(min_width.min(max_width))
+            .min(max_width),
+        height
+            .unwrap_or(default_height)
+            .max(min_height.min(max_height))
+            .min(max_height),
     )
+}
+
+fn window_rect_is_visible_on_any_monitor(
+    monitors: &[tauri::Monitor],
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> bool {
+    let right = x.saturating_add(width as i32);
+    let bottom = y.saturating_add(height as i32);
+    monitors.iter().any(|monitor| {
+        let monitor_x = monitor.position().x;
+        let monitor_y = monitor.position().y;
+        let monitor_right = monitor_x.saturating_add(monitor.size().width as i32);
+        let monitor_bottom = monitor_y.saturating_add(monitor.size().height as i32);
+        let visible_width = (right.min(monitor_right) - x.max(monitor_x)).max(0);
+        let visible_height = (bottom.min(monitor_bottom) - y.max(monitor_y)).max(0);
+        visible_width >= 80 && visible_height >= 80
+    })
+}
+
+fn position_window_on_monitor(
+    window: &tauri::WebviewWindow,
+    label: &str,
+    monitor: &tauri::Monitor,
+    width: Option<u32>,
+    height: Option<u32>,
+) {
+    let (resolved_width, resolved_height) =
+        resolved_window_size_for_monitor(label, monitor, width, height);
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+        resolved_width,
+        resolved_height,
+    )));
+    let margin = 24_i32;
+    let x = monitor.position().x + monitor.size().width as i32 - resolved_width as i32 - margin;
+    let y = monitor.position().y + margin;
+    let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
 }
 
 fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), String> {
@@ -79,15 +153,63 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
     let state = app.state::<AppState>();
     let layouts = load_window_layouts(&state.data_path);
     let saved = layouts.windows.get(label);
+    let fallback_monitor = preferred_window_monitor(&window);
 
     if let Some(saved) = saved {
-        if let (Some(width), Some(height)) = (saved.width, saved.height) {
+        if let Some(monitor) = fallback_monitor.as_ref() {
+            let (resolved_width, resolved_height) =
+                resolved_window_size_for_monitor(label, monitor, saved.width, saved.height);
             let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-                width, height,
+                resolved_width,
+                resolved_height,
             )));
-        }
-        if let (Some(x), Some(y)) = (saved.x, saved.y) {
-            let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+            if let (Some(x), Some(y)) = (saved.x, saved.y) {
+                let monitors = window.available_monitors().unwrap_or_default();
+                if monitors.is_empty()
+                    || window_rect_is_visible_on_any_monitor(
+                        &monitors,
+                        x,
+                        y,
+                        resolved_width,
+                        resolved_height,
+                    )
+                {
+                    let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+                } else {
+                    eprintln!(
+                        "[INFO][窗口] 检测到离屏窗口布局，已重置到可见区域: label={}, saved_x={}, saved_y={}, width={}, height={}",
+                        label.trim(),
+                        x,
+                        y,
+                        resolved_width,
+                        resolved_height
+                    );
+                    position_window_on_monitor(
+                        &window,
+                        label,
+                        monitor,
+                        Some(resolved_width),
+                        Some(resolved_height),
+                    );
+                }
+            } else {
+                position_window_on_monitor(
+                    &window,
+                    label,
+                    monitor,
+                    Some(resolved_width),
+                    Some(resolved_height),
+                );
+            }
+        } else {
+            if let (Some(width), Some(height)) = (saved.width, saved.height) {
+                let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+                    width, height,
+                )));
+            }
+            if let (Some(x), Some(y)) = (saved.x, saved.y) {
+                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+            }
         }
         if saved.maximized {
             let _ = window.maximize();
@@ -95,11 +217,8 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
         return Ok(());
     }
 
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let (width, height) = adaptive_window_size(label, &monitor);
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-            width, height,
-        )));
+    if let Some(monitor) = fallback_monitor.as_ref() {
+        position_window_on_monitor(&window, label, monitor, None, None);
     }
     Ok(())
 }
@@ -179,21 +298,6 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
-
-    let state = app.state::<AppState>();
-    let layouts = load_window_layouts(&state.data_path);
-    if !layouts.windows.contains_key(label) {
-        if let Ok(Some(monitor)) = window.current_monitor() {
-            if let Ok(window_size) = window.outer_size() {
-                let margin = 24_i32;
-                let x = monitor.position().x + monitor.size().width as i32
-                    - window_size.width as i32
-                    - margin;
-                let y = monitor.position().y + margin;
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
-            }
-        }
-    }
 
     let _ = window.unminimize();
     let _ = window.show();

@@ -6,7 +6,6 @@ const USER_PERSONA_ID: &str = "user-persona";
 const SYSTEM_PERSONA_ID: &str = "system-persona";
 const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
-const DELEGATE_TOOL_KIND_HANDOFF: &str = "handoff";
 const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
@@ -311,13 +310,6 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             id: "delegate".to_string(),
             command: "builtin".to_string(),
             args: vec!["delegate".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
-            id: "handoff".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["handoff".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
@@ -840,6 +832,12 @@ struct AssistantDeltaEvent {
     message: Option<String>,
 }
 
+#[derive(Clone)]
+struct ActiveChatViewBinding {
+    conversation_id: String,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentProfile {
@@ -947,6 +945,8 @@ struct DelegateRuntimeThread {
     target_agent_id: String,
     title: String,
     call_stack: Vec<String>,
+    parent_chat_session_key: Option<String>,
+    archived_at: Option<String>,
     conversation: Conversation,
 }
 
@@ -1171,10 +1171,24 @@ struct PreparedPrompt {
     preamble: String,
     history_messages: Vec<PreparedHistoryMessage>,
     latest_user_text: String,
-    latest_user_time_text: String,
-    latest_user_system_text: String,
+    latest_user_meta_text: String,
+    latest_user_extra_text: String,
     latest_images: Vec<(String, String)>,
     latest_audios: Vec<(String, String)>,
+}
+
+fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<String> {
+    let mut blocks = Vec::<String>::new();
+    for text in [
+        prepared.latest_user_text.trim(),
+        prepared.latest_user_meta_text.trim(),
+        prepared.latest_user_extra_text.trim(),
+    ] {
+        if !text.is_empty() {
+            blocks.push(text.to_string());
+        }
+    }
+    blocks
 }
 
 #[derive(Clone)]
@@ -1211,10 +1225,14 @@ struct AppState {
     >,
     pending_chat_delta_channels:
         Arc<Mutex<std::collections::HashMap<String, tauri::ipc::Channel<AssistantDeltaEvent>>>>,
+    active_chat_view_bindings:
+        Arc<Mutex<std::collections::HashMap<String, ActiveChatViewBinding>>>,
     main_session_state: Arc<Mutex<MainSessionState>>,
     dequeue_lock: Arc<Mutex<()>>,
     delegate_runtime_threads:
         Arc<Mutex<std::collections::HashMap<String, DelegateRuntimeThread>>>,
+    delegate_recent_threads:
+        Arc<Mutex<std::collections::VecDeque<DelegateRuntimeThread>>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -1287,9 +1305,11 @@ impl AppState {
             chat_pending_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
             main_session_state: Arc::new(Mutex::new(MainSessionState::Idle)),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
         })
     }
 }

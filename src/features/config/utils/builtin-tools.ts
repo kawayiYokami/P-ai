@@ -12,7 +12,6 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "organize_context", command: "builtin", args: ["organize_context"], enabled: true, values: {} },
   { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
   { id: "delegate", command: "builtin", args: ["delegate"], enabled: true, values: {} },
-  { id: "handoff", command: "builtin", args: ["handoff"], enabled: true, values: {} },
 ];
 
 export function defaultToolBindings(): ApiToolItem[] {

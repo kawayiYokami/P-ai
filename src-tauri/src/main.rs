@@ -293,6 +293,7 @@ fn main() {
             import_archives_from_json,
             open_external_url,
             send_chat_message,
+            bind_active_chat_view_stream,
             stop_chat_message,
             get_chat_queue_snapshot,
             remove_chat_queue_event,
