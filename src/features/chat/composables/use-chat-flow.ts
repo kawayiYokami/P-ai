@@ -7,6 +7,7 @@ export type AssistantDeltaEvent = {
   kind?: string;
   toolName?: string;
   toolStatus?: string;
+  toolArgs?: string;
   message?: string;
 };
 
@@ -44,6 +45,7 @@ type UseChatFlowOptions = {
   latestReasoningInlineText: Ref<string>;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
+  streamToolCalls: Ref<Array<{ name: string; argsText: string }>>;
   chatErrorText: Ref<string>;
   allMessages: Ref<ChatMessage[]>;
   visibleMessageBlockCount: Ref<number>;
@@ -134,6 +136,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       kind: typeof m.kind === "string" ? m.kind : undefined,
       toolName: typeof m.toolName === "string" ? m.toolName : undefined,
       toolStatus: typeof m.toolStatus === "string" ? m.toolStatus : undefined,
+      toolArgs: typeof m.toolArgs === "string" ? m.toolArgs : undefined,
       message: typeof m.message === "string" ? m.message : undefined,
     };
   }
@@ -158,6 +161,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.latestReasoningInlineText.value = "";
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
+    options.streamToolCalls.value = [];
   }
 
   function hasAssistantVisibleOutput(result: {
@@ -406,6 +410,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
         if (parsed.toolStatus === "running" && toolName) {
           streamToolCallCount += 1;
           streamLastToolName = toolName;
+          options.streamToolCalls.value = [
+            ...options.streamToolCalls.value,
+            {
+              name: toolName,
+              argsText: String(parsed.toolArgs || "").trim(),
+            },
+          ];
         }
         options.toolStatusText.value = parsed.message || "";
         options.toolStatusState.value =
@@ -472,6 +483,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const wasChatting = options.chatting.value;
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
+    options.streamToolCalls.value = [];
     options.chatErrorText.value = "";
 
     const sentImages = [...options.clipboardImages.value];

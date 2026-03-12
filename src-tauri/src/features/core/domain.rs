@@ -854,6 +854,8 @@ struct AssistantDeltaEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tool_args: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
 }
 

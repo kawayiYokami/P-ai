@@ -711,6 +711,7 @@ fn send_history_flushed_event(
         kind: Some("history_flushed".to_string()),
         tool_name: None,
         tool_status: None,
+        tool_args: None,
         message: Some(payload_json.to_string()),
     });
 }
@@ -738,6 +739,7 @@ fn send_round_completed_event(
         kind: Some("round_completed".to_string()),
         tool_name: None,
         tool_status: None,
+        tool_args: None,
         message: Some(payload_json),
     });
 }
@@ -758,6 +760,7 @@ fn send_round_failed_event(
         kind: Some("round_failed".to_string()),
         tool_name: None,
         tool_status: None,
+        tool_args: None,
         message: Some(payload_json),
     });
 }
