@@ -245,6 +245,7 @@
       "selectPath": "選擇路徑",
       "directoryPath": "目錄路徑",
       "workspaceHint": "終端執行使用目前工作空間；修改路徑後請先保存，再由執行工具使用。",
+      "privateWorkspaceReadonly": "私域人格由私有目錄管理，工具開關不能在這裡修改。",
       "openDirOpened": "已打開目錄: {path}",
       "openDirFailed": "打開目錄失敗: {err}",
       "resetWorkspaceConfirm": "確認恢復 Shell 工作空間中的預設文件？這不會刪除你的自定義目錄或倉庫。",

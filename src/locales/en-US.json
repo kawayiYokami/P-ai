@@ -245,6 +245,7 @@
       "selectPath": "Select Path",
       "directoryPath": "Directory Path",
       "workspaceHint": "Terminal execution uses the current workspace; save after changing the path so exec can use it.",
+      "privateWorkspaceReadonly": "This persona is managed by private-workspace files, so tool toggles cannot be edited here.",
       "openDirOpened": "Opened directory: {path}",
       "openDirFailed": "Failed to open directory: {err}",
       "resetWorkspaceConfirm": "Restore the default preset files in the shell workspace? This will not delete your custom directories or repositories.",

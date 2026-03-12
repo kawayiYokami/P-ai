@@ -245,6 +245,7 @@
       "selectPath": "选择路径",
       "directoryPath": "目录路径",
       "workspaceHint": "终端执行使用当前工作空间；修改路径后请保存，再由执行工具使用。",
+      "privateWorkspaceReadonly": "私域人格由私有目录管理，工具开关不能在这里修改。",
       "openDirOpened": "已打开目录: {path}",
       "openDirFailed": "打开目录失败: {err}",
       "resetWorkspaceConfirm": "确认恢复 Shell 工作空间中的默认预设文件？这不会删除你的自定义目录或仓库。",

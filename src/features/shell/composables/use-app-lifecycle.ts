@@ -12,12 +12,8 @@ type UseAppLifecycleOptions = {
   recordHotkeyMount: () => void;
   recordHotkeyUnmount: () => void;
   refreshAllViewData: () => Promise<void>;
-  configAutosaveReady: Ref<boolean>;
-  personasAutosaveReady: Ref<boolean>;
-  chatSettingsAutosaveReady: Ref<boolean>;
   viewMode: Ref<"chat" | "archives" | "config">;
   syncAlwaysOnTop: () => Promise<void>;
-  disposeAutosaveTimers: () => void;
   clearStreamBuffer: () => void;
   stopRecording: (discard: boolean) => Promise<void>;
   cleanupSpeechRecording: () => void;
@@ -45,16 +41,11 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       await options.afterMountedReady?.();
     } catch (error) {
       console.error("[LIFECYCLE] mounted async flow failed:", error);
-    } finally {
-      options.configAutosaveReady.value = true;
-      options.personasAutosaveReady.value = true;
-      options.chatSettingsAutosaveReady.value = true;
     }
   });
 
   onBeforeUnmount(() => {
     options.appBootstrapUnmount();
-    options.disposeAutosaveTimers();
     options.clearStreamBuffer();
     void options.stopRecording(true);
     options.cleanupSpeechRecording();

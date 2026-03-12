@@ -102,6 +102,7 @@
           @update:persona-editor-id="$emit('update:personaEditorId', $event)"
           @tool-switch-changed="$emit('toolSwitchChanged')"
           @save-api-config="$emit('saveApiConfig')"
+          @save-personas="$emit('savePersonas')"
           @open-memory-viewer="$emit('update:configTab', 'memory')"
         />
         <McpTab

@@ -49,11 +49,24 @@
           <div class="text-sm font-bold text-base-content whitespace-nowrap">{{ t("config.tools.maxIterations") }}</div>
           <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm w-20" />
         </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            class="btn btn-sm"
+            :class="selectedPersonaIsPrivateWorkspace ? 'bg-base-100 text-base-content/40 cursor-not-allowed' : 'btn-primary'"
+            :disabled="selectedPersonaIsPrivateWorkspace"
+            @click="$emit('savePersonas')"
+          >
+            {{ t("common.save") }}
+          </button>
+        </div>
         <div class="font-medium ml-auto">{{ t('config.mcpToolList.toolList') }}<span v-if="toolListItems.length">（{{ toolListItems.length }}）</span></div>
       </div>
       <!-- 当前编辑状态提示 -->
       <div class="px-3 py-1.5 bg-base-200/30 text-[11px] opacity-70">
         {{ t("config.tools.editingLabel") }}{{ selectedPersona.name }}
+        <template v-if="selectedPersonaIsPrivateWorkspace">
+          · {{ t("config.persona.privateWorkspaceTag") }}
+        </template>
         <template v-if="currentDepartment">
           · {{ t("config.tools.currentDepartmentLabel") }}{{ currentDepartment.name }}
         </template>
@@ -63,6 +76,9 @@
         <template v-else>
           · {{ t("config.tools.unassignedHint") }}
         </template>
+      </div>
+      <div v-if="selectedPersonaIsPrivateWorkspace" class="px-3 py-1.5 text-[11px] text-warning bg-warning/10 border-b border-base-300/70">
+        {{ t("config.tools.privateWorkspaceReadonly") }}
       </div>
       <!-- 工具列表内容 -->
       <div v-if="toolListItems.length" class="divide-y divide-base-300/60">
@@ -76,7 +92,7 @@
               type="checkbox"
               class="toggle toggle-sm toggle-success mt-1 shrink-0"
               :checked="item.enabled"
-              :disabled="item.toggleDisabled"
+              :disabled="item.toggleDisabled || selectedPersonaIsPrivateWorkspace"
               @change="onToggle($event, item.id)"
             />
             <div class="min-w-0 flex-1">
@@ -199,6 +215,7 @@ const emit = defineEmits<{
   (e: "toolSwitchChanged"): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "saveApiConfig"): void;
+  (e: "savePersonas"): void;
 }>();
 
 const { t } = useI18n();
@@ -274,6 +291,9 @@ function toolStatusById(id: string): ToolLoadStatus | undefined {
 const currentDepartment = computed(() =>
   props.config.departments.find((item) => (item.agentIds || []).includes(props.personaEditorId)) ?? null,
 );
+const selectedPersonaIsPrivateWorkspace = computed(
+  () => props.selectedPersona?.source === "private_workspace",
+);
 
 function statusText(id: string): string {
   return toolStatusById(id)?.status ?? t("config.tools.statusUnknown");
@@ -344,6 +364,7 @@ const toolListItems = computed<ToolListItem[]>(() =>
 );
 
 function onToggle(event: Event, id: string) {
+  if (selectedPersonaIsPrivateWorkspace.value) return;
   const target = event.target as HTMLInputElement | null;
   const payload = { id, enabled: !!target?.checked };
   const tool = props.selectedPersona?.tools.find((t) => t.id === payload.id);

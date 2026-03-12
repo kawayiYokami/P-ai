@@ -22,11 +22,10 @@ type UseAppWatchersOptions = {
   toolStatuses: Ref<ToolLoadStatus[]>;
   defaultApiTools: () => ApiConfigItem["tools"];
   t: TrFn;
-  scheduleChatSettingsAutosave: () => void;
   normalizeApiBindingsLocal: () => void;
   syncUserAliasFromPersona: () => void;
   syncTrayIcon: (id?: string) => Promise<void>;
-  saveConversationApiSettings: () => Promise<void>;
+  saveChatSettings: () => Promise<void>;
   refreshToolsStatus: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
   refreshConversationHistory: () => Promise<void>;
@@ -79,14 +78,6 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   );
 
   watch(
-    () => ({
-      userAlias: options.userAlias.value,
-      responseStyleId: options.selectedResponseStyleId.value,
-    }),
-    () => options.scheduleChatSettingsAutosave(),
-  );
-
-  watch(
     () => {
       const assistantDepartment = options.config.departments.find(
         (item) => item.id === "assistant-department" || item.isBuiltInAssistant,
@@ -112,18 +103,6 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     (id) => {
       if (!id) return;
       void options.syncTrayIcon(id);
-    },
-  );
-
-  watch(
-    () => ({
-      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
-      visionApiConfigId: options.config.visionApiConfigId,
-      sttApiConfigId: options.config.sttApiConfigId,
-      sttAutoSend: options.config.sttAutoSend,
-    }),
-    () => {
-      void options.saveConversationApiSettings();
     },
   );
 
@@ -207,5 +186,25 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       }
     },
   );
-}
+  watch(
+    () => ({
+      userAlias: options.userAlias.value,
+      responseStyleId: options.selectedResponseStyleId.value,
+    }),
+    () => {
+      void options.saveChatSettings();
+    },
+  );
 
+  watch(
+    () => ({
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+      visionApiConfigId: options.config.visionApiConfigId,
+      sttApiConfigId: options.config.sttApiConfigId,
+      sttAutoSend: options.config.sttAutoSend,
+    }),
+    () => {
+      void options.saveChatSettings();
+    },
+  );
+}
