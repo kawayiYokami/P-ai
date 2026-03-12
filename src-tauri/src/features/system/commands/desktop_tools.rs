@@ -181,11 +181,11 @@ struct TerminalSelfCheckStepResult {
 async fn terminal_self_check(state: State<'_, AppState>) -> Result<Value, String> {
     let session_id = normalize_terminal_tool_session_id("ui-terminal-self-check");
     #[cfg(target_os = "windows")]
-    if state.terminal_shell.kind == "missing-git-bash" {
+    if state.terminal_shell.kind == "missing-terminal-shell" {
         return Ok(serde_json::json!({
             "ok": false,
-            "blockedReason": "missing_git_bash",
-            "message": "Git Bash is required for terminal tools on Windows.",
+            "blockedReason": "missing_terminal_shell",
+            "message": "No supported shell was detected on Windows. Install PowerShell 7 (recommended), Windows PowerShell 5.1, or Git Bash.",
             "sessionId": session_id,
             "shellKind": state.terminal_shell.kind,
             "shellPath": state.terminal_shell.path,
@@ -200,14 +200,23 @@ async fn terminal_self_check(state: State<'_, AppState>) -> Result<Value, String
         .map(|v| v.to_string_lossy().to_string())
         .collect::<Vec<_>>();
 
-    let steps = vec![
-        "pwd",
-        "echo $0",
-        "git --version",
-        "bash --version",
-        "command -v git",
-        "command -v bash",
-    ];
+    let steps = if state.terminal_shell.kind.starts_with("powershell") {
+        vec![
+            "Get-Location",
+            "$PSVersionTable.PSVersion.ToString()",
+            "Get-Command git -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source",
+            "Get-Command pwsh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source",
+        ]
+    } else {
+        vec![
+            "pwd",
+            "echo $0",
+            "git --version",
+            "bash --version",
+            "command -v git",
+            "command -v bash",
+        ]
+    };
 
     let mut results = Vec::<TerminalSelfCheckStepResult>::new();
     for step in steps {

@@ -208,6 +208,8 @@
       "normalizeAndSaveRoots": "Save",
       "gitRequiredHint": "Git Bash is not detected.",
       "installGit": "Install Git (Git Bash)",
+      "powershell7RecommendedHint": "On Windows, PowerShell 7 is recommended (preferred runtime; falls back to Windows PowerShell 5.1 or Git Bash if unavailable).",
+      "installPowerShell7": "Install PowerShell 7",
       "disabledHint": "Tools are disabled for current chat LLM provider.",
       "toolEnabled": "Enabled",
       "imageCapabilityRequired": "Image capability is required to enable screenshot/wait.",

@@ -63,6 +63,36 @@ fn detect_default_terminal_shell() -> TerminalShellProfile {
             out
         }
 
+        let mut pwsh7_candidates = vec![
+            r"C:\Program Files\PowerShell\7\pwsh.exe".to_string(),
+            r"C:\Program Files\PowerShell\7-preview\pwsh.exe".to_string(),
+        ];
+        if let Some(path) = where_first("pwsh.exe") {
+            pwsh7_candidates.push(path);
+        }
+        if let Some(path) = first_existing_path(&pwsh7_candidates) {
+            return with_args("powershell7", path, &["-NoProfile", "-Command"]);
+        }
+
+        let mut powershell5_candidates = Vec::<String>::new();
+        if let Ok(windir) = std::env::var("WINDIR") {
+            powershell5_candidates.push(
+                PathBuf::from(windir)
+                    .join("System32")
+                    .join("WindowsPowerShell")
+                    .join("v1.0")
+                    .join("powershell.exe")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+        if let Some(path) = where_first("powershell.exe") {
+            powershell5_candidates.push(path);
+        }
+        if let Some(path) = first_existing_path(&powershell5_candidates) {
+            return with_args("powershell5", path, &["-NoProfile", "-Command"]);
+        }
+
         let mut git_bash_candidates = vec![
             r"C:\Program Files\Git\bin\bash.exe".to_string(),
             r"C:\Program Files\Git\usr\bin\bash.exe".to_string(),
@@ -81,7 +111,7 @@ fn detect_default_terminal_shell() -> TerminalShellProfile {
         }
 
         return TerminalShellProfile {
-            kind: "missing-git-bash".to_string(),
+            kind: "missing-terminal-shell".to_string(),
             path: String::new(),
             args_prefix: Vec::new(),
         };
@@ -141,6 +171,27 @@ fn detect_default_terminal_shell() -> TerminalShellProfile {
         path: "sh".to_string(),
         args_prefix: vec!["-lc".to_string()],
     }
+}
+
+fn terminal_shell_runtime_label(shell: &TerminalShellProfile) -> String {
+    let title = match shell.kind.as_str() {
+        "powershell7" => "PowerShell 7",
+        "powershell5" => "Windows PowerShell 5.1",
+        "git-bash" => "Git Bash",
+        "missing-terminal-shell" => "Unavailable",
+        other => other,
+    };
+    if shell.path.trim().is_empty() {
+        return title.to_string();
+    }
+    format!("{title} ({})", shell.path.trim())
+}
+
+fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
+    format!(
+        "Execute a command inside current shell workspace root. Runtime shell: {}.",
+        terminal_shell_runtime_label(shell)
+    )
 }
 
 fn normalize_terminal_tool_session_id(session_id: &str) -> String {
@@ -1100,12 +1151,12 @@ async fn builtin_shell_exec(
         return Err("shell_exec.command is empty".to_string());
     }
     #[cfg(target_os = "windows")]
-    if state.terminal_shell.kind == "missing-git-bash" {
+    if state.terminal_shell.kind == "missing-terminal-shell" {
         return Ok(serde_json::json!({
             "ok": false,
             "approved": false,
-            "blockedReason": "missing_git_bash",
-            "message": "Git Bash is required for terminal tools on Windows. Please install Git for Windows and ensure bash.exe is available.",
+            "blockedReason": "missing_terminal_shell",
+            "message": "No supported shell was detected on Windows. Install PowerShell 7 (recommended), Windows PowerShell 5.1, or Git Bash.",
             "sessionId": normalize_terminal_tool_session_id(session_id),
             "command": cmd
         }));

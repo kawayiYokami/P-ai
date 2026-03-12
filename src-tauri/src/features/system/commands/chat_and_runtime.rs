@@ -2179,19 +2179,25 @@ fn check_tools_status(
             "exec" => {
                 #[cfg(target_os = "windows")]
                 {
-                    if state.terminal_shell.kind == "missing-git-bash" {
+                    if state.terminal_shell.kind == "missing-terminal-shell" {
                         (
                             "unavailable".to_string(),
-                            "未检测到 Git Bash。请安装 Git for Windows 后再启用终端工具。"
+                            "未检测到可用终端。请安装 PowerShell 7（推荐）/ Windows PowerShell 5.1 / Git Bash。"
                                 .to_string(),
                         )
                     } else {
-                        ("loaded".to_string(), "执行工具可用".to_string())
+                        (
+                            "loaded".to_string(),
+                            format!("执行工具可用（{}）", terminal_shell_runtime_label(&state.terminal_shell)),
+                        )
                     }
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    ("loaded".to_string(), "执行工具可用".to_string())
+                    (
+                        "loaded".to_string(),
+                        format!("执行工具可用（{}）", terminal_shell_runtime_label(&state.terminal_shell)),
+                    )
                 }
             }
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),

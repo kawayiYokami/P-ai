@@ -208,6 +208,8 @@
       "normalizeAndSaveRoots": "保存",
       "gitRequiredHint": "检测到未安装 Git Bash。",
       "installGit": "安装 Git（Git Bash）",
+      "powershell7RecommendedHint": "Windows 建议安装 PowerShell 7（优先使用；未安装时会自动回退到 Windows PowerShell 5.1 或 Git Bash）。",
+      "installPowerShell7": "安装 PowerShell 7",
       "disabledHint": "当前对话LLM供应商未启用工具调用。",
       "toolEnabled": "启用",
       "imageCapabilityRequired": "当前模型未开启图片能力，截图/等待不可启用。",
