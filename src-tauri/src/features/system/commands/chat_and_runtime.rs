@@ -114,7 +114,7 @@ fn effective_prompt_tokens_from_provider(
     };
     let gap = provider.abs_diff(estimated) as f64 / estimated as f64;
     if gap > 0.5 {
-        return (estimated_prompt_tokens, "estimate_large_gap");
+        return (provider.max(estimated_prompt_tokens), "max_large_gap");
     }
     (provider, "provider")
 }
