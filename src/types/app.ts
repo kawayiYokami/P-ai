@@ -273,6 +273,7 @@ export type ChatMessageBlock = {
   reasoningInline: string;
   toolCallCount: number;
   lastToolName: string;
+  toolCalls: Array<{ name: string; argsText: string }>;
 };
 
 export type ChatPersonaPresenceChip = {
