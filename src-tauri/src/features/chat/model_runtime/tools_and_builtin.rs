@@ -1245,8 +1245,11 @@ async fn builtin_organize_context(
                 "message": "此时不应该压缩：当前对话少于 10 句。"
             }));
         }
-        let usage_ratio =
-            compute_context_usage_ratio(&source, selected_api.context_window_tokens);
+        let usage_ratio = if source.last_context_usage_ratio.is_finite() {
+            source.last_context_usage_ratio.max(0.0)
+        } else {
+            0.0
+        };
         if usage_ratio < 0.10 {
             return Ok(serde_json::json!({
                 "ok": false,
