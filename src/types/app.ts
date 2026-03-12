@@ -159,9 +159,16 @@ export type LlmRoundLogHeader = {
   value: string;
 };
 
+export type LlmRoundLogStage = {
+  stage: string;
+  elapsedMs: number;
+  sincePrevMs: number;
+};
+
 export type LlmRoundLogEntry = {
   id: string;
   createdAt: string;
+  traceId?: string;
   scene: string;
   requestFormat: string;
   provider: string;
@@ -173,6 +180,7 @@ export type LlmRoundLogEntry = {
   response?: unknown;
   error?: string;
   elapsedMs: number;
+  timeline?: LlmRoundLogStage[];
   success: boolean;
 };
 

@@ -222,6 +222,7 @@ async fn call_model_openai_style(
         Ok(reply) => {
             push_llm_round_log(
                 app_state,
+                Some(format!("round-{chat_session_key}")),
                 "chat",
                 selected_api.request_format,
                 &selected_api.name,
@@ -233,11 +234,17 @@ async fn call_model_openai_style(
                 Some(model_reply_to_log_value(reply)),
                 None,
                 elapsed_ms,
+                Some(vec![LlmRoundLogStage {
+                    stage: "model_round_total".to_string(),
+                    elapsed_ms,
+                    since_prev_ms: elapsed_ms,
+                }]),
             );
         }
         Err(err) => {
             push_llm_round_log(
                 app_state,
+                Some(format!("round-{chat_session_key}")),
                 "chat",
                 selected_api.request_format,
                 &selected_api.name,
@@ -249,6 +256,11 @@ async fn call_model_openai_style(
                 None,
                 Some(err.clone()),
                 elapsed_ms,
+                Some(vec![LlmRoundLogStage {
+                    stage: "model_round_total".to_string(),
+                    elapsed_ms,
+                    since_prev_ms: elapsed_ms,
+                }]),
             );
         }
     }

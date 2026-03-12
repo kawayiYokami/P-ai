@@ -99,6 +99,7 @@ async fn invoke_model_with_policy(
         Ok(reply) => {
             push_llm_round_log(
                 app_state,
+                None,
                 policy.scene,
                 resolved_api.request_format,
                 policy.scene,
@@ -110,11 +111,13 @@ async fn invoke_model_with_policy(
                 Some(model_reply_to_log_value(reply)),
                 None,
                 elapsed_ms,
+                None,
             );
         }
         Err(err) => {
             push_llm_round_log(
                 app_state,
+                None,
                 policy.scene,
                 resolved_api.request_format,
                 policy.scene,
@@ -126,6 +129,7 @@ async fn invoke_model_with_policy(
                 None,
                 Some(err.clone()),
                 elapsed_ms,
+                None,
             );
         }
     }
