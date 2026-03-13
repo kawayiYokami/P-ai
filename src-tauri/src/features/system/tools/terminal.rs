@@ -271,16 +271,36 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
                 .cloned()
         }
 
-        fn where_first(name: &str) -> Option<String> {
-            let output = std::process::Command::new("where").arg(name).output().ok()?;
-            if !output.status.success() {
-                return None;
+        fn path_lookup_first(name: &str) -> Option<String> {
+            let path_value = std::env::var_os("PATH")?;
+            let name_path = Path::new(name);
+            let has_ext = name_path.extension().is_some();
+            let mut candidates = Vec::<String>::new();
+            if has_ext {
+                candidates.push(name.to_string());
+            } else {
+                candidates.push(name.to_string());
+                if let Some(pathext) = std::env::var_os("PATHEXT") {
+                    for ext in pathext.to_string_lossy().split(';') {
+                        let trimmed = ext.trim();
+                        if !trimmed.is_empty() {
+                            candidates.push(format!("{name}{trimmed}"));
+                        }
+                    }
+                } else {
+                    candidates.push(format!("{name}.exe"));
+                }
             }
-            let text = String::from_utf8_lossy(&output.stdout);
-            text.lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty() && Path::new(line).is_file())
-                .map(ToString::to_string)
+
+            for dir in std::env::split_paths(&path_value) {
+                for candidate in &candidates {
+                    let full = dir.join(candidate);
+                    if full.is_file() {
+                        return Some(full.to_string_lossy().to_string());
+                    }
+                }
+            }
+            None
         }
 
         fn derive_bash_candidates_from_git(git_exe: &str) -> Vec<String> {
@@ -309,7 +329,7 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
             r"C:\Program Files\PowerShell\7\pwsh.exe".to_string(),
             r"C:\Program Files\PowerShell\7-preview\pwsh.exe".to_string(),
         ];
-        if let Some(path) = where_first("pwsh.exe") {
+        if let Some(path) = path_lookup_first("pwsh.exe") {
             pwsh7_candidates.push(path);
         }
         if let Some(path) = first_existing_path(&pwsh7_candidates) {
@@ -328,7 +348,7 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
                     .to_string(),
             );
         }
-        if let Some(path) = where_first("powershell.exe") {
+        if let Some(path) = path_lookup_first("powershell.exe") {
             powershell5_candidates.push(path);
         }
         if let Some(path) = first_existing_path(&powershell5_candidates) {
@@ -341,10 +361,10 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
             r"C:\Program Files (x86)\Git\bin\bash.exe".to_string(),
             r"C:\Program Files (x86)\Git\usr\bin\bash.exe".to_string(),
         ];
-        if let Some(git_path) = where_first("git") {
+        if let Some(git_path) = path_lookup_first("git") {
             git_bash_candidates.extend(derive_bash_candidates_from_git(&git_path));
         }
-        if let Some(path) = where_first("bash") {
+        if let Some(path) = path_lookup_first("bash") {
             git_bash_candidates.push(path);
         }
 
