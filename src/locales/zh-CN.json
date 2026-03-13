@@ -535,7 +535,7 @@
     "currentHistoryTitle": "当前会话记录（未归档）",
     "stop": "停止",
     "stopReplying": "正在回复",
-    "dropImageOrPdf": "拖放图片或 PDF",
+    "dropImageOrPdf": "拖放文件（图片/PDF 可直接多模态）",
     "send": "发送",
     "taskTrigger": {
       "badge": "任务提醒",

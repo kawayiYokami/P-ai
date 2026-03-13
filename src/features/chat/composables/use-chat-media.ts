@@ -20,7 +20,14 @@ type UseChatMediaOptions = {
 };
 
 type RejectionReason = "imageUnsupported" | "pdfNeedsImage" | "pdfNeedsGemini";
-type LocalBinaryFileResult = { mime: string; bytesBase64: string };
+type QueuedLocalFileResult = {
+  mime: string;
+  fileName: string;
+  savedPath: string;
+  attachAsMedia: boolean;
+  bytesBase64?: string | null;
+  textNotice?: string;
+};
 
 export function useChatMedia(options: UseChatMediaOptions) {
   const hotkeyTestRecording = ref(false);
@@ -314,23 +321,36 @@ export function useChatMedia(options: UseChatMediaOptions) {
     options.setStatus(`收到拖拽文件 ${paths.length} 个（Tauri）。`);
 
     const rejected: RejectionReason[] = [];
+    const textNotices: string[] = [];
     for (const path of paths) {
       try {
-        const file = await invokeTauri<LocalBinaryFileResult>("read_local_binary_file", {
+        const queued = await invokeTauri<QueuedLocalFileResult>("queue_local_file_attachment", {
           input: { path },
         });
-        const mime = (file.mime || "").trim().toLowerCase();
+        const mime = String(queued.mime || "").trim().toLowerCase();
         const classified = classifyFileMime(mime, apiConfig);
-        if (!classified.kind) {
+        const canAttachAsMedia =
+          !!queued.attachAsMedia &&
+          !!String(queued.bytesBase64 || "").trim() &&
+          !!classified.kind;
+        if (!canAttachAsMedia) {
+          const notice = String(queued.textNotice || "").trim();
+          if (notice) textNotices.push(notice);
           if (classified.reason) rejected.push(classified.reason);
           continue;
         }
-        const base64 = String(file.bytesBase64 || "").trim();
+        const base64 = String(queued.bytesBase64 || "").trim();
         if (!base64) continue;
         options.clipboardImages.value.push({ mime, bytesBase64: base64 });
       } catch (error) {
         options.setStatusError("status.pasteImageReadFailed", error);
       }
+    }
+    if (textNotices.length > 0) {
+      const merged = textNotices.join("\n\n");
+      options.chatInput.value = options.chatInput.value.trim()
+        ? `${options.chatInput.value.trim()}\n\n${merged}`
+        : merged;
     }
 
     notifyRejected(rejected);

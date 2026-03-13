@@ -535,7 +535,7 @@
     "currentHistoryTitle": "當前會話記錄（未歸檔）",
     "stop": "停止",
     "stopReplying": "停止回覆",
-    "dropImageOrPdf": "拖放圖片或 PDF",
+    "dropImageOrPdf": "拖放檔案（圖片/PDF 可直接多模態）",
     "taskTrigger": {
       "badge": "任務提醒",
       "kindImmediate": "立即任務",
