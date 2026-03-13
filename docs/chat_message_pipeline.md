@@ -1,111 +1,80 @@
-# 聊天消息链路全景（发送 -> 流式接收 -> 落库）
+# 聊天消息管线
 
-## 1. 主流程（文字版）
+> 更新于 2026-03-13
 
-1. 前端 `useChatFlow.sendChat()` 发起请求，调用 `invokeTauri("send_chat_message")`，并创建 `onDelta` 通道接收流式事件。  
-2. 后端 `send_chat_message` 进入统一入口，做会话与配置解析。  
-3. 按需执行：自动归档、记忆召回、提示词组装（`PreparedPrompt`）。  
-4. 进入统一聊天路由 `call_model_openai_style`。  
-5. 根据 `RequestFormat` 分发到不同协议实现（OpenAI / OpenAI Responses / Gemini / Anthropic）。  
-6. 模型流式输出通过 `onDelta` 回传前端（正文、reasoning、工具状态）。  
-7. 模型结束后，后端把 assistant 消息与 provider_meta（reasoning）写入会话。  
-8. 返回 `SendChatResult`，前端再 `reload messages` 对齐最终快照。
+## 需求
 
----
+- 所有消息先入队，再批量写入正式历史，再决定是否激活助理。
+- 同一时刻只有一个主助理轮次。
+- 支持用户 / 任务 / 委托 / 系统四种消息来源。
+- 前端通过流式 Channel 接收增量事件。
+- 支持文本 / 图片 / 音频 / 文件附件。
+- 不支持该模态时自动回退（STT / Vision）。
 
-## 2. 关键入口与模块
+## 执行链
 
-### 前端
-- `src/App.vue:1254` 调用 `invokeTauri("send_chat_message", ...)`
-- `src/features/chat/composables/use-chat-flow.ts:157` 创建 `Channel`
-- `src/features/chat/composables/use-chat-flow.ts:158` 处理 `deltaChannel.onmessage`
-
-### 后端入口
-- `src-tauri/src/features/system/commands/chat_and_runtime.rs:6` `send_chat_message`
-- `src-tauri/src/features/system/commands/chat_and_runtime.rs:540` `stop_chat_message`
-
-### 后端编排
-- 自动归档：`chat_and_runtime.rs:272` `run_archive_pipeline(...)`
-- 记忆召回：`chat_and_runtime.rs:356` `memory_recall_hit_ids(...)`
-- 提示词组装：`chat_and_runtime.rs:410` `build_prepared_prompt_for_mode(...)`
-
-### 聊天路由与协议执行
-- 总路由：`src-tauri/src/features/chat/model_runtime/provider_and_stream.rs:1430` `call_model_openai_style(...)`
-- OpenAI Responses 分支：`provider_and_stream.rs:1456`
-- OpenAI / Responses rig 执行：`src-tauri/src/features/chat/model_runtime/tools_and_builtin.rs`
-
-### 协议枚举
-- `src-tauri/src/features/core/domain.rs:108` `enum RequestFormat`
-- `src-tauri/src/features/core/domain.rs:183` `is_chat_text()`
-
----
-
-## 3. 总流程图（Mermaid）
-
-```mermaid
-flowchart TD
-  A[UI sendChat] --> B[invokeTauri send_chat_message]
-  B --> C[chat_and_runtime.rs send_chat_message]
-  C --> D[可选: 自动归档 run_archive_pipeline]
-  D --> E[记忆召回 + Prompt组装]
-  E --> F[provider_and_stream.rs call_model_openai_style]
-  F --> G{request_format}
-  G -->|openai / deepseek-kimi| H[OpenAI链路]
-  G -->|openai_responses| I[Responses链路]
-  G -->|gemini| J[Gemini链路]
-  G -->|anthropic| K[Anthropic链路]
-  H --> L[外部LLM API]
-  I --> L
-  J --> L
-  K --> L
-  L --> M[onDelta流式事件]
-  M --> N[前端增量渲染]
-  L --> O[后端写入assistant消息+reasoning]
-  O --> P[返回SendChatResult]
-  P --> Q[前端reload消息]
+```
+前端 sendChat()
+  → invokeTauri("send_chat_message")
+    → send_chat_message
+      → enqueue_chat_event
+      → trigger_chat_queue_processing
+        → process_chat_queue
+          → dequeue_batch
+          → 按 conversation_id 分组
+          → process_conversation_batch
+            → 写入正式历史
+            → 通知前端 history_flushed
+            → 若 activate_assistant=true
+                → activate_main_assistant (trigger_only=true)
+                  → send_chat_message_inner
+                    → 自动归档 / 记忆召回 / 提示词组装
+                    → call_model_openai_style → 按 RequestFormat 分发
+                    → onDelta 流式回传
+                    → 写入 assistant 消息
+                → 通知前端 round_completed
 ```
 
----
+## 前端事件流
 
-## 4. 协议分流图（Mermaid）
-
-```mermaid
-flowchart LR
-  A[RequestFormat] --> B[聊天协议]
-  A --> C[语音协议]
-  A --> D[向量/重排协议]
-
-  B --> B1[openai]
-  B --> B2[openai_responses]
-  B --> B3[deepseek-kimi]
-  B --> B4[gemini]
-  B --> B5[anthropic]
-
-  C --> C1[openai_tts]
-  C --> C2[openai_stt]
-
-  D --> D1[openai_embedding]
-  D --> D2[gemini_embedding]
-  D --> D3[openai_rerank]
+```
+channel.onmessage:
+  history_flushed  → 合并消息到 allMessages
+  delta            → 增量渲染
+  round_completed  → 重新加载最终快照
+  round_failed     → 错误处理
 ```
 
----
+## 状态机
 
-## 5. 纯文本备份图（无渲染环境可读）
+| 状态 | 可出队 |
+| --- | --- |
+| Idle | 是 |
+| AssistantStreaming | 否 |
+| OrganizingContext | 否 |
 
-```text
-UI(sendChat)
-  -> invokeTauri(send_chat_message)
-    -> send_chat_message (后端入口)
-      -> [可选] 自动归档
-      -> 记忆召回
-      -> 组装 PreparedPrompt
-      -> call_model_openai_style (统一路由)
-         -> 按 request_format 分发具体协议
-         -> 调用外部 LLM API
-         -> onDelta 流式回传
-      -> 写入 assistant 消息/推理元信息
-      -> 返回 SendChatResult
-  -> 前端 reload messages 对齐最终状态
+## 协议分流
+
+| RequestFormat | 协议 |
+| --- | --- |
+| openai | OpenAI Chat |
+| openai_responses | OpenAI Responses |
+| deepseek-kimi | DeepSeek / Kimi |
+| gemini | Gemini |
+| anthropic | Anthropic |
+
+## 附件管线
+
+```
+前端 queue_local_file_attachment → 构建 AttachmentMetaInput → 合并到 payload.attachments
+后端 normalize_payload_attachments → merge_provider_meta_with_attachments → 写入 provider_meta
+前端 extractMessageAttachmentFiles → 从 providerMeta.attachments 提取 → 渲染气泡
 ```
 
+## 多模态回退
+
+```
+图片/音频 → API 支持 → 直接发送
+         → API 不支持音频 → STT 转文字 → 并入消息
+         → API 不支持图片 → Vision 转文字 → 缓存结果 → 并入消息
+```

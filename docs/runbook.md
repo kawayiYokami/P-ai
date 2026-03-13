@@ -1,42 +1,41 @@
-# Easy Call AI 运行手册
+# 运行手册
 
-## 一键冒烟检查
+> 更新于 2026-03-13
 
-执行：
+## 冒烟检查
 
 ```powershell
 pnpm smoke
 ```
 
-会依次检查：
-
-1. TypeScript 类型检查
-2. Rust 编译检查
-3. Rust 测试编译（`--no-run`，不实际执行测试）
+依次执行：TypeScript 类型检查、Rust 编译检查、Rust 测试编译（`--no-run`）。
 
 ## Debug API 模式
 
-在项目根目录放置 `.debug/api-key.json`，填写你的测试供应商信息。
-
-开启后，对话路由会优先使用 debug 配置，便于低成本验证。
+在项目根目录放置 `.debug/api-key.json`，填写测试供应商信息。开启后对话路由优先使用 debug 配置。
 
 ## 核心运行配置
 
-1. 对话模型：`chatApiConfigId`
-2. 音转文回退：`sttApiConfigId`（仅支持 `openai_tts`）
-3. 图转文回退：`visionApiConfigId`
+| 配置项 | 作用 |
+| --- | --- |
+| selected_api_config_id | 配置页面当前编辑的 API 配置 |
+| assistant_department_api_config_id | 对话默认使用的 API 配置 |
+| stt_api_config_id | 音转文回退 API（requestFormat 须为 openai_stt） |
+| vision_api_config_id | 图转文回退 API |
+| terminal_shell_kind | 终端 shell 类型 |
+| mcp_servers | MCP 服务器列表 |
+| departments | 部门配置列表 |
 
-## 多模态处理规则
+## 多模态回退规则
 
-1. 如果对话 API 支持图片/音频，直接发送原始多模态内容。
-2. 如果对话 API 不支持音频，自动调用 STT（`/audio/transcriptions`）转文字，再并入本次消息文本。
-3. 如果对话 API 不支持图片，自动调用图转文模型；结果按 `hash + vision_api_id` 缓存，并入本次消息文本。
+1. 对话 API 支持图片/音频 → 直接发送。
+2. 不支持音频 → 自动调用 STT 转文字并入消息。
+3. 不支持图片 → 自动调用 Vision 转文字，结果按 hash + vision_api_id 缓存。
 
-## 常见问题排查
+## 常见错误
 
-1. `Current chat API does not support audio and no 音转文AI is configured.`
-   - 配置 `sttApiConfigId`，并确保其请求格式为 `openai_tts`。
-2. `Current chat API does not support image and no 图转文AI is configured.`
-   - 配置 `visionApiConfigId`。
-3. `Request format ... not implemented ...`
-   - 对话/图转文请使用 openai 风格请求格式（`openai` / `deepseek/kimi`）。
+| 错误信息 | 处理 |
+| --- | --- |
+| does not support audio and no STT configured | 配置 stt_api_config_id |
+| does not support image and no Vision configured | 配置 vision_api_config_id |
+| Request format not implemented | 对话/图转文使用 openai 风格请求格式 |
