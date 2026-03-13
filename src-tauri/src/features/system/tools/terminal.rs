@@ -140,6 +140,11 @@ async fn terminal_live_create_session(
     command_builder.stdin(std::process::Stdio::piped());
     command_builder.stdout(std::process::Stdio::piped());
     command_builder.stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    {
+        // 0x08000000 = CREATE_NO_WINDOW, keep shell sessions headless on Windows.
+        command_builder.creation_flags(0x08000000);
+    }
     if matches!(shell.kind.as_str(), "powershell7" | "powershell5") {
         command_builder.arg("-NoLogo");
         command_builder.arg("-NoProfile");
