@@ -380,6 +380,23 @@ async fn send_chat_message_inner(
     if !audios.is_empty() {
         return Err("当前版本仅支持本地语音识别，发送消息不支持语音附件。".to_string());
     }
+    if !trigger_only {
+        let images = effective_payload.images.clone().unwrap_or_default();
+        if !images.is_empty() {
+            let notices = persist_payload_images_to_workspace_downloads(&state, &images);
+            if !notices.is_empty() {
+                let notice_text = notices.join("\n\n");
+                let merged_text = effective_payload
+                    .text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(|text| format!("{text}\n\n{notice_text}"))
+                    .unwrap_or(notice_text);
+                effective_payload.text = Some(merged_text);
+            }
+        }
+    }
 
     if !selected_api.enable_image {
         let images = effective_payload.images.clone().unwrap_or_default();
@@ -1792,6 +1809,24 @@ struct ReadLocalBinaryFileOutput {
     bytes_base64: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueueLocalFileAttachmentInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueueLocalFileAttachmentOutput {
+    mime: String,
+    file_name: String,
+    saved_path: String,
+    attach_as_media: bool,
+    #[serde(default)]
+    bytes_base64: Option<String>,
+    text_notice: String,
+}
+
 fn media_mime_from_path(path: &std::path::Path) -> Option<&'static str> {
     let ext = path
         .extension()
@@ -1809,6 +1844,122 @@ fn media_mime_from_path(path: &std::path::Path) -> Option<&'static str> {
         "svg" => Some("image/svg+xml"),
         _ => None,
     }
+}
+
+fn workspace_downloads_dir(state: &AppState) -> PathBuf {
+    // downloads 是用户与 LLM 共用的附件落地区；允许 LLM 后续自行清理和管理空间占用。
+    state.llm_workspace_path.join("downloads")
+}
+
+fn media_extension_from_mime_for_download(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "application/pdf" => "pdf",
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
+        "image/svg+xml" => "svg",
+        _ => "bin",
+    }
+}
+
+fn sanitize_download_file_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return format!("attachment-{}", Uuid::new_v4());
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        let blocked = matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+        if blocked || ch.is_control() {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    let normalized = out.trim().trim_matches('.').trim().to_string();
+    if normalized.is_empty() {
+        format!("attachment-{}", Uuid::new_v4())
+    } else {
+        normalized
+    }
+}
+
+fn persist_raw_attachment_to_downloads(
+    state: &AppState,
+    suggested_name: &str,
+    mime: &str,
+    raw: &[u8],
+) -> Result<PathBuf, String> {
+    let dir = workspace_downloads_dir(state);
+    fs::create_dir_all(&dir).map_err(|err| format!("Create downloads dir failed: {err}"))?;
+
+    let mut file_name = sanitize_download_file_name(suggested_name);
+    let ext = media_extension_from_mime_for_download(mime);
+    if !file_name.to_ascii_lowercase().ends_with(&format!(".{ext}")) {
+        file_name.push('.');
+        file_name.push_str(ext);
+    }
+    let target = dir.join(file_name);
+    let final_target = if target.exists() {
+        let stem = target
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .unwrap_or("attachment");
+        let ext = target.extension().and_then(|v| v.to_str()).unwrap_or("bin");
+        dir.join(format!("{stem}-{}.{}", Uuid::new_v4(), ext))
+    } else {
+        target
+    };
+    fs::write(&final_target, raw).map_err(|err| format!("Write attachment failed: {err}"))?;
+    Ok(final_target)
+}
+
+fn workspace_relative_path(state: &AppState, absolute: &std::path::Path) -> String {
+    absolute
+        .strip_prefix(&state.llm_workspace_path)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| absolute.to_string_lossy().replace('\\', "/"))
+}
+
+fn build_attachment_notice_text(file_name: &str, relative_path: &str) -> String {
+    format!("[附件已保存]\n文件：{file_name}\n路径：{relative_path}")
+}
+
+fn persist_payload_images_to_workspace_downloads(
+    state: &AppState,
+    images: &[BinaryPart],
+) -> Vec<String> {
+    let mut notices = Vec::<String>::new();
+    for (idx, image) in images.iter().enumerate() {
+        let mime = image.mime.trim();
+        if mime.is_empty() {
+            continue;
+        }
+        let Ok(raw) = B64.decode(image.bytes_base64.trim()) else {
+            eprintln!("[CHAT] skip persist image to downloads: invalid base64, index={idx}");
+            continue;
+        };
+        let suggested = format!("queued-image-{}", idx + 1);
+        match persist_raw_attachment_to_downloads(state, &suggested, mime, &raw) {
+            Ok(saved_path) => {
+                let relative = workspace_relative_path(state, &saved_path);
+                let file_name = saved_path
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or(&suggested)
+                    .to_string();
+                notices.push(build_attachment_notice_text(&file_name, &relative));
+            }
+            Err(err) => {
+                eprintln!("[CHAT] persist queued image to downloads failed: index={}, err={}", idx, err);
+            }
+        }
+    }
+    notices
 }
 
 #[tauri::command]
@@ -1834,6 +1985,63 @@ fn read_local_binary_file(
     Ok(ReadLocalBinaryFileOutput {
         mime,
         bytes_base64: B64.encode(raw),
+    })
+}
+
+#[tauri::command]
+fn queue_local_file_attachment(
+    input: QueueLocalFileAttachmentInput,
+    state: State<'_, AppState>,
+) -> Result<QueueLocalFileAttachmentOutput, String> {
+    let path_text = input.path.trim();
+    if path_text.is_empty() {
+        return Err("File path is empty.".to_string());
+    }
+    let path = std::path::PathBuf::from(path_text);
+    let file_name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("attachment")
+        .to_string();
+    let raw = fs::read(&path).map_err(|err| format!("Read file failed: {err}"))?;
+    let mime = media_mime_from_path(&path)
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let saved_path = persist_raw_attachment_to_downloads(state.inner(), &file_name, &mime, &raw)?;
+    let saved_relative_path = workspace_relative_path(state.inner(), &saved_path);
+    let attach_as_media = matches!(
+        mime.as_str(),
+        "application/pdf"
+            | "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+            | "image/heic"
+            | "image/heif"
+            | "image/svg+xml"
+    ) && raw.len() <= MAX_MULTIMODAL_BYTES;
+    let bytes_base64 = if attach_as_media {
+        Some(B64.encode(&raw))
+    } else {
+        None
+    };
+    let text_notice = if attach_as_media {
+        build_attachment_notice_text(&file_name, &saved_relative_path)
+    } else {
+        format!(
+            "{}\n说明：当前附件类型不会作为多模态输入，已转为文本告知。",
+            build_attachment_notice_text(&file_name, &saved_relative_path)
+        )
+    };
+    Ok(QueueLocalFileAttachmentOutput {
+        mime,
+        file_name,
+        saved_path: saved_relative_path,
+        attach_as_media,
+        bytes_base64,
+        text_notice,
     })
 }
 

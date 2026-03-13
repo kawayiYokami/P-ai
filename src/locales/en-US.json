@@ -520,7 +520,7 @@
     "loadMore": "Load more...",
     "stop": "Stop",
     "stopReplying": "Stop Replying",
-    "dropImageOrPdf": "Drop image or PDF",
+    "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
     "copy": "Copy",
     "regenerate": "Regenerate",
     "recall": "Recall",

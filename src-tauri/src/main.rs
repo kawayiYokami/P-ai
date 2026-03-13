@@ -299,6 +299,7 @@ fn main() {
             remove_chat_queue_event,
             get_main_session_state_snapshot,
             read_local_binary_file,
+            queue_local_file_attachment,
             stt_transcribe,
             force_archive_current,
             refresh_models,
