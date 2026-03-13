@@ -888,6 +888,9 @@ async fn send_chat_message_inner(
         chat_overrides
             .system_preamble_blocks
             .push(build_hidden_skill_snapshot_block(&state));
+        chat_overrides
+            .system_preamble_blocks
+            .push(build_hidden_skill_usage_block());
         if !trigger_only {
             chat_overrides.latest_user_text = Some(latest_user_text.clone());
             chat_overrides.latest_user_meta_text = Some(latest_user_meta_text);

@@ -6,9 +6,10 @@ description: 如何自行安装和配置 MCP。适用于需要补齐工作区 MC
 # MCP Setup
 
 ## 规则
-- llm-workspace 只是工作区根目录占位写法，表示当前 LLM 的工作区，不是固定目录名。
+- `<workspace>` 只是占位符，不是固定目录名；它表示你当前 shell 的启动工作空间。
+- 你只能在这个工作空间内工作；不要假设或访问工作空间外路径。
 - 自己查官方文档再安装和配置，不要空想连接定义。
-- MCP 放在 `llm-workspace/mcp/`。
+- MCP 放在 `<workspace>/mcp/`。
 - `servers/` 放连接定义。
 - `policies/` 放工具开关。
 - 完成后做一次最小验证。
@@ -16,7 +17,7 @@ description: 如何自行安装和配置 MCP。适用于需要补齐工作区 MC
 
 ## 目录结构
 ```text
-llm-workspace/mcp/
+<workspace>/mcp/
   servers/
     <serverId>.json
   policies/
