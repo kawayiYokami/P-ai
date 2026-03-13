@@ -213,7 +213,15 @@ fn normalize_shell_workspaces(config: &mut AppConfig) {
         if candidate.is_absolute() {
             if let Ok(canonical) = candidate.canonicalize() {
                 if canonical.is_dir() {
-                    normalized_path = canonical.to_string_lossy().to_string();
+                    #[cfg(target_os = "windows")]
+                    {
+                        normalized_path =
+                            normalize_windows_path_input(&canonical.to_string_lossy());
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        normalized_path = canonical.to_string_lossy().to_string();
+                    }
                 }
             }
         }

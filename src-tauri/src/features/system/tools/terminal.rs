@@ -58,8 +58,33 @@ fn terminal_bash_escape_literal(input: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn terminal_strip_windows_verbatim_prefix(input: &str) -> String {
+    let text = input.trim();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest);
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    text.to_string()
+}
+
+fn terminal_path_for_user(path: &Path) -> String {
+    let text = path.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    {
+        terminal_strip_windows_verbatim_prefix(&text)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        text
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn terminal_windows_path_to_bash(path: &Path) -> String {
-    let raw = path.to_string_lossy().replace('\\', "/");
+    let normalized = terminal_strip_windows_verbatim_prefix(&path.to_string_lossy());
+    let raw = normalized.replace('\\', "/");
     let bytes = raw.as_bytes();
     if bytes.len() >= 3 && bytes[1] == b':' && bytes[2] == b'/' && bytes[0].is_ascii_alphabetic() {
         let drive = (bytes[0] as char).to_ascii_lowercase();
@@ -74,7 +99,11 @@ fn terminal_windows_path_to_bash(path: &Path) -> String {
 
 fn terminal_live_compose_command(shell: &TerminalShellProfile, cwd: &Path, command: &str, marker: &str) -> String {
     if matches!(shell.kind.as_str(), "powershell7" | "powershell5") {
-        let cwd_text = terminal_powershell_escape_literal(&cwd.to_string_lossy());
+        #[cfg(target_os = "windows")]
+        let cwd_raw = terminal_strip_windows_verbatim_prefix(&cwd.to_string_lossy());
+        #[cfg(not(target_os = "windows"))]
+        let cwd_raw = cwd.to_string_lossy().to_string();
+        let cwd_text = terminal_powershell_escape_literal(&cwd_raw);
         return format!(
             "$ErrorActionPreference='Continue'; try {{ Set-Location -LiteralPath '{cwd_text}'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; $ecaExit = if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }}; Write-Output \"{marker}:$ecaExit\""
         );
@@ -101,7 +130,13 @@ async fn terminal_live_create_session(
         return Err("live shell session is unsupported for current shell".to_string());
     }
     let mut command_builder = tokio::process::Command::new(&shell.path);
-    command_builder.current_dir(cwd);
+    #[cfg(target_os = "windows")]
+    let process_cwd = std::path::PathBuf::from(terminal_strip_windows_verbatim_prefix(
+        &cwd.to_string_lossy(),
+    ));
+    #[cfg(not(target_os = "windows"))]
+    let process_cwd = cwd.to_path_buf();
+    command_builder.current_dir(process_cwd);
     command_builder.stdin(std::process::Stdio::piped());
     command_builder.stdout(std::process::Stdio::piped());
     command_builder.stderr(std::process::Stdio::piped());
@@ -550,7 +585,7 @@ struct TerminalWorkspaceResolved {
 }
 
 fn ensure_default_shell_workspace_in_config(config: &mut AppConfig, state: &AppState) {
-    let default_path = state.llm_workspace_path.to_string_lossy().to_string();
+    let default_path = terminal_path_for_user(&state.llm_workspace_path);
     if config.shell_workspaces.iter().any(|w| w.built_in) {
         return;
     }
@@ -1478,8 +1513,19 @@ async fn terminal_live_exec_command(
             let _ = terminal_live_close_session(state, session_id).await;
             return Err("live shell closed unexpectedly".to_string());
         }
-        let trimmed = line.trim_end_matches(['\r', '\n']).to_string();
-        if stream == "stdout" && trimmed.starts_with(&marker) {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        // Some commands (for example `cat`/`head` on files without trailing newline)
+        // may print payload and marker in the same line. Detect marker anywhere in stdout.
+        if stream == "stdout" && trimmed.contains(&marker) {
+            if let Some(marker_pos) = trimmed.find(&marker) {
+                let prefix = &trimmed[..marker_pos];
+                if !prefix.is_empty() {
+                    stdout_text.push_str(prefix);
+                }
+                let suffix = &trimmed[marker_pos + marker.len()..];
+                let suffix = suffix.strip_prefix(':').unwrap_or(suffix).trim();
+                exit_code = suffix.parse::<i32>().unwrap_or(0);
+            }
             loop {
                 let drain_elapsed = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
                 if drain_elapsed >= timeout_ms {
@@ -1500,9 +1546,6 @@ async fn terminal_live_exec_command(
                     break;
                 }
                 stderr_text.push_str(&drain_err_line);
-            }
-            if let Some(idx) = trimmed.rfind(':') {
-                exit_code = trimmed[idx + 1..].trim().parse::<i32>().unwrap_or(0);
             }
             break;
         }
@@ -1589,9 +1632,11 @@ async fn builtin_shell_exec(
     let session_root_locked = terminal_session_has_locked_root(state, &normalized_session);
     let allowed_project_roots = terminal_allowed_project_roots_canonical(state)?
         .iter()
-        .map(|v| v.to_string_lossy().to_string())
+        .map(|v| terminal_path_for_user(v))
         .collect::<Vec<_>>();
     let session_root = terminal_session_root_canonical(state, &normalized_session)?;
+    let session_root_text = terminal_path_for_user(&session_root);
+    let workspace_path_text = terminal_path_for_user(&state.llm_workspace_path);
     let cwd = match resolve_terminal_cwd(state, &normalized_session, None) {
         Ok(path) => path,
         Err(err) if err.contains("Call shell_switch_workspace first.") => {
@@ -1601,8 +1646,8 @@ async fn builtin_shell_exec(
                 "blockedReason": "path_not_granted",
                 "message": err,
                 "sessionId": normalized_session,
-                "rootPath": session_root.to_string_lossy().to_string(),
-                "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "rootPath": session_root_text,
+                "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
                 "cwd": "",
                 "command": cmd,
@@ -1621,15 +1666,15 @@ async fn builtin_shell_exec(
                 "blockedReason": "path_not_granted_in_command",
                 "message": "Command references paths outside current shell root. Call shell_switch_workspace first.",
                 "sessionId": normalized_session,
-                "rootPath": session_root.to_string_lossy().to_string(),
-                "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "rootPath": session_root_text,
+                "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
-                "cwd": cwd.to_string_lossy().to_string(),
+                "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "ungrantedPaths": ungranted_paths
                     .iter()
                     .take(24)
-                    .map(|path| path.to_string_lossy().to_string())
+                    .map(|path| terminal_path_for_user(path))
                     .collect::<Vec<_>>(),
             }));
         }
@@ -1684,9 +1729,9 @@ async fn builtin_shell_exec(
                     "blockedReason": "user_denied_existing_file_change",
                     "message": "User denied command that may modify existing files.",
                     "sessionId": normalized_session,
-                    "rootPath": session_root.to_string_lossy().to_string(),
-                    "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
-                    "cwd": cwd.to_string_lossy().to_string(),
+                    "rootPath": session_root_text,
+                    "workspacePath": workspace_path_text,
+                    "cwd": terminal_path_for_user(&cwd),
                     "command": cmd,
                 }));
             }
@@ -1720,14 +1765,14 @@ async fn builtin_shell_exec(
                     return Ok(serde_json::json!({
                         "ok": false,
                         "approved": false,
-                        "blockedReason": "user_denied_unknown_write_risk",
-                        "message": "User denied command with unknown write risk.",
-                        "sessionId": normalized_session,
-                        "rootPath": session_root.to_string_lossy().to_string(),
-                        "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
-                        "cwd": cwd.to_string_lossy().to_string(),
-                        "command": cmd,
-                    }));
+                    "blockedReason": "user_denied_unknown_write_risk",
+                    "message": "User denied command with unknown write risk.",
+                    "sessionId": normalized_session,
+                    "rootPath": session_root_text,
+                    "workspacePath": workspace_path_text,
+                    "cwd": terminal_path_for_user(&cwd),
+                    "command": cmd,
+                }));
                 }
             }
         }
@@ -1746,10 +1791,10 @@ async fn builtin_shell_exec(
                 "shellKind": runtime_shell.kind,
                 "shellPath": runtime_shell.path,
                 "sessionId": normalized_session,
-                "rootPath": session_root.to_string_lossy().to_string(),
-                "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+                "rootPath": session_root_text,
+                "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
-                "cwd": cwd.to_string_lossy().to_string(),
+                "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "exitCode": -1,
                 "stdout": "",
@@ -1771,10 +1816,10 @@ async fn builtin_shell_exec(
         "shellKind": execution.shell_kind,
         "shellPath": execution.shell_path,
         "sessionId": normalized_session,
-        "rootPath": session_root.to_string_lossy().to_string(),
-        "workspacePath": state.llm_workspace_path.to_string_lossy().to_string(),
+        "rootPath": session_root_text,
+        "workspacePath": workspace_path_text,
         "allowedProjectRoots": allowed_project_roots,
-        "cwd": cwd.to_string_lossy().to_string(),
+        "cwd": terminal_path_for_user(&cwd),
         "command": cmd,
         "exitCode": execution.exit_code,
         "stdout": stdout,

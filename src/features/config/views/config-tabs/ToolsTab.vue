@@ -7,7 +7,8 @@
           <span class="text-sm font-medium">{{ t('config.tools.shellWorkspace') }}</span>
           <div class="flex items-center gap-2">
             <button class="btn btn-sm" type="button" @click="openShellWorkspaceDir">{{ t('config.tools.openDir') }}</button>
-            <button class="btn btn-sm" type="button" :disabled="shellWorkspaceResetting" @click="resetShellWorkspace">{{ t('config.tools.resetWorkspace') }}</button>
+            <button class="btn btn-sm" type="button" :disabled="shellWorkspacePathResetting" @click="resetShellWorkspacePath">{{ t('config.tools.resetWorkspacePath') }}</button>
+            <button class="btn btn-sm" type="button" :disabled="shellWorkspaceInitializing" @click="initializeShellWorkspace">{{ t('config.tools.initializeWorkspace') }}</button>
             <button class="btn btn-sm btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
               {{ t('config.tools.save') }}
             </button>
@@ -15,11 +16,13 @@
         </div>
         <div class="grid gap-3 px-4 pb-4">
           <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`">
-            <div class="flex items-center gap-2 mb-3">
-              <input v-model.trim="ws.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.tools.workspaceName')" />
-              <button class="btn btn-sm btn-neutral" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspace') }}</button>
+            <div class="mb-3">
+              <input v-model.trim="ws.name" class="input input-bordered input-sm w-full" :placeholder="t('config.tools.workspaceName')" />
             </div>
-            <input v-model.trim="ws.path" class="input input-bordered input-sm w-full font-mono" :placeholder="t('config.tools.directoryPath')" />
+            <div class="flex items-center gap-2">
+              <input v-model.trim="ws.path" class="input input-bordered input-sm flex-1 font-mono" :placeholder="t('config.tools.directoryPath')" />
+              <button class="btn btn-sm btn-neutral" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspaceDir') }}</button>
+            </div>
           </div>
           <div v-if="isWindowsHost" class="grid gap-2">
             <div class="text-[12px] font-medium">{{ t("config.tools.terminalRuntime") }}</div>
@@ -264,7 +267,8 @@ const terminalSelfCheckResult = ref("");
 const waitMs = ref(800);
 const screenshotPreviewDataUrl = ref("");
 const screenshotDialogRef = ref<HTMLDialogElement | null>(null);
-const shellWorkspaceResetting = ref(false);
+const shellWorkspaceInitializing = ref(false);
+const shellWorkspacePathResetting = ref(false);
 const shellWorkspaceStatus = ref("");
 const shellWorkspaceStatusError = ref(false);
 const terminalShellOptionsLoading = ref(false);
@@ -321,17 +325,45 @@ async function openShellWorkspaceDir() {
   }
 }
 
-async function resetShellWorkspace() {
-  if (shellWorkspaceResetting.value) return;
-  if (!window.confirm(t("config.tools.resetWorkspaceConfirm"))) return;
-  shellWorkspaceResetting.value = true;
+async function initializeShellWorkspace() {
+  if (shellWorkspaceInitializing.value) return;
+  if (!window.confirm(t("config.tools.initializeWorkspaceConfirm"))) return;
+  shellWorkspaceInitializing.value = true;
   try {
     const root = await invokeTauri<string>("reset_chat_shell_workspace");
-    setShellWorkspaceStatus(t("config.tools.resetWorkspaceDone", { path: root }));
+    setShellWorkspaceStatus(t("config.tools.initializeWorkspaceDone", { path: root }));
   } catch (error) {
-    setShellWorkspaceStatus(t("config.tools.resetWorkspaceFailed", { err: toErrorMessage(error) }), true);
+    setShellWorkspaceStatus(t("config.tools.initializeWorkspaceFailed", { err: toErrorMessage(error) }), true);
   } finally {
-    shellWorkspaceResetting.value = false;
+    shellWorkspaceInitializing.value = false;
+  }
+}
+
+async function resetShellWorkspacePath() {
+  if (shellWorkspacePathResetting.value) return;
+  shellWorkspacePathResetting.value = true;
+  try {
+    const defaultPath = await invokeTauri<string>("get_default_chat_shell_workspace_path");
+    if (!Array.isArray(props.config.shellWorkspaces) || props.config.shellWorkspaces.length === 0) {
+      props.config.shellWorkspaces = [{
+        name: defaultWorkspaceNameFromPath(defaultPath) || "默认工作空间",
+        path: defaultPath,
+        builtIn: true,
+      }];
+    } else {
+      const target = props.config.shellWorkspaces[0];
+      target.path = defaultPath;
+      if (!String(target.name || "").trim()) {
+        target.name = defaultWorkspaceNameFromPath(defaultPath) || "默认工作空间";
+      }
+      target.builtIn = true;
+    }
+    emit("toolSwitchChanged");
+    setShellWorkspaceStatus(t("config.tools.resetWorkspacePathDone", { path: defaultPath }));
+  } catch (error) {
+    setShellWorkspaceStatus(t("config.tools.resetWorkspacePathFailed", { err: toErrorMessage(error) }), true);
+  } finally {
+    shellWorkspacePathResetting.value = false;
   }
 }
 

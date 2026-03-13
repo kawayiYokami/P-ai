@@ -399,7 +399,25 @@ fn open_shell_path_in_file_manager(path: &Path) -> Result<(), String> {
 fn open_chat_shell_workspace_dir(state: State<'_, AppState>) -> Result<String, String> {
     let root = terminal_default_session_root_canonical(&state)?;
     open_shell_path_in_file_manager(&root)?;
-    Ok(root.to_string_lossy().to_string())
+    Ok(shell_workspace_display_path(&root))
+}
+
+fn shell_workspace_display_path(path: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+        raw.to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path.to_string_lossy().to_string()
+    }
 }
 
 #[tauri::command]
@@ -407,7 +425,13 @@ fn reset_chat_shell_workspace(state: State<'_, AppState>) -> Result<String, Stri
     let root = terminal_default_session_root_canonical(&state)?;
     ensure_workspace_mcp_layout(&state)?;
     ensure_workspace_skills_layout(&state)?;
-    Ok(root.to_string_lossy().to_string())
+    Ok(shell_workspace_display_path(&root))
+}
+
+#[tauri::command]
+fn get_default_chat_shell_workspace_path(state: State<'_, AppState>) -> Result<String, String> {
+    let root = terminal_default_session_root_canonical(&state)?;
+    Ok(shell_workspace_display_path(&root))
 }
 
 #[tauri::command]
