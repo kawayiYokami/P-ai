@@ -81,7 +81,10 @@ fn get_prompt_preview(
         last_archive_summary.as_deref(),
         terminal_prompt_trusted_roots_block(&state, &api_config),
         Some(ChatPromptOverrides {
-            system_preamble_blocks: vec![build_hidden_skill_snapshot_block(&state)],
+            system_preamble_blocks: vec![
+                build_hidden_skill_snapshot_block(&state),
+                build_hidden_skill_usage_block(),
+            ],
             ..Default::default()
         }),
     );
