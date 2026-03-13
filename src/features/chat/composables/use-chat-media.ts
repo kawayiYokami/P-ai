@@ -20,7 +20,6 @@ type UseChatMediaOptions = {
   queuedAttachmentNotices: Ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>;
 };
 
-type RejectionReason = "imageUnsupported" | "pdfNeedsImage" | "pdfNeedsGemini";
 type QueuedLocalFileResult = {
   mime: string;
   fileName: string;
@@ -28,6 +27,12 @@ type QueuedLocalFileResult = {
   attachAsMedia: boolean;
   bytesBase64?: string | null;
   textNotice?: string;
+};
+
+type QueueInlineFileAttachmentInput = {
+  fileName: string;
+  mime?: string;
+  bytesBase64: string;
 };
 
 export function useChatMedia(options: UseChatMediaOptions) {
@@ -54,7 +59,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
   function classifyFileMime(
     mime: string,
     apiConfig: ApiConfigItem,
-  ): { kind: "image" | "pdf" | null; reason: RejectionReason | null } {
+  ): { kind: "image" | "pdf" | null; reason: "imageUnsupported" | "pdfNeedsImage" | "pdfNeedsGemini" | null } {
     const normalized = (mime || "").trim().toLowerCase();
     if (normalized.startsWith("image/")) {
       return canAcceptImage(apiConfig)
@@ -88,43 +93,11 @@ export function useChatMedia(options: UseChatMediaOptions) {
     return inferMimeFromFileName(file.name);
   }
 
-  function rejectionMessage(reasons: RejectionReason[], apiConfig: ApiConfigItem | null): string {
-    if (reasons.includes("pdfNeedsGemini")) {
-      const currentFormat = apiConfig?.requestFormat || "unknown";
-      return `当前接口协议为 ${currentFormat}，不是 gemini，PDF 附件暂不支持。`;
-    }
-    if (reasons.includes("pdfNeedsImage")) {
-      return "当前接口未启用图片能力，暂不支持 PDF 附件。";
-    }
-    return "当前接口不支持图片附件。";
-  }
-
-  function notifyRejected(reasons: RejectionReason[]) {
-    if (reasons.length === 0) return;
-    const text = rejectionMessage(reasons, options.activeChatApiConfig.value);
-    options.setStatus(text);
-    options.setChatError(text);
-  }
-
-  function appendClipboardFile(file: File, mime: string) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const base64 = result.includes(",") ? result.split(",")[1] : "";
-      if (base64) options.clipboardImages.value.push({ mime, bytesBase64: base64 });
-    };
-    reader.onerror = () => {
-      options.setStatusError("status.pasteImageReadFailed", reader.error || "unknown");
-    };
-    reader.readAsDataURL(file);
-  }
-
   function collectPastedFiles(
     event: ClipboardEvent,
-    apiConfig: ApiConfigItem,
-  ): { files: Array<{ file: File; mime: string }>; rejected: RejectionReason[] } {
+  ): Array<{ file: File; mime: string }> {
     const data = event.clipboardData;
-    if (!data) return { files: [], rejected: [] };
+    if (!data) return [];
     const items = data.items;
     const filesFromItems =
       items && items.length > 0
@@ -135,20 +108,13 @@ export function useChatMedia(options: UseChatMediaOptions) {
         : [];
     const filesFromList = data.files ? Array.from(data.files) : [];
     const sourceFiles = filesFromItems.length > 0 ? filesFromItems : filesFromList;
-    if (sourceFiles.length === 0) return { files: [], rejected: [] };
+    if (sourceFiles.length === 0) return [];
     const files: Array<{ file: File; mime: string }> = [];
-    const rejected: RejectionReason[] = [];
     for (const file of sourceFiles) {
       const mime = normalizeFileMime(file);
-      if (!mime) continue;
-      const classified = classifyFileMime(mime, apiConfig);
-      if (!classified.kind) {
-        if (classified.reason) rejected.push(classified.reason);
-        continue;
-      }
       files.push({ file, mime });
     }
-    return { files, rejected };
+    return files;
   }
 
   function parseClipboardFilePaths(event: ClipboardEvent): string[] {
@@ -202,10 +168,9 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   function collectDroppedFiles(
     event: DragEvent,
-    apiConfig: ApiConfigItem,
-  ): { files: Array<{ file: File; mime: string }>; rejected: RejectionReason[] } {
+  ): Array<{ file: File; mime: string }> {
     const transfer = event.dataTransfer;
-    if (!transfer) return { files: [], rejected: [] };
+    if (!transfer) return [];
     const fromFiles = transfer.files ? Array.from(transfer.files) : [];
     const fromItems =
       transfer.items && transfer.items.length > 0
@@ -215,20 +180,56 @@ export function useChatMedia(options: UseChatMediaOptions) {
             .filter((file): file is File => !!file)
         : [];
     const files = fromFiles.length > 0 ? fromFiles : fromItems;
-    if (files.length === 0) return { files: [], rejected: [] };
+    if (files.length === 0) return [];
     const out: Array<{ file: File; mime: string }> = [];
-    const rejected: RejectionReason[] = [];
     for (const file of files) {
       const mime = normalizeFileMime(file);
-      if (!mime) continue;
-      const classified = classifyFileMime(mime, apiConfig);
-      if (!classified.kind) {
-        if (classified.reason) rejected.push(classified.reason);
-        continue;
-      }
       out.push({ file, mime });
     }
-    return { files: out, rejected };
+    return out;
+  }
+
+  function applyQueuedAttachmentResult(queued: QueuedLocalFileResult, apiConfig: ApiConfigItem) {
+    const mime = String(queued.mime || "").trim().toLowerCase();
+    const classified = classifyFileMime(mime, apiConfig);
+    const canAttachAsMedia =
+      !!queued.attachAsMedia &&
+      !!String(queued.bytesBase64 || "").trim() &&
+      !!classified.kind;
+
+    if (!canAttachAsMedia) {
+      const savedPath = String(queued.savedPath || "").trim();
+      const relativePath = savedPath.replace(/\\/g, "/").replace(/^.*\/downloads\//, "downloads/");
+      const fileName = String(queued.fileName || "").trim() || relativePath.split("/").pop() || "attachment";
+      const id = `${relativePath || fileName}::${mime}`;
+      if (!options.queuedAttachmentNotices.value.some((item) => item.id === id)) {
+        options.queuedAttachmentNotices.value.push({
+          id,
+          fileName,
+          relativePath: relativePath || savedPath || fileName,
+          mime,
+        });
+      }
+      return;
+    }
+
+    options.clipboardImages.value.push({
+      mime,
+      bytesBase64: String(queued.bytesBase64 || "").trim(),
+    });
+  }
+
+  async function queueInlineBrowserFile(file: File, mime: string): Promise<QueuedLocalFileResult | null> {
+    const dataUrl = await readBlobAsDataUrl(file);
+    const bytesBase64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
+    if (!bytesBase64) return null;
+    return await invokeTauri<QueuedLocalFileResult>("queue_inline_file_attachment", {
+      input: {
+        fileName: String(file.name || "").trim() || "attachment",
+        mime,
+        bytesBase64,
+      } as QueueInlineFileAttachmentInput,
+    });
   }
 
   function onPaste(event: ClipboardEvent) {
@@ -236,13 +237,21 @@ export function useChatMedia(options: UseChatMediaOptions) {
     if (options.chatting.value || options.forcingArchive.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
-    const collected = collectPastedFiles(event, apiConfig);
-    if (collected.files.length > 0) {
+    const collected = collectPastedFiles(event);
+    if (collected.length > 0) {
       event.preventDefault();
       options.setChatError("");
-      for (const item of collected.files) {
-        appendClipboardFile(item.file, item.mime);
-      }
+      void (async () => {
+        for (const item of collected) {
+          try {
+            const queued = await queueInlineBrowserFile(item.file, item.mime);
+            if (!queued) continue;
+            applyQueuedAttachmentResult(queued, apiConfig);
+          } catch (error) {
+            options.setStatusError("status.pasteImageReadFailed", error);
+          }
+        }
+      })();
       return;
     }
 
@@ -262,7 +271,6 @@ export function useChatMedia(options: UseChatMediaOptions) {
       return;
     }
 
-    notifyRejected(collected.rejected);
   }
 
   function onDragOver(event: DragEvent) {
@@ -275,8 +283,8 @@ export function useChatMedia(options: UseChatMediaOptions) {
     if (!hasFilePayload) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    const collected = collectDroppedFiles(event, apiConfig);
-    if (collected.files.length === 0 && collected.rejected.length === 0) return;
+    const collected = collectDroppedFiles(event);
+    if (collected.length === 0) return;
     mediaDragActive.value = true;
     if (dragOverlayHideTimer) {
       clearTimeout(dragOverlayHideTimer);
@@ -293,23 +301,27 @@ export function useChatMedia(options: UseChatMediaOptions) {
     if (options.chatting.value || options.forcingArchive.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
-    const collected = collectDroppedFiles(event, apiConfig);
-    if (collected.files.length === 0) {
-      event.preventDefault();
-      notifyRejected(collected.rejected);
-      return;
-    }
+    const collected = collectDroppedFiles(event);
+    if (collected.length === 0) return;
     event.preventDefault();
     options.setChatError("");
-    options.setStatus(`收到拖拽文件 ${collected.files.length} 个（DOM）。`);
+    options.setStatus(`收到拖拽文件 ${collected.length} 个（DOM）。`);
     mediaDragActive.value = false;
     if (dragOverlayHideTimer) {
       clearTimeout(dragOverlayHideTimer);
       dragOverlayHideTimer = null;
     }
-    for (const item of collected.files) {
-      appendClipboardFile(item.file, item.mime);
-    }
+    void (async () => {
+      for (const item of collected) {
+        try {
+          const queued = await queueInlineBrowserFile(item.file, item.mime);
+          if (!queued) continue;
+          applyQueuedAttachmentResult(queued, apiConfig);
+        } catch (error) {
+          options.setStatusError("status.pasteImageReadFailed", error);
+        }
+      }
+    })();
   }
 
   async function onNativeFileDrop(paths: string[]) {
@@ -321,49 +333,16 @@ export function useChatMedia(options: UseChatMediaOptions) {
     options.setChatError("");
     options.setStatus(`收到拖拽文件 ${paths.length} 个（Tauri）。`);
 
-    const rejected: RejectionReason[] = [];
     for (const path of paths) {
       try {
         const queued = await invokeTauri<QueuedLocalFileResult>("queue_local_file_attachment", {
           input: { path },
         });
-        const mime = String(queued.mime || "").trim().toLowerCase();
-        const classified = classifyFileMime(mime, apiConfig);
-        const canAttachAsMedia =
-          !!queued.attachAsMedia &&
-          !!String(queued.bytesBase64 || "").trim() &&
-          !!classified.kind;
-        if (!canAttachAsMedia) {
-          const notice = String(queued.textNotice || "").trim();
-          if (notice) {
-            const savedPath = String(queued.savedPath || "").trim();
-            const relativePath = savedPath.replace(/\\/g, "/").replace(/^.*\/downloads\//, "downloads/");
-            const fileName = String(queued.fileName || "").trim() || relativePath.split("/").pop() || "attachment";
-            const id = `${relativePath || fileName}::${mime}`;
-            if (!options.queuedAttachmentNotices.value.some((item) => item.id === id)) {
-              options.queuedAttachmentNotices.value.push({
-                id,
-                fileName,
-                relativePath: relativePath || savedPath || fileName,
-                mime,
-              });
-            }
-          }
-          if (classified.reason) rejected.push(classified.reason);
-          continue;
-        }
-        const base64 = String(queued.bytesBase64 || "").trim();
-        if (!base64) continue;
-        options.clipboardImages.value.push({
-          mime,
-          bytesBase64: base64,
-        });
+        applyQueuedAttachmentResult(queued, apiConfig);
       } catch (error) {
         options.setStatusError("status.pasteImageReadFailed", error);
       }
     }
-
-    notifyRejected(rejected);
   }
 
   function removeClipboardImage(index: number) {

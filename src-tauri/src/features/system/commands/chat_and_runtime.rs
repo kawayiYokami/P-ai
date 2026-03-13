@@ -1865,6 +1865,15 @@ struct QueueLocalFileAttachmentInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct QueueInlineFileAttachmentInput {
+    file_name: String,
+    #[serde(default)]
+    mime: String,
+    bytes_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct QueueLocalFileAttachmentOutput {
     mime: String,
     file_name: String,
@@ -2058,6 +2067,65 @@ fn build_attachment_queued_notice_text(file_name: &str, relative_path: &str) -> 
     )
 }
 
+fn queue_attachment_from_raw(
+    state: &AppState,
+    file_name_input: &str,
+    mime_input: &str,
+    raw: &[u8],
+) -> Result<QueueLocalFileAttachmentOutput, String> {
+    let file_name = file_name_input
+        .trim()
+        .trim_matches(['\\', '/'])
+        .trim()
+        .to_string();
+    let file_name = if file_name.is_empty() {
+        "attachment".to_string()
+    } else {
+        file_name
+    };
+    let mime = if mime_input.trim().is_empty() {
+        media_mime_from_path(std::path::Path::new(&file_name))
+            .unwrap_or("application/octet-stream")
+            .to_string()
+    } else {
+        mime_input.trim().to_ascii_lowercase()
+    };
+    let attach_as_media = matches!(
+        mime.as_str(),
+        "application/pdf"
+            | "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+    ) && raw.len() <= MAX_MULTIMODAL_BYTES;
+
+    // 入队即落盘：附件进入队列后立刻可在 downloads 查看与复查。
+    let saved_path = persist_raw_attachment_to_downloads(state, &file_name, &mime, raw)?;
+    let final_saved_path = workspace_relative_path(state, &saved_path);
+    let final_file_name = saved_path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(file_name.as_str())
+        .to_string();
+
+    let bytes_base64 = if attach_as_media {
+        Some(B64.encode(raw))
+    } else {
+        None
+    };
+    let text_notice = build_attachment_queued_notice_text(&final_file_name, &final_saved_path);
+    Ok(QueueLocalFileAttachmentOutput {
+        mime,
+        file_name: final_file_name,
+        saved_path: final_saved_path,
+        attach_as_media,
+        bytes_base64,
+        text_notice,
+    })
+}
+
 fn normalize_payload_attachments(
     raw: Option<&Vec<AttachmentMetaInput>>,
 ) -> Vec<serde_json::Value> {
@@ -2100,11 +2168,6 @@ fn merge_provider_meta_with_attachments(
         obj.insert("attachments".to_string(), Value::Array(attachments.to_vec()));
     }
     Some(merged)
-}
-
-fn planned_download_relative_path(file_name: &str, mime: &str) -> String {
-    let normalized = apply_download_extension_policy(file_name, mime);
-    format!("downloads/{normalized}")
 }
 
 fn persist_payload_images_to_workspace_downloads(
@@ -2203,44 +2266,26 @@ fn queue_local_file_attachment(
     let mime = media_mime_from_path(&path)
         .unwrap_or("application/octet-stream")
         .to_string();
-    let planned_relative_path = planned_download_relative_path(&file_name, &mime);
-    let attach_as_media = matches!(
-        mime.as_str(),
-        "application/pdf"
-            | "image/png"
-            | "image/jpeg"
-            | "image/gif"
-            | "image/webp"
-    ) && raw.len() <= MAX_MULTIMODAL_BYTES;
-    let bytes_base64 = if attach_as_media {
-        Some(B64.encode(&raw))
-    } else {
-        None
-    };
-    let (final_file_name, final_saved_path) = if attach_as_media {
-        (file_name.clone(), planned_relative_path)
-    } else {
-        let saved_path =
-            persist_raw_attachment_to_downloads(state.inner(), &file_name, &mime, &raw)?;
-        let relative_path = workspace_relative_path(state.inner(), &saved_path);
-        let saved_file_name = saved_path
-            .file_name()
-            .and_then(|v| v.to_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .unwrap_or(file_name.as_str())
-            .to_string();
-        (saved_file_name, relative_path)
-    };
-    let text_notice = build_attachment_queued_notice_text(&final_file_name, &final_saved_path);
-    Ok(QueueLocalFileAttachmentOutput {
-        mime,
-        file_name: final_file_name,
-        saved_path: final_saved_path,
-        attach_as_media,
-        bytes_base64,
-        text_notice,
-    })
+    queue_attachment_from_raw(state.inner(), &file_name, &mime, &raw)
+}
+
+#[tauri::command]
+fn queue_inline_file_attachment(
+    input: QueueInlineFileAttachmentInput,
+    state: State<'_, AppState>,
+) -> Result<QueueLocalFileAttachmentOutput, String> {
+    if input.bytes_base64.trim().is_empty() {
+        return Err("Attachment payload is empty.".to_string());
+    }
+    let raw = B64
+        .decode(input.bytes_base64.trim())
+        .map_err(|err| format!("Decode attachment base64 failed: {err}"))?;
+    queue_attachment_from_raw(
+        state.inner(),
+        input.file_name.trim(),
+        input.mime.trim(),
+        &raw,
+    )
 }
 
 fn candidate_stt_urls(base_url: &str) -> Vec<String> {

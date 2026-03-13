@@ -300,6 +300,7 @@ fn main() {
             get_main_session_state_snapshot,
             read_local_binary_file,
             queue_local_file_attachment,
+            queue_inline_file_attachment,
             stt_transcribe,
             force_archive_current,
             refresh_models,
