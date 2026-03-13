@@ -665,6 +665,8 @@ struct DebugApiConfig {
 struct BinaryPart {
     mime: String,
     bytes_base64: String,
+    #[serde(default)]
+    saved_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
