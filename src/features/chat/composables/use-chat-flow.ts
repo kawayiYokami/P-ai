@@ -37,7 +37,7 @@ type UseChatFlowOptions = {
   getSession: () => { apiConfigId: string; agentId: string } | null;
   getConversationId?: () => string;
   chatInput: Ref<string>;
-  clipboardImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
+  clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
   latestUserText: Ref<string>;
   latestUserImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
   latestAssistantText: Ref<string>;
@@ -54,7 +54,7 @@ type UseChatFlowOptions = {
   removeBinaryPlaceholders: (text: string) => string;
   invokeSendChatMessage: (input: {
     text: string;
-    images: Array<{ mime: string; bytesBase64: string }>;
+    images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>;
     session: { apiConfigId: string; agentId: string; conversationId?: string };
     onDelta: Channel<AssistantDeltaEvent>;
   }) => Promise<{

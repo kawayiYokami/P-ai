@@ -1861,6 +1861,15 @@ fn media_extension_from_mime_for_download(mime: &str) -> &'static str {
         "image/heic" => "heic",
         "image/heif" => "heif",
         "image/svg+xml" => "svg",
+        "audio/wav" => "wav",
+        "audio/x-wav" => "wav",
+        "audio/mpeg" => "mp3",
+        "audio/mp3" => "mp3",
+        "audio/mp4" => "m4a",
+        "audio/aac" => "aac",
+        "audio/ogg" => "ogg",
+        "audio/webm" => "webm",
+        "audio/flac" => "flac",
         _ => "bin",
     }
 }
@@ -1935,6 +1944,22 @@ fn persist_payload_images_to_workspace_downloads(
 ) -> Vec<String> {
     let mut notices = Vec::<String>::new();
     for (idx, image) in images.iter().enumerate() {
+        if let Some(saved_path) = image
+            .saved_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let file_name = std::path::Path::new(saved_path)
+                .file_name()
+                .and_then(|v| v.to_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .unwrap_or("attachment")
+                .to_string();
+            notices.push(build_attachment_notice_text(&file_name, saved_path));
+            continue;
+        }
         let mime = image.mime.trim();
         if mime.is_empty() {
             continue;
@@ -2018,9 +2043,6 @@ fn queue_local_file_attachment(
             | "image/jpeg"
             | "image/gif"
             | "image/webp"
-            | "image/heic"
-            | "image/heif"
-            | "image/svg+xml"
     ) && raw.len() <= MAX_MULTIMODAL_BYTES;
     let bytes_base64 = if attach_as_media {
         Some(B64.encode(&raw))

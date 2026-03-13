@@ -21,6 +21,7 @@
         let part = BinaryPart {
             mime: "image/png".to_string(),
             bytes_base64: png_1x1_red.to_string(),
+            saved_path: None,
         };
         let h1 = compute_image_hash_hex(&part).expect("hash1");
         let h2 = compute_image_hash_hex(&part).expect("hash2");

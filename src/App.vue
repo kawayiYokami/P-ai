@@ -384,7 +384,7 @@ const toolStatusText = ref("");
 const toolStatusState = ref<"running" | "done" | "failed" | "">("");
 const streamToolCalls = ref<Array<{ name: string; argsText: string }>>([]);
 const chatErrorText = ref("");
-const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
+const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
 
 const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleMessageBlockCount = ref(1);

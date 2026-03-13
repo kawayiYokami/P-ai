@@ -16,7 +16,7 @@ type UseChatMediaOptions = {
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
   hasVisionFallback: ComputedRef<boolean>;
   chatInput: Ref<string>;
-  clipboardImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
+  clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
 };
 
 type RejectionReason = "imageUnsupported" | "pdfNeedsImage" | "pdfNeedsGemini";
@@ -341,7 +341,11 @@ export function useChatMedia(options: UseChatMediaOptions) {
         }
         const base64 = String(queued.bytesBase64 || "").trim();
         if (!base64) continue;
-        options.clipboardImages.value.push({ mime, bytesBase64: base64 });
+        options.clipboardImages.value.push({
+          mime,
+          bytesBase64: base64,
+          savedPath: String(queued.savedPath || "").trim() || undefined,
+        });
       } catch (error) {
         options.setStatusError("status.pasteImageReadFailed", error);
       }
