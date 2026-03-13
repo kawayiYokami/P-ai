@@ -45,6 +45,11 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
     )?;
     sync_workspace_preset_skill(
         &skills_root,
+        "agent-office",
+        include_str!("../../../resources/preset-skills/agent-office/SKILL.md"),
+    )?;
+    sync_workspace_preset_skill(
+        &skills_root,
         "skill-setup",
         include_str!("../../../resources/preset-skills/skill-setup/SKILL.md"),
     )?;
