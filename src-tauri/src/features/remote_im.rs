@@ -36,6 +36,20 @@ struct RemoteImContactReplyModeUpdateInput {
     reply_mode: RemoteImReplyMode,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactRemarkUpdateInput {
+    contact_id: String,
+    #[serde(default)]
+    remark_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactDeleteInput {
+    contact_id: String,
+}
+
 #[derive(Debug, Clone)]
 struct RemoteImDirectSendTarget {
     channel: RemoteImChannelConfig,
@@ -85,7 +99,7 @@ fn remote_im_should_forward(
 
 fn remote_im_upsert_contact_for_inbound(
     data: &mut AppData,
-    channel: &RemoteImChannelConfig,
+    _channel: &RemoteImChannelConfig,
     input: &RemoteImEnqueueInput,
     now: &str,
 ) -> String {
@@ -121,7 +135,8 @@ fn remote_im_upsert_contact_for_inbound(
             .map(str::trim)
             .unwrap_or("")
             .to_string(),
-        reply_mode: channel.default_reply_mode.clone(),
+        remark_name: String::new(),
+        reply_mode: RemoteImReplyMode::None,
         has_new_message: true,
         forwarded_once_since_last_inbound: false,
         last_message_at: Some(now.to_string()),
@@ -313,7 +328,7 @@ fn validate_enqueue_input(
         .to_string();
     let agent_id = input.session.agent_id.trim().to_string();
     if api_config_id.is_empty() || agent_id.is_empty() {
-        return Err("session 信息不完整".to_string());
+        return Err("路由信息不完整（apiConfigId/agentId）".to_string());
     }
     let channel = remote_im_channel_by_id(config, &channel_id)
         .ok_or_else(|| format!("远程IM渠道不存在: {channel_id}"))?
@@ -487,8 +502,15 @@ fn remote_im_list_contacts(state: State<'_, AppState>) -> Result<Vec<RemoteImCon
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(&state)?;
+    let mut contacts = data.remote_im_contacts;
+    contacts.sort_by(|a, b| {
+        a.channel_id
+            .cmp(&b.channel_id)
+            .then_with(|| b.last_message_at.cmp(&a.last_message_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
     drop(guard);
-    Ok(data.remote_im_contacts)
+    Ok(contacts)
 }
 
 #[tauri::command]
@@ -511,6 +533,49 @@ fn remote_im_update_contact_reply_mode(
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
     Ok(output)
+}
+
+#[tauri::command]
+fn remote_im_update_contact_remark(
+    input: RemoteImContactRemarkUpdateInput,
+    state: State<'_, AppState>,
+) -> Result<RemoteImContact, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter_mut()
+        .find(|item| item.id == input.contact_id)
+        .ok_or_else(|| format!("remote contact not found: {}", input.contact_id))?;
+    contact.remark_name = input.remark_name.trim().to_string();
+    let output = contact.clone();
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(output)
+}
+
+#[tauri::command]
+fn remote_im_delete_contact(
+    input: RemoteImContactDeleteInput,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let before = data.remote_im_contacts.len();
+    data.remote_im_contacts
+        .retain(|item| item.id != input.contact_id.trim());
+    let removed = data.remote_im_contacts.len() != before;
+    if removed {
+        state_write_app_data_cached(&state, &data)?;
+    }
+    drop(guard);
+    Ok(removed)
 }
 
 #[tauri::command]

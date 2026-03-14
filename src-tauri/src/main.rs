@@ -315,6 +315,8 @@ fn main() {
             remote_im_list_channels,
             remote_im_list_contacts,
             remote_im_update_contact_reply_mode,
+            remote_im_update_contact_remark,
+            remote_im_delete_contact,
             remote_im_enqueue_message,
             desktop_screenshot,
             xcap,

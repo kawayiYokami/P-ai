@@ -1,6 +1,6 @@
 import type { ComputedRef } from "vue";
 import { normalizeLocale } from "../../../i18n";
-import type { ApiConfigItem, AppConfig, DepartmentConfig } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, DepartmentConfig, RemoteImChannelConfig, RemoteImPlatform, RemoteImReplyMode } from "../../../types/app";
 import { defaultToolBindings, normalizeToolBindings } from "../utils/builtin-tools";
 
 function defaultAssistantDepartmentName(uiLanguage: string): string {
@@ -29,6 +29,22 @@ function isTextRequestFormat(format: string): boolean {
     || format === "deepseek/kimi"
     || format === "anthropic"
   );
+}
+
+function normalizeRemoteImPlatform(value: unknown): RemoteImPlatform {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "feishu" || text === "dingtalk" || text === "napcat") {
+    return text as RemoteImPlatform;
+  }
+  return "napcat";
+}
+
+function normalizeRemoteImReplyMode(value: unknown): RemoteImReplyMode {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "none" || text === "always" || text === "reply_once") {
+    return text as RemoteImReplyMode;
+  }
+  return "reply_once";
 }
 
 type UseConfigCoreOptions = {
@@ -218,6 +234,30 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       });
     }
     options.config.mcpServers = normalizedMcpServers;
+    const seenRemoteChannelIds = new Set<string>();
+    const normalizedRemoteChannels = [];
+    for (const item of options.config.remoteImChannels || []) {
+      const id = String(item?.id || "").trim();
+      if (!id) continue;
+      const key = id.toLowerCase();
+      if (seenRemoteChannelIds.has(key)) continue;
+      seenRemoteChannelIds.add(key);
+      normalizedRemoteChannels.push({
+        id,
+        name: String(item?.name || "").trim() || id,
+        platform: normalizeRemoteImPlatform(item?.platform),
+        enabled: !!item?.enabled,
+        credentials: item?.credentials && typeof item.credentials === "object" ? { ...item.credentials } : {},
+        activateAssistant: item?.activateAssistant !== false,
+        defaultReplyMode: normalizeRemoteImReplyMode(item?.defaultReplyMode),
+        receiveFiles: item?.receiveFiles !== false,
+        streamingSend: !!item?.streamingSend,
+        showToolCalls: !!item?.showToolCalls,
+        allowProactiveSend: !!item?.allowProactiveSend,
+        allowSendFiles: !!item?.allowSendFiles,
+      });
+    }
+    options.config.remoteImChannels = normalizedRemoteChannels;
 
     // Only normalize departments if they don't exist yet (initial load)
     if (!options.config.departments || options.config.departments.length === 0) {
@@ -354,6 +394,20 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         lastError: item.lastError || "",
         updatedAt: item.updatedAt || "",
       })),
+      remoteImChannels: (options.config.remoteImChannels || []).map((item): RemoteImChannelConfig => ({
+        id: String(item.id || "").trim(),
+        name: String(item.name || "").trim(),
+        platform: normalizeRemoteImPlatform(item.platform),
+        enabled: !!item.enabled,
+        credentials: item.credentials && typeof item.credentials === "object" ? { ...item.credentials } : {},
+        activateAssistant: item.activateAssistant !== false,
+        defaultReplyMode: normalizeRemoteImReplyMode(item.defaultReplyMode),
+        receiveFiles: item.receiveFiles !== false,
+        streamingSend: !!item.streamingSend,
+        showToolCalls: !!item.showToolCalls,
+        allowProactiveSend: !!item.allowProactiveSend,
+        allowSendFiles: !!item.allowSendFiles,
+      })),
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
@@ -399,6 +453,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       shellWorkspaces: [...(options.config.shellWorkspaces || [])],
       departments: [...(options.config.departments || [])],
       mcpServers: [...(options.config.mcpServers || [])],
+      remoteImChannels: [...(options.config.remoteImChannels || [])],
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,

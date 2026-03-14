@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { AppConfig, PersonaProfile } from "../../../types/app";
+import type { AppConfig, PersonaProfile, RemoteImChannelConfig } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
 import { normalizeToolBindings } from "../utils/builtin-tools";
 
@@ -72,6 +72,37 @@ function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
     isBuiltInAssistant: !!(item as { isBuiltInAssistant?: unknown })?.isBuiltInAssistant,
     source: String((item as { source?: unknown })?.source || "").trim() || "main_config",
     scope: String((item as { scope?: unknown })?.scope || "").trim() || "global",
+  };
+}
+
+function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
+  const platformRaw = String((item as { platform?: unknown })?.platform || "").trim().toLowerCase();
+  const platform =
+    platformRaw === "feishu" || platformRaw === "dingtalk" || platformRaw === "napcat"
+      ? platformRaw
+      : "napcat";
+  const replyModeRaw = String((item as { defaultReplyMode?: unknown })?.defaultReplyMode || "").trim().toLowerCase();
+  const defaultReplyMode =
+    replyModeRaw === "none" || replyModeRaw === "always" || replyModeRaw === "reply_once"
+      ? replyModeRaw
+      : "reply_once";
+  return {
+    id: String((item as { id?: unknown })?.id || "").trim(),
+    name: String((item as { name?: unknown })?.name || "").trim(),
+    platform,
+    enabled: !!(item as { enabled?: unknown })?.enabled,
+    credentials:
+      (item as { credentials?: unknown })?.credentials
+      && typeof (item as { credentials?: unknown }).credentials === "object"
+        ? { ...((item as { credentials?: Record<string, unknown> }).credentials || {}) }
+        : {},
+    activateAssistant: (item as { activateAssistant?: unknown })?.activateAssistant !== false,
+    defaultReplyMode,
+    receiveFiles: (item as { receiveFiles?: unknown })?.receiveFiles !== false,
+    streamingSend: !!(item as { streamingSend?: unknown })?.streamingSend,
+    showToolCalls: !!(item as { showToolCalls?: unknown })?.showToolCalls,
+    allowProactiveSend: !!(item as { allowProactiveSend?: unknown })?.allowProactiveSend,
+    allowSendFiles: !!(item as { allowSendFiles?: unknown })?.allowSendFiles,
   };
 }
 
@@ -199,6 +230,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
             updatedAt: String((v as { updatedAt?: unknown })?.updatedAt || "").trim(),
           }))
         : [];
+      options.config.remoteImChannels = Array.isArray((cfg as AppConfig).remoteImChannels)
+        ? (cfg.remoteImChannels || []).map(mapRemoteImChannel).filter((item) => !!item.id)
+        : [];
       options.config.apiConfigs.splice(
         0,
         options.config.apiConfigs.length,
@@ -272,6 +306,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
             lastError: String((v as { lastError?: unknown })?.lastError || "").trim(),
             updatedAt: String((v as { updatedAt?: unknown })?.updatedAt || "").trim(),
           }))
+        : [];
+      options.config.remoteImChannels = Array.isArray((saved as AppConfig).remoteImChannels)
+        ? (saved.remoteImChannels || []).map(mapRemoteImChannel).filter((item) => !!item.id)
         : [];
       options.config.apiConfigs.splice(0, options.config.apiConfigs.length, ...saved.apiConfigs);
       options.normalizeApiBindingsLocal();

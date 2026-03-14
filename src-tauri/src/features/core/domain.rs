@@ -1190,6 +1190,8 @@ struct RemoteImContact {
     remote_contact_id: String,
     #[serde(default)]
     remote_contact_name: String,
+    #[serde(default)]
+    remark_name: String,
     #[serde(default = "default_remote_im_reply_mode")]
     reply_mode: RemoteImReplyMode,
     #[serde(default)]

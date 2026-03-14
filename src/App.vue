@@ -364,13 +364,14 @@ const config = reactive<AppConfig>({
   terminalShellKind: "auto",
   shellWorkspaces: [],
   mcpServers: [],
+  remoteImChannels: [],
   departments: [],
   apiConfigs: [],
 });
 const recordHotkeyProbeLastSeq = ref(0);
 const recordHotkeyProbeDown = ref(false);
 const chatWindowActiveSynced = ref<boolean | null>(null);
-const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
+const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
 const assistantDepartmentAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");

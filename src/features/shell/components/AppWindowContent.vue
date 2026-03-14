@@ -241,7 +241,7 @@ const props = defineProps<{
   t: (key: string, params?: Record<string, unknown>) => string;
   viewMode: "chat" | "archives" | "config";
   config: AppConfig;
-  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+  configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   selectedApiConfig: ApiConfigItem | null;

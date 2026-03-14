@@ -693,6 +693,7 @@ mod remote_im_adapter_tests {
             remote_contact_type: "group".to_string(),
             remote_contact_id: "gid".to_string(),
             remote_contact_name: "g".to_string(),
+            remark_name: String::new(),
             reply_mode: RemoteImReplyMode::ReplyOnce,
             has_new_message: true,
             forwarded_once_since_last_inbound: false,

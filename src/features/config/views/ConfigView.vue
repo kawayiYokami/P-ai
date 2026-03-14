@@ -30,6 +30,9 @@
           <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
         </li>
         <li>
+          <a :class="{ 'active': props.configTab === 'remoteIm', 'menu-active': props.configTab === 'remoteIm', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('remoteIm')">{{ t("config.tabs.remoteIm") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
         </li>
         <li>
@@ -148,6 +151,12 @@
           @refresh-image-cache-stats="$emit('refreshImageCacheStats')"
           @clear-image-cache="$emit('clearImageCache')"
         />
+        <RemoteImTab
+          v-else-if="props.configTab === 'remoteIm'"
+          :config="config"
+          :save-config-action="saveConfigAction"
+          :set-status-action="setStatusAction"
+        />
 
         <DepartmentTab
           v-else-if="props.configTab === 'department'"
@@ -264,13 +273,14 @@ import SkillTab from "./config-tabs/SkillTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
 import DepartmentTab from "./config-tabs/DepartmentTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
+import RemoteImTab from "./config-tabs/RemoteImTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
 import TaskTab from "./config-tabs/TaskTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
 
 const props = defineProps<{

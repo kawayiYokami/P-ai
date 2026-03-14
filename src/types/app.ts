@@ -98,8 +98,43 @@ export type AppConfig = {
   terminalShellKind?: string;
   shellWorkspaces: ShellWorkspace[];
   mcpServers: McpServerConfig[];
+  remoteImChannels: RemoteImChannelConfig[];
   departments: DepartmentConfig[];
   apiConfigs: ApiConfigItem[];
+};
+
+export type RemoteImPlatform = "feishu" | "dingtalk" | "napcat";
+
+export type RemoteImReplyMode = "none" | "always" | "reply_once";
+
+export type RemoteImChannelConfig = {
+  id: string;
+  name: string;
+  platform: RemoteImPlatform;
+  enabled: boolean;
+  credentials: Record<string, unknown>;
+  activateAssistant: boolean;
+  defaultReplyMode: RemoteImReplyMode;
+  receiveFiles: boolean;
+  streamingSend: boolean;
+  showToolCalls: boolean;
+  allowProactiveSend: boolean;
+  allowSendFiles: boolean;
+};
+
+export type RemoteImContact = {
+  id: string;
+  channelId: string;
+  platform: RemoteImPlatform;
+  remoteContactType: string;
+  remoteContactId: string;
+  remoteContactName: string;
+  remarkName: string;
+  replyMode: RemoteImReplyMode;
+  hasNewMessage: boolean;
+  forwardedOnceSinceLastInbound: boolean;
+  lastMessageAt?: string;
+  lastForwardedAt?: string;
 };
 
 export type McpDefinitionValidateResult = {

@@ -82,6 +82,7 @@
             .expect("contact exists");
         assert!(contact.has_new_message);
         assert!(!contact.forwarded_once_since_last_inbound);
+        assert_eq!(contact.reply_mode, RemoteImReplyMode::None);
 
         if let Some(contact) = data.remote_im_contacts.first_mut() {
             contact.forwarded_once_since_last_inbound = true;
@@ -152,6 +153,7 @@
                 remote_contact_type: "group".to_string(),
                 remote_contact_id: "1".to_string(),
                 remote_contact_name: String::new(),
+                remark_name: String::new(),
                 reply_mode: RemoteImReplyMode::None,
                 has_new_message: true,
                 forwarded_once_since_last_inbound: false,
@@ -165,6 +167,7 @@
                 remote_contact_type: "group".to_string(),
                 remote_contact_id: "2".to_string(),
                 remote_contact_name: String::new(),
+                remark_name: String::new(),
                 reply_mode: RemoteImReplyMode::Always,
                 has_new_message: false,
                 forwarded_once_since_last_inbound: true,
@@ -178,6 +181,7 @@
                 remote_contact_type: "group".to_string(),
                 remote_contact_id: "3".to_string(),
                 remote_contact_name: String::new(),
+                remark_name: String::new(),
                 reply_mode: RemoteImReplyMode::ReplyOnce,
                 has_new_message: true,
                 forwarded_once_since_last_inbound: false,
