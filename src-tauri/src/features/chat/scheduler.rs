@@ -52,6 +52,9 @@ pub(crate) enum ChatEventSource {
     Delegate,
     /// 系统事件
     System,
+    /// 远程 IM 渠道消息
+    #[serde(rename = "remote_im")]
+    RemoteIm,
 }
 
 /// 会话信息
@@ -80,6 +83,9 @@ pub(crate) struct ChatPendingEvent {
     pub activate_assistant: bool,
     /// 会话信息
     pub session_info: ChatSessionInfo,
+    /// 远程消息来源（仅 source=RemoteIm 时使用）
+    #[serde(default)]
+    pub sender_info: Option<RemoteImMessageSource>,
 }
 
 #[derive(Clone)]
@@ -557,6 +563,13 @@ async fn process_conversation_batch(
                 oldest_queue_created_at,
             ).await {
                 Ok(result) => {
+                    if let Err(err) = remote_im_on_assistant_round_completed(state, &result).await {
+                        eprintln!(
+                            "[远程IM] 助理轮次完成后处理出站失败: conversation_id={}, error={}",
+                            conversation_id,
+                            err
+                        );
+                    }
                     if let Some(active) = activation.as_ref() {
                         send_round_completed_event(active, &result);
                     }

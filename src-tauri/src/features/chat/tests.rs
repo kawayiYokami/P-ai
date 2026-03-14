@@ -21,6 +21,8 @@
                 "content": "{\"results\":[{\"title\":\"Rust\"}]}"
             }),
         ]);
+        let agent = default_agent();
+        assistant_with_tool.speaker_agent_id = Some(agent.id.clone());
 
         let messages = vec![
             test_text_message("user", "帮我查 Rust", &now),
@@ -28,12 +30,12 @@
             test_text_message("user", "继续", &now),
         ];
         let conv = test_active_conversation_with_messages(messages, Some(now));
-        let agent = default_agent();
 
         let prepared = build_prompt(
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
+            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -108,6 +110,7 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona(), system_persona.clone()],
+            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -117,10 +120,15 @@
 
         assert_eq!(prepared.history_messages.len(), 2);
         assert_eq!(prepared.history_messages[0].role, "user");
-        assert!(prepared.history_messages[0].text.contains("凯瑟琳"));
-        assert!(prepared.history_messages[0].text.contains("system-persona"));
+        assert!(
+            prepared.history_messages[0]
+                .user_time_text
+                .as_deref()
+                .unwrap_or_default()
+                .contains("凯瑟琳")
+        );
         assert_eq!(prepared.history_messages[1].role, "assistant");
-        assert!(prepared.latest_user_text.contains("凯瑟琳"));
+        assert!(prepared.latest_user_meta_text.contains("凯瑟琳"));
         assert!(prepared.latest_user_text.contains("现在补发第二次提醒"));
     }
     #[test]
@@ -139,6 +147,7 @@
             model: "gpt-x".to_string(),
             temperature: 0.7,
             context_window_tokens: 128_000,
+            max_output_tokens: 4_096,
             failure_retry_count: 0,
         };
         let prepared = PreparedPrompt {
@@ -148,6 +157,8 @@
                     role: "assistant".to_string(),
                     text: String::new(),
                     user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
                     tool_calls: Some(vec![serde_json::json!({
                         "id": "call_1",
                         "type": "function",
@@ -160,14 +171,16 @@
                     role: "tool".to_string(),
                     text: "{\"results\":[{\"title\":\"Rust\"}]}".to_string(),
                     user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call_1".to_string()),
                     reasoning_content: None,
                 },
             ],
             latest_user_text: "继续".to_string(),
-            latest_user_time_text: "2026-02-11 17:30:45".to_string(),
-            latest_user_system_text: String::new(),
+            latest_user_meta_text: "2026-02-11 17:30:45".to_string(),
+            latest_user_extra_text: String::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -176,7 +189,7 @@
             &prepared,
             vec![
                 serde_json::json!({"type":"text","text":"继续"}),
-                serde_json::json!({"type":"text","text":prepared.latest_user_time_text}),
+                serde_json::json!({"type":"text","text":prepared.latest_user_meta_text}),
             ],
         );
         let messages = preview
@@ -239,4 +252,3 @@
         assert!(!d.forced);
         assert!(d.usage_ratio < 0.30);
     }
-

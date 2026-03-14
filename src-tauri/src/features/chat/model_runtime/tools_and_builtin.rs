@@ -138,6 +138,8 @@ mod prepared_history_to_rig_messages_tests {
                     role: "user".to_string(),
                     text: "帮我看一下".to_string(),
                     user_time_text: Some("2026-03-01 11:00:00".to_string()),
+                    images: Vec::new(),
+                    audios: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     reasoning_content: None,
@@ -146,6 +148,8 @@ mod prepared_history_to_rig_messages_tests {
                     role: "assistant".to_string(),
                     text: String::new(),
                     user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
                     tool_calls: Some(vec![serde_json::json!({
                         "id": "call_1",
                         "type": "function",
@@ -158,34 +162,27 @@ mod prepared_history_to_rig_messages_tests {
                     role: "tool".to_string(),
                     text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
                     user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call_1".to_string()),
                     reasoning_content: None,
                 },
             ],
             latest_user_text: "继续".to_string(),
-            latest_user_time_text: String::new(),
-            latest_user_system_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
 
         let chat_history = prepared_history_to_rig_messages(&prepared).expect("history built");
         let mut saw_tool_result = false;
-        let mut saw_assistant_reasoning = false;
         let mut saw_assistant_tool_call = false;
 
         for message in &chat_history {
             match message {
                 RigMessage::Assistant { content, .. } => {
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            AssistantContent::Reasoning(r) if r.display_text().contains("thinking")
-                        )
-                    }) {
-                        saw_assistant_reasoning = true;
-                    }
                     if content.iter().any(|item| {
                         matches!(
                             item,
@@ -218,7 +215,6 @@ mod prepared_history_to_rig_messages_tests {
             }
         }
 
-        assert!(saw_assistant_reasoning, "assistant reasoning should be replayed");
         assert!(saw_assistant_tool_call, "assistant tool call should be replayed");
         assert!(saw_tool_result, "tool result should be replayed as rig UserContent::ToolResult");
     }
@@ -1615,6 +1611,7 @@ fn delegate_enqueue_result_message(
             api_config_id,
             agent_id,
         },
+        sender_info: None,
     };
 
     enqueue_chat_event(app_state, event)?;

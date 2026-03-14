@@ -1420,18 +1420,36 @@ async fn send_chat_message(
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut data = state_read_app_data_cached(&state)?;
 
-        let conversation_id = if let Some(cid) = session.conversation_id.as_deref().filter(|s| !s.is_empty()) {
-            cid.to_string()
+        let conversation_id = if let Some(cid) = session
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if data.conversations.iter().any(|conv| {
+                conv.id == cid
+                    && conv.status == "active"
+                    && conv.summary.trim().is_empty()
+                    && !conversation_is_delegate(conv)
+                    && conv.api_config_id == api_config_id
+                    && conv.agent_id == agent_id
+            }) {
+                cid.to_string()
+            } else {
+                let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
+                data.conversations
+                    .get(idx)
+                    .map(|item| item.id.clone())
+                    .ok_or_else(|| "活动会话索引超出范围".to_string())?
+            }
         } else {
             let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
-            let id = data
-                .conversations
+            data.conversations
                 .get(idx)
                 .map(|item| item.id.clone())
-                .ok_or_else(|| "活动会话索引超出范围".to_string())?;
-            state_write_app_data_cached(&state, &data)?;
-            id
+                .ok_or_else(|| "活动会话索引超出范围".to_string())?
         };
+        state_write_app_data_cached(&state, &data)?;
 
         drop(guard);
         conversation_id
@@ -1479,6 +1497,7 @@ async fn send_chat_message(
             api_config_id,
             agent_id: agent_id.clone(),
         },
+        sender_info: None,
     };
 
     let main_session_state_text = get_main_session_state(state.inner())
@@ -2064,12 +2083,6 @@ fn build_attachment_notice_text(file_name: &str, relative_path: &str) -> String 
     )
 }
 
-fn build_attachment_queued_notice_text(file_name: &str, relative_path: &str) -> String {
-    format!(
-        "用户本次上传了一个附件：{file_name}\n保存到了你工作区的downloads文件夹内（路径：{relative_path}）\n如果需要，请使用 shell 工具读取该文件内容。"
-    )
-}
-
 fn queue_attachment_from_raw(
     state: &AppState,
     file_name_input: &str,
@@ -2118,7 +2131,7 @@ fn queue_attachment_from_raw(
     } else {
         None
     };
-    let text_notice = build_attachment_queued_notice_text(&final_file_name, &final_saved_path);
+    let text_notice = build_attachment_notice_text(&final_file_name, &final_saved_path);
     Ok(QueueLocalFileAttachmentOutput {
         mime,
         file_name: final_file_name,

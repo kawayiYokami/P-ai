@@ -81,6 +81,8 @@ mod archive_host_selection_tests {
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled,
+            source: default_main_source(),
+            scope: default_global_scope(),
         }
     }
 
@@ -111,6 +113,7 @@ mod archive_host_selection_tests {
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
+            remote_im_contacts: Vec::new(),
         };
         let source = Conversation {
             id: "c1".to_string(),
@@ -125,6 +128,7 @@ mod archive_host_selection_tests {
             last_user_at: None,
             last_assistant_at: None,
             last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             archived_at: None,
@@ -146,6 +150,7 @@ mod archive_host_selection_tests {
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
+            remote_im_contacts: Vec::new(),
         };
         let source = Conversation {
             id: "c1".to_string(),
@@ -160,6 +165,7 @@ mod archive_host_selection_tests {
             last_user_at: None,
             last_assistant_at: None,
             last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             archived_at: None,
@@ -185,6 +191,7 @@ mod archive_host_selection_tests {
             last_user_at: None,
             last_assistant_at: None,
             last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             archived_at: None,

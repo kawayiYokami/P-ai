@@ -306,6 +306,44 @@ fn normalize_mcp_servers(config: &mut AppConfig) {
     config.mcp_servers = out;
 }
 
+fn normalize_remote_im_channels(config: &mut AppConfig) {
+    let mut out = Vec::<RemoteImChannelConfig>::new();
+    let mut seen_ids = std::collections::HashSet::<String>::new();
+    for raw in &config.remote_im_channels {
+        let id = raw.id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let key = id.to_ascii_lowercase();
+        if !seen_ids.insert(key) {
+            continue;
+        }
+        let mut name = raw.name.trim().to_string();
+        if name.is_empty() {
+            name = id.clone();
+        }
+        let mut credentials = raw.credentials.clone();
+        if !credentials.is_object() {
+            credentials = serde_json::json!({});
+        }
+        out.push(RemoteImChannelConfig {
+            id,
+            name,
+            platform: raw.platform.clone(),
+            enabled: raw.enabled,
+            credentials,
+            activate_assistant: raw.activate_assistant,
+            default_reply_mode: raw.default_reply_mode.clone(),
+            receive_files: raw.receive_files,
+            streaming_send: raw.streaming_send,
+            show_tool_calls: raw.show_tool_calls,
+            allow_proactive_send: raw.allow_proactive_send,
+            allow_send_files: raw.allow_send_files,
+        });
+    }
+    config.remote_im_channels = out;
+}
+
 fn is_text_chat_api(api: &ApiConfig) -> bool {
     api.enable_text && api.request_format.is_chat_text()
 }
@@ -529,6 +567,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     normalize_terminal_shell_kind(config);
     normalize_shell_workspaces(config);
     normalize_mcp_servers(config);
+    normalize_remote_im_channels(config);
     normalize_departments(config);
 }
 

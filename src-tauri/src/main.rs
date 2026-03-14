@@ -49,6 +49,8 @@ include!("features/config/app_data_layout.rs");
 include!("features/chat/conversation.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
+include!("features/remote_im.rs");
+include!("features/remote_im_adapters.rs");
 
 // ==================== 系统窗口与命令 ====================
 include!("features/system/windowing.rs");
@@ -310,6 +312,10 @@ fn main() {
             clear_image_text_cache,
             list_recent_llm_round_logs,
             clear_recent_llm_round_logs,
+            remote_im_list_channels,
+            remote_im_list_contacts,
+            remote_im_update_contact_reply_mode,
+            remote_im_enqueue_message,
             desktop_screenshot,
             xcap,
             desktop_wait,

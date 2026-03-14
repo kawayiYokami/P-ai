@@ -49,6 +49,7 @@ fn build_prepared_prompt_for_mode(
                 terminal_shell_kind: default_terminal_shell_kind(),
                 shell_workspaces: Vec::new(),
                 mcp_servers: Vec::new(),
+                remote_im_channels: Vec::new(),
                 departments: departments.to_vec(),
                 api_configs: Vec::new(),
             };

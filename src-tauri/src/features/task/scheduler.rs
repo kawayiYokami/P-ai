@@ -347,6 +347,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
             api_config_id: api_id,
             agent_id,
         },
+        sender_info: None,
     };
 
     let trigger_label = if task.trigger.run_at.is_none() {

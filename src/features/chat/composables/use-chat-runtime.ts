@@ -7,6 +7,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 type ForceArchiveResult = {
   archived: boolean;
   archiveId?: string | null;
+  activeConversationId?: string | null;
   summary: string;
   mergedMemories: number;
   warning?: string | null;
@@ -70,6 +71,10 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
           conversationId: currentConversationIdOrNull(),
         },
       });
+      const activeConversationId = String(result.activeConversationId || "").trim();
+      if (activeConversationId && options.currentConversationId) {
+        options.currentConversationId.value = activeConversationId;
+      }
       if (result.warning) {
         const detail = `${result.warning}${result.elapsedMs ? ` (${result.elapsedMs}ms)` : ""}`;
         const text = options.t("status.forceArchivePartial", { reason: detail });

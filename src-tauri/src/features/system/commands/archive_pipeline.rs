@@ -88,6 +88,8 @@ fn merge_memory_groups_into_store(
 struct ForceArchiveResult {
     archived: bool,
     archive_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_conversation_id: Option<String>,
     summary: String,
     merged_memories: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -372,6 +374,7 @@ async fn run_archive_pipeline_inner(
         return Ok(ForceArchiveResult {
             archived: false,
             archive_id: None,
+            active_conversation_id: Some(source.id.clone()),
             summary: "当前对话为空，无需归档。".to_string(),
             merged_memories: 0,
             warning: None,
@@ -462,7 +465,11 @@ async fn run_archive_pipeline_inner(
     let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary)
         .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
     let active_idx = ensure_active_conversation_index(&mut data, &selected_api.id, &source.agent_id);
-    if data.conversations.get(active_idx).is_none() {
+    let active_conversation_id = data
+        .conversations
+        .get(active_idx)
+        .map(|item| item.id.clone());
+    if active_conversation_id.is_none() {
         eprintln!(
             "[ARCHIVE-PIPELINE] ensure active conversation index invalid: api={}, agent={}, idx={}",
             selected_api.id, source.agent_id, active_idx
@@ -500,6 +507,7 @@ async fn run_archive_pipeline_inner(
     Ok(ForceArchiveResult {
         archived: true,
         archive_id: Some(archive_id),
+        active_conversation_id,
         summary,
         merged_memories,
         warning: archive_warning,

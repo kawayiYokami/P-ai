@@ -447,3 +447,68 @@ describe("useChatFlow stream isolation", () => {
     expect(chatting.value).toBe(false);
   });
 });
+
+describe("useChatRuntime force archive conversation sync", () => {
+  beforeEach(() => {
+    hoisted.invokeTauriMock.mockReset();
+  });
+
+  it("updates current conversation id from force_archive_current before reload messages", async () => {
+    const statusList: string[] = [];
+    const errorList: string[] = [];
+    const currentConversationId = ref("conv-old");
+    const allMessages = shallowRef<ChatMessage[]>([]);
+    const visibleTurnCount = ref(1);
+
+    hoisted.invokeTauriMock.mockImplementation(async (command: string, payload?: unknown) => {
+      if (command === "force_archive_current") {
+        return {
+          archived: true,
+          archiveId: "archive-1",
+          activeConversationId: "conv-new",
+          summary: "ok",
+          mergedMemories: 2,
+        };
+      }
+      if (command === "get_active_conversation_messages") {
+        const input = (payload as { input?: { conversationId?: string | null } } | undefined)?.input;
+        return [
+          textMessage(
+            "a1",
+            "assistant",
+            `conversation:${String(input?.conversationId || "")}`,
+          ),
+        ];
+      }
+      throw new Error(`unexpected invoke command: ${command}`);
+    });
+
+    const runtime = useChatRuntime({
+      t: (key) => key,
+      setStatus: (text) => statusList.push(text),
+      setStatusError: (key, error) => errorList.push(`${key}:${String(error)}`),
+      setChatError: () => {},
+      activeChatApiConfigId: ref("api-1"),
+      assistantDepartmentAgentId: ref("agent-1"),
+      currentConversationId,
+      chatting: ref(false),
+      forcingArchive: ref(false),
+      allMessages,
+      visibleMessageBlockCount: visibleTurnCount,
+      perfNow: () => Date.now(),
+      perfLog: () => {},
+      perfDebug: false,
+    });
+
+    await runtime.forceArchiveNow();
+
+    expect(currentConversationId.value).toBe("conv-new");
+    expect(allMessages.value).toHaveLength(1);
+    expect(allMessages.value[0].parts?.[0]).toEqual({
+      type: "text",
+      text: "conversation:conv-new",
+    });
+    expect(errorList).toEqual([]);
+    expect(statusList.length).toBeGreaterThan(0);
+  });
+});

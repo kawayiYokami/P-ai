@@ -585,6 +585,64 @@ impl Default for ApiConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RemoteImPlatform {
+    Feishu,
+    Dingtalk,
+    Napcat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RemoteImReplyMode {
+    None,
+    Always,
+    ReplyOnce,
+}
+
+fn default_remote_im_reply_mode() -> RemoteImReplyMode {
+    RemoteImReplyMode::ReplyOnce
+}
+
+fn default_remote_im_channel_activate_assistant() -> bool {
+    true
+}
+
+fn default_remote_im_channel_receive_files() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImChannelConfig {
+    id: String,
+    name: String,
+    platform: RemoteImPlatform,
+    #[serde(default = "default_true")]
+    enabled: bool,
+    #[serde(default)]
+    credentials: Value,
+    #[serde(default = "default_remote_im_channel_activate_assistant")]
+    activate_assistant: bool,
+    #[serde(default = "default_remote_im_reply_mode")]
+    default_reply_mode: RemoteImReplyMode,
+    #[serde(default = "default_remote_im_channel_receive_files")]
+    receive_files: bool,
+    #[serde(default)]
+    streaming_send: bool,
+    #[serde(default)]
+    show_tool_calls: bool,
+    #[serde(default)]
+    allow_proactive_send: bool,
+    #[serde(default)]
+    allow_send_files: bool,
+}
+
+fn default_remote_im_channels() -> Vec<RemoteImChannelConfig> {
+    Vec::new()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
@@ -618,6 +676,8 @@ struct AppConfig {
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     #[serde(default = "default_mcp_servers")]
     mcp_servers: Vec<McpServerConfig>,
+    #[serde(default = "default_remote_im_channels")]
+    remote_im_channels: Vec<RemoteImChannelConfig>,
     #[serde(default)]
     departments: Vec<DepartmentConfig>,
     api_configs: Vec<ApiConfig>,
@@ -643,6 +703,7 @@ impl Default for AppConfig {
             terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: default_mcp_servers(),
+            remote_im_channels: default_remote_im_channels(),
             departments: default_departments(&api_config.id),
             api_configs: vec![api_config],
         }
@@ -967,6 +1028,23 @@ struct ChatMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RemoteImMessageSource {
+    channel_id: String,
+    platform: RemoteImPlatform,
+    im_name: String,
+    remote_contact_type: String,
+    remote_contact_id: String,
+    remote_contact_name: String,
+    sender_id: String,
+    sender_name: String,
+    #[serde(default)]
+    sender_avatar_url: Option<String>,
+    #[serde(default)]
+    platform_message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Conversation {
     id: String,
     title: String,
@@ -1078,6 +1156,8 @@ struct AppData {
     archived_conversations: Vec<ConversationArchive>,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
+    #[serde(default)]
+    remote_im_contacts: Vec<RemoteImContact>,
 }
 
 impl Default for AppData {
@@ -1095,8 +1175,31 @@ impl Default for AppData {
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
+            remote_im_contacts: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContact {
+    id: String,
+    channel_id: String,
+    platform: RemoteImPlatform,
+    remote_contact_type: String,
+    remote_contact_id: String,
+    #[serde(default)]
+    remote_contact_name: String,
+    #[serde(default = "default_remote_im_reply_mode")]
+    reply_mode: RemoteImReplyMode,
+    #[serde(default)]
+    has_new_message: bool,
+    #[serde(default)]
+    forwarded_once_since_last_inbound: bool,
+    #[serde(default)]
+    last_message_at: Option<String>,
+    #[serde(default)]
+    last_forwarded_at: Option<String>,
 }
 
 fn default_assistant_department_agent_id() -> String {

@@ -156,6 +156,8 @@ struct RuntimeStateFile {
     response_style_id: String,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
+    #[serde(default)]
+    remote_im_contacts: Vec<RemoteImContact>,
 }
 
 impl Default for RuntimeStateFile {
@@ -166,6 +168,7 @@ impl Default for RuntimeStateFile {
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
             image_text_cache: Vec::new(),
+            remote_im_contacts: Vec::new(),
         }
     }
 }
@@ -361,6 +364,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         conversations: conversations.conversations,
         archived_conversations: Vec::new(),
         image_text_cache: image_cache.image_text_cache,
+        remote_im_contacts: Vec::new(),
     })
 }
 
@@ -418,6 +422,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
         conversations,
         archived_conversations: Vec::new(),
         image_text_cache: runtime.image_text_cache,
+        remote_im_contacts: runtime.remote_im_contacts,
     })
 }
 
@@ -459,6 +464,7 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
         user_alias: data.user_alias.clone(),
         response_style_id: data.response_style_id.clone(),
         image_text_cache: data.image_text_cache.clone(),
+        remote_im_contacts: data.remote_im_contacts.clone(),
     };
     let index = ChatIndexFile {
         conversations: data

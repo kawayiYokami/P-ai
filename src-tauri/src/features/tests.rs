@@ -46,6 +46,7 @@
             last_user_at,
             last_assistant_at: None,
             last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             archived_at: None,
@@ -56,5 +57,6 @@
 
     include!("config/tests.rs");
     include!("chat/tests.rs");
+    include!("remote_im/tests.rs");
     include!("system/tests.rs");
     include!("memory/tests.rs");

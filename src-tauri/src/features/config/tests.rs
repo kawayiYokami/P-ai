@@ -45,8 +45,11 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
+            remote_im_channels: Vec::new(),
+            departments: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "a1".to_string(),
@@ -62,6 +65,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 999,
                 },
                 ApiConfig {
@@ -78,6 +82,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
             ],
@@ -107,8 +112,11 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
+            remote_im_channels: Vec::new(),
+            departments: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "chat-a".to_string(),
@@ -124,6 +132,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
                 ApiConfig {
@@ -140,6 +149,7 @@
                     model: "m".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
             ],
@@ -165,8 +175,11 @@
             vision_api_config_id: Some("tts-a".to_string()),
             stt_api_config_id: Some("tts-a".to_string()),
             stt_auto_send: true,
+            terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
+            remote_im_channels: Vec::new(),
+            departments: Vec::new(),
             api_configs: vec![ApiConfig {
                 id: "tts-a".to_string(),
                 name: "tts-a".to_string(),
@@ -181,6 +194,7 @@
                 model: "m".to_string(),
                 temperature: 1.0,
                 context_window_tokens: 128_000,
+                max_output_tokens: 4_096,
                 failure_retry_count: 0,
             }],
         };
@@ -210,8 +224,10 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
+            remote_im_channels: Vec::new(),
             departments: vec![
                 DepartmentConfig {
                     id: ASSISTANT_DEPARTMENT_ID.to_string(),
@@ -225,6 +241,8 @@
                     updated_at: "2026-03-10T00:00:00Z".to_string(),
                     order_index: 1,
                     is_built_in_assistant: true,
+                    source: default_main_source(),
+                    scope: default_global_scope(),
                 },
                 DepartmentConfig {
                     id: "department-research".to_string(),
@@ -238,6 +256,8 @@
                     updated_at: "2026-03-10T00:00:00Z".to_string(),
                     order_index: 2,
                     is_built_in_assistant: false,
+                    source: default_main_source(),
+                    scope: default_global_scope(),
                 },
             ],
             api_configs: vec![
@@ -255,6 +275,7 @@
                     model: "embed".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
                 ApiConfig {
@@ -271,6 +292,7 @@
                     model: "stt".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
                 ApiConfig {
@@ -287,6 +309,7 @@
                     model: "chat".to_string(),
                     temperature: 1.0,
                     context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
                     failure_retry_count: 0,
                 },
             ],
