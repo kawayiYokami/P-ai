@@ -143,7 +143,7 @@
             >
               <ChevronsUpDown class="h-3.5 w-3.5" />
             </button>
-            <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[280px] max-h-72 overflow-hidden">
+            <div tabindex="0" class="dropdown-content z-1 flex flex-col shadow bg-base-100 rounded-box min-w-70 max-h-72 overflow-hidden">
               <input
                 v-model="modelSearch"
                 type="text"
@@ -153,7 +153,7 @@
               />
               <ul class="menu flex-col flex-nowrap flex-1 min-h-0 overflow-auto p-1">
                 <li v-for="modelName in filteredModels" :key="modelName">
-                  <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
+                  <button class="whitespace-normal wrap-break-word text-left" @click="selectModel(modelName)">{{ modelName }}</button>
                 </li>
                 <li v-if="filteredModels.length === 0" class="text-center text-sm opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
               </ul>
@@ -164,10 +164,10 @@
           </button>
         </div>
       </div>
-      <div class="flex w-full items-center justify-between pl-[6.5rem]">
+      <div class="flex w-full items-center justify-between pl-26">
         <span class="text-[11px] text-error min-h-4">{{ props.modelRefreshError || " " }}</span>
       </div>
-      <div v-if="modelControlsLocked" class="pl-[6.5rem] text-[11px] text-warning">
+      <div v-if="modelControlsLocked" class="pl-26 text-[11px] text-warning">
         {{ t("config.api.saveModelFirstHint") }}
       </div>
     </div>
