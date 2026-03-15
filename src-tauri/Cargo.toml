@@ -1,8 +1,8 @@
 [package]
 name = "easy-call-ai"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
-description = "Easy Call AI desktop app"
+description = "P-ai desktop app"
 default-run = "easy-call-ai"
 
 [build-dependencies]

@@ -311,35 +311,35 @@ fn validate_enqueue_input(
 
 fn build_chat_message_from_input(
     input: &RemoteImEnqueueInput,
-    channel: &RemoteImChannelConfig,
     conversation_id: &str,
     contact_id: &str,
     now: &str,
+    text: &str,
+    images: &[BinaryPart],
+    audios: &[BinaryPart],
+    attachments: &[AttachmentMetaInput],
 ) -> ChatMessage {
-    let text = input.payload.text.as_deref().unwrap_or("").trim();
     let mut parts = Vec::<MessagePart>::new();
     if !text.is_empty() {
         parts.push(MessagePart::Text {
             text: text.to_string(),
         });
     }
-    if channel.receive_files {
-        for img in input.payload.images.as_deref().unwrap_or(&[]) {
-            parts.push(MessagePart::Image {
-                mime: img.mime.clone(),
-                bytes_base64: img.bytes_base64.clone(),
-                name: None,
-                compressed: false,
-            });
-        }
-        for audio in input.payload.audios.as_deref().unwrap_or(&[]) {
-            parts.push(MessagePart::Audio {
-                mime: audio.mime.clone(),
-                bytes_base64: audio.bytes_base64.clone(),
-                name: None,
-                compressed: false,
-            });
-        }
+    for img in images {
+        parts.push(MessagePart::Image {
+            mime: img.mime.clone(),
+            bytes_base64: img.bytes_base64.clone(),
+            name: None,
+            compressed: false,
+        });
+    }
+    for audio in audios {
+        parts.push(MessagePart::Audio {
+            mime: audio.mime.clone(),
+            bytes_base64: audio.bytes_base64.clone(),
+            name: None,
+            compressed: false,
+        });
     }
 
     let origin_meta = remote_im_set_sender_origin_meta(input, conversation_id, contact_id);
@@ -353,11 +353,7 @@ fn build_chat_message_from_input(
     } else {
         base_meta = origin_meta;
     }
-    let attachment_meta = if channel.receive_files {
-        normalize_payload_attachments(input.payload.attachments.as_ref())
-    } else {
-        Vec::new()
-    };
+    let attachment_meta = normalize_payload_attachments(Some(&attachments.to_vec()));
     let merged_meta = merge_provider_meta_with_attachments(Some(base_meta), &attachment_meta);
 
     ChatMessage {
@@ -557,10 +553,10 @@ pub(crate) fn remote_im_enqueue_message_internal(
     let api_config_id = validated.api_config_id;
     let agent_id = validated.agent_id;
     let conversation_id = validated.conversation_id;
-    let _text = validated.text;
-    let _images = validated.images;
-    let _audios = validated.audios;
-    let _attachments = validated.attachments;
+    let text = validated.text;
+    let images = validated.images;
+    let audios = validated.audios;
+    let attachments = validated.attachments;
 
     let now = now_iso();
     let contact_id = remote_im_upsert_contact_for_inbound(&mut data, &channel, &input, &now);
@@ -575,8 +571,16 @@ pub(crate) fn remote_im_enqueue_message_internal(
         drop(guard);
         return Err(format!("联系人未开启收信，跳过: contact_id={contact_id}"));
     }
-    let message =
-        build_chat_message_from_input(&input, &channel, &conversation_id, &contact_id, &now);
+    let message = build_chat_message_from_input(
+        &input,
+        &conversation_id,
+        &contact_id,
+        &now,
+        &text,
+        &images,
+        &audios,
+        &attachments,
+    );
 
     let event_id = Uuid::new_v4().to_string();
     let activate_assistant = remote_im_resolve_inbound_activate(&channel, input.activate_assistant);

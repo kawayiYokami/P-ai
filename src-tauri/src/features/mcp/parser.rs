@@ -1,7 +1,7 @@
 fn mcp_definition_json_schema() -> Value {
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Easy Call AI MCP Definition",
+        "title": "P-ai MCP Definition",
         "type": "object",
         "anyOf": [
             { "required": ["mcpServers"] },
@@ -348,3 +348,5 @@ fn parse_mcp_server_definition_from_config(server: &McpServerConfig) -> Result<P
     let (_, parsed) = parse_mcp_server_definition(&server.definition_json)?;
     Ok(parsed)
 }
+
+

@@ -321,6 +321,7 @@ fn main() {
             show_archives_window,
             set_chat_window_active,
             check_github_update,
+            get_app_version,
             load_config,
             list_system_fonts,
             save_config,

@@ -408,7 +408,7 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
         tray = tray.icon(icon.clone());
     }
 
-    tray.tooltip("Easy Call AI")
+    tray.tooltip("P-ai")
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             if id == "config" {
@@ -440,3 +440,5 @@ fn hide_on_close(app: &AppHandle) {
         }
     }
 }
+
+

@@ -3,7 +3,7 @@
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
         <h3 class="card-title text-base">{{ t("about.version") }}</h3>
-        <p class="text-sm mb-3">Easy Call AI v0.2.4</p>
+        <p class="text-sm mb-3">{{ `P-ai v${appVersion}` }}</p>
         <button
           class="btn btn-sm"
           :disabled="checkingUpdate"
@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 
@@ -59,9 +59,19 @@ const updateDialogOpen = ref(false);
 const updateDialogTitle = ref("检查更新");
 const updateDialogBody = ref("");
 const updateDialogReleaseUrl = ref("");
+const appVersion = ref("...");
+
+onMounted(async () => {
+  try {
+    appVersion.value = await invokeTauri<string>("get_app_version");
+  } catch (error) {
+    console.warn("[AboutTab] load app version failed:", error);
+    appVersion.value = "unknown";
+  }
+});
 
 function openGithub() {
-  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/Easy-call-ai" });
+  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/P-ai" });
 }
 
 function handleCheckUpdate() {
@@ -89,3 +99,5 @@ defineExpose({
   showUpdateDialog,
 });
 </script>
+
+

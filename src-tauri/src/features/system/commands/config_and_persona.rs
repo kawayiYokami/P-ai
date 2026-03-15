@@ -28,6 +28,11 @@ struct GithubUpdateInfo {
     release_url: String,
 }
 
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 fn parse_version_parts(input: &str) -> Vec<u64> {
     let cleaned = input
         .trim()
@@ -102,7 +107,7 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
 #[tauri::command]
 async fn check_github_update() -> Result<GithubUpdateInfo, String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let api_url = "https://api.github.com/repos/kawayiYokami/Easy-call-ai/releases/latest";
+    let api_url = "https://api.github.com/repos/kawayiYokami/P-ai/releases/latest";
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
         .build()
@@ -139,7 +144,7 @@ async fn check_github_update() -> Result<GithubUpdateInfo, String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("https://github.com/kawayiYokami/Easy-call-ai/releases/latest")
+        .unwrap_or("https://github.com/kawayiYokami/P-ai/releases/latest")
         .to_string();
 
     Ok(GithubUpdateInfo {
@@ -1580,4 +1585,6 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+
+
 

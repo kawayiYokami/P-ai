@@ -10,8 +10,8 @@
     "loading": "Loading..."
   },
   "window": {
-    "configTitle": "Easy Call AI - Config",
-    "archivesTitle": "Easy Call AI - Archives",
+    "configTitle": "P-ai - Config",
+    "archivesTitle": "P-ai - Archives",
     "chatTitle": "Chat with {name}"
   },
   "config": {
@@ -797,3 +797,5 @@
     "github": "GitHub Repository"
   }
 }
+
+

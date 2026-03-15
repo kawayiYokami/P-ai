@@ -1,4 +1,4 @@
-# Easy Call AI
+# π师傅
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8D8?logo=tauri)](https://tauri.app)
@@ -13,7 +13,7 @@
 > 把 LLM 变成真正会干活的桌面 AI 指挥部。  
 > 它不只是聊天窗口，而是一个能管理自己、管理手下、管理技能、管理工作空间，并长期持续执行任务的桌面 AI 操作系统。
 
-Easy Call AI 的目标，从来都不是“再做一个 AI 聊天网页”。
+π师傅 的目标，从来都不是“再做一个 AI 聊天网页”。
 
 它要做的是另一件更野心勃勃的事：
 
@@ -27,7 +27,7 @@ Easy Call AI 的目标，从来都不是“再做一个 AI 聊天网页”。
 
 ## 现在它是什么
 
-Easy Call AI 现在更接近下面这几个东西的混合体：
+π师傅 现在更接近下面这几个东西的混合体：
 
 - 桌面 AI 浮窗
 - 长期运行的任务系统
@@ -52,7 +52,7 @@ Easy Call AI 现在更接近下面这几个东西的混合体：
 | 记忆昂贵且混乱 | 越聊越重，越聊越脆弱 |
 | 工具和能力边界不清 | 容易失控，也难以复用 |
 
-Easy Call AI 的设计方向相反：
+π师傅 的设计方向相反：
 
 - 让 LLM 有“身份”
 - 让 LLM 有“部门”
@@ -183,8 +183,8 @@ Easy Call AI 的设计方向相反：
 如果你在 Arch Linux / Manjaro 上，希望从本项目仓库直接安装：
 
 ```bash
-git clone https://github.com/kawayiYokami/Easy-call-ai.git
-cd Easy-call-ai/packaging/arch
+git clone https://github.com/kawayiYokami/P-ai.git
+cd P-ai/packaging/arch
 chmod +x install-with-yay.sh
 ./install-with-yay.sh
 ```
@@ -207,3 +207,5 @@ chmod +x install-with-yay.sh
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE)。
+
+

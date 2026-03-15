@@ -3,7 +3,7 @@ pkgver=0.2.11
 pkgrel=1
 pkgdesc='Desktop AI assistant with global hotkey (Tauri + Vue)'
 arch=('x86_64')
-url='https://github.com/kawayiYokami/Easy-call-ai'
+url='https://github.com/kawayiYokami/P-ai'
 license=('GPL-3.0-or-later')
 depends=('gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'librsvg')
 makedepends=('git' 'nodejs' 'pnpm' 'rust' 'cargo' 'clang' 'pkgconf')
@@ -54,7 +54,7 @@ package() {
   cat > "${srcdir}/easy-call-ai.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Easy Call AI
+Name=P-ai
 Comment=Desktop AI assistant
 Exec=easy-call-ai
 Icon=easy-call-ai

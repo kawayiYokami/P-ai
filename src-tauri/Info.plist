@@ -3,8 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Easy Call AI needs microphone access for push-to-talk voice input.</string>
+  <string>P-ai needs microphone access for push-to-talk voice input.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Easy Call AI uses speech recognition to convert your voice into text.</string>
+  <string>P-ai uses speech recognition to convert your voice into text.</string>
 </dict>
 </plist>
+
+

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Easy Call AI 是一个 Windows 优先的桌面 AI 助手，使用全局热键呼出/隐藏对话窗口，常驻系统托盘。技术栈为 Tauri 2 (Rust) + Vue 3 (TypeScript) + Vite + DaisyUI，包管理使用 pnpm。
+π师傅 是一个 Windows 优先的桌面 AI 助手，使用全局热键呼出/隐藏对话窗口，常驻系统托盘。技术栈为 Tauri 2 (Rust) + Vue 3 (TypeScript) + Vite + DaisyUI，包管理使用 pnpm。
 
 ## 构建与开发命令
 
@@ -152,3 +152,4 @@ Tauri 管理 3 个无边框窗口：`main`（配置，400×620）、`chat`（对
 - 异常日志必须带异常信息（Rust 使用 `{:?}` 或 `Display`，TypeScript 包含 `error.message` 和必要的 `error.stack`），避免只打印"失败"无上下文。
 - 高频循环日志仅输出聚合信息，避免每条记录都打印 info/warn 级别日志；明细使用 debug/trace 级别。
 - 用户可见行为变化（例如切换模式、禁用功能、跳过原因）必须有一条清晰 INFO 日志。
+
