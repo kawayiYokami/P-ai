@@ -17,7 +17,7 @@
       <!-- 历史对话 -->
       <template v-for="block in messageBlocks" :key="block.id">
         <div :class="['chat group/user-turn mt-3', isOwnMessage(block) ? 'chat-end' : 'chat-start']">
-          <div class="chat-image avatar self-start">
+          <div class="chat-image avatar self-start ecall-chat-avatar-col">
             <div class="w-7 rounded-full">
               <img v-if="messageAvatarUrl(block)" :src="messageAvatarUrl(block)" :alt="messageName(block)" />
               <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
@@ -27,10 +27,14 @@
           </div>
           <div class="chat-header mb-1 flex items-center gap-2">
             <button
-              v-if="isOwnMessage(block) && !chatting && !frozen"
+              v-if="isOwnMessage(block)"
               type="button"
-              class="inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content opacity-0 pointer-events-none transition-opacity group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto"
+              :class="[
+                'inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content opacity-0 pointer-events-none transition-opacity',
+                !chatting && !frozen ? 'group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto' : '',
+              ]"
               :title="t('chat.recall')"
+              :disabled="chatting || frozen"
               @click="$emit('recallTurn', { turnId: block.id })"
             >
               <Undo2 class="h-3 w-3" />
@@ -181,11 +185,18 @@
                 <span class="text-[11px]">{{ file.fileName }}</span>
               </div>
             </div>
-            <div v-if="!isOwnMessage(block) && !chatting && !frozen" class="mt-2 flex items-center gap-1.5">
+            <div
+              v-if="!isOwnMessage(block)"
+              :class="[
+                'mt-2 flex items-center gap-1.5 transition-opacity',
+                chatting || frozen ? 'opacity-0 pointer-events-none' : 'opacity-100',
+              ]"
+            >
               <button
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.copy')"
+                :disabled="chatting || frozen"
                 @click="copyMessage(block)"
               >
                 <Copy class="h-3.5 w-3.5" />
@@ -195,6 +206,7 @@
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.regenerate')"
+                :disabled="chatting || frozen"
                 @click="$emit('regenerateTurn', { turnId: block.id })"
               >
                 <RotateCcw class="h-3.5 w-3.5" />
@@ -207,8 +219,8 @@
       <template v-if="showAssistantStreamingPreview">
         <!-- 助手流式响应 -->
         <div class="chat chat-start mt-3">
-          <div class="chat-image self-start">
-            <div class="flex flex-col items-center gap-2">
+          <div class="chat-image avatar self-start ecall-chat-avatar-col">
+            <div class="flex w-7 flex-col items-center gap-2">
               <div class="avatar">
                 <div class="w-7 rounded-full">
                   <img v-if="assistantAvatarUrl" :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" />
@@ -218,10 +230,13 @@
                 </div>
               </div>
               <button
-                v-if="chatting"
                 type="button"
-                class="btn btn-error btn-sm btn-circle relative"
+                :class="[
+                  'btn btn-error btn-circle relative h-6 min-h-0 w-6 p-0',
+                  chatting ? '' : 'opacity-0 pointer-events-none',
+                ]"
                 :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
+                :disabled="!chatting"
                 @click="$emit('stopChat')"
               >
                 <Square class="h-4 w-4 fill-current" />
@@ -234,7 +249,7 @@
           <div class="chat-header mb-1 flex items-center gap-2">
             <span class="text-xs text-base-content">{{ personaName || t("archives.roleAssistant") }}</span>
           </div>
-          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content assistant-markdown">
+          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300/70 assistant-markdown">
             <details
               v-if="latestReasoningStandardText"
               class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
@@ -298,6 +313,24 @@
                 class="inline-block w-1.5 h-1.5 rounded-full bg-success"
               ></span>
               <span>{{ toolStatusText }}</span>
+            </div>
+            <div class="mt-2 flex items-center gap-1.5 opacity-0 pointer-events-none">
+              <button
+                type="button"
+                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55"
+                aria-hidden="true"
+                tabindex="-1"
+              >
+                <Copy class="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55"
+                aria-hidden="true"
+                tabindex="-1"
+              >
+                <RotateCcw class="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
         </div>
@@ -1099,6 +1132,11 @@ watch(
 <style scoped>
 .scrollbar-gutter-stable {
   scrollbar-gutter: stable;
+}
+
+.ecall-chat-avatar-col {
+  width: 1.75rem;
+  min-width: 1.75rem;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content) {
