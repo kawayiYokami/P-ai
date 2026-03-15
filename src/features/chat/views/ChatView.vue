@@ -708,6 +708,9 @@ function avatarInitial(name: string): string {
 }
 
 function messageName(block: ChatMessageBlock): string {
+  if (block.remoteImOrigin) {
+    return block.remoteImOrigin.senderName || block.remoteImOrigin.remoteContactName || "IM";
+  }
   const id = String(block.speakerAgentId || "").trim();
   if (id && props.personaNameMap[id]) return props.personaNameMap[id];
   if (!id || id === "user-persona") return props.userAlias || t("archives.roleUser");
@@ -715,6 +718,7 @@ function messageName(block: ChatMessageBlock): string {
 }
 
 function messageAvatarUrl(block: ChatMessageBlock): string {
+  if (block.remoteImOrigin) return "";
   const id = String(block.speakerAgentId || "").trim();
   if (id && props.personaAvatarUrlMap[id]) return props.personaAvatarUrlMap[id];
   if (!id || id === "user-persona") return props.userAvatarUrl || "";
@@ -722,6 +726,7 @@ function messageAvatarUrl(block: ChatMessageBlock): string {
 }
 
 function isOwnMessage(block: ChatMessageBlock): boolean {
+  if (block.remoteImOrigin) return false;
   const id = String(block.speakerAgentId || "").trim();
   return !id || id === "user-persona";
 }

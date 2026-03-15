@@ -103,9 +103,7 @@ export type AppConfig = {
   apiConfigs: ApiConfigItem[];
 };
 
-export type RemoteImPlatform = "feishu" | "dingtalk" | "napcat";
-
-export type RemoteImReplyMode = "none" | "always" | "reply_once";
+export type RemoteImPlatform = "feishu" | "dingtalk" | "onebot_v11";
 
 export type RemoteImChannelConfig = {
   id: string;
@@ -114,11 +112,9 @@ export type RemoteImChannelConfig = {
   enabled: boolean;
   credentials: Record<string, unknown>;
   activateAssistant: boolean;
-  defaultReplyMode: RemoteImReplyMode;
   receiveFiles: boolean;
   streamingSend: boolean;
   showToolCalls: boolean;
-  allowProactiveSend: boolean;
   allowSendFiles: boolean;
 };
 
@@ -130,11 +126,13 @@ export type RemoteImContact = {
   remoteContactId: string;
   remoteContactName: string;
   remarkName: string;
-  replyMode: RemoteImReplyMode;
-  hasNewMessage: boolean;
-  forwardedOnceSinceLastInbound: boolean;
+  allowSend: boolean;
+  allowReceive: boolean;
+  activationMode: "always" | "never" | "keyword";
+  activationKeywords: string[];
+  activationCooldownSeconds: number;
+  lastActivatedAt?: string;
   lastMessageAt?: string;
-  lastForwardedAt?: string;
 };
 
 export type McpDefinitionValidateResult = {
@@ -307,6 +305,13 @@ export type ChatMessageBlock = {
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   taskTrigger?: TaskTriggerMessageCard;
+  remoteImOrigin?: {
+    senderName: string;
+    remoteContactName?: string;
+    remoteContactType: string;
+    channelId: string;
+    contactId: string;
+  };
   reasoningStandard: string;
   reasoningInline: string;
   toolCallCount: number;
@@ -377,5 +382,3 @@ export type ImageTextCacheStats = {
   totalChars: number;
   latestUpdatedAt?: string;
 };
-
-

@@ -363,6 +363,30 @@ async fn assemble_runtime_tools(
         ));
     }
 
+    let has_remote_im_send = tool_enabled(selected_api, agent, current_department, "remote_im_send");
+    if has_remote_im_send {
+        let state = app_state
+            .ok_or_else(|| "remote_im_send requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinRemoteImSendTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "remote_im_send",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "remote_im_send",
+            false,
+            false,
+            department_reason("remote_im_send")
+                .or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
     Ok(RuntimeToolAssembly {
         tools,
         tool_manifest,

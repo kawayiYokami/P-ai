@@ -313,6 +313,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             enabled: true,
             values: serde_json::json!({}),
         },
+        ApiToolConfig {
+            id: "remote_im_send".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["remote_im_send".to_string()],
+            enabled: false,
+            values: serde_json::json!({}),
+        },
     ]
 }
 
@@ -590,19 +597,8 @@ impl Default for ApiConfig {
 enum RemoteImPlatform {
     Feishu,
     Dingtalk,
-    Napcat,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum RemoteImReplyMode {
-    None,
-    Always,
-    ReplyOnce,
-}
-
-fn default_remote_im_reply_mode() -> RemoteImReplyMode {
-    RemoteImReplyMode::ReplyOnce
+    #[serde(rename = "onebot_v11", alias = "napcat")]
+    OnebotV11,
 }
 
 fn default_remote_im_channel_activate_assistant() -> bool {
@@ -625,16 +621,12 @@ struct RemoteImChannelConfig {
     credentials: Value,
     #[serde(default = "default_remote_im_channel_activate_assistant")]
     activate_assistant: bool,
-    #[serde(default = "default_remote_im_reply_mode")]
-    default_reply_mode: RemoteImReplyMode,
     #[serde(default = "default_remote_im_channel_receive_files")]
     receive_files: bool,
     #[serde(default)]
     streaming_send: bool,
     #[serde(default)]
     show_tool_calls: bool,
-    #[serde(default)]
-    allow_proactive_send: bool,
     #[serde(default)]
     allow_send_files: bool,
 }
@@ -1192,20 +1184,28 @@ struct RemoteImContact {
     remote_contact_name: String,
     #[serde(default)]
     remark_name: String,
-    #[serde(default = "default_remote_im_reply_mode")]
-    reply_mode: RemoteImReplyMode,
     #[serde(default)]
-    has_new_message: bool,
+    allow_send: bool,
     #[serde(default)]
-    forwarded_once_since_last_inbound: bool,
+    allow_receive: bool,
+    #[serde(default = "default_remote_im_contact_activation_mode")]
+    activation_mode: String,
+    #[serde(default)]
+    activation_keywords: Vec<String>,
+    #[serde(default)]
+    activation_cooldown_seconds: u64,
+    #[serde(default)]
+    last_activated_at: Option<String>,
     #[serde(default)]
     last_message_at: Option<String>,
-    #[serde(default)]
-    last_forwarded_at: Option<String>,
 }
 
 fn default_assistant_department_agent_id() -> String {
     DEFAULT_AGENT_ID.to_string()
+}
+
+fn default_remote_im_contact_activation_mode() -> String {
+    "never".to_string()
 }
 
 fn default_user_alias() -> String {
@@ -1278,7 +1278,7 @@ fn tool_restricted_by_department(
     }
     if !matches!(
         tool_id,
-        "wait" | "reload" | "screenshot" | "organize_context" | "task" | "delegate"
+        "wait" | "reload" | "screenshot" | "organize_context" | "task" | "delegate" | "remote_im_send"
     ) {
         return None;
     }

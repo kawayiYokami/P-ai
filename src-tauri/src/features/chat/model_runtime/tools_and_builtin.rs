@@ -1344,6 +1344,15 @@ struct TerminalExecToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+struct RemoteImSendToolArgs {
+    channel_id: String,
+    contact_id: String,
+    text: String,
+    #[serde(default)]
+    file_paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct DelegateToolArgs {
     department_id: String,
     #[serde(default)]
@@ -2826,5 +2835,123 @@ impl Tool for BuiltinDelegateTool {
         }
         result
     }
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinRemoteImSendTool {
+    app_state: AppState,
+}
+
+impl Tool for BuiltinRemoteImSendTool {
+    const NAME: &'static str = "remote_im_send";
+    type Error = ToolInvokeError;
+    type Args = RemoteImSendToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "remote_im_send".to_string(),
+            description: "向远程IM联系人发送消息。当你在 [远程IM] 标记的消息中收到来自QQ等平台的消息时，你的普通文字回复对方无法看到，必须调用此工具才能将回复送达对方。channelId 和 contactId 在 [远程IM] 来源标记中已提供。".to_string(),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "channel_id": { "type": "string", "description": "远程IM渠道 ID（channelId）" },
+                "contact_id": { "type": "string", "description": "远程联系人 ID（contactId，即QQ号或群号）" },
+                "text": { "type": "string", "description": "要发送的文本内容" },
+                "file_paths": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "（预留）附件文件路径列表，当前版本暂不支持"
+                }
+              },
+              "required": ["channel_id", "contact_id", "text"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=remote_im_send args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        );
+        let result = builtin_remote_im_send(&self.app_state, args)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=remote_im_send result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=remote_im_send err={err}"),
+        }
+        result
+    }
+}
+
+async fn builtin_remote_im_send(
+    state: &AppState,
+    args: RemoteImSendToolArgs,
+) -> Result<Value, String> {
+    let channel_id = args.channel_id.trim().to_string();
+    let contact_id_input = args.contact_id.trim().to_string();
+    let text = args.text.trim().to_string();
+    if channel_id.is_empty() {
+        return Err("channel_id 不能为空".to_string());
+    }
+    if contact_id_input.is_empty() {
+        return Err("contact_id 不能为空".to_string());
+    }
+    if text.is_empty() {
+        return Err("text 不能为空".to_string());
+    }
+
+    let config = state_read_config_cached(state)?;
+    let channel = remote_im_channel_by_id(&config, &channel_id)
+        .ok_or_else(|| format!("远程IM渠道不存在: {channel_id}"))?
+        .clone();
+    if !channel.enabled {
+        return Err(format!("远程IM渠道未启用: {channel_id}"));
+    }
+
+    let data = state_read_app_data_cached(state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter()
+        .find(|c| c.channel_id == channel_id && c.remote_contact_id == contact_id_input)
+        .ok_or_else(|| format!("未找到匹配的远程联系人: channel_id={channel_id}, contact_id={contact_id_input}"))?
+        .clone();
+
+    if !contact.allow_send {
+        return Err(format!(
+            "用户已禁止向该联系人发送消息: channel_id={}, contact_id={}",
+            channel_id, contact_id_input
+        ));
+    }
+
+    let mut content = Vec::<Value>::new();
+    content.push(serde_json::json!({
+        "type": "text",
+        "text": text
+    }));
+
+    let payload = serde_json::json!({
+        "channelId": contact.channel_id,
+        "contactId": contact.id,
+        "platform": channel.platform,
+        "remoteContactType": contact.remote_contact_type,
+        "remoteContactId": contact.remote_contact_id,
+        "content": content,
+    });
+
+    let platform_message_id = remote_im_send_via_sdk(&channel, &contact, &payload).await?;
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "channelId": channel_id,
+        "contactId": contact_id_input,
+        "contactName": contact.remote_contact_name,
+        "contactType": contact.remote_contact_type,
+        "platformMessageId": platform_message_id
+    }))
 }
 

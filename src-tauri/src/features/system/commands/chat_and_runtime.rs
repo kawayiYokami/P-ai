@@ -1437,10 +1437,37 @@ async fn send_chat_message(
                 cid.to_string()
             } else {
                 let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
-                data.conversations
+                let fallback_id = data.conversations
                     .get(idx)
                     .map(|item| item.id.clone())
-                    .ok_or_else(|| "活动会话索引超出范围".to_string())?
+                    .ok_or_else(|| "活动会话索引超出范围".to_string())?;
+                let reject_reason = data
+                    .conversations
+                    .iter()
+                    .find(|conv| conv.id == cid)
+                    .map(|conv| {
+                        if conv.api_config_id != api_config_id || conv.agent_id != agent_id {
+                            "mismatched_api_config_or_agent"
+                        } else if conv.status != "active" {
+                            "inactive"
+                        } else if !conv.summary.trim().is_empty() {
+                            "summary_present"
+                        } else if conversation_is_delegate(conv) {
+                            "delegate_conversation"
+                        } else {
+                            "unknown"
+                        }
+                    })
+                    .unwrap_or("not_found");
+                eprintln!(
+                    "[INFO][CHAT] session conversation id rejected and fallback selected: requested_cid={}, reject_reason={}, fallback_cid={}, api_config_id={}, agent_id={}",
+                    cid,
+                    reject_reason,
+                    fallback_id,
+                    api_config_id,
+                    agent_id
+                );
+                fallback_id
             }
         } else {
             let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
@@ -2894,6 +2921,10 @@ fn check_tools_status(
             "delegate" => (
                 "loaded".to_string(),
                 "委托工具可用".to_string(),
+            ),
+            "remote_im_send" => (
+                "loaded".to_string(),
+                "远程IM发送工具可用".to_string(),
             ),
             "exec" => {
                 #[cfg(target_os = "windows")]

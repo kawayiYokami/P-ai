@@ -1,6 +1,6 @@
 import type { ComputedRef } from "vue";
 import { normalizeLocale } from "../../../i18n";
-import type { ApiConfigItem, AppConfig, DepartmentConfig, RemoteImChannelConfig, RemoteImPlatform, RemoteImReplyMode } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, DepartmentConfig, RemoteImChannelConfig, RemoteImPlatform } from "../../../types/app";
 import { defaultToolBindings, normalizeToolBindings } from "../utils/builtin-tools";
 
 function defaultAssistantDepartmentName(uiLanguage: string): string {
@@ -33,18 +33,10 @@ function isTextRequestFormat(format: string): boolean {
 
 function normalizeRemoteImPlatform(value: unknown): RemoteImPlatform {
   const text = String(value || "").trim().toLowerCase();
-  if (text === "feishu" || text === "dingtalk" || text === "napcat") {
+  if (text === "feishu" || text === "dingtalk" || text === "onebot_v11") {
     return text as RemoteImPlatform;
   }
-  return "napcat";
-}
-
-function normalizeRemoteImReplyMode(value: unknown): RemoteImReplyMode {
-  const text = String(value || "").trim().toLowerCase();
-  if (text === "none" || text === "always" || text === "reply_once") {
-    return text as RemoteImReplyMode;
-  }
-  return "reply_once";
+  return "onebot_v11";
 }
 
 type UseConfigCoreOptions = {
@@ -249,11 +241,9 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enabled: !!item?.enabled,
         credentials: item?.credentials && typeof item.credentials === "object" ? { ...item.credentials } : {},
         activateAssistant: item?.activateAssistant !== false,
-        defaultReplyMode: normalizeRemoteImReplyMode(item?.defaultReplyMode),
         receiveFiles: item?.receiveFiles !== false,
         streamingSend: !!item?.streamingSend,
         showToolCalls: !!item?.showToolCalls,
-        allowProactiveSend: !!item?.allowProactiveSend,
         allowSendFiles: !!item?.allowSendFiles,
       });
     }
@@ -401,11 +391,9 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enabled: !!item.enabled,
         credentials: item.credentials && typeof item.credentials === "object" ? { ...item.credentials } : {},
         activateAssistant: item.activateAssistant !== false,
-        defaultReplyMode: normalizeRemoteImReplyMode(item.defaultReplyMode),
         receiveFiles: item.receiveFiles !== false,
         streamingSend: !!item.streamingSend,
         showToolCalls: !!item.showToolCalls,
-        allowProactiveSend: !!item.allowProactiveSend,
         allowSendFiles: !!item.allowSendFiles,
       })),
       apiConfigs: options.config.apiConfigs.map((a) => ({

@@ -555,6 +555,35 @@ fn prompt_speaker_label(
     agents: &[AgentProfile],
     user_name: &str,
 ) -> String {
+    // 优先检查远程 IM 来源
+    if let Some(meta) = &message.provider_meta {
+        if let Some(origin) = meta.get("origin") {
+            if origin.get("kind").and_then(|v| v.as_str()) == Some("remote_im") {
+                let sender = origin
+                    .get("senderName")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let contact = origin
+                    .get("remoteContactName")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let contact_type = origin
+                    .get("remoteContactType")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if contact_type == "group" && !contact.is_empty() && !sender.is_empty() {
+                    return format!("{} ({})", sender, contact);
+                }
+                if !sender.is_empty() {
+                    return sender.to_string();
+                }
+                if !contact.is_empty() {
+                    return contact.to_string();
+                }
+            }
+        }
+    }
+
     let speaker_id = message
         .speaker_agent_id
         .as_deref()
