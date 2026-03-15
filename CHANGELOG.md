@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- refactor(chat-pipeline): 将多模态兼容处理前移到出队阶段，按“逐条消息”定型
+  - 在批次写入历史前按会话模型能力处理每条 user 消息
+  - 模型支持图片时保留图片，不做额外注入
+  - 模型不支持图片时移除图片，并按规则注入文本：
+    - 命中已有图转文缓存：注入对应图转文内容
+    - 无图转文缓存：注入提示“这里有一张图片，但当前模型不支持图片输入，所以已忽略。”
+- fix(chat-runtime): 收敛运行时重复改写，避免二次注入
+  - 保留 router 防御性清理，但移除运行时二次文本注入逻辑
+  - 统一由“出队定型结果”驱动后续 prompt 构建与请求序列化
+
 ## v0.4.0 - 2026-03-16
 
 - feat(chat-ui): rework chat window rendering pipeline for stable streaming UX
