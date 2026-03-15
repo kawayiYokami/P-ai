@@ -333,11 +333,9 @@ fn normalize_remote_im_channels(config: &mut AppConfig) {
             enabled: raw.enabled,
             credentials,
             activate_assistant: raw.activate_assistant,
-            default_reply_mode: raw.default_reply_mode.clone(),
             receive_files: raw.receive_files,
             streaming_send: raw.streaming_send,
             show_tool_calls: raw.show_tool_calls,
-            allow_proactive_send: raw.allow_proactive_send,
             allow_send_files: raw.allow_send_files,
         });
     }

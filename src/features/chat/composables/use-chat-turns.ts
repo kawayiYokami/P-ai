@@ -121,6 +121,17 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
         audios: extractMessageAudios(message),
         attachmentFiles: extractMessageAttachmentFiles(message),
         taskTrigger: resolveTaskTrigger(message),
+        remoteImOrigin: (() => {
+          const origin = meta.origin as Record<string, unknown> | undefined;
+          if (!origin || origin.kind !== "remote_im") return undefined;
+          return {
+            senderName: String(origin.senderName || ""),
+            remoteContactName: String(origin.remoteContactName || "") || undefined,
+            remoteContactType: String(origin.remoteContactType || "private"),
+            channelId: String(origin.channelId || ""),
+            contactId: String(origin.contactId || ""),
+          };
+        })(),
         reasoningStandard:
           parsed.reasoningStandard
           || String(meta.reasoningStandard || "").trim(),

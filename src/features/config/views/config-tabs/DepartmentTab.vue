@@ -232,7 +232,7 @@ const hasEmptyDepartmentName = computed(() =>
   (props.config.departments || []).some((department) => !String(department.name || "").trim()),
 );
 const departmentValidationMessage = computed(() =>
-  validateDepartmentConfig(props.config, props.apiConfigs, (key, params) => t(key, params)),
+  validateDepartmentConfig(props.config, props.apiConfigs, (key, params) => t(key, params ?? {})),
 );
 const departmentSnapshot = computed(() => JSON.stringify(
   (props.config.departments || []).map((item) => ({

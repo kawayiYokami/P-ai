@@ -49,6 +49,7 @@ include!("features/config/app_data_layout.rs");
 include!("features/chat/conversation.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
+include!("features/remote_im/napcat_ws.rs");
 include!("features/remote_im.rs");
 include!("features/remote_im_adapters.rs");
 
@@ -70,6 +71,52 @@ include!("features/task.rs");
 include!("features/delegate.rs");
 
 include!("features/system/commands.rs");
+
+// Remote IM 命令包装
+#[tauri::command]
+async fn remote_im_get_channel_status(channel_id: String) -> Result<ChannelConnectionStatus, String> {
+    get_channel_connection_status(channel_id).await
+}
+
+#[tauri::command]
+async fn remote_im_get_channel_logs(channel_id: String) -> Result<Vec<ChannelLogEntry>, String> {
+    get_channel_logs(channel_id).await
+}
+
+#[tauri::command]
+async fn remote_im_restart_channel(
+    channel_id: String,
+    state: State<'_, AppState>,
+) -> Result<ChannelConnectionStatus, String> {
+    eprintln!("[远程IM] 重启渠道: {}", channel_id);
+    let config = state_read_config_cached(&state)
+        .map_err(|e| format!("{e}"))?;
+    let channel = config.remote_im_channels.iter()
+        .find(|ch| ch.id == channel_id)
+        .ok_or_else(|| format!("渠道 {} 未找到", channel_id))?
+        .clone();
+
+    let manager = napcat_ws_manager();
+    manager
+        .reconcile_channel_runtime(&channel)
+        .await
+        .map_err(|err| format!("重启渠道失败: {}", err))?;
+    eprintln!(
+        "[远程IM] 渠道 {} 已按配置收敛: enabled={}, platform={:?}",
+        channel_id, channel.enabled, channel.platform
+    );
+
+    if channel.enabled && channel.platform == RemoteImPlatform::OnebotV11 {
+        // 重启事件消费循环
+        let state_clone = state.inner().clone();
+        let cid = channel_id.clone();
+        tauri::async_runtime::spawn(async move {
+            napcat_start_event_consumer(cid, state_clone).await;
+        });
+    }
+
+    Ok(manager.get_connection_status(&channel_id).await)
+}
 
 fn main() {
     if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
@@ -214,6 +261,38 @@ fn main() {
             }
             let startup_state = app_handle.state::<AppState>().inner().clone();
             start_task_scheduler(startup_state.clone());
+            
+            // 启动 NapCat WebSocket 服务
+            {
+                let config = match state_read_config_cached(&app_handle.state::<AppState>()) {
+                    Ok(config) => config,
+                    Err(err) => {
+                        eprintln!("[启动] 读取 AppState 配置失败，使用默认配置: {:?}", err);
+                        AppConfig::default()
+                    }
+                };
+                let napcat_channels: Vec<_> = config
+                    .remote_im_channels
+                    .iter()
+                    .filter(|ch| ch.enabled && ch.platform == RemoteImPlatform::OnebotV11)
+                    .collect();
+                for channel in &napcat_channels {
+                    if let Err(err) = napcat_ws_server_start((*channel).clone(), app_handle.clone()) {
+                        eprintln!("[启动] 启动 NapCat WS 服务失败, 渠道 {}: {}", channel.id, err);
+                    }
+                }
+
+                // 启动事件消费循环
+                let event_state = app_handle.state::<AppState>().inner().clone();
+                for channel in &napcat_channels {
+                    let channel_id = channel.id.clone();
+                    let state_clone = event_state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        napcat_start_event_consumer(channel_id, state_clone).await;
+                    });
+                }
+            }
+            
             tauri::async_runtime::spawn(async move {
                 match mcp_redeploy_all_from_policy(&startup_state).await {
                     Ok(errors) => {
@@ -314,10 +393,15 @@ fn main() {
             clear_recent_llm_round_logs,
             remote_im_list_channels,
             remote_im_list_contacts,
-            remote_im_update_contact_reply_mode,
+            remote_im_update_contact_allow_send,
+            remote_im_update_contact_allow_receive,
+            remote_im_update_contact_activation,
             remote_im_update_contact_remark,
             remote_im_delete_contact,
             remote_im_enqueue_message,
+            remote_im_get_channel_status,
+            remote_im_get_channel_logs,
+            remote_im_restart_channel,
             desktop_screenshot,
             xcap,
             desktop_wait,

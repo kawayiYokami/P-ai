@@ -73,6 +73,13 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       });
       const activeConversationId = String(result.activeConversationId || "").trim();
       if (activeConversationId && options.currentConversationId) {
+        const previousConversationId = String(options.currentConversationId.value || "").trim();
+        console.info("[CHAT] conversation switched", {
+          previousConversationId,
+          newConversationId: activeConversationId,
+          apiConfigId,
+          agentId,
+        });
         options.currentConversationId.value = activeConversationId;
       }
       if (result.warning) {

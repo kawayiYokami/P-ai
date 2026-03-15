@@ -455,6 +455,7 @@ async fn process_conversation_batch(
         .find(|value| !value.is_empty())
         .unwrap_or("");
     let mut persisted_batch_messages = Vec::<ChatMessage>::new();
+    let mut event_activate_flags = Vec::<bool>::with_capacity(events.len());
 
     // 1. 先写入所有消息到会话记录。
     //
@@ -466,10 +467,19 @@ async fn process_conversation_batch(
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
 
         let mut data = state_read_app_data_cached(state)?;
-        if let Some(conversation) = data.conversations.iter_mut()
-            .find(|c| c.id == conversation_id && c.summary.trim().is_empty())
+        if let Some(conversation_idx) = data
+            .conversations
+            .iter()
+            .position(|c| c.id == conversation_id && c.summary.trim().is_empty())
         {
             for event in &events {
+                let event_should_activate = if matches!(event.source, ChatEventSource::RemoteIm) {
+                    should_activate_remote_im_event(event, &mut data, &history_flush_time)
+                } else {
+                    event.activate_assistant
+                };
+                event_activate_flags.push(event_should_activate);
+                let conversation = &mut data.conversations[conversation_idx];
                 for message in &event.messages {
                     let mut persisted = message.clone();
                     persisted.created_at = history_flush_time.clone();
@@ -484,7 +494,7 @@ async fn process_conversation_batch(
                     }
                 }
             }
-            conversation.updated_at = history_flush_time.clone();
+            data.conversations[conversation_idx].updated_at = history_flush_time.clone();
             state_write_app_data_cached(state, &data)?;
         } else {
             drop(guard);
@@ -501,7 +511,7 @@ async fn process_conversation_batch(
     // 2. 判断是否需要激活主助理。
     // 这一步故意放在“写历史之后”，避免出现前端先开流式、
     // 但本批消息还没正式落入历史的时序错乱。
-    let should_activate = events.iter().any(|e| e.activate_assistant);
+    let should_activate = event_activate_flags.into_iter().any(|v| v);
     let activate_status = if should_activate { "开始" } else { "跳过" };
 
     let batch_message_count = events.iter().map(|e| e.messages.len()).sum::<usize>();
@@ -563,13 +573,6 @@ async fn process_conversation_batch(
                 oldest_queue_created_at,
             ).await {
                 Ok(result) => {
-                    if let Err(err) = remote_im_on_assistant_round_completed(state, &result).await {
-                        eprintln!(
-                            "[远程IM] 助理轮次完成后处理出站失败: conversation_id={}, error={}",
-                            conversation_id,
-                            err
-                        );
-                    }
                     if let Some(active) = activation.as_ref() {
                         send_round_completed_event(active, &result);
                     }
@@ -697,6 +700,131 @@ async fn activate_main_assistant(
     // 改为在外部调用
 
     result
+}
+
+fn remote_im_event_message_text(event: &ChatPendingEvent) -> String {
+    event
+        .messages
+        .iter()
+        .flat_map(|message| message.parts.iter())
+        .filter_map(|part| match part {
+            MessagePart::Text { text } => Some(text.trim()),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn text_contains_keyword(text: &str, keyword: &str) -> bool {
+    text.to_ascii_lowercase()
+        .contains(&keyword.to_ascii_lowercase())
+}
+
+fn should_activate_remote_im_event(
+    event: &ChatPendingEvent,
+    data: &mut AppData,
+    now: &str,
+) -> bool {
+    let Some(sender) = event.sender_info.as_ref() else {
+        return false;
+    };
+    let Some(contact) = data
+        .remote_im_contacts
+        .iter_mut()
+        .find(|item| {
+            item.channel_id == sender.channel_id
+                && item.remote_contact_type == sender.remote_contact_type
+                && item.remote_contact_id == sender.remote_contact_id
+        })
+    else {
+        return false;
+    };
+
+    let mode = contact.activation_mode.trim().to_ascii_lowercase();
+    if mode != "always" && mode != "keyword" {
+        log_remote_im_activation_decision(
+            &sender.channel_id,
+            &contact.remote_contact_id,
+            "skip",
+            &format!("activationMode={}（不激活）", mode),
+        );
+        return false;
+    }
+
+    if mode == "keyword" {
+        let text = remote_im_event_message_text(event);
+        let matched = contact
+            .activation_keywords
+            .iter()
+            .map(|item| item.trim())
+            .filter(|item| !item.is_empty())
+            .any(|keyword| text_contains_keyword(&text, keyword));
+        if !matched {
+            log_remote_im_activation_decision(
+                &sender.channel_id,
+                &contact.remote_contact_id,
+                "skip",
+                "keyword 未命中，跳过激活",
+            );
+            return false;
+        }
+    }
+
+    let now_ts = chrono::DateTime::parse_from_rfc3339(now)
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0);
+    if contact.activation_cooldown_seconds > 0 {
+        if let Some(last) = contact
+            .last_activated_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        {
+            let elapsed = now_ts.saturating_sub(last.timestamp()) as u64;
+            if elapsed < contact.activation_cooldown_seconds {
+                let remaining = contact.activation_cooldown_seconds.saturating_sub(elapsed);
+                log_remote_im_activation_decision(
+                    &sender.channel_id,
+                    &contact.remote_contact_id,
+                    "skip",
+                    &format!("冷却中，remaining={}s", remaining),
+                );
+                return false;
+            }
+        }
+    }
+
+    contact.last_activated_at = Some(now.to_string());
+    log_remote_im_activation_decision(
+        &sender.channel_id,
+        &contact.remote_contact_id,
+        "activate",
+        "满足激活条件，触发主助理",
+    );
+    true
+}
+
+fn log_remote_im_activation_decision(
+    channel_id: &str,
+    remote_contact_id: &str,
+    action: &str,
+    reason: &str,
+) {
+    eprintln!(
+        "[远程IM][激活判定] channel_id={}, contact_id={}, action={}, reason={}",
+        channel_id, remote_contact_id, action, reason
+    );
+    let channel_id_owned = channel_id.to_string();
+    let message = format!(
+        "[激活判定] contactId={}, action={}, reason={}",
+        remote_contact_id, action, reason
+    );
+    let manager = napcat_ws_manager();
+    tauri::async_runtime::spawn(async move {
+        manager
+            .add_log(&channel_id_owned, "info", &message)
+            .await;
+    });
 }
 
 fn latest_user_text_from_events(events: &[ChatPendingEvent]) -> String {
