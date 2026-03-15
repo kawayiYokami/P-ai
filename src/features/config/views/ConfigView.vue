@@ -50,7 +50,7 @@
       </ul>
     </div>
 
-    <div class="flex-1 min-w-0 overflow-y-auto">
+    <div class="flex-1 min-w-0 overflow-y-auto scrollbar-gutter-stable">
       <SettingsContentContainer>
         <WelcomeTab
           v-if="props.configTab === 'welcome'"
@@ -678,4 +678,10 @@ onBeforeUnmount(() => {
   destroyCropper();
 });
 </script>
+
+<style scoped>
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+</style>
 
