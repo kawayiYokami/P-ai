@@ -1,3 +1,48 @@
+fn replace_disabled_multimodal_with_text(
+    prepared: &mut PreparedPrompt,
+    enable_image: bool,
+    enable_audio: bool,
+) -> (usize, usize, usize, usize) {
+    let mut history_images = 0usize;
+    let mut history_audios = 0usize;
+    let mut latest_images = 0usize;
+    let mut latest_audios = 0usize;
+
+    for hm in &mut prepared.history_messages {
+        if hm.role != "user" {
+            continue;
+        }
+        if !enable_image && !hm.images.is_empty() {
+            let count = hm.images.len();
+            history_images += count;
+            hm.images.clear();
+        }
+        if !enable_audio && !hm.audios.is_empty() {
+            let count = hm.audios.len();
+            history_audios += count;
+            hm.audios.clear();
+        }
+    }
+
+    if !enable_image && !prepared.latest_images.is_empty() {
+        latest_images = prepared.latest_images.len();
+        prepared.latest_images.clear();
+    }
+    if !enable_audio && !prepared.latest_audios.is_empty() {
+        latest_audios = prepared.latest_audios.len();
+        prepared.latest_audios.clear();
+    }
+
+    (history_images, history_audios, latest_images, latest_audios)
+}
+
+fn prepared_has_any_history_image(prepared: &PreparedPrompt) -> bool {
+    prepared
+        .history_messages
+        .iter()
+        .any(|hm| hm.role == "user" && !hm.images.is_empty())
+}
+
 async fn dispatch_openai_style_call(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -62,12 +107,11 @@ async fn call_model_openai_style(
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut prepared = prepared;
-    if !selected_api.enable_image && !prepared.latest_images.is_empty() {
-        prepared.latest_images.clear();
-    }
-    if !selected_api.enable_audio && !prepared.latest_audios.is_empty() {
-        prepared.latest_audios.clear();
-    }
+    let _ = replace_disabled_multimodal_with_text(
+        &mut prepared,
+        selected_api.enable_image,
+        selected_api.enable_audio,
+    );
     let started_at = std::time::Instant::now();
     let mut request_log = prepared_prompt_to_equivalent_request_json(
         &prepared,
@@ -169,26 +213,15 @@ async fn call_model_openai_style(
         match rig_result {
             Ok(reply) => Ok(reply),
             Err(err)
-                if !original.latest_images.is_empty() && is_image_unsupported_error(&err) =>
+                if ( !original.latest_images.is_empty() || prepared_has_any_history_image(&original))
+                    && is_image_unsupported_error(&err) =>
             {
                 eprintln!(
                     "[CHAT] Model rejected image input, fallback to text-only request. error={}",
                     err
                 );
                 let mut fallback = original;
-                if fallback.latest_user_extra_text.trim().is_empty() {
-                    fallback.latest_user_extra_text =
-                        "[系统提示] 已过滤图片附件：模型不支持当前图片输入格式，已自动切换为纯文本重试。"
-                            .to_string();
-                } else {
-                    fallback.latest_user_extra_text = format!(
-                        "{}\n\n{}",
-                        fallback.latest_user_extra_text.trim(),
-                        "[系统提示] 已过滤图片附件：模型不支持当前图片输入格式，已自动切换为纯文本重试。"
-                    );
-                }
-                fallback.latest_images.clear();
-                fallback.latest_audios.clear();
+                let _ = replace_disabled_multimodal_with_text(&mut fallback, false, true);
                 request_log = prepared_prompt_to_equivalent_request_json(
                     &fallback,
                     model_name,
