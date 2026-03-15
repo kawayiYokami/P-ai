@@ -298,6 +298,7 @@ export type ChatSnapshot = {
 export type ChatMessageBlock = {
   id: string;
   role: ChatRole;
+  isStreaming?: boolean;
   speakerAgentId?: string;
   createdAt?: string;
   text: string;

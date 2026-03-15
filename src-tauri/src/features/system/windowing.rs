@@ -302,7 +302,6 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("easy-call:refresh", ());
     Ok(())
 }
 

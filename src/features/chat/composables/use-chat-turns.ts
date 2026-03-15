@@ -114,6 +114,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       return {
         id: message.id,
         role: message.role,
+        isStreaming: !!meta._streaming,
         speakerAgentId: resolveSpeakerAgentId(message) || undefined,
         createdAt: String(message.createdAt || "").trim() || undefined,
         text: message.role === "assistant" ? parsed.assistantText : rendered,
@@ -144,6 +145,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       };
     }).filter((block) =>
       block.text
+      || !!block.isStreaming
       || block.images.length > 0
       || block.audios.length > 0
       || block.attachmentFiles.length > 0

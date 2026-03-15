@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.0 - 2026-03-16
+
+- feat(chat-ui): rework chat window rendering pipeline for stable streaming UX
+  - unify streaming/history bubble behavior and keep layout stable during stream start/finish
+  - fix assistant draft lifecycle to avoid duplicate bubbles and message overwrite flashes
+  - keep avatars, spacing, and action areas consistent while streaming state transitions
+- feat(chat-control): improve stop/regenerate interaction model
+  - allow immediate stop right after send (queued stage), and keep backend interruption in sync
+  - make send button switch to stop during active round for faster interruption
+  - only allow regenerate when the latest message is assistant
+- refactor(chat-runtime): remove coarse global refresh coupling
+  - drop window-wide `easy-call:refresh` listeners/emits for chat flow
+  - prevent stale delayed events from reviving cancelled rounds
+
 ## v0.3.8 - 2026-03-16
 
 - feat(remote-im): complete remote IM backend integration and main pipeline wiring

@@ -1006,7 +1006,7 @@ const {
   normalizeApiBindingsLocal,
 });
 
-const { suppressChatReloadWatch, refreshAllViewData, handleWindowRefreshSignal } = useViewRefresh({
+const { suppressChatReloadWatch, refreshAllViewData } = useViewRefresh({
   viewMode,
   recordHotkeySuppressAfterPopup: recordHotkey.suppressAfterPopup,
   recordHotkeySuppressMs: RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS,
@@ -1036,10 +1036,6 @@ const appBootstrap = useAppBootstrap({
     const lang = normalizeLocale(payload);
     config.uiLanguage = lang;
     locale.value = lang;
-  },
-  onRefreshSignal: async () => {
-    await handleWindowRefreshSignal();
-    void tryPrewarmChatMic();
   },
   onAgentWorkStarted: (payload) => {
     agentWorkPresence.markAgentWorkStarted(payload);
@@ -1597,7 +1593,15 @@ const chatFlow = useChatFlow({
       onDelta,
     }),
   invokeStopChatMessage: ({ session, partialAssistantText, partialReasoningStandard, partialReasoningInline }) =>
-    invokeTauri("stop_chat_message", {
+    invokeTauri<{
+      aborted: boolean;
+      persisted: boolean;
+      conversationId?: string | null;
+      assistantText?: string;
+      reasoningStandard?: string;
+      reasoningInline?: string;
+      assistantMessage?: ChatMessage;
+    }>("stop_chat_message", {
       input: {
         session: {
           apiConfigId: session.apiConfigId,
@@ -1622,18 +1626,12 @@ const chatFlow = useChatFlow({
     if (flushedConversationId) {
       currentChatConversationId.value = flushedConversationId;
     }
-    // 优先合并前端本地批次：history_flushed 到达后先把前端已确认批次并入当前视图，
-    // 避免流式开始前还阻塞等待后端全量历史。
-    {
-      const current = allMessages.value;
-      const mergedMap = new Map<string, ChatMessage>();
-      for (const message of current) mergedMap.set(message.id, message);
-      for (const message of pendingMessages || []) mergedMap.set(message.id, message);
-      const merged = [...current];
-      for (const message of pendingMessages || []) {
-        if (!merged.some((item) => item.id === message.id)) merged.push(message);
-      }
-      allMessages.value = merged.map((item) => mergedMap.get(item.id) as ChatMessage);
+    // 出队批次是原子重放：先清空，再按队列顺序逐条写入历史。
+    // 该阶段不做 merge / dedupe / 覆盖。
+    const queueMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
+    allMessages.value = [];
+    for (const message of queueMessages) {
+      allMessages.value = [...allMessages.value, message];
     }
     await loadUnarchivedConversations();
   },

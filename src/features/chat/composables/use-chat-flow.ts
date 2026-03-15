@@ -2,6 +2,10 @@ import { Channel } from "@tauri-apps/api/core";
 import { ref, type Ref } from "vue";
 import type { ChatMessage } from "../../../types/app";
 
+// ---------------------------------------------------------------------------
+// 1. 类型声明
+// ---------------------------------------------------------------------------
+
 export type AssistantDeltaEvent = {
   delta?: string;
   kind?: string;
@@ -46,7 +50,7 @@ type UseChatFlowOptions = {
   latestReasoningInlineText: Ref<string>;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamToolCalls: Ref<Array<{ name: string; argsText: string }>>;
+  streamToolCalls?: Ref<Array<{ name: string; argsText: string }>>;
   chatErrorText: Ref<string>;
   allMessages: Ref<ChatMessage[]>;
   visibleMessageBlockCount: Ref<number>;
@@ -74,7 +78,15 @@ type UseChatFlowOptions = {
     partialAssistantText: string;
     partialReasoningStandard: string;
     partialReasoningInline: string;
-  }) => Promise<void>;
+  }) => Promise<{
+    aborted: boolean;
+    persisted: boolean;
+    conversationId?: string | null;
+    assistantText?: string;
+    reasoningStandard?: string;
+    reasoningInline?: string;
+    assistantMessage?: ChatMessage;
+  }>;
   invokeBindActiveChatViewStream?: (input: {
     conversationId?: string;
     onDelta: Channel<AssistantDeltaEvent>;
@@ -87,40 +99,129 @@ type UseChatFlowOptions = {
   }) => Promise<void>;
 };
 
+// ---------------------------------------------------------------------------
+// 2. 常量
+// ---------------------------------------------------------------------------
+
 const STREAM_FLUSH_INTERVAL_MS = 33;
 const STREAM_DRAIN_TARGET_MS = 1000;
+const STREAM_DRAIN_TARGET_FAST_MS = 500;
+const STREAM_DRAIN_MIN_MS = 120;
+const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
+
+// ---------------------------------------------------------------------------
+// 3. 状态机
+//
+//   idle ──sendChat()──→ queued
+//   queued ──history_flushed──→ streaming（清屏 + reload + 插 draft）
+//   queued ──promise settled(无 history_flushed)──→ idle
+//   streaming ──round_completed(有剩余文本)──→ draining
+//   streaming ──round_completed(无剩余文本)──→ idle
+//   streaming ──stopChat()──→ idle
+//   draining ──排空完毕──→ idle
+//   draining ──stopChat()──→ idle
+//
+//   核心不变量：history_flushed 之后只允许更新 draft 气泡文字，
+//   不对 allMessages 做任何其他读写。
+// ---------------------------------------------------------------------------
+
+type RoundState =
+  | { phase: "idle" }
+  | { phase: "queued"; gen: number }
+  | { phase: "streaming"; gen: number; draftId: string }
+  | { phase: "draining"; gen: number; draftId: string; commitMessage: ChatMessage | null };
 
 export function useChatFlow(options: UseChatFlowOptions) {
-  // requestGeneration: 每次 send/stop 都会递增，用于区分不同请求实例。
-  // activeDisplayGeneration: 当前“前台可见轮次”的代号。
-  //
-  // 关键规则：
-  // 1. 新消息可以在主助理流式期间继续入队；
-  // 2. 入队请求不能抢占当前前台轮次，也不能清空当前流式显示；
-  // 3. 只有在收到 history_flushed 之后，才能把这批消息视为“正式进入历史”；
-  // 4. 也只有在 history_flushed 之后，前端才允许切换到新的前台轮次。
-  //
-  // 这套规则保证了：
-  // - 队列是入口层
-  // - 历史是唯一生效层
-  // - 主助理永远只有一个前台流式轮次
-  // 从而为未来的跨进程、多来源消息汇流保留稳定的状态边界。
-  let requestGeneration = 0;
-  let activeDisplayGeneration = 0;
+  // ── 状态 ──
+  let round: RoundState = { phase: "idle" };
+  let generation = 0;
+  let sendChatActiveGen = 0; // 防止 bound channel 抢占 sendChat 轮次
+  let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
+
+  // ── 流式缓冲 ──
   let streamPendingText = "";
   let streamDrainDeadline = 0;
   let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
   let streamToolCallCount = 0;
   let streamLastToolName = "";
+
   let activeHistoryMessageCount = 0;
   const reasoningStartedAtMs = ref(0);
 
-  function summarizeToolCallsText(): string {
-    if (streamToolCallCount <= 0) return "";
-    const extraCount = Math.max(0, streamToolCallCount - 1);
-    return extraCount > 0
-      ? `调用 ${streamLastToolName || "-"} (+${extraCount})`
-      : `调用 ${streamLastToolName || "-"}`;
+  // =========================================================================
+  // 工具函数（纯逻辑，无副作用）
+  // =========================================================================
+
+  function mergeAssistantText(currentText: string, finalText: string): string {
+    const current = String(currentText || "");
+    const finalValue = String(finalText || "");
+    if (!current) return finalValue;
+    if (!finalValue) return current;
+    if (finalValue.startsWith(current)) return finalValue;
+    return finalValue;
+  }
+
+  function reconcilePendingWithFinal(finalText: string): {
+    nextVisibleText: string;
+    nextPendingText: string;
+  } {
+    const finalValue = String(finalText || "");
+    const visible = String(options.latestAssistantText.value || "");
+    const pending = String(streamPendingText || "");
+    if (!finalValue) return { nextVisibleText: visible, nextPendingText: pending };
+    const combined = `${visible}${pending}`;
+    if (finalValue.startsWith(combined)) {
+      return { nextVisibleText: visible, nextPendingText: `${pending}${finalValue.slice(combined.length)}` };
+    }
+    if (finalValue.startsWith(visible)) {
+      return { nextVisibleText: visible, nextPendingText: finalValue.slice(visible.length) };
+    }
+    return { nextVisibleText: mergeAssistantText(visible, finalValue), nextPendingText: "" };
+  }
+
+  function readHistoryFlushedPayload(raw: string | undefined): HistoryFlushedPayload | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return {
+        conversationId: String(parsed.conversationId || "").trim(),
+        messageCount: Math.max(0, Math.round(Number(parsed.messageCount) || 0)),
+        messages: Array.isArray(parsed.messages) ? (parsed.messages as ChatMessage[]) : [],
+        activateAssistant: !!parsed.activateAssistant,
+      };
+    } catch {
+      return { conversationId: text, messageCount: 0, messages: [], activateAssistant: false };
+    }
+  }
+
+  function readRoundCompletedPayload(raw: string | undefined): RoundCompletedPayload | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return {
+        conversationId: String(parsed.conversationId || "").trim(),
+        assistantText: String(parsed.assistantText || ""),
+        reasoningStandard: typeof parsed.reasoningStandard === "string" ? parsed.reasoningStandard : undefined,
+        reasoningInline: typeof parsed.reasoningInline === "string" ? parsed.reasoningInline : undefined,
+        archivedBeforeSend: !!parsed.archivedBeforeSend,
+        assistantMessage: (parsed.assistantMessage as ChatMessage | undefined) || undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function readRoundFailedPayload(raw: string | undefined): RoundFailedPayload | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return { error: String(parsed.error || "") };
+    } catch {
+      return { error: text };
+    }
   }
 
   function readDeltaMessage(message: unknown): string {
@@ -145,13 +246,24 @@ export function useChatFlow(options: UseChatFlowOptions) {
     };
   }
 
-  function clearStreamBuffer() {
-    streamPendingText = "";
-    streamDrainDeadline = 0;
-    if (streamFlushTimer) {
-      clearInterval(streamFlushTimer);
-      streamFlushTimer = null;
-    }
+  function summarizeToolCallsText(): string {
+    if (streamToolCallCount <= 0) return "";
+    const extraCount = Math.max(0, streamToolCallCount - 1);
+    return extraCount > 0
+      ? `调用 ${streamLastToolName || "-"} (+${extraCount})`
+      : `调用 ${streamLastToolName || "-"}`;
+  }
+
+  function hasAssistantVisibleOutput(result: {
+    assistantText: string;
+    reasoningStandard?: string;
+    reasoningInline?: string;
+  }): boolean {
+    return (
+      !!result.assistantText.trim() ||
+      !!(result.reasoningStandard || "").trim() ||
+      !!(result.reasoningInline || "").trim()
+    );
   }
 
   function buildQueuedAttachmentPayload(): Array<{ fileName: string; relativePath: string; mime: string }> {
@@ -168,7 +280,154 @@ export function useChatFlow(options: UseChatFlowOptions) {
       .filter((v): v is { fileName: string; relativePath: string; mime: string } => !!v);
   }
 
-  function resetDisplayedRoundState() {
+  // =========================================================================
+  // Draft 操作 —— 唯一允许写 allMessages 的地方
+  //
+  // insertDraft: history_flushed 时插入空气泡
+  // updateDraftText: 流式期间把 latestAssistantText 同步到气泡
+  // removeDraft: history_flushed 清屏时移除上一轮残留
+  // =========================================================================
+
+  function insertDraft(gen: number): string {
+    const draftId = `${DRAFT_ASSISTANT_ID_PREFIX}${gen}`;
+    const agentId = String(options.getSession()?.agentId || "").trim();
+    const msg: ChatMessage = {
+      id: draftId,
+      role: "assistant",
+      createdAt: new Date().toISOString(),
+      speakerAgentId: agentId || "assistant-draft",
+      parts: [{ type: "text", text: "" }],
+      providerMeta: { reasoningStandard: "", reasoningInline: "", _streaming: true },
+    };
+    const cur = options.allMessages.value;
+    const idx = cur.findIndex((m) => m.id === draftId);
+    options.allMessages.value = idx < 0 ? [...cur, msg] : cur.map((m, i) => (i === idx ? msg : m));
+    return draftId;
+  }
+
+  function updateDraftText(draftId: string) {
+    if (!draftId) return;
+    const agentId = String(options.getSession()?.agentId || "").trim();
+    const msg: ChatMessage = {
+      id: draftId,
+      role: "assistant",
+      createdAt: new Date().toISOString(),
+      speakerAgentId: agentId || "assistant-draft",
+      parts: [{ type: "text", text: String(options.latestAssistantText.value || "") }],
+      providerMeta: {
+        reasoningStandard: String(options.latestReasoningStandardText.value || ""),
+        reasoningInline: String(options.latestReasoningInlineText.value || ""),
+        _streaming: true,
+      },
+    };
+    const cur = options.allMessages.value;
+    const idx = cur.findIndex((m) => m.id === draftId);
+    options.allMessages.value = idx < 0 ? [...cur, msg] : cur.map((m, i) => (i === idx ? msg : m));
+  }
+
+  function removeDraft(draftId: string) {
+    if (!draftId) return;
+    options.allMessages.value = options.allMessages.value.filter((m) => m.id !== draftId);
+  }
+
+  function finalizeDraft(draftId: string, finalMessage?: ChatMessage) {
+    if (!draftId) return;
+    const current = options.allMessages.value;
+    const draftIdx = current.findIndex((m) => m.id === draftId);
+    if (draftIdx < 0) return;
+
+    if (finalMessage) {
+      const deduped = current.filter((m, idx) => idx === draftIdx || m.id !== finalMessage.id);
+      const nextDraftIdx = deduped.findIndex((m) => m.id === draftId);
+      if (nextDraftIdx < 0) {
+        options.allMessages.value = deduped;
+        return;
+      }
+      options.allMessages.value = deduped.map((m, idx) => (idx === nextDraftIdx ? finalMessage : m));
+      return;
+    }
+
+    // 没有后端正式消息时，至少将 draft 退为非 streaming，避免残留流式态。
+    const draft = current[draftIdx];
+    const draftMeta = ((draft.providerMeta || {}) as Record<string, unknown>);
+    const nextMeta = { ...draftMeta };
+    delete (nextMeta as Record<string, unknown>)._streaming;
+    const normalized: ChatMessage = { ...draft, providerMeta: nextMeta };
+    options.allMessages.value = current.map((m, idx) => (idx === draftIdx ? normalized : m));
+  }
+
+  // =========================================================================
+  // 流式缓冲
+  // =========================================================================
+
+  function clearStreamBuffer() {
+    streamPendingText = "";
+    streamDrainDeadline = 0;
+    if (streamFlushTimer) {
+      clearInterval(streamFlushTimer);
+      streamFlushTimer = null;
+    }
+  }
+
+  function nextStreamChunk(pending: string, ticksLeft: number): string {
+    if (!pending) return "";
+    const maxChars = Math.max(1, Math.ceil(pending.length / Math.max(1, ticksLeft)));
+    const newlineIdx = pending.indexOf("\n");
+    if (newlineIdx >= 0 && newlineIdx + 1 <= maxChars) return pending.slice(0, newlineIdx + 1);
+    return pending.slice(0, maxChars);
+  }
+
+  function flushStreamBuffer(gen: number) {
+    if (round.phase !== "streaming" && round.phase !== "draining") { clearStreamBuffer(); return; }
+    if (round.gen !== gen) { clearStreamBuffer(); return; }
+
+    if (!streamPendingText) {
+      // draining 排空 → 回到 idle
+      if (round.phase === "draining") {
+        finalizeDraft(round.draftId, round.commitMessage ?? undefined);
+        round = { phase: "idle" };
+        options.chatting.value = false;
+        reasoningStartedAtMs.value = 0;
+      }
+      clearStreamBuffer();
+      return;
+    }
+
+    const msLeft = Math.max(1, streamDrainDeadline - Date.now());
+    const ticksLeft = Math.max(1, Math.ceil(msLeft / STREAM_FLUSH_INTERVAL_MS));
+    const chunk = nextStreamChunk(streamPendingText, ticksLeft);
+    options.latestAssistantText.value += chunk;
+    streamPendingText = streamPendingText.slice(chunk.length);
+    // 更新 draft 气泡文字（唯一允许的 allMessages 写入）
+    if (round.phase === "streaming" || round.phase === "draining") {
+      updateDraftText(round.draftId);
+    }
+
+    // 排空检查
+    if (!streamPendingText && round.phase === "draining") {
+      finalizeDraft(round.draftId, round.commitMessage ?? undefined);
+      round = { phase: "idle" };
+      options.chatting.value = false;
+      reasoningStartedAtMs.value = 0;
+      clearStreamBuffer();
+    }
+  }
+
+  function enqueueStreamDelta(gen: number, delta: string, speedMultiplier = 1) {
+    if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
+    streamPendingText += delta;
+    const safeSpeed = Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
+    streamDrainDeadline = Date.now() + Math.max(STREAM_DRAIN_MIN_MS, Math.round(STREAM_DRAIN_TARGET_MS / safeSpeed));
+    if (!streamFlushTimer) {
+      streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
+    }
+  }
+
+  // =========================================================================
+  // 显示状态重置（只在 history_flushed 清屏时调用）
+  // =========================================================================
+
+  function resetDisplayState() {
     clearStreamBuffer();
     streamToolCallCount = 0;
     streamLastToolName = "";
@@ -179,126 +438,39 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.latestReasoningInlineText.value = "";
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
-    options.streamToolCalls.value = [];
+    if (options.streamToolCalls) options.streamToolCalls.value = [];
   }
 
-  function hasAssistantVisibleOutput(result: {
-    assistantText: string;
-    reasoningStandard?: string;
-    reasoningInline?: string;
-  }): boolean {
-    return (
-      !!result.assistantText.trim() ||
-      !!(result.reasoningStandard || "").trim() ||
-      !!(result.reasoningInline || "").trim()
-    );
-  }
+  // =========================================================================
+  // 事件处理
+  // =========================================================================
 
-  function readHistoryFlushedPayload(
-    raw: string | undefined,
-  ): HistoryFlushedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      const conversationId = String(parsed.conversationId || "").trim();
-      const messageCount = Math.max(
-        0,
-        Math.round(Number(parsed.messageCount) || 0),
-      );
-      return {
-        conversationId,
-        messageCount,
-        messages: Array.isArray(parsed.messages) ? (parsed.messages as ChatMessage[]) : [],
-        activateAssistant: !!parsed.activateAssistant,
-      };
-    } catch {
-      return {
-        conversationId: text,
-        messageCount: 0,
-        messages: [],
-        activateAssistant: false,
-      };
-    }
-  }
+  /**
+   * history_flushed：唯一做 allMessages 大规模变更的地方。
+   * 1. 移除旧 draft   2. reload / onHistoryFlushed   3. 插入新 draft
+   * 之后不再碰 allMessages（除了 updateDraftText）。
+   */
+  async function handleHistoryFlushed(
+    gen: number,
+    parsed: AssistantDeltaEvent,
+    source: "sendChat" | "bound",
+  ) {
+    // sendChat 活跃时，bound channel 不抢占
+    if (source === "bound" && sendChatActiveGen > 0) return;
 
-  function readRoundCompletedPayload(
-    raw: string | undefined,
-  ): RoundCompletedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        conversationId: String(parsed.conversationId || "").trim(),
-        assistantText: String(parsed.assistantText || ""),
-        reasoningStandard:
-          typeof parsed.reasoningStandard === "string" ? parsed.reasoningStandard : undefined,
-        reasoningInline:
-          typeof parsed.reasoningInline === "string" ? parsed.reasoningInline : undefined,
-        archivedBeforeSend: !!parsed.archivedBeforeSend,
-        assistantMessage: (parsed.assistantMessage as ChatMessage | undefined) || undefined,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function readRoundFailedPayload(
-    raw: string | undefined,
-  ): RoundFailedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        error: String(parsed.error || ""),
-      };
-    } catch {
-      return {
-        error: text,
-      };
-    }
-  }
-
-  function flushStreamBuffer(gen: number) {
-    if (gen !== activeDisplayGeneration) {
-      clearStreamBuffer();
-      return;
-    }
-    if (!streamPendingText) {
-      if (!options.chatting.value) {
-        clearStreamBuffer();
-      }
-      return;
-    }
-    const now = Date.now();
-    const msLeft = Math.max(1, streamDrainDeadline - now);
-    const ticksLeft = Math.max(1, Math.ceil(msLeft / STREAM_FLUSH_INTERVAL_MS));
-    const step = Math.max(1, Math.ceil(streamPendingText.length / ticksLeft));
-    options.latestAssistantText.value += streamPendingText.slice(0, step);
-    streamPendingText = streamPendingText.slice(step);
-  }
-
-  function enqueueStreamDelta(gen: number, delta: string) {
-    if (gen !== activeDisplayGeneration || !delta) return;
-    streamPendingText += delta;
-    streamDrainDeadline = Date.now() + STREAM_DRAIN_TARGET_MS;
-    if (!streamFlushTimer) {
-      streamFlushTimer = setInterval(
-        () => flushStreamBuffer(gen),
-        STREAM_FLUSH_INTERVAL_MS,
-      );
-    }
-  }
-
-  async function handleHistoryFlushedEvent(gen: number, parsed: AssistantDeltaEvent) {
     const flushed = readHistoryFlushedPayload(parsed.message);
     const batchVisibleCount = Math.max(1, flushed?.messageCount || 0);
-    activeDisplayGeneration = gen;
     activeHistoryMessageCount = batchVisibleCount;
     options.visibleMessageBlockCount.value = batchVisibleCount;
-    resetDisplayedRoundState();
+
+    // ── 清屏 ──
+    const oldDraftId = (round.phase === "streaming" || round.phase === "draining") ? round.draftId : "";
+    resetDisplayState();
+    if (oldDraftId) removeDraft(oldDraftId);
+
+    round = { phase: "queued", gen };
+
+    // ── reload ──
     if (options.onHistoryFlushed) {
       await options.onHistoryFlushed({
         conversationId: String(flushed?.conversationId || "").trim(),
@@ -308,10 +480,28 @@ export function useChatFlow(options: UseChatFlowOptions) {
     } else {
       await options.onReloadMessages();
     }
-    options.chatting.value = !!flushed?.activateAssistant;
+
+    // await 后校验：可能已被新 sendChat 抢占
+    if (round.phase !== "queued" || round.gen !== gen) return;
+
+    // ── 插 draft / 进入 streaming ──
+    const shouldActivate = source === "sendChat" || !!flushed?.activateAssistant;
+    if (shouldActivate) {
+      const draftId = insertDraft(gen);
+      options.visibleMessageBlockCount.value = batchVisibleCount + 1;
+      round = { phase: "streaming", gen, draftId };
+      options.chatting.value = true;
+    } else {
+      round = { phase: "idle" };
+      options.chatting.value = false;
+    }
   }
 
-  async function applyRoundCompleted(
+  /**
+   * round_completed：终结当前轮次。
+   * 只做文字收尾 + 状态转换，不碰 allMessages（除了 updateDraftText）。
+   */
+  function handleRoundCompleted(
     gen: number,
     result: {
       assistantText: string;
@@ -320,9 +510,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
       assistantMessage?: ChatMessage;
     },
   ) {
-    if (gen !== activeDisplayGeneration) return;
-    clearStreamBuffer();
-    options.latestAssistantText.value = String(result.assistantText || "");
+    if (round.phase !== "streaming" || round.gen !== gen) return;
+    const { draftId } = round;
+
+    // 对齐最终文本
+    const reconciled = reconcilePendingWithFinal(String(result.assistantText || ""));
+    options.latestAssistantText.value = reconciled.nextVisibleText;
+    streamPendingText = reconciled.nextPendingText;
+
     if (typeof result.reasoningStandard === "string") {
       options.latestReasoningStandardText.value = result.reasoningStandard;
     }
@@ -332,25 +527,37 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatErrorText.value = "";
     if ((options.toolStatusState.value as string) === "running") {
       options.toolStatusState.value = "done";
-      options.toolStatusText.value =
-        summarizeToolCallsText() || options.t("status.toolCallDone");
+      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallDone");
     }
-    if (result.assistantMessage) {
-      const currentMessages = options.allMessages.value;
-      if (!currentMessages.some((item) => item.id === result.assistantMessage?.id)) {
-        options.allMessages.value = [...currentMessages, result.assistantMessage];
-      }
-    } else {
-      await options.onReloadMessages();
-    }
+
     options.visibleMessageBlockCount.value =
       activeHistoryMessageCount + (hasAssistantVisibleOutput(result) ? 1 : 0);
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
+
+    if (streamPendingText) {
+      // 有剩余 → draining，逐帧排空后自动 idle
+      streamDrainDeadline = Date.now() + Math.max(STREAM_DRAIN_MIN_MS, Math.round(STREAM_DRAIN_TARGET_FAST_MS));
+      if (!streamFlushTimer) {
+        streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
+      }
+      updateDraftText(draftId);
+      round = { phase: "draining", gen, draftId, commitMessage: result.assistantMessage || null };
+      // draining 仍属于当前轮次，保持 chatting=true，避免被外部 refresh 抢写最终消息。
+      options.chatting.value = true;
+    } else {
+      // 无剩余 → 写完最后一帧，直接 idle
+      updateDraftText(draftId);
+      finalizeDraft(draftId, result.assistantMessage);
+      round = { phase: "idle" };
+      clearStreamBuffer();
+      options.chatting.value = false;
+      reasoningStartedAtMs.value = 0;
+    }
   }
 
-  async function applyRoundFailed(gen: number, error: unknown) {
-    if (gen !== activeDisplayGeneration) return;
+  function handleRoundFailed(gen: number, error: unknown) {
+    if (round.phase !== "streaming" || round.gen !== gen) return;
+    const { draftId } = round;
+
     clearStreamBuffer();
     options.latestAssistantText.value = "";
     options.latestReasoningStandardText.value = "";
@@ -358,176 +565,170 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatErrorText.value = options.formatRequestFailed(error);
     if (!options.toolStatusText.value) {
       options.toolStatusState.value = "failed";
-      options.toolStatusText.value =
-        summarizeToolCallsText() || options.t("status.toolCallFailed");
+      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallFailed");
     }
     options.visibleMessageBlockCount.value = activeHistoryMessageCount;
+    removeDraft(draftId);
+    round = { phase: "idle" };
     options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
-    await options.onReloadMessages();
   }
+
+  // =========================================================================
+  // Delta 分发
+  // =========================================================================
 
   function attachDeltaHandler(
     channel: Channel<AssistantDeltaEvent>,
-    getGeneration: () => number,
-    nextGenerationOnHistoryFlushed: () => number,
+    source: "sendChat" | "bound",
+    getGen: () => number,
+    nextGenOnHistoryFlushed: () => number,
   ) {
     channel.onmessage = (event) => {
       const parsed = readAssistantEvent(event);
+
       if (parsed.kind === "history_flushed") {
-        const gen = nextGenerationOnHistoryFlushed();
-        void handleHistoryFlushedEvent(gen, parsed).catch((error) => {
-          const err = error as { message?: unknown; stack?: unknown };
+        const hfGen = nextGenOnHistoryFlushed();
+        // sendChat 轮次如果已被本地中断（generation 已前进），忽略迟到的 history_flushed。
+        if (source === "sendChat" && hfGen !== generation) {
+          return;
+        }
+        if (source === "sendChat") {
+          historyFlushedReceivedGen = Math.max(historyFlushedReceivedGen, hfGen);
+        }
+        void handleHistoryFlushed(hfGen, parsed, source).catch((err) => {
           console.error("[聊天] history_flushed 处理失败", {
-            action: "history_flushed",
-            message: String(err?.message ?? error ?? ""),
-            stack: String(err?.stack ?? ""),
-            requestGeneration: gen,
+            message: String((err as { message?: string })?.message ?? err ?? ""),
+            gen: hfGen,
           });
-          options.chatErrorText.value = options.formatRequestFailed(error);
+          options.chatErrorText.value = options.formatRequestFailed(err);
         });
         return;
       }
-      const gen = getGeneration();
-      if (!gen || gen !== activeDisplayGeneration) return;
+
+      const currentGen = getGen();
+      if (!currentGen) return;
+      if (round.phase !== "streaming" && round.phase !== "draining") return;
+      if (round.gen !== currentGen) return;
+
       if (parsed.kind === "round_completed") {
-        const payload = readRoundCompletedPayload(parsed.message);
-        void applyRoundCompleted(gen, {
-          assistantText: String(payload?.assistantText || ""),
-          reasoningStandard: payload?.reasoningStandard,
-          reasoningInline: payload?.reasoningInline,
-          assistantMessage: payload?.assistantMessage,
-        }).catch((error) => {
-          const err = error as { message?: unknown; stack?: unknown };
-          console.error("[聊天] round_completed 处理失败", {
-            action: "round_completed",
-            message: String(err?.message ?? error ?? ""),
-            stack: String(err?.stack ?? ""),
-            requestGeneration: gen,
-          });
-          options.chatErrorText.value = options.formatRequestFailed(error);
+        const p = readRoundCompletedPayload(parsed.message);
+        handleRoundCompleted(currentGen, {
+          assistantText: String(p?.assistantText || ""),
+          reasoningStandard: p?.reasoningStandard,
+          reasoningInline: p?.reasoningInline,
+          assistantMessage: p?.assistantMessage,
         });
         return;
       }
       if (parsed.kind === "round_failed") {
-        const payload = readRoundFailedPayload(parsed.message);
-        void applyRoundFailed(gen, payload?.error || parsed.message || "round_failed").catch((error) => {
-          const err = error as { message?: unknown; stack?: unknown };
-          console.error("[聊天] round_failed 处理失败", {
-            action: "round_failed",
-            message: String(err?.message ?? error ?? ""),
-            stack: String(err?.stack ?? ""),
-            requestGeneration: gen,
-          });
-          options.chatErrorText.value = options.formatRequestFailed(error);
-        });
+        const p = readRoundFailedPayload(parsed.message);
+        handleRoundFailed(currentGen, p?.error || parsed.message || "round_failed");
         return;
       }
+
+      if (round.phase !== "streaming") return;
+
       if (parsed.kind === "tool_status") {
         const toolName = String(parsed.toolName || "").trim();
         if (parsed.toolStatus === "running" && toolName) {
           streamToolCallCount += 1;
           streamLastToolName = toolName;
-          options.streamToolCalls.value = [
-            ...options.streamToolCalls.value,
-            {
-              name: toolName,
-              argsText: String(parsed.toolArgs || "").trim(),
-            },
-          ];
+          if (options.streamToolCalls) {
+            options.streamToolCalls.value = [
+              ...options.streamToolCalls.value,
+              { name: toolName, argsText: String(parsed.toolArgs || "").trim() },
+            ];
+          }
         }
         options.toolStatusText.value = parsed.message || "";
         options.toolStatusState.value =
-          parsed.toolStatus === "running" ||
-          parsed.toolStatus === "done" ||
-          parsed.toolStatus === "failed"
-            ? parsed.toolStatus
-            : "";
+          parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
+            ? parsed.toolStatus : "";
         return;
       }
       if (parsed.kind === "reasoning_standard") {
-        const deltaText = readDeltaMessage(parsed);
-        if (deltaText && reasoningStartedAtMs.value === 0)
-          reasoningStartedAtMs.value = Date.now();
-        options.latestReasoningStandardText.value += deltaText;
+        const dt = readDeltaMessage(parsed);
+        if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
+        options.latestReasoningStandardText.value += dt;
+        updateDraftText(round.draftId);
         return;
       }
       if (parsed.kind === "reasoning_inline") {
-        const deltaText = readDeltaMessage(parsed);
-        if (deltaText && reasoningStartedAtMs.value === 0)
-          reasoningStartedAtMs.value = Date.now();
-        options.latestReasoningInlineText.value += deltaText;
+        const dt = readDeltaMessage(parsed);
+        if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
+        options.latestReasoningInlineText.value += dt;
+        updateDraftText(round.draftId);
         return;
       }
-      enqueueStreamDelta(gen, readDeltaMessage(parsed));
+
+      enqueueStreamDelta(currentGen, readDeltaMessage(parsed));
     };
   }
+
+  // =========================================================================
+  // Bound channel
+  // =========================================================================
 
   let boundConversationId = "";
   let boundDisplayGeneration = 0;
   const boundDeltaChannel = new Channel<AssistantDeltaEvent>();
   attachDeltaHandler(
     boundDeltaChannel,
+    "bound",
     () => boundDisplayGeneration,
-    () => {
-      boundDisplayGeneration = ++requestGeneration;
-      return boundDisplayGeneration;
-    },
+    () => { boundDisplayGeneration = ++generation; return boundDisplayGeneration; },
   );
 
   async function bindActiveConversationStream(conversationId: string) {
     if (!options.invokeBindActiveChatViewStream) return;
-    const trimmedConversationId = String(conversationId || "").trim();
-    if (trimmedConversationId === boundConversationId) return;
-    await options.invokeBindActiveChatViewStream({
-      conversationId: trimmedConversationId || undefined,
-      onDelta: boundDeltaChannel,
-    });
-    boundConversationId = trimmedConversationId;
-    if (!trimmedConversationId) {
-      boundDisplayGeneration = 0;
-    }
+    const id = String(conversationId || "").trim();
+    if (id === boundConversationId) return;
+    await options.invokeBindActiveChatViewStream({ conversationId: id || undefined, onDelta: boundDeltaChannel });
+    boundConversationId = id;
+    if (!id) boundDisplayGeneration = 0;
   }
 
+  // =========================================================================
+  // 公共方法
+  // =========================================================================
+
   async function sendChat() {
-    // 注意：不再检查 forcingArchive 和 chatting，因为后端已通过状态机（MainSessionState）和队列处理并发控制
-    // 流式期间和归档期间的消息都会入队，由后端串行处理
     const plainText = options.chatInput.value.trim();
     const attachments = buildQueuedAttachmentPayload();
-    const text = plainText;
-    const displayText = plainText;
-    if (!text && options.clipboardImages.value.length === 0 && attachments.length === 0) return;
+    if (!plainText && options.clipboardImages.value.length === 0 && attachments.length === 0) return;
     const sendSession = options.getSession();
-    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId)
-      return;
+    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
     const wasChatting = options.chatting.value;
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
-    options.streamToolCalls.value = [];
+    if (options.streamToolCalls) options.streamToolCalls.value = [];
     options.chatErrorText.value = "";
 
     const sentImages = [...options.clipboardImages.value];
     options.chatInput.value = "";
     options.clipboardImages.value = [];
-    if (options.queuedAttachmentNotices) {
-      options.queuedAttachmentNotices.value = [];
+    if (options.queuedAttachmentNotices) options.queuedAttachmentNotices.value = [];
+
+    const gen = ++generation;
+    sendChatActiveGen = gen;
+
+    if (!wasChatting) {
+      resetDisplayState();
+      if (round.phase === "streaming" || round.phase === "draining") removeDraft(round.draftId);
+      round = { phase: "queued", gen };
+      // 发送后立即进入可停止态（即使流式尚未开始）。
+      options.chatting.value = true;
     }
 
-    const gen = ++requestGeneration;
-    if (!wasChatting) {
-      // 非对话中发送时，先只完成“入队”。
-      // 当前轮次必须等到 history_flushed 之后，才允许进入前台可见状态。
-      activeDisplayGeneration = gen;
-      resetDisplayedRoundState();
-    }
     const deltaChannel = new Channel<AssistantDeltaEvent>();
-    attachDeltaHandler(deltaChannel, () => gen, () => gen);
+    attachDeltaHandler(deltaChannel, "sendChat", () => gen, () => gen);
 
     try {
       const result = await options.invokeSendChatMessage({
-        text,
-        displayText,
+        text: plainText,
+        displayText: plainText,
         images: sentImages,
         attachments: attachments.length > 0 ? attachments : undefined,
         session: {
@@ -536,32 +737,30 @@ export function useChatFlow(options: UseChatFlowOptions) {
         },
         onDelta: deltaChannel,
       });
-      const currentSession = options.getSession();
-      const sameSession =
-        !!currentSession &&
-        currentSession.apiConfigId === sendSession.apiConfigId &&
-        currentSession.agentId === sendSession.agentId;
-      if (!sameSession) return;
-      await applyRoundCompleted(gen, {
-        assistantText: String(result.assistantText || ""),
-        reasoningStandard: result.reasoningStandard,
-        reasoningInline: result.reasoningInline,
-        assistantMessage: result.assistantMessage,
-      });
+
+      const cur = options.getSession();
+      if (!cur || cur.apiConfigId !== sendSession.apiConfigId || cur.agentId !== sendSession.agentId) return;
+
+      // Promise fallback：delta 通道已处理过就跳过
+      if (round.phase === "streaming" && round.gen === gen) {
+        handleRoundCompleted(gen, {
+          assistantText: String(result.assistantText || ""),
+          reasoningStandard: result.reasoningStandard,
+          reasoningInline: result.reasoningInline,
+          assistantMessage: result.assistantMessage,
+        });
+      }
     } catch (error) {
-      const err = error as { message?: unknown; stack?: unknown };
       console.error("[聊天] 聊天流程请求失败", {
-        action: "sendChat",
-        apiConfigId: sendSession.apiConfigId,
-        agentId: sendSession.agentId,
-        requestGeneration: gen,
-        message: String(err?.message ?? error ?? ""),
-        stack: String(err?.stack ?? ""),
+        action: "sendChat", apiConfigId: sendSession.apiConfigId, agentId: sendSession.agentId,
+        gen, message: String((error as { message?: string })?.message ?? error ?? ""),
       });
-      if (gen !== activeDisplayGeneration) {
+
+      if (round.phase === "idle" || round.gen !== gen) {
         options.chatErrorText.value = options.formatRequestFailed(error);
         return;
       }
+
       clearStreamBuffer();
       options.latestAssistantText.value = "";
       options.latestReasoningStandardText.value = "";
@@ -569,21 +768,27 @@ export function useChatFlow(options: UseChatFlowOptions) {
       options.chatErrorText.value = options.formatRequestFailed(error);
       if (!options.toolStatusText.value) {
         options.toolStatusState.value = "failed";
-        options.toolStatusText.value =
-          summarizeToolCallsText() || options.t("status.toolCallFailed");
+        options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallFailed");
       }
-      const currentSession = options.getSession();
-      const sameSession =
-        !!currentSession &&
-        currentSession.apiConfigId === sendSession.apiConfigId &&
-        currentSession.agentId === sendSession.agentId;
-      if (sameSession) {
-        await applyRoundFailed(gen, error);
-      }
-    } finally {
-      if (gen === activeDisplayGeneration) {
+
+      const cur = options.getSession();
+      if (cur && cur.apiConfigId === sendSession.apiConfigId && cur.agentId === sendSession.agentId
+          && round.phase === "streaming" && round.gen === gen) {
+        removeDraft(round.draftId);
+        round = { phase: "idle" };
         options.chatting.value = false;
         reasoningStartedAtMs.value = 0;
+        options.visibleMessageBlockCount.value = activeHistoryMessageCount;
+      }
+    } finally {
+      if (sendChatActiveGen === gen) sendChatActiveGen = 0;
+      // 仅在该轮次未收到 history_flushed 时，才执行 queued 兜底回收。
+      // 否则可能与 handleHistoryFlushed 的 await 竞态，导致 draft 无法插入。
+      if (round.phase === "queued" && round.gen === gen && historyFlushedReceivedGen !== gen) {
+        round = { phase: "idle" };
+        options.chatting.value = false;
+        reasoningStartedAtMs.value = 0;
+        await options.onReloadMessages();
       }
     }
   }
@@ -591,66 +796,89 @@ export function useChatFlow(options: UseChatFlowOptions) {
   async function stopChat() {
     if (!options.chatting.value) return;
     const stopSession = options.getSession();
-    const gen = ++requestGeneration;
-    activeDisplayGeneration = gen;
-    if (streamPendingText) {
-      options.latestAssistantText.value += streamPendingText;
-      streamPendingText = "";
-    }
-    clearStreamBuffer();
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    if (options.toolStatusState.value === "running") {
-      options.toolStatusState.value = "failed";
-      options.toolStatusText.value =
-        summarizeToolCallsText() || options.t("status.interrupted");
-    } else {
-      options.toolStatusState.value = "";
-      options.toolStatusText.value = "";
-    }
-    const partialAssistantText = options.latestAssistantText.value;
+    const cid = options.getConversationId ? options.getConversationId() : "";
+    const partialAssistantText = `${options.latestAssistantText.value}${streamPendingText}`;
     const partialReasoningStandard = options.latestReasoningStandardText.value;
     const partialReasoningInline = options.latestReasoningInlineText.value;
+
+    // queued 阶段：尚未进入流式，直接本地中断，不请求后端 stop。
+    if (round.phase === "queued") {
+      ++generation;
+      sendChatActiveGen = 0;
+      clearStreamBuffer();
+      round = { phase: "idle" };
+      options.chatting.value = false;
+      reasoningStartedAtMs.value = 0;
+      options.toolStatusState.value = "";
+      options.toolStatusText.value = "";
+      // 本地立即停的同时，异步通知后端中断正在排队/执行中的请求。
+      if (stopSession && options.invokeStopChatMessage) {
+        void options
+          .invokeStopChatMessage({
+            session: cid ? { ...stopSession, conversationId: cid } : stopSession,
+            partialAssistantText,
+            partialReasoningStandard,
+            partialReasoningInline,
+          })
+          .catch((error) => {
+            const et = error instanceof Error
+              ? `${error.message}\n${error.stack || ""}`.trim()
+              : (() => { try { return JSON.stringify(error); } catch { return String(error); } })();
+            console.warn(`[聊天] queued 停止后端中断失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，错误=${et}`);
+          });
+      }
+      return;
+    }
+
     if (stopSession && options.invokeStopChatMessage) {
       try {
-        const conversationId = options.getConversationId ? options.getConversationId() : "";
-        await options.invokeStopChatMessage({
-          session: conversationId
-            ? {
-                ...stopSession,
-                conversationId,
-              }
-            : stopSession,
+        const stopResult = await options.invokeStopChatMessage({
+          session: cid ? { ...stopSession, conversationId: cid } : stopSession,
           partialAssistantText,
           partialReasoningStandard,
           partialReasoningInline,
         });
+        const activeGen =
+          round.phase === "streaming" || round.phase === "draining"
+            ? round.gen
+            : 0;
+        if (activeGen > 0) {
+          handleRoundCompleted(activeGen, {
+            assistantText: String(stopResult?.assistantText || partialAssistantText),
+            reasoningStandard:
+              typeof stopResult?.reasoningStandard === "string"
+                ? stopResult.reasoningStandard
+                : partialReasoningStandard,
+            reasoningInline:
+              typeof stopResult?.reasoningInline === "string"
+                ? stopResult.reasoningInline
+                : partialReasoningInline,
+            assistantMessage: stopResult?.assistantMessage,
+          });
+        }
+        return;
       } catch (error) {
-        const errorText =
-          error instanceof Error
-            ? `${error.message}\n${error.stack || ""}`.trim()
-            : (() => {
-                try {
-                  return JSON.stringify(error);
-                } catch {
-                  return String(error);
-                }
-              })();
-        console.warn(
-          `[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，latestAssistantTextLength=${partialAssistantText.length}，错误=${errorText}`,
-        );
+        const et = error instanceof Error
+          ? `${error.message}\n${error.stack || ""}`.trim()
+          : (() => { try { return JSON.stringify(error); } catch { return String(error); } })();
+        console.warn(`[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，len=${partialAssistantText.length}，错误=${et}`);
       }
     }
-    if (gen !== activeDisplayGeneration) return;
-    // stop 是纠偏路径，保持从后端整段重载，确保最终一致性。
+
+    // stop 失败时，回退本地中断，避免 UI 挂在 streaming 态。
+    ++generation;
+    sendChatActiveGen = 0;
+    clearStreamBuffer();
+    if (round.phase === "streaming" || round.phase === "draining") {
+      removeDraft(round.draftId);
+    }
+    round = { phase: "idle" };
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+    options.toolStatusState.value = "failed";
+    options.toolStatusText.value = summarizeToolCallsText() || options.t("status.interrupted");
     await options.onReloadMessages();
   }
 
-  return {
-    sendChat,
-    stopChat,
-    bindActiveConversationStream,
-    clearStreamBuffer,
-    reasoningStartedAtMs,
-  };
+  return { sendChat, stopChat, bindActiveConversationStream, clearStreamBuffer, reasoningStartedAtMs };
 }

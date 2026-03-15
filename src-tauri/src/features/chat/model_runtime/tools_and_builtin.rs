@@ -1641,22 +1641,6 @@ struct AgentWorkSignalPayload {
     delegate_id: String,
 }
 
-fn emit_refresh_signal(app_state: &AppState) -> Result<(), String> {
-    let app_handle = {
-        let guard = app_state
-            .app_handle
-            .lock()
-            .map_err(|_| "Failed to lock app handle".to_string())?;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "App handle is not ready".to_string())?
-    };
-    app_handle
-        .emit("easy-call:refresh", ())
-        .map_err(|err| format!("Emit refresh signal failed: {err}"))
-}
-
 fn emit_agent_work_signal(
     app_state: &AppState,
     event_name: &str,
@@ -1765,14 +1749,6 @@ async fn delegate_run_thread_to_completion(
             err
         );
     }
-    if let Err(err) = emit_refresh_signal(&app_state) {
-        eprintln!(
-            "[委托线程] 刷新前端失败: stage=create, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
-            delegate_thread_id,
-            delegate.delegate_id,
-            err
-        );
-    }
     let mut run_result = Err("未尝试任何候选模型".to_string());
     let mut errors = Vec::<String>::new();
     for api_config_id in target_api_config_ids {
@@ -1848,14 +1824,6 @@ async fn delegate_run_thread_to_completion(
                     err
                 );
             }
-            if let Err(err) = emit_refresh_signal(&app_state) {
-                eprintln!(
-                    "[委托线程] 刷新前端失败: stage=completed, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
-                    err
-                );
-            }
             Ok(result)
         }
         Err(err) => {
@@ -1897,14 +1865,6 @@ async fn delegate_run_thread_to_completion(
                     delegate.delegate_id,
                     delegate.target_agent_id,
                     stop_err
-                );
-            }
-            if let Err(refresh_err) = emit_refresh_signal(&app_state) {
-                eprintln!(
-                    "[委托线程] 刷新前端失败: stage=failed, function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
-                    refresh_err
                 );
             }
             Err(err)

@@ -15,14 +15,36 @@
       @wheel.passive="onWheel"
     >
       <!-- 历史对话 -->
-      <template v-for="block in messageBlocks" :key="block.id">
+      <template v-for="(block, blockIndex) in messageBlocks" :key="block.id">
         <div :class="['chat group/user-turn mt-3', isOwnMessage(block) ? 'chat-end' : 'chat-start']">
-          <div class="chat-image avatar self-start ecall-chat-avatar-col">
-            <div class="w-7 rounded-full">
-              <img v-if="messageAvatarUrl(block)" :src="messageAvatarUrl(block)" :alt="messageName(block)" />
-              <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
-                {{ avatarInitial(messageName(block)) }}
+          <div class="chat-image self-start ecall-chat-avatar-col">
+            <div class="flex w-7 flex-col items-center gap-2">
+              <div class="avatar">
+                <div class="w-7 rounded-full">
+                  <img
+                    v-if="messageAvatarUrl(block)"
+                    :src="messageAvatarUrl(block)"
+                    :alt="messageName(block)"
+                    class="w-7 h-7 rounded-full object-cover"
+                  />
+                  <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
+                    {{ avatarInitial(messageName(block)) }}
+                  </div>
+                </div>
               </div>
+              <button
+                v-if="showStreamingUi(block)"
+                type="button"
+                class="btn btn-error btn-circle relative h-6 min-h-0 w-6 p-0"
+                :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
+                :disabled="!chatting"
+                @click="$emit('stopChat')"
+              >
+                <Square class="h-4 w-4 fill-current" />
+                <span v-if="chatting" class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span class="loading loading-spinner loading-xl"></span>
+                </span>
+              </button>
             </div>
           </div>
           <div class="chat-header mb-1 flex items-center gap-2">
@@ -40,7 +62,7 @@
               <Undo2 class="h-3 w-3" />
             </button>
             <span class="text-xs text-base-content">{{ messageName(block) }}</span>
-            <time v-if="formattedBlockTime(block.createdAt)" class="text-[10px] opacity-50">{{ formattedBlockTime(block.createdAt) }}</time>
+            <time v-if="formattedBlockTime(block.createdAt) && !block.isStreaming" class="text-[10px] opacity-50">{{ formattedBlockTime(block.createdAt) }}</time>
           </div>
           <div :class="['chat-bubble max-w-[92%]', isOwnMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70 assistant-markdown']">
             <div v-if="block.taskTrigger" class="space-y-2">
@@ -92,10 +114,11 @@
               v-if="!isOwnMessage(block) && block.reasoningStandard"
               class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
             >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center text-base-content/80">
+              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center gap-1 text-base-content/80">
                 <span class="block min-w-0 flex-1 truncate">
                   {{ firstLinePreview(block.reasoningStandard) || "..." }}
                 </span>
+                <span v-if="block.isStreaming" class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
               <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
                 {{ block.reasoningStandard }}
@@ -105,10 +128,11 @@
               v-if="!isOwnMessage(block) && resolvedInlineReasoning(block)"
               class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
             >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
+              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
                 <span class="block min-w-0 flex-1 truncate">
                   {{ firstLinePreview(resolvedInlineReasoning(block)) || "..." }}
                 </span>
+                <span v-if="block.isStreaming" class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
               <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
                 {{ resolvedInlineReasoning(block) }}
@@ -129,10 +153,7 @@
                 </div>
               </details>
             </div>
-            <div
-              v-if="block.text"
-              :class="block.taskTrigger ? 'mt-3' : ''"
-            >
+            <div v-if="block.text" :class="block.taskTrigger ? 'mt-3' : ''">
               <div
                 v-if="isOwnMessage(block)"
                 class="whitespace-pre-wrap"
@@ -143,6 +164,25 @@
                 v-html="renderMarkdown(splitThinkText(block.text).visible)"
                 @click="handleAssistantLinkClick"
               ></div>
+              <span v-if="showStreamingUi(block)" class="inline-block w-1.5 h-4 bg-base-content animate-pulse"></span>
+            </div>
+            <div v-else-if="showStreamingUi(block)" class="mt-1">
+              <span class="loading loading-dots loading-sm"></span>
+            </div>
+            <div
+              v-if="showStreamingUi(block) && toolStatusText"
+              class="mt-1 text-[11px] opacity-80 flex items-center gap-1"
+            >
+              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-sm"></span>
+              <span
+                v-else-if="toolStatusState === 'failed'"
+                class="inline-block w-1.5 h-1.5 rounded-full bg-error"
+              ></span>
+              <span
+                v-else-if="toolStatusState === 'done'"
+                class="inline-block w-1.5 h-1.5 rounded-full bg-success"
+              ></span>
+              <span>{{ toolStatusText }}</span>
             </div>
             <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
               <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
@@ -185,13 +225,7 @@
                 <span class="text-[11px]">{{ file.fileName }}</span>
               </div>
             </div>
-            <div
-              v-if="!isOwnMessage(block)"
-              :class="[
-                'mt-2 flex items-center gap-1.5 transition-opacity',
-                chatting || frozen ? 'opacity-0 pointer-events-none' : 'opacity-100',
-              ]"
-            >
+            <div v-if="!isOwnMessage(block) && !block.isStreaming && !chatting && !frozen" class="mt-2 flex items-center gap-1.5">
               <button
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
@@ -202,132 +236,12 @@
                 <Copy class="h-3.5 w-3.5" />
               </button>
               <button
-                v-if="block.role === 'assistant'"
+                v-if="canRegenerateBlock(block, blockIndex)"
                 type="button"
                 class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
                 :title="t('chat.regenerate')"
                 :disabled="chatting || frozen"
                 @click="$emit('regenerateTurn', { turnId: block.id })"
-              >
-                <RotateCcw class="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template v-if="showAssistantStreamingPreview">
-        <!-- 助手流式响应 -->
-        <div class="chat chat-start mt-3">
-          <div class="chat-image avatar self-start ecall-chat-avatar-col">
-            <div class="flex w-7 flex-col items-center gap-2">
-              <div class="avatar">
-                <div class="w-7 rounded-full">
-                  <img v-if="assistantAvatarUrl" :src="assistantAvatarUrl" :alt="personaName || t('archives.roleAssistant')" />
-                  <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-xs">
-                    {{ avatarInitial(personaName || t("archives.roleAssistant")) }}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                :class="[
-                  'btn btn-error btn-circle relative h-6 min-h-0 w-6 p-0',
-                  chatting ? '' : 'opacity-0 pointer-events-none',
-                ]"
-                :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
-                :disabled="!chatting"
-                @click="$emit('stopChat')"
-              >
-                <Square class="h-4 w-4 fill-current" />
-                <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <span class="loading loading-spinner loading-xl"></span>
-                </span>
-              </button>
-            </div>
-          </div>
-          <div class="chat-header mb-1 flex items-center gap-2">
-            <span class="text-xs text-base-content">{{ personaName || t("archives.roleAssistant") }}</span>
-          </div>
-          <div class="chat-bubble max-w-[92%] bg-base-100 text-base-content border border-base-300/70 assistant-markdown">
-            <details
-              v-if="latestReasoningStandardText"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
-            >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center gap-1 text-base-content/80">
-                <span class="block min-w-0 flex-1 truncate">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
-                <span class="loading loading-dots loading-sm opacity-60"></span>
-              </summary>
-              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
-                {{ latestReasoningStandardText }}
-              </div>
-            </details>
-            <details
-              v-if="latestInlineReasoningText"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
-            >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
-                <span class="block min-w-0 flex-1 truncate">{{ firstLinePreview(latestInlineReasoningText) || "..." }}</span>
-                <span class="loading loading-dots loading-sm opacity-60"></span>
-              </summary>
-              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
-                {{ latestInlineReasoningText }}
-              </div>
-            </details>
-            <div
-              v-if="streamToolCalls.length > 0"
-              class="mb-2 flex flex-col gap-1 text-[11px] opacity-90"
-            >
-              <details
-                v-for="(toolCall, idx) in streamToolCalls"
-                :key="`stream-tool-${idx}`"
-                class="collapse bg-base-200 border-base-300 border"
-              >
-                <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold flex items-center gap-1.5">
-                  <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
-                  <span>调用 {{ toolCall.name }}</span>
-                </summary>
-                <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
-                  <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
-                </div>
-              </details>
-            </div>
-            <div
-              v-if="latestAssistantText"
-              class="ecall-markdown-content prose prose-sm max-w-none"
-              v-html="renderedAssistantHtml"
-              @click="handleAssistantLinkClick"
-            ></div>
-            <div class="mt-1">
-              <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
-              <span v-else-if="chatting" class="inline-block w-1.5 h-4 bg-base-content animate-pulse"></span>
-            </div>
-            <div v-if="toolStatusText" class="mt-1 text-[11px] opacity-80 flex items-center gap-1">
-              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-sm"></span>
-              <span
-                v-else-if="toolStatusState === 'failed'"
-                class="inline-block w-1.5 h-1.5 rounded-full bg-error"
-              ></span>
-              <span
-                v-else-if="toolStatusState === 'done'"
-                class="inline-block w-1.5 h-1.5 rounded-full bg-success"
-              ></span>
-              <span>{{ toolStatusText }}</span>
-            </div>
-            <div class="mt-2 flex items-center gap-1.5 opacity-0 pointer-events-none">
-              <button
-                type="button"
-                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55"
-                aria-hidden="true"
-                tabindex="-1"
-              >
-                <Copy class="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55"
-                aria-hidden="true"
-                tabindex="-1"
               >
                 <RotateCcw class="h-3.5 w-3.5" />
               </button>
@@ -371,7 +285,12 @@
                   class="w-7 rounded-full"
                   :class="persona.isFrontSpeaking ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''"
                 >
-                  <img v-if="persona.avatarUrl" :src="persona.avatarUrl" :alt="persona.name" />
+                  <img
+                    v-if="persona.avatarUrl"
+                    :src="persona.avatarUrl"
+                    :alt="persona.name"
+                    class="w-7 h-7 rounded-full object-cover"
+                  />
                   <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-[10px]">
                     {{ avatarInitial(persona.name) }}
                   </div>
@@ -483,10 +402,11 @@
             <button
               class="btn btn-sm btn-circle btn-primary shrink-0"
               :disabled="frozen"
-              :title="t('chat.send')"
-              @click="$emit('sendChat')"
+              :title="chatting ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
+              @click="chatting ? $emit('stopChat') : $emit('sendChat')"
             >
-              <Send class="h-3.5 w-3.5" />
+              <Square v-if="chatting" class="h-3.5 w-3.5 fill-current" />
+              <Send v-else class="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -764,6 +684,15 @@ function isOwnMessage(block: ChatMessageBlock): boolean {
   return !id || id === "user-persona";
 }
 
+function showStreamingUi(block: ChatMessageBlock): boolean {
+  return !!block.isStreaming && !isOwnMessage(block);
+}
+
+function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
+  if (block.role !== "assistant") return false;
+  return blockIndex === props.messageBlocks.length - 1;
+}
+
 function formattedBlockTime(value?: string): string {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -825,35 +754,6 @@ function renderMarkdown(text: string): string {
   });
   return DOMPurify.sanitize(withEmoji);
 }
-
-const latestAssistantParts = computed(() => splitThinkText(props.latestAssistantText));
-const latestInlineReasoningText = computed(
-  () => latestAssistantParts.value.inline || props.latestReasoningInlineText || "",
-);
-const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts.value.visible));
-const latestPersistedAssistantBlock = computed(() => {
-  for (let i = props.messageBlocks.length - 1; i >= 0; i -= 1) {
-    const block = props.messageBlocks[i];
-    if (block.role === "assistant") return block;
-  }
-  return null;
-});
-const streamingPreviewDuplicatedInHistory = computed(() => {
-  const lastAssistant = latestPersistedAssistantBlock.value;
-  if (!lastAssistant) return false;
-  if (!props.latestAssistantText.trim()) return false;
-  return (
-    String(splitThinkText(lastAssistant.text || "").visible).trim() === latestAssistantParts.value.visible.trim()
-    && String(lastAssistant.reasoningStandard || "").trim() === String(props.latestReasoningStandardText || "").trim()
-    && String(resolvedInlineReasoning(lastAssistant) || "").trim() === String(latestInlineReasoningText.value || "").trim()
-  );
-});
-const showAssistantStreamingPreview = computed(() => {
-  // 只要当前存在前台主助理轮次，就应立即显示助理气泡。
-  // 这样用户一点击发送，就能看到“助理已接手当前轮次”的稳定反馈，
-  // 而不是等第一段 delta 到来后气泡才突然出现。
-  return props.chatting && !streamingPreviewDuplicatedInHistory.value;
-});
 
 function resolvedInlineReasoning(block: ChatMessageBlock): string {
   return splitThinkText(block.text).inline || block.reasoningInline || "";
@@ -1137,6 +1037,53 @@ watch(
 .ecall-chat-avatar-col {
   width: 1.75rem;
   min-width: 1.75rem;
+}
+
+.ecall-stream-block-enter {
+  animation: ecall-stream-block-fade 140ms ease-out;
+}
+
+.ecall-stream-content {
+  position: relative;
+}
+
+.ecall-stream-content :deep(p:last-child),
+.ecall-stream-content :deep(li:last-child),
+.ecall-stream-content :deep(blockquote:last-child) {
+  animation: ecall-stream-line-fade 120ms ease-out;
+}
+
+.ecall-stream-content-done {
+  animation: ecall-stream-finish 180ms ease-out;
+}
+
+@keyframes ecall-stream-line-fade {
+  from {
+    opacity: 0.75;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ecall-stream-block-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ecall-stream-finish {
+  from {
+    opacity: 0.88;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .assistant-markdown :deep(.ecall-markdown-content) {

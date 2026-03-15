@@ -809,6 +809,14 @@ struct StopChatResult {
     aborted: bool,
     persisted: bool,
     conversation_id: Option<String>,
+    #[serde(default)]
+    assistant_text: String,
+    #[serde(default)]
+    reasoning_standard: String,
+    #[serde(default)]
+    reasoning_inline: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assistant_message: Option<ChatMessage>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

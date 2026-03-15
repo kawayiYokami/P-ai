@@ -1666,15 +1666,26 @@ async fn stop_chat_message(
     let partial_assistant_text = input.partial_assistant_text.trim().to_string();
     let partial_reasoning_standard = input.partial_reasoning_standard.trim().to_string();
     let partial_reasoning_inline = input.partial_reasoning_inline.trim().to_string();
+    let build_stop_result =
+        |persisted: bool,
+         conversation_id: Option<String>,
+         assistant_message: Option<ChatMessage>|
+         -> StopChatResult {
+            StopChatResult {
+                aborted,
+                persisted,
+                conversation_id,
+                assistant_text: partial_assistant_text.clone(),
+                reasoning_standard: partial_reasoning_standard.clone(),
+                reasoning_inline: partial_reasoning_inline.clone(),
+                assistant_message,
+            }
+        };
     let should_persist = !partial_assistant_text.is_empty()
         || !partial_reasoning_standard.is_empty()
         || !partial_reasoning_inline.is_empty();
     if !should_persist {
-        return Ok(StopChatResult {
-            aborted,
-            persisted: false,
-            conversation_id: None,
-        });
+        return Ok(build_stop_result(false, None, None));
     }
 
     let guard = state
@@ -1722,11 +1733,7 @@ async fn stop_chat_message(
     } else {
         let Some(idx) = idx else {
             drop(guard);
-            return Ok(StopChatResult {
-                aborted,
-                persisted: false,
-                conversation_id: None,
-            });
+            return Ok(build_stop_result(false, None, None));
         };
         data.conversations
             .get_mut(idx)
@@ -1741,12 +1748,9 @@ async fn stop_chat_message(
         .unwrap_or(false)
     {
         let conversation_id = conversation.id.clone();
+        let assistant_message = conversation.messages.last().cloned();
         drop(guard);
-        return Ok(StopChatResult {
-            aborted,
-            persisted: false,
-            conversation_id: Some(conversation_id),
-        });
+        return Ok(build_stop_result(false, Some(conversation_id), assistant_message));
     }
 
     let provider_meta = if partial_reasoning_standard.is_empty() && partial_reasoning_inline.is_empty()
@@ -1760,19 +1764,20 @@ async fn stop_chat_message(
     };
 
     let now = now_iso();
-    conversation.messages.push(ChatMessage {
+    let assistant_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "assistant".to_string(),
         created_at: now.clone(),
         speaker_agent_id: Some(agent_id.clone()),
         parts: vec![MessagePart::Text {
-            text: partial_assistant_text,
+            text: partial_assistant_text.clone(),
         }],
         extra_text_blocks: Vec::new(),
         provider_meta,
         tool_call: None,
         mcp_call: None,
-    });
+    };
+    conversation.messages.push(assistant_message.clone());
     conversation.updated_at = now.clone();
     conversation.last_assistant_at = Some(now);
     conversation.last_context_usage_ratio =
@@ -1786,11 +1791,7 @@ async fn stop_chat_message(
     }
     drop(guard);
 
-    Ok(StopChatResult {
-        aborted,
-        persisted: true,
-        conversation_id: Some(conversation_id),
-    })
+    Ok(build_stop_result(true, Some(conversation_id), Some(assistant_message)))
 }
 
 #[tauri::command]

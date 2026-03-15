@@ -522,14 +522,6 @@ async fn process_conversation_batch(
         activate_status,
         oldest_queue_created_at,
     );
-    if let Err(err) = emit_refresh_signal(state) {
-        eprintln!(
-            "[聊天调度] 刷新前端失败: stage=history_flushed, conversation_id={}, error={}",
-            conversation_id,
-            err
-        );
-    }
-
     let mut activations = take_queued_chat_activations(state, &event_ids)?;
     if activations.is_empty() {
         activations = collect_active_chat_view_activations(state, conversation_id)?;
@@ -576,25 +568,11 @@ async fn process_conversation_batch(
                     if let Some(active) = activation.as_ref() {
                         send_round_completed_event(active, &result);
                     }
-                    if let Err(err) = emit_refresh_signal(state) {
-                        eprintln!(
-                            "[聊天调度] 刷新前端失败: stage=round_completed, conversation_id={}, error={}",
-                            conversation_id,
-                            err
-                        );
-                    }
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                 }
                 Err(err) => {
                     if let Some(active) = activation.as_ref() {
                         send_round_failed_event(active, &err);
-                    }
-                    if let Err(refresh_err) = emit_refresh_signal(state) {
-                        eprintln!(
-                            "[聊天调度] 刷新前端失败: stage=round_failed, conversation_id={}, error={}",
-                            conversation_id,
-                            refresh_err
-                        );
                     }
                     complete_pending_chat_events_with_error(state, &event_ids, &err)?;
                     return Err(err);

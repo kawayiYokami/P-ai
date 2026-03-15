@@ -33,7 +33,6 @@ type AppBootstrapOptions = {
   initWindowMode: () => ViewMode;
   onThemeChanged: (theme: string) => void;
   onLocaleChanged: (locale: string) => void;
-  onRefreshSignal: () => Promise<void>;
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
@@ -59,11 +58,6 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       unlisteners.push(
         await listen<string>("easy-call:locale-changed", (event) => {
           options.onLocaleChanged(event.payload);
-        }),
-      );
-      unlisteners.push(
-        await listen("easy-call:refresh", async () => {
-          await options.onRefreshSignal();
         }),
       );
       if (isChatWindow) {
