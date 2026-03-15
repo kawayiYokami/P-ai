@@ -153,7 +153,7 @@
               />
               <ul class="menu flex-col flex-nowrap flex-1 min-h-0 overflow-auto p-1">
                 <li v-for="modelName in filteredModels" :key="modelName">
-                  <button class="whitespace-normal wrap-break-word text-left" @click="selectModel(modelName)">{{ modelName }}</button>
+                  <button class="whitespace-normal break-words text-left" @click="selectModel(modelName)">{{ modelName }}</button>
                 </li>
                 <li v-if="filteredModels.length === 0" class="text-center text-sm opacity-50 py-2">{{ t("config.api.noModelFound") }}</li>
               </ul>

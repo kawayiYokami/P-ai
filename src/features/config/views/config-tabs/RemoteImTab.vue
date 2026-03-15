@@ -1,188 +1,293 @@
 <template>
-  <div class="grid gap-2">
-    <!-- 渠道选择器 -->
-    <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.remoteIm.title") }}</span></div>
-      <div class="flex gap-1">
-        <select v-model="selectedChannelId" class="select select-bordered select-sm flex-1">
-          <option v-for="(ch, idx) in channels" :key="ch.id" :value="ch.id">
-            #{{ idx + 1 }} {{ ch.name || "-" }} ({{ platformLabel(ch.platform) }})
-          </option>
-        </select>
-        <button class="btn btn-sm btn-square bg-base-100" :title="t('config.remoteIm.addChannel')" @click="addChannel">
-          <Plus class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-sm btn-square bg-base-100"
-          :class="!selectedChannel ? 'text-base-content/30 cursor-not-allowed' : ''"
-          :title="t('common.delete')"
-          :disabled="!selectedChannel"
-          @click="removeSelectedChannel"
-        >
-          <Trash2 class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-sm btn-square"
-          :class="channelDirty ? 'btn-primary' : 'bg-base-100'"
-          :disabled="!selectedChannel || !channelDirty || saving"
-          :title="saving ? t('config.api.saving') : t('common.save')"
-          @click="saveChannels"
-        >
-          <Save v-if="!saving" class="h-3.5 w-3.5" />
-          <span v-else class="loading loading-spinner loading-sm"></span>
-        </button>
-      </div>
-    </label>
-    <div class="text-sm opacity-60">{{ t("config.remoteIm.hint") }}</div>
-
-    <!-- 渠道详情卡片 -->
-    <div v-if="selectedChannel" class="card bg-base-100 card-border border-base-300 card-sm">
-      <div class="card-body gap-3">
-        <div class="flex items-center gap-2">
-          <span class="font-medium">{{ selectedChannel.name || "-" }}</span>
-          <span class="badge badge-ghost badge-sm">{{ platformLabel(selectedChannel.platform) }}</span>
-          <span v-if="!selectedChannel.enabled" class="badge badge-warning badge-sm">{{ t("config.remoteIm.disabledState") }}</span>
+  <div class="flex h-full gap-4 min-h-0">
+    <!-- 左侧：渠道列表 -->
+    <div class="bg-base-100 rounded-box border border-base-300 flex-80 min-w-0 flex flex-col h-full overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 shrink-0">
+        <span class="font-semibold text-sm">{{ t("config.remoteIm.title") }}</span>
+        <div class="flex gap-1">
+          <button class="btn  btn-square btn-ghost" :title="t('config.remoteIm.addChannel')" @click="addChannel">
+            <Plus class="h-3.5 w-3.5" />
+          </button>
+          <button
+            class="btn  btn-square btn-ghost"
+            :class="!selectedChannel ? 'cursor-not-allowed' : ''"
+            :title="t('common.delete')"
+            :disabled="!selectedChannel"
+            @click="removeSelectedChannel"
+          >
+            <Trash2 class="h-3.5 w-3.5" :class="!selectedChannel ? '' : 'text-error'" />
+          </button>
         </div>
-
-        <div class="flex flex-col gap-3">
-          <!-- 渠道名称 -->
-          <div class="border-b border-base-content/5 border-dashed pb-3">
-            <div class="text-[11px] opacity-40 uppercase tracking-wide mb-2">{{ t("config.remoteIm.channelName") }}</div>
-            <input v-model="selectedChannel.name" class="input input-bordered input-sm w-full" />
-          </div>
-
-          <!-- 平台 -->
-          <div class="border-b border-base-content/5 border-dashed pb-3">
-            <div class="text-[11px] opacity-40 uppercase tracking-wide mb-2">{{ t("config.remoteIm.platform") }}</div>
-            <select v-model="selectedChannel.platform" class="select select-bordered select-sm w-full">
-              <option value="napcat">NapCat</option>
-              <option value="feishu">Feishu</option>
-              <option value="dingtalk">DingTalk</option>
-            </select>
-          </div>
-
-          <!-- 启用 -->
-          <div class="border-b border-base-content/5 border-dashed pb-3">
-            <label class="flex cursor-pointer items-center gap-2 select-none">
-              <input v-model="selectedChannel.enabled" type="checkbox" class="checkbox checkbox-sm" />
-              <span class="text-sm">{{ t("config.remoteIm.enabled") }}</span>
-            </label>
-          </div>
-
-          <!-- 能力配置 -->
-          <div class="border-b border-base-content/5 border-dashed pb-3">
-            <div class="text-[11px] opacity-40 uppercase tracking-wide mb-2">{{ t("config.remoteIm.capabilities") }}</div>
-            <div class="flex flex-col gap-2">
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.activateAssistant" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.activateAssistant") }}</span>
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.receiveFiles" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.receiveFiles") }}</span>
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.allowSendFiles" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.allowSendFiles") }}</span>
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.allowProactiveSend" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.allowProactiveSend") }}</span>
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.streamingSend" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.streamingSend") }}</span>
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 select-none">
-                <input v-model="selectedChannel.showToolCalls" type="checkbox" class="checkbox checkbox-sm" />
-                <span class="text-sm">{{ t("config.remoteIm.showToolCalls") }}</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 默认回复策略 -->
-          <div class="border-b border-base-content/5 border-dashed pb-3">
-            <div class="text-[11px] opacity-40 uppercase tracking-wide mb-2">{{ t("config.remoteIm.defaultReplyMode") }}</div>
-            <select v-model="selectedChannel.defaultReplyMode" class="select select-bordered select-sm w-full">
-              <option value="none">{{ t("config.remoteIm.replyMode.none") }}</option>
-              <option value="reply_once">{{ t("config.remoteIm.replyMode.replyOnce") }}</option>
-              <option value="always">{{ t("config.remoteIm.replyMode.always") }}</option>
-            </select>
-          </div>
-
-          <!-- 凭证 -->
-          <div>
-            <div class="text-[11px] opacity-40 uppercase tracking-wide mb-2">{{ t("config.remoteIm.credentialsJson") }}</div>
-            <textarea
-              v-model="credentialDrafts[selectedChannel.id]"
-              class="textarea textarea-bordered textarea-sm w-full min-h-24 font-mono text-xs"
-              spellcheck="false"
-              @blur="syncCredentialJson(selectedChannel)"
+      </div>
+      <ul class="menu w-full flex-1 overflow-y-auto">
+        <li v-if="channels.length === 0" class="menu-title">
+          <span class="text-xs italic opacity-60">{{ t("config.remoteIm.empty") }}</span>
+        </li>
+        <li v-for="(ch, idx) in channels" :key="ch.id">
+          <button :class="{ 'menu-active': selectedChannelId === ch.id }" @click="selectedChannelId = ch.id">
+            <span class="badge badge-ghost badge-xs">{{ platformLabel(ch.platform).slice(0, 1) }}</span>
+            {{ ch.name || `#${idx + 1}` }}
+            <input
+              type="checkbox"
+              class="toggle toggle-primary bg-base-200"
+              :checked="ch.enabled"
+              @click.stop
+              @change="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
             />
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <!-- 中间：渠道详情 -->
+    <div class="flex-120 min-w-0 flex flex-col min-h-0">
+      <div v-if="!selectedChannel" class="bg-base-100 rounded-box border border-base-300 flex-1 flex items-center justify-center">
+        <div class="text-xs italic opacity-60">{{ t("config.remoteIm.empty") }}</div>
+      </div>
+
+      <div v-else class="bg-base-100 rounded-box border border-base-300 flex-1 min-h-0 overflow-hidden flex flex-col">
+        <!-- 头部 -->
+        <div class="flex items-center justify-between px-3 py-2 shrink-0">
+          <span class="font-semibold text-sm">{{ selectedChannel.name || t('config.remoteIm.channelName') }}</span>
+          <div class="flex gap-1">
+            <button
+              v-if="selectedChannel.platform === 'onebot_v11'"
+              class="btn  btn-ghost"
+              @click="resetNapcatCredentials"
+            >
+              {{ t("common.reset") }}
+            </button>
+            <button
+              class="btn "
+              :class="channelDirty ? 'btn-primary' : 'btn-ghost'"
+              :disabled="!channelDirty || saving"
+              @click="saveChannels"
+            >
+              <Save v-if="!saving" class="h-3.5 w-3.5" />
+              <span v-else class="loading loading-spinner loading-xs"></span>
+              {{ t("common.save") }}
+            </button>
           </div>
         </div>
-      </div>
-    </div>
 
-    <div v-else class="card bg-base-100 card-border border-base-300 card-sm">
-      <div class="card-body text-center py-12">
-        <div class="text-sm opacity-40">{{ t("config.remoteIm.empty") }}</div>
-      </div>
-    </div>
-
-    <!-- 联系人列表 -->
-    <div class="card bg-base-100 card-border border-base-300 card-sm">
-      <div class="card-body gap-3">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-medium">{{ t("config.remoteIm.contactsTitle") }} ({{ contacts.length }})</span>
-          <button class="btn btn-sm btn-ghost" :class="{ loading: contactsLoading }" @click="refreshContacts">{{ t("common.refresh") }}</button>
-        </div>
-
-        <div v-if="contactsError" class="text-xs text-error">{{ contactsError }}</div>
-        <div v-if="contacts.length === 0" class="text-sm opacity-60 text-center py-4">
-          {{ t("config.remoteIm.contactsEmpty") }}
-        </div>
-        <div v-else class="flex flex-col gap-4">
-          <div v-for="group in groupedContacts" :key="group.channelId">
-            <div class="text-xs opacity-60 mb-2">{{ group.platformLabel }} · {{ group.channelName }}
-              <span v-if="!group.channelEnabled" class="badge badge-xs badge-warning ml-1">{{ t("config.remoteIm.disabledState") }}</span>
+        <!-- 内容滚动区 -->
+        <div class="flex-1 overflow-y-auto px-3 text-xs">
+            <!-- 渠道名称 -->
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <span>{{ t("config.remoteIm.channelName") }}</span>
+              <input v-model="selectedChannel.name" class="input input-bordered input-sm w-48" :placeholder="t('config.remoteIm.channelName')" />
             </div>
-            <div class="flex flex-col">
-              <div v-for="item in group.contacts" :key="item.id" class="flex items-center justify-between gap-2 border-b border-base-content/5 border-dashed py-2">
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                  <div v-if="item.hasNewMessage" class="w-2 h-2 rounded-full bg-error shrink-0" />
-                  <div v-else class="w-2 h-2 shrink-0" />
-                  <span class="truncate">{{ contactDisplayName(item) }}</span>
-                  <span class="badge badge-ghost badge-xs">{{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <button :class="replyModeButtonClass(item.replyMode)" @click="cycleReplyMode(item)">
-                    {{ replyModeLabel(item.replyMode) }}
-                  </button>
-                  <span class="text-xs opacity-50">{{ formatRelativeTime(item.lastMessageAt) }}</span>
+            <!-- 平台 -->
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <span>{{ t("config.remoteIm.platform") }}</span>
+              <select v-model="selectedChannel.platform" class="select select-bordered select-sm w-48">
+                <option value="onebot_v11">{{ t("config.remoteIm.platformOptions.onebotV11") }}</option>
+                <option value="feishu">{{ t("config.remoteIm.platformOptions.feishu") }}</option>
+                <option value="dingtalk">{{ t("config.remoteIm.platformOptions.dingtalk") }}</option>
+              </select>
+            </div>
+            <!-- 能力配置标题 -->
+            <div class="border-b-base-content/5 flex items-center gap-2 border-b border-dashed py-2 mt-2">
+              <span class="font-semibold">{{ t("config.remoteIm.capabilities") }}</span>
+            </div>
+
+            <!-- 能力配置列表 -->
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <label class="flex cursor-pointer items-center gap-2 select-none">
+                <input v-model="selectedChannel.activateAssistant" type="checkbox" class="checkbox" />
+                <span>{{ t("config.remoteIm.activateAssistant") }}</span>
+              </label>
+            </div>
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <label class="flex cursor-pointer items-center gap-2 select-none">
+                <input v-model="selectedChannel.receiveFiles" type="checkbox" class="checkbox" />
+                <span>{{ t("config.remoteIm.receiveFiles") }}</span>
+              </label>
+            </div>
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <label class="flex cursor-pointer items-center gap-2 select-none">
+                <input v-model="selectedChannel.allowSendFiles" type="checkbox" class="checkbox" />
+                <span>{{ t("config.remoteIm.allowSendFiles") }}</span>
+              </label>
+            </div>
+            <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+              <label class="flex cursor-pointer items-center gap-2 select-none">
+                <input v-model="selectedChannel.showToolCalls" type="checkbox" class="checkbox" />
+                <span>{{ t("config.remoteIm.showToolCalls") }}</span>
+              </label>
+            </div>
+
+            <!-- OneBot v11 凭证配置 -->
+            <template v-if="selectedChannel.platform === 'onebot_v11'">
+              <div class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2 mt-2">
+                <span class="font-semibold">{{ t("config.remoteIm.napcatConfig") }}</span>
+              </div>
+              <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+                <span>{{ t("config.remoteIm.wsHost") }}</span>
+                <input v-model="napcatCredentials.wsHost" class="input input-bordered input-sm w-32" placeholder="0.0.0.0" />
+              </div>
+              <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+                <span>{{ t("config.remoteIm.wsPort") }}</span>
+                <input v-model.number="napcatCredentials.wsPort" type="number" class="input input-bordered input-sm w-32" placeholder="6199" />
+              </div>
+              <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+                <span>{{ t("config.remoteIm.wsToken") }}</span>
+                <input v-model="napcatCredentials.wsToken" class="input input-bordered input-sm w-32" :placeholder="t('config.remoteIm.wsTokenPlaceholder')" />
+              </div>
+            </template>
+
+            <!-- 飞书/钉钉 凭证JSON -->
+            <template v-else>
+              <div class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2 mt-2">
+                <span class="font-semibold">{{ t("config.remoteIm.credentialsJson") }}</span>
+                <textarea
+                  v-model="credentialDrafts[selectedChannel.id]"
+                  class="textarea textarea-bordered w-full min-h-20 font-mono"
+                  spellcheck="false"
+                  @blur="syncCredentialJson(selectedChannel)"
+                />
+              </div>
+            </template>
+
+          <!-- 连接状态区域 (仅 OneBot v11) -->
+          <template v-if="selectedChannel.platform === 'onebot_v11'">
+            <div class="border-t border-base-300 mt-2 pt-2">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold">{{ t("config.remoteIm.connectionStatus") }}</span>
+                <button class="btn  btn-ghost" @click="refreshChannelStatus">{{ t("common.refresh") }}</button>
+              </div>
+              <div class="mt-2 flex items-center gap-2">
+                <span class="size-2 rounded-full" :class="channelStatus?.connected ? 'bg-success' : 'bg-base-300'"></span>
+                <span class="text-xs">
+                  {{ channelStatus?.connected 
+                    ? `${t("config.remoteIm.connected")} (${channelStatus.peerAddr})` 
+                    : channelStatus?.listenAddr 
+                      ? t("config.remoteIm.waitingForConnection")
+                      : t("config.remoteIm.serverNotStarted") }}
+                </span>
+              </div>
+            </div>
+
+            <!-- 日志区域 -->
+            <div class="border-t border-base-300 mt-2 pt-2 min-h-0 flex flex-col">
+              <div class="flex items-center justify-between shrink-0">
+                <span class="font-semibold">{{ t("config.remoteIm.channelLogs") }}</span>
+                <button class="btn  btn-ghost" @click="refreshChannelLogs">{{ t("common.refresh") }}</button>
+              </div>
+              <div class="mt-2 mb-3 flex-1 min-h-0 overflow-y-auto">
+                <div v-if="channelLogs.length === 0" class="opacity-60 italic text-xs">{{ t("config.remoteIm.noLogs") }}</div>
+                <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(log, idx) in channelLogs" :key="idx"><span :class="log.level === 'error' ? 'text-error' : log.level === 'warn' ? 'text-warning' : ''"><span class="opacity-50">{{ formatLogTime(log.timestamp) }}</span> {{ log.message }}</span>{{ '\n' }}</template></pre>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：联系人列表 -->
+    <div class="bg-base-100 rounded-box border border-base-300 flex-160 min-w-0 flex flex-col h-full overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 shrink-0">
+        <span class="flex items-center gap-2 font-semibold text-sm">
+          {{ t("config.remoteIm.contactsTitle") }}
+          <span class="badge badge-ghost badge-xs">{{ currentChannelContacts.length }}</span>
+        </span>
+        <button class="btn  btn-ghost" :class="{ loading: contactsLoading }" @click="refreshContacts">{{ t("common.refresh") }}</button>
+      </div>
+      <ul class="list w-full flex-1 overflow-y-auto">
+        <li v-if="selectedChannel && (selectedChannel.platform === 'feishu' || selectedChannel.platform === 'dingtalk')" class="menu-title">
+          <span class="text-xs text-warning font-medium">{{ t("config.remoteIm.experimental") }}</span>
+        </li>
+        <li v-if="contactsError" class="menu-title">
+          <span class="text-xs text-error">{{ contactsError }}</span>
+        </li>
+        <li v-if="currentChannelContacts.length === 0" class="menu-title">
+          <span class="text-xs italic opacity-60">{{ t("config.remoteIm.contactsEmpty") }}</span>
+        </li>
+        <li v-for="(item, idx) in currentChannelContacts" :key="item.id" class="flex flex-col border-b border-base-200">
+          <!-- 主行（始终显示） -->
+          <div class="flex items-center gap-3 px-3 py-2 cursor-pointer bg-base-300" @click="toggleContactExpand(item.id)">
+            <span class="badge shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">{{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="truncate font-semibold flex-1">{{ contactDisplayName(item) }}</span>
+              </div>
+              <div class="text-xs opacity-50">{{ item.remoteContactId }}</div>
+            </div>
+            <div class="text-base transition-transform duration-200" :class="expandedContactIds.has(item.id) ? 'rotate-90' : ''">›</div>
+          </div>
+          
+          <!-- 展开的详情区域 -->
+          <div v-if="expandedContactIds.has(item.id)" class="px-3 pb-3 bg-base-100/50 text-xs">
+            <!-- 激活配置 -->
+            <div class="flex flex-col gap-2 mt-2 pt-2 border-t border-base-200">
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ t("config.remoteIm.activateMode") }}</span>
+                <select
+                  class="select select-bordered select-sm w-32"
+                  :value="item.activationMode"
+                  @change="(e) => onContactActivationModeChange(item, (e.target as HTMLSelectElement).value)"
+                >
+                  <option value="always">{{ t("config.remoteIm.activateModeAlways") }}</option>
+                  <option value="never">{{ t("config.remoteIm.activateModeNever") }}</option>
+                  <option value="keyword">{{ t("config.remoteIm.activateModeKeyword") }}</option>
+                </select>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ t("config.remoteIm.activateCooldown") }}</span>
+                <div class="flex items-center gap-1">
                   <input
-                    :value="item.remarkName || ''"
-                    class="input input-xs input-bordered w-24"
-                    :placeholder="t('config.remoteIm.remarkPlaceholder')"
-                    @change="onRemarkChange(item.id, $event)"
+                    type="number"
+                    class="input input-bordered input-sm w-16"
+                    :value="item.activationCooldownSeconds"
+                    min="0"
+                    @change="(e) => onContactActivationCooldownChange(item, Number((e.target as HTMLInputElement).value || 0))"
                   />
-                  <button class="btn btn-xs btn-ghost text-error" @click="deleteContact(item.id)">{{ t("common.delete") }}</button>
+                  <span class="opacity-60">{{ t("config.remoteIm.seconds") }}</span>
                 </div>
+              </div>
+              <div v-if="item.activationMode === 'keyword'" class="flex items-center justify-between gap-2">
+                <span>{{ t("config.remoteIm.activateKeywords") }}</span>
+                <input
+                  type="text"
+                  class="input input-bordered input-sm flex-1"
+                  :placeholder="t('config.remoteIm.activateKeywordsPlaceholder')"
+                  :value="contactKeywordDrafts[item.id] ?? item.activationKeywords.join(', ')"
+                  @input="(e) => { contactKeywordDrafts[item.id] = (e.target as HTMLInputElement).value; }"
+                  @blur="() => onContactActivationKeywordsBlur(item)"
+                />
+              </div>
+              <div class="flex items-center justify-between gap-2 pt-1">
+                <span>{{ t("config.remoteIm.allowReceive") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-primary"
+                  :checked="item.allowReceive"
+                  @change="(e) => toggleContactAllowReceive(item, (e.target as HTMLInputElement).checked)"
+                />
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ t("config.remoteIm.allowSend") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-primary"
+                  :checked="item.allowSend"
+                  @change="(e) => toggleContactAllowSend(item, (e.target as HTMLInputElement).checked)"
+                />
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </li>
+      </ul>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, Save, Trash2 } from "lucide-vue-next";
 import { invokeTauri } from "../../../../services/tauri-api";
-import type { AppConfig, RemoteImChannelConfig, RemoteImContact, RemoteImReplyMode } from "../../../../types/app";
+import type { AppConfig, RemoteImChannelConfig, RemoteImContact } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
@@ -196,8 +301,26 @@ const contactsLoading = ref(false);
 const contactsError = ref("");
 const contacts = ref<RemoteImContact[]>([]);
 const credentialDrafts = ref<Record<string, string>>({});
+const napcatCredentials = ref({ wsHost: "0.0.0.0", wsPort: 6199, wsToken: "" });
+const suppressCredentialSync = ref(false);
 const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
+
+// 连接状态和日志
+type ChannelConnectionStatus = {
+  channelId: string;
+  connected: boolean;
+  peerAddr?: string;
+  connectedAt?: string;
+  listenAddr: string;
+};
+type ChannelLogEntry = {
+  timestamp: string;
+  level: string;
+  message: string;
+};
+const channelStatus = ref<ChannelConnectionStatus | null>(null);
+const channelLogs = ref<ChannelLogEntry[]>([]);
 
 const selectedChannel = computed(() =>
   channels.value.find((ch) => ch.id === selectedChannelId.value) ?? null,
@@ -206,6 +329,7 @@ const selectedChannel = computed(() =>
 const channelSnapshot = computed(() => {
   const ch = selectedChannel.value;
   if (!ch) return "";
+  const credStr = JSON.stringify(ch.credentials || {}, Object.keys(ch.credentials || {}).sort());
   return JSON.stringify({
     name: ch.name,
     platform: ch.platform,
@@ -213,11 +337,9 @@ const channelSnapshot = computed(() => {
     activateAssistant: ch.activateAssistant,
     receiveFiles: ch.receiveFiles,
     allowSendFiles: ch.allowSendFiles,
-    allowProactiveSend: ch.allowProactiveSend,
     streamingSend: ch.streamingSend,
     showToolCalls: ch.showToolCalls,
-    defaultReplyMode: ch.defaultReplyMode,
-    credentials: ch.credentials,
+    credentials: credStr,
   });
 });
 const lastSavedChannelSnapshot = ref(channelSnapshot.value);
@@ -250,11 +372,30 @@ const groupedContacts = computed(() => {
   return [...groups.values()];
 });
 
+const currentChannelContacts = computed(() => {
+  if (!selectedChannelId.value) return [];
+  return contacts.value.filter((c) => c.channelId === selectedChannelId.value);
+});
+
+// 展开的联系人ID集合
+const expandedContactIds = ref<Set<string>>(new Set());
+const contactKeywordDrafts = ref<Record<string, string>>({});
+
+function toggleContactExpand(contactId: string) {
+  const newSet = new Set(expandedContactIds.value);
+  if (newSet.has(contactId)) {
+    newSet.delete(contactId);
+  } else {
+    newSet.add(contactId);
+  }
+  expandedContactIds.value = newSet;
+}
+
 function platformLabelOf(platform: string): string {
   const value = String(platform || "").trim().toLowerCase();
   if (value === "feishu") return "Feishu";
   if (value === "dingtalk") return "DingTalk";
-  return "NapCat";
+  return "OneBot v11";
 }
 
 function platformLabel(platform: RemoteImChannelConfig["platform"]): string {
@@ -265,15 +406,13 @@ function newChannel(): RemoteImChannelConfig {
   return {
     id: `remote-im-${Date.now()}`,
     name: "Remote IM",
-    platform: "napcat",
-    enabled: true,
+    platform: "onebot_v11",
+    enabled: false,
     credentials: {},
     activateAssistant: true,
-    defaultReplyMode: "none",
     receiveFiles: true,
     streamingSend: false,
     showToolCalls: false,
-    allowProactiveSend: false,
     allowSendFiles: false,
   };
 }
@@ -309,16 +448,182 @@ function syncCredentialJson(channel: RemoteImChannelConfig) {
   }
 }
 
+function loadNapcatCredentials(channel: RemoteImChannelConfig) {
+  suppressCredentialSync.value = true;
+  const creds = channel.credentials || {};
+  napcatCredentials.value = {
+    wsHost: String(creds.wsHost || "0.0.0.0"),
+    wsPort: Number(creds.wsPort) || 6199,
+    wsToken: String(creds.wsToken || ""),
+  };
+  nextTick(() => {
+    suppressCredentialSync.value = false;
+  });
+}
+
+function resetNapcatCredentials() {
+  if (!selectedChannel.value) return;
+  loadNapcatCredentials(selectedChannel.value);
+  // 同时更新 channelSnapshot 以清除 dirty 状态
+  lastSavedChannelSnapshot.value = channelSnapshot.value;
+}
+
 async function saveChannels() {
   if (saving.value || !selectedChannel.value) return;
-  syncCredentialJson(selectedChannel.value);
+  if (selectedChannel.value.platform !== "onebot_v11") {
+    syncCredentialJson(selectedChannel.value);
+  }
+  const savedId = selectedChannelId.value;
   saving.value = true;
   try {
-    await Promise.resolve(props.saveConfigAction());
-    lastSavedChannelSnapshot.value = channelSnapshot.value;
+    const result = await Promise.resolve(props.saveConfigAction());
+    if (result) {
+      if (channels.value.some((ch) => ch.id === savedId)) {
+        selectedChannelId.value = savedId;
+      }
+      if (selectedChannel.value && selectedChannel.value.platform === "onebot_v11") {
+        loadNapcatCredentials(selectedChannel.value);
+        try {
+          channelStatus.value = await invokeTauri<ChannelConnectionStatus>(
+            "remote_im_restart_channel",
+            { channelId: selectedChannel.value.id },
+          );
+        } catch (err) {
+          console.warn("[RemoteImTab] restart channel failed:", err);
+          void refreshChannelStatus();
+        }
+      }
+      await nextTick();
+      lastSavedChannelSnapshot.value = channelSnapshot.value;
+    }
   } finally {
     saving.value = false;
   }
+}
+
+async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boolean) {
+  channel.enabled = enabled;
+  saving.value = true;
+  try {
+    const result = await Promise.resolve(props.saveConfigAction());
+    if (result) {
+      if (channel.platform === "onebot_v11") {
+        try {
+          channelStatus.value = await invokeTauri<ChannelConnectionStatus>(
+            "remote_im_restart_channel",
+            { channelId: channel.id },
+          );
+        } catch (err) {
+          console.warn("[RemoteImTab] restart channel failed:", err);
+          void refreshChannelStatus();
+        }
+      }
+      await nextTick();
+      lastSavedChannelSnapshot.value = channelSnapshot.value;
+    } else {
+      channel.enabled = !enabled;
+    }
+  } catch (error) {
+    channel.enabled = !enabled;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function toggleContactAllowSend(item: RemoteImContact, enabled: boolean) {
+  const oldValue = item.allowSend;
+  item.allowSend = enabled;
+  try {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_allow_send", {
+      input: { contactId: item.id, allowSend: enabled },
+    });
+    await refreshContacts();
+  } catch (error) {
+    item.allowSend = oldValue;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
+}
+
+async function toggleContactAllowReceive(item: RemoteImContact, enabled: boolean) {
+  const oldValue = item.allowReceive;
+  item.allowReceive = enabled;
+  try {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_allow_receive", {
+      input: { contactId: item.id, allowReceive: enabled },
+    });
+    await refreshContacts();
+  } catch (error) {
+    item.allowReceive = oldValue;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
+}
+
+function normalizeActivationMode(value: string): RemoteImContact["activationMode"] {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "always" || mode === "keyword") return mode;
+  if (mode === "never") return "never";
+  return "never";
+}
+
+function parseActivationKeywords(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of String(raw || "").split(/[,\n，]/)) {
+    const keyword = item.trim();
+    if (!keyword || seen.has(keyword)) continue;
+    seen.add(keyword);
+    out.push(keyword);
+  }
+  return out;
+}
+
+async function saveContactActivation(
+  item: RemoteImContact,
+  patch?: Partial<Pick<RemoteImContact, "activationMode" | "activationKeywords" | "activationCooldownSeconds">>,
+) {
+  const oldMode = item.activationMode;
+  const oldKeywords = [...item.activationKeywords];
+  const oldCooldown = item.activationCooldownSeconds;
+  if (patch?.activationMode) item.activationMode = patch.activationMode;
+  if (patch?.activationKeywords) item.activationKeywords = [...patch.activationKeywords];
+  if (typeof patch?.activationCooldownSeconds === "number") {
+    item.activationCooldownSeconds = Math.max(0, Math.floor(patch.activationCooldownSeconds));
+  }
+  try {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_activation", {
+      input: {
+        contactId: item.id,
+        activationMode: item.activationMode,
+        activationKeywords: item.activationKeywords,
+        activationCooldownSeconds: item.activationCooldownSeconds,
+      },
+    });
+    await refreshContacts();
+  } catch (error) {
+    item.activationMode = oldMode;
+    item.activationKeywords = oldKeywords;
+    item.activationCooldownSeconds = oldCooldown;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
+}
+
+function onContactActivationModeChange(item: RemoteImContact, modeRaw: string) {
+  const mode = normalizeActivationMode(modeRaw);
+  void saveContactActivation(item, { activationMode: mode });
+}
+
+function onContactActivationCooldownChange(item: RemoteImContact, cooldownSeconds: number) {
+  void saveContactActivation(item, {
+    activationCooldownSeconds: Math.max(0, Math.floor(Number(cooldownSeconds) || 0)),
+  });
+}
+
+function onContactActivationKeywordsBlur(item: RemoteImContact) {
+  const raw = contactKeywordDrafts.value[item.id] ?? item.activationKeywords.join(", ");
+  const keywords = parseActivationKeywords(raw);
+  contactKeywordDrafts.value[item.id] = keywords.join(", ");
+  void saveContactActivation(item, { activationKeywords: keywords });
 }
 
 async function refreshContacts() {
@@ -326,34 +631,17 @@ async function refreshContacts() {
   contactsError.value = "";
   try {
     contacts.value = await invokeTauri<RemoteImContact[]>("remote_im_list_contacts");
+    for (const item of contacts.value) {
+      item.activationMode = normalizeActivationMode(item.activationMode || "never");
+      item.activationKeywords = Array.isArray(item.activationKeywords) ? item.activationKeywords : [];
+      item.activationCooldownSeconds = Math.max(0, Number(item.activationCooldownSeconds || 0));
+      contactKeywordDrafts.value[item.id] = item.activationKeywords.join(", ");
+    }
   } catch (error) {
     contactsError.value = String(error);
   } finally {
     contactsLoading.value = false;
   }
-}
-
-async function setReplyMode(contactId: string, replyMode: RemoteImReplyMode) {
-  try {
-    await invokeTauri<RemoteImContact>("remote_im_update_contact_reply_mode", {
-      input: { contactId, replyMode },
-    });
-    await refreshContacts();
-  } catch (error) {
-    contactsError.value = String(error);
-  }
-}
-
-function replyModeLabel(mode: RemoteImReplyMode): string {
-  if (mode === "none") return t("config.remoteIm.replyMode.none");
-  if (mode === "always") return t("config.remoteIm.replyMode.always");
-  return t("config.remoteIm.replyMode.replyOnce");
-}
-
-function replyModeButtonClass(mode: RemoteImReplyMode): string {
-  if (mode === "none") return "btn btn-xs btn-ghost opacity-50";
-  if (mode === "always") return "btn btn-xs btn-info";
-  return "btn btn-xs btn-outline btn-info";
 }
 
 function contactDisplayName(item: RemoteImContact): string {
@@ -362,16 +650,6 @@ function contactDisplayName(item: RemoteImContact): string {
   const remoteName = String(item.remoteContactName || "").trim();
   if (remoteName) return remoteName;
   return item.remoteContactId;
-}
-
-function nextReplyMode(mode: RemoteImReplyMode): RemoteImReplyMode {
-  if (mode === "none") return "reply_once";
-  if (mode === "reply_once") return "always";
-  return "none";
-}
-
-async function cycleReplyMode(item: RemoteImContact) {
-  await setReplyMode(item.id, nextReplyMode(item.replyMode));
 }
 
 async function deleteContact(contactId: string) {
@@ -411,36 +689,100 @@ function formatRelativeTime(raw?: string): string {
   const hour = 60 * minute;
   const day = 24 * hour;
   if (diff < minute) return t("config.remoteIm.justNow");
-  if (diff < hour) return t("config.remoteIm.minutesAgo", { n: Math.floor(diff / minute) });
-  if (diff < day) return t("config.remoteIm.hoursAgo", { n: Math.floor(diff / hour) });
-  if (diff < 7 * day) return t("config.remoteIm.daysAgo", { n: Math.floor(diff / day) });
+  if (diff < hour) return t("config.remoteIm.minutesAgo", { count: Math.floor(diff / minute) });
+  if (diff < day) return t("config.remoteIm.hoursAgo", { count: Math.floor(diff / hour) });
+  if (diff < 7 * day) return t("config.remoteIm.daysAgo", { count: Math.floor(diff / day) });
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+async function refreshChannelStatus() {
+  if (!selectedChannel.value) return;
+  try {
+    channelStatus.value = await invokeTauri<ChannelConnectionStatus>("remote_im_get_channel_status", {
+      channelId: selectedChannel.value.id,
+    });
+  } catch (error) {
+    console.error("[RemoteImTab] refreshChannelStatus failed:", error);
+    channelStatus.value = null;
+  }
+}
+
+async function refreshChannelLogs() {
+  if (!selectedChannel.value) return;
+  try {
+    channelLogs.value = await invokeTauri<ChannelLogEntry[]>("remote_im_get_channel_logs", {
+      channelId: selectedChannel.value.id,
+    });
+  } catch {
+    channelLogs.value = [];
+  }
+}
+
+function formatLogTime(timestamp: string): string {
+  const d = new Date(timestamp);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
 
 watch(
   channels,
   (list) => {
-    const next: Record<string, string> = {};
-    for (const item of list) {
-      next[item.id] = JSON.stringify(item.credentials || {}, null, 2);
-    }
-    credentialDrafts.value = next;
-    // 确保选中的渠道存在
     if (list.length > 0 && !list.some((ch) => ch.id === selectedChannelId.value)) {
       selectedChannelId.value = list[0].id;
     }
+    for (const item of list) {
+      if (!(item.id in credentialDrafts.value)) {
+        credentialDrafts.value[item.id] = JSON.stringify(item.credentials || {}, null, 2);
+      }
+    }
   },
-  { immediate: true, deep: true },
+  { immediate: true },
 );
 
 watch(selectedChannelId, () => {
+  if (selectedChannel.value) {
+    credentialDrafts.value[selectedChannel.value.id] = JSON.stringify(
+      selectedChannel.value.credentials || {}, null, 2,
+    );
+    if (selectedChannel.value.platform === "onebot_v11") {
+      loadNapcatCredentials(selectedChannel.value);
+      void refreshChannelStatus();
+      void refreshChannelLogs();
+    } else {
+      channelStatus.value = null;
+      channelLogs.value = [];
+    }
+  }
   lastSavedChannelSnapshot.value = channelSnapshot.value;
 });
+
+watch(napcatCredentials, () => {
+  if (suppressCredentialSync.value) return;
+  if (selectedChannel.value && selectedChannel.value.platform === "onebot_v11") {
+    selectedChannel.value.credentials = {
+      wsHost: napcatCredentials.value.wsHost || "0.0.0.0",
+      wsPort: napcatCredentials.value.wsPort || 6199,
+      wsToken: napcatCredentials.value.wsToken || "",
+    };
+  }
+}, { deep: true });
 
 onMounted(() => {
   if (channels.value.length > 0 && !selectedChannelId.value) {
     selectedChannelId.value = channels.value[0].id;
+  }
+  // channels watcher (immediate: true) 已在 selectedChannelId watcher 注册前
+  // 就同步设置了 selectedChannelId，导致 selectedChannelId watcher 不会触发。
+  // 这里需要手动执行初始化操作：加载 napcatCredentials 和刷新连接状态/日志。
+  if (selectedChannel.value) {
+    credentialDrafts.value[selectedChannel.value.id] = JSON.stringify(
+      selectedChannel.value.credentials || {}, null, 2,
+    );
+    if (selectedChannel.value.platform === "onebot_v11") {
+      loadNapcatCredentials(selectedChannel.value);
+      void refreshChannelStatus();
+      void refreshChannelLogs();
+    }
   }
   lastSavedChannelSnapshot.value = channelSnapshot.value;
   void refreshContacts();

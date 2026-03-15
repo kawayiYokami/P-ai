@@ -62,7 +62,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { AppConfig, ImageTextCacheStats, ResponseStyleOption } from "../../../../types/app";
+import type { AppConfig, ApiConfigItem, ImageTextCacheStats, ResponseStyleOption } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;

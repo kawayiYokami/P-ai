@@ -78,14 +78,9 @@ function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
 function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
   const platformRaw = String((item as { platform?: unknown })?.platform || "").trim().toLowerCase();
   const platform =
-    platformRaw === "feishu" || platformRaw === "dingtalk" || platformRaw === "napcat"
+    platformRaw === "feishu" || platformRaw === "dingtalk" || platformRaw === "onebot_v11"
       ? platformRaw
-      : "napcat";
-  const replyModeRaw = String((item as { defaultReplyMode?: unknown })?.defaultReplyMode || "").trim().toLowerCase();
-  const defaultReplyMode =
-    replyModeRaw === "none" || replyModeRaw === "always" || replyModeRaw === "reply_once"
-      ? replyModeRaw
-      : "reply_once";
+      : "onebot_v11";
   return {
     id: String((item as { id?: unknown })?.id || "").trim(),
     name: String((item as { name?: unknown })?.name || "").trim(),
@@ -97,11 +92,9 @@ function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
         ? { ...((item as { credentials?: Record<string, unknown> }).credentials || {}) }
         : {},
     activateAssistant: (item as { activateAssistant?: unknown })?.activateAssistant !== false,
-    defaultReplyMode,
     receiveFiles: (item as { receiveFiles?: unknown })?.receiveFiles !== false,
     streamingSend: !!(item as { streamingSend?: unknown })?.streamingSend,
     showToolCalls: !!(item as { showToolCalls?: unknown })?.showToolCalls,
-    allowProactiveSend: !!(item as { allowProactiveSend?: unknown })?.allowProactiveSend,
     allowSendFiles: !!(item as { allowSendFiles?: unknown })?.allowSendFiles,
   };
 }

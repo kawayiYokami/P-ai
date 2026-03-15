@@ -121,8 +121,8 @@
       :update-config-tab="(value) => { configTab = value; }"
       :set-ui-language="setUiLanguage"
       :update-persona-editor-id="updatePersonaEditorIdWithNotice"
-      :update-selected-persona-id="(value) => { assistantDepartmentAgentId.value = value; }"
-      :update-selected-response-style-id="(value) => { selectedResponseStyleId = value; }"
+      :update-selected-persona-id="updateAssistantDepartmentAgentId"
+      :update-selected-response-style-id="updateSelectedResponseStyleId"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
@@ -884,6 +884,14 @@ function updatePersonaEditorIdWithNotice(value: string) {
     status.value = t("status.personaUnsavedSwitchHint", { name: currentName });
   }
   personaEditorId.value = nextId;
+}
+
+function updateAssistantDepartmentAgentId(value: string) {
+  assistantDepartmentAgentId.value = value;
+}
+
+function updateSelectedResponseStyleId(value: string) {
+  selectedResponseStyleId.value = value;
 }
 
 const {
