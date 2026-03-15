@@ -771,9 +771,16 @@ fn should_activate_remote_im_event(
         }
     }
 
-    let now_ts = chrono::DateTime::parse_from_rfc3339(now)
-        .map(|dt| dt.timestamp())
-        .unwrap_or(0);
+    let now_ts = match chrono::DateTime::parse_from_rfc3339(now) {
+        Ok(dt) => dt.timestamp(),
+        Err(err) => {
+            eprintln!(
+                "[远程IM][激活判定] 解析当前时间失败，使用系统当前时间兜底: now={}, error={}",
+                now, err
+            );
+            chrono::Utc::now().timestamp()
+        }
+    };
     if contact.activation_cooldown_seconds > 0 {
         if let Some(last) = contact
             .last_activated_at

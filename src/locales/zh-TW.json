@@ -10,8 +10,8 @@
     "loading": "加載中..."
   },
   "window": {
-    "configTitle": "Easy Call AI - 配置窗口",
-    "archivesTitle": "Easy Call AI - 归档窗口",
+    "configTitle": "π師傅 - 配置視窗",
+    "archivesTitle": "π師傅 - 歸檔視窗",
     "chatTitle": "与 {name} 的对话"
   },
   "config": {

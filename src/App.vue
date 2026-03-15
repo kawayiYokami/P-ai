@@ -1361,7 +1361,7 @@ function summonChatWindowFromConfig() {
 }
 
 function openGithubRepository() {
-  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/Easy-call-ai" });
+  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/P-ai" });
 }
 
 function closeUpdateDialog() {

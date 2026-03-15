@@ -81,7 +81,7 @@ impl rmcp::ServerHandler for DesktopScreenshotMcpServer {
             capabilities: rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            instructions: Some("Easy Call AI desktop screenshot MCP server".to_string()),
+            instructions: Some("P-ai desktop screenshot MCP server".to_string()),
             ..Default::default()
         }
     }
@@ -104,3 +104,5 @@ fn run_desktop_screenshot_mcp_server() -> Result<(), String> {
         Ok::<(), String>(())
     })
 }
+
+

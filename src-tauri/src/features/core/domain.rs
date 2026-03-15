@@ -1419,9 +1419,29 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     fn new() -> Result<Self, String> {
-        let project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
-            .ok_or_else(|| "Failed to resolve config directory".to_string())?;
-        let config_dir = project_dirs.config_dir().to_path_buf();
+        let legacy_project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
+            .ok_or_else(|| "Failed to resolve legacy config directory".to_string())?;
+        let next_project_dirs = ProjectDirs::from("ai", "easycall", "p-ai")
+            .ok_or_else(|| "Failed to resolve new config directory".to_string())?;
+        let legacy_config_dir = legacy_project_dirs.config_dir().to_path_buf();
+        let next_config_dir = next_project_dirs.config_dir().to_path_buf();
+        let using_new = next_config_dir.exists() || !legacy_config_dir.exists();
+        let using_legacy = !using_new;
+        let config_dir = if using_new {
+            next_config_dir.clone()
+        } else {
+            legacy_config_dir.clone()
+        };
+        let migrated_to_new = using_new && legacy_config_dir.exists() && next_config_dir.exists();
+        eprintln!(
+            "[INFO][配置路径] 选择配置目录: selected={}, using_new={}, fallback_legacy={}, migrated_legacy_to_new={}",
+            config_dir.display(),
+            using_new,
+            using_legacy,
+            migrated_to_new
+        );
+        fs::create_dir_all(&config_dir)
+            .map_err(|err| format!("Create config directory failed: {err}"))?;
         let app_root = config_dir
             .parent()
             .map(ToOwned::to_owned)

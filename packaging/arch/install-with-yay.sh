@@ -15,7 +15,7 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 latest_tag="$(
-  curl -fsSL "https://api.github.com/repos/kawayiYokami/Easy-call-ai/releases/latest" \
+  curl -fsSL "https://api.github.com/repos/kawayiYokami/P-ai/releases/latest" \
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\([^"]*\)".*/\1/p' \
     | head -n 1
 )"
@@ -27,5 +27,5 @@ else
   echo "warn: 無法取得最新版本，使用 PKGBUILD 目前版本。"
 fi
 
-echo "info: 開始使用 yay 建置並安裝 easy-call-ai..."
+echo "info: 開始使用 yay 建置並安裝 P-ai..."
 yay -Bi --needed "$@" .

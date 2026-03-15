@@ -1,4 +1,4 @@
-# Easy Call AI（Arch Linux 本地安裝）
+# π師傅（Arch Linux 本地安裝）
 
 ## 安裝
 

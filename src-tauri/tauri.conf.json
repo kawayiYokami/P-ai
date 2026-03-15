@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Easy Call AI",
-  "version": "0.3.7",
+  "productName": "π师傅",
+  "version": "0.3.8",
   "identifier": "ai.easycall.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Easy Call AI - 配置窗口",
+        "title": "π师傅 - 配置窗口",
         "width": 900,
         "height": 900,
         "devtools": false,
@@ -25,7 +25,7 @@
       },
       {
         "label": "chat",
-        "title": "Easy Call AI - 对话窗口",
+        "title": "π师傅 - 对话窗口",
         "width": 618,
         "height": 1000,
         "devtools": false,
@@ -37,7 +37,7 @@
       },
       {
         "label": "archives",
-        "title": "Easy Call AI - 归档窗口",
+        "title": "π师傅 - 归档窗口",
         "width": 900,
         "height": 900,
         "devtools": false,
@@ -64,3 +64,5 @@
     "targets": ["deb", "appimage", "msi", "nsis"]
   }
 }
+
+

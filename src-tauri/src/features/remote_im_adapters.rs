@@ -472,6 +472,161 @@ impl DingtalkSdk {
         );
         Ok(token.to_string())
     }
+
+    // ========== input validation ==========
+    fn validate_and_get_text(&self, payload: &Value) -> Result<String, String> {
+        let text = remote_im_payload_text(payload);
+        if text.trim().is_empty() {
+            return Err("dingtalk outbound text is empty".to_string());
+        }
+        Ok(text)
+    }
+
+    // ========== auth ==========
+    async fn access_token_for_channel(
+        &self,
+        channel: &RemoteImChannelConfig,
+    ) -> Result<String, String> {
+        self.access_token(channel).await
+    }
+
+    fn get_robot_code(&self, channel: &RemoteImChannelConfig) -> Result<String, String> {
+        let robot_code = remote_im_credential_text(&channel.credentials, "robotCode");
+        if robot_code.is_empty() {
+            return Err(format!("dingtalk channel '{}' missing robotCode", channel.id));
+        }
+        Ok(robot_code)
+    }
+
+    fn validate_target_is_private(&self, contact: &RemoteImContact) -> Result<(), String> {
+        let is_group = contact.remote_contact_type.trim().eq_ignore_ascii_case("group");
+        if !is_group
+            && remote_im_is_dingtalk_private_target_likely_conversation_id(
+                &contact.remote_contact_id,
+            )
+        {
+            return Err("dingtalk private outbound expects userId/staffId, got conversation id".to_string());
+        }
+        Ok(())
+    }
+
+    // ========== request build ==========
+    fn build_request_body(
+        &self,
+        is_group: bool,
+        contact: &RemoteImContact,
+        robot_code: &str,
+        text: &str,
+    ) -> (String, Value) {
+        if is_group {
+            (
+                "https://api.dingtalk.com/v1.0/robot/groupMessages/send".to_string(),
+                serde_json::json!({
+                    "msgKey": "sampleText",
+                    "msgParam": serde_json::json!({"content": text}).to_string(),
+                    "openConversationId": contact.remote_contact_id,
+                    "robotCode": robot_code
+                }),
+            )
+        } else {
+            (
+                "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend".to_string(),
+                serde_json::json!({
+                    "robotCode": robot_code,
+                    "userIds": [contact.remote_contact_id],
+                    "msgKey": "sampleText",
+                    "msgParam": serde_json::json!({"content": text}).to_string()
+                }),
+            )
+        }
+    }
+
+    // ========== http send/parse ==========
+    async fn send_and_parse(
+        &self,
+        client: &reqwest::Client,
+        url: String,
+        token: &str,
+        body: &Value,
+    ) -> Result<Value, String> {
+        let response = client
+            .post(url)
+            .header("x-acs-dingtalk-access-token", token)
+            .header(CONTENT_TYPE, "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|err| format!("dingtalk send failed: {err}"))?;
+        let status = response.status();
+        let response_text = response
+            .text()
+            .await
+            .map_err(|err| format!("read dingtalk send response failed: {err}"))?;
+        let parsed = remote_im_json_or_text(&response_text);
+        if !status.is_success() {
+            return Err(format!(
+                "dingtalk send rejected http {}: {}",
+                status.as_u16(),
+                parsed
+            ));
+        }
+        if parsed.get("errcode").and_then(Value::as_i64).unwrap_or(0) != 0
+            || parsed.get("code").and_then(Value::as_i64).unwrap_or(0) != 0
+        {
+            return Err(format!("dingtalk send rejected: {}", parsed));
+        }
+        Ok(parsed)
+    }
+
+    fn process_query_key_from_response(&self, body: &Value) -> String {
+        body.get("processQueryKey")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                body.get("data")
+                    .and_then(|v| v.get("processQueryKey"))
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    fn log_outcome(
+        &self,
+        level: &str,
+        channel: &RemoteImChannelConfig,
+        contact: &RemoteImContact,
+        is_group: bool,
+        content_count: usize,
+        text_len: usize,
+        started: std::time::Instant,
+        status: &str,
+        process_query_key: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let mut fields = serde_json::json!({
+            "task_name": "dingtalk.send_outbound",
+            "trigger": "remote_im_send",
+            "channel_id": channel.id,
+            "contact_id": contact.id,
+            "remote_contact_id": contact.remote_contact_id,
+            "is_group": is_group,
+            "content_item_count": content_count,
+            "message_length": text_len,
+            "status": status,
+            "duration_ms": started.elapsed().as_millis()
+        });
+        if let Some(value) = process_query_key {
+            if let Some(obj) = fields.as_object_mut() {
+                obj.insert("process_query_key".to_string(), serde_json::json!(value));
+            }
+        }
+        if let Some(value) = error {
+            if let Some(obj) = fields.as_object_mut() {
+                obj.insert("error".to_string(), serde_json::json!(value));
+            }
+        }
+        remote_im_log(level, "dingtalk.send_outbound", fields);
+    }
 }
 
 impl RemoteImSdk for DingtalkSdk {
@@ -482,6 +637,7 @@ impl RemoteImSdk for DingtalkSdk {
     fn validate_channel(&self, channel: &RemoteImChannelConfig) -> Result<(), String> {
         if remote_im_credential_text(&channel.credentials, "clientId").is_empty()
             || remote_im_credential_text(&channel.credentials, "clientSecret").is_empty()
+            || remote_im_credential_text(&channel.credentials, "robotCode").is_empty()
         {
             return Err(format!("dingtalk channel '{}' credentials invalid", channel.id));
         }
@@ -496,284 +652,155 @@ impl RemoteImSdk for DingtalkSdk {
     ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>> {
         Box::pin(async move {
             let started = std::time::Instant::now();
-            let text = remote_im_payload_text(payload);
             let content_count = payload
                 .get("content")
                 .and_then(Value::as_array)
                 .map(|items| items.len())
                 .unwrap_or(0);
             let is_group = contact.remote_contact_type.trim().eq_ignore_ascii_case("group");
-            remote_im_log(
-                "INFO",
-                "dingtalk.send_outbound",
-                serde_json::json!({
-                    "task_name": "dingtalk.send_outbound",
-                    "trigger": "remote_im_send",
-                    "channel_id": channel.id,
-                    "contact_id": contact.id,
-                    "remote_contact_id": contact.remote_contact_id,
-                    "is_group": is_group,
-                    "content_item_count": content_count,
-                    "message_length": text.len(),
-                    "status": "开始"
-                }),
-            );
-            if text.trim().is_empty() {
-                let err = "dingtalk outbound text is empty".to_string();
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "content_item_count": content_count,
-                        "message_length": text.len(),
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            let token = match self.access_token(channel).await {
-                Ok(token) => token,
+            // ========== input validation ==========
+            let text = match self.validate_and_get_text(payload) {
+                Ok(text) => text,
                 Err(err) => {
-                    remote_im_log(
+                    self.log_outcome(
                         "ERROR",
-                        "dingtalk.send_outbound",
-                        serde_json::json!({
-                            "task_name": "dingtalk.send_outbound",
-                            "trigger": "remote_im_send",
-                            "channel_id": channel.id,
-                            "remote_contact_id": contact.remote_contact_id,
-                            "is_group": is_group,
-                            "status": "失败",
-                            "error": err,
-                            "duration_ms": started.elapsed().as_millis()
-                        }),
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        0,
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
                     );
                     return Err(err);
                 }
             };
-            let robot_code = remote_im_credential_text(&channel.credentials, "robotCode");
-            if robot_code.is_empty() {
-                let err = format!("dingtalk channel '{}' missing robotCode", channel.id);
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            if !is_group
-                && remote_im_is_dingtalk_private_target_likely_conversation_id(
-                    &contact.remote_contact_id,
-                )
-            {
-                let err =
-                    "dingtalk private outbound expects userId/staffId, got conversation id".to_string();
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            let (url, body) = if is_group {
-                (
-                    "https://api.dingtalk.com/v1.0/robot/groupMessages/send".to_string(),
-                    serde_json::json!({
-                        "msgKey": "sampleText",
-                        "msgParam": serde_json::json!({"content": text}).to_string(),
-                        "openConversationId": contact.remote_contact_id,
-                        "robotCode": robot_code
-                    }),
-                )
-            } else {
-                (
-                    "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend".to_string(),
-                    serde_json::json!({
-                        "robotCode": robot_code,
-                        "userIds": [contact.remote_contact_id],
-                        "msgKey": "sampleText",
-                        "msgParam": serde_json::json!({"content": text}).to_string()
-                    }),
-                )
+            self.log_outcome(
+                "INFO",
+                channel,
+                contact,
+                is_group,
+                content_count,
+                text.len(),
+                started,
+                "开始",
+                None,
+                None,
+            );
+
+            // ========== auth ==========
+            let token = match self.access_token_for_channel(channel).await {
+                Ok(token) => token,
+                Err(err) => {
+                    self.log_outcome(
+                        "ERROR",
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
+                    );
+                    return Err(err);
+                }
             };
-            let client = reqwest::Client::builder()
+            let robot_code = match self.get_robot_code(channel) {
+                Ok(code) => code,
+                Err(err) => {
+                    self.log_outcome(
+                        "ERROR",
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
+                    );
+                    return Err(err);
+                }
+            };
+            if let Err(err) = self.validate_target_is_private(contact) {
+                self.log_outcome(
+                    "ERROR",
+                    channel,
+                    contact,
+                    is_group,
+                    content_count,
+                    text.len(),
+                    started,
+                    "失败",
+                    None,
+                    Some(&err),
+                );
+                return Err(err);
+            }
+
+            // ========== request build ==========
+            let (url, body) = self.build_request_body(is_group, contact, &robot_code, &text);
+            let client = match reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(12))
                 .build()
-                .map_err(|err| {
-                    let msg = format!("build dingtalk client failed: {err}");
-                    remote_im_log(
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    let message = format!("build dingtalk client failed: {err}");
+                    self.log_outcome(
                         "ERROR",
-                        "dingtalk.send_outbound",
-                        serde_json::json!({
-                            "task_name": "dingtalk.send_outbound",
-                            "trigger": "remote_im_send",
-                            "channel_id": channel.id,
-                            "remote_contact_id": contact.remote_contact_id,
-                            "is_group": is_group,
-                            "status": "失败",
-                            "error": msg,
-                            "duration_ms": started.elapsed().as_millis()
-                        }),
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&message),
                     );
-                    msg
-                })?;
-            let response = client
-                .post(url)
-                .header("x-acs-dingtalk-access-token", token)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|err| {
-                    let msg = format!("dingtalk send failed: {err}");
-                    remote_im_log(
+                    return Err(message);
+                }
+            };
+
+            // ========== HTTP send/parse ==========
+            let parsed = match self.send_and_parse(&client, url, &token, &body).await {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    self.log_outcome(
                         "ERROR",
-                        "dingtalk.send_outbound",
-                        serde_json::json!({
-                            "task_name": "dingtalk.send_outbound",
-                            "trigger": "remote_im_send",
-                            "channel_id": channel.id,
-                            "remote_contact_id": contact.remote_contact_id,
-                            "is_group": is_group,
-                            "status": "失败",
-                            "error": msg,
-                            "duration_ms": started.elapsed().as_millis()
-                        }),
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
                     );
-                    msg
-                })?;
-            let status = response.status();
-            let response_text = response
-                .text()
-                .await
-                .map_err(|err| {
-                    let msg = format!("read dingtalk send response failed: {err}");
-                    remote_im_log(
-                        "ERROR",
-                        "dingtalk.send_outbound",
-                        serde_json::json!({
-                            "task_name": "dingtalk.send_outbound",
-                            "trigger": "remote_im_send",
-                            "channel_id": channel.id,
-                            "remote_contact_id": contact.remote_contact_id,
-                            "is_group": is_group,
-                            "status": "失败",
-                            "error": msg,
-                            "duration_ms": started.elapsed().as_millis()
-                        }),
-                    );
-                    msg
-                })?;
-            let body = remote_im_json_or_text(&response_text);
-            if !status.is_success() {
-                let err = format!(
-                    "dingtalk send rejected http {}: {}",
-                    status.as_u16(),
-                    body
-                );
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            if body.get("errcode").and_then(Value::as_i64).unwrap_or(0) != 0 {
-                let err = format!("dingtalk send rejected: {}", body);
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            if body.get("code").and_then(Value::as_i64).unwrap_or(0) != 0 {
-                let err = format!("dingtalk send rejected: {}", body);
-                remote_im_log(
-                    "ERROR",
-                    "dingtalk.send_outbound",
-                    serde_json::json!({
-                        "task_name": "dingtalk.send_outbound",
-                        "trigger": "remote_im_send",
-                        "channel_id": channel.id,
-                        "remote_contact_id": contact.remote_contact_id,
-                        "is_group": is_group,
-                        "status": "失败",
-                        "error": err,
-                        "duration_ms": started.elapsed().as_millis()
-                    }),
-                );
-                return Err(err);
-            }
-            let process_query_key = body
-                .get("processQueryKey")
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    body.get("data")
-                        .and_then(|v| v.get("processQueryKey"))
-                        .and_then(Value::as_str)
-                })
-                .unwrap_or_default()
-                .to_string();
-            remote_im_log(
+                    return Err(err);
+                }
+            };
+            let process_query_key = self.process_query_key_from_response(&parsed);
+
+            // ========== final logging ==========
+            self.log_outcome(
                 "INFO",
-                "dingtalk.send_outbound",
-                serde_json::json!({
-                    "task_name": "dingtalk.send_outbound",
-                    "trigger": "remote_im_send",
-                    "channel_id": channel.id,
-                    "contact_id": contact.id,
-                    "remote_contact_id": contact.remote_contact_id,
-                    "is_group": is_group,
-                    "content_item_count": content_count,
-                    "message_length": text.len(),
-                    "status": "完成",
-                    "process_query_key": process_query_key,
-                    "duration_ms": started.elapsed().as_millis()
-                }),
+                channel,
+                contact,
+                is_group,
+                content_count,
+                text.len(),
+                started,
+                "完成",
+                Some(&process_query_key),
+                None,
             );
             Ok(process_query_key)
         })

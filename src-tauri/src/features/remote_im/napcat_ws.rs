@@ -916,9 +916,20 @@ async fn parse_and_enqueue_onebot_event(
     manager: &NapcatWsManager,
 ) -> Result<RemoteImEnqueueResult, String> {
     eprintln!(
-        "[NapCat Event] 渠道 {} 收到 message 事件原始数据: {}",
+        "[NapCat Event][trace] channel_id={}, message_type={}, user_id={}, message_id={}",
         channel_id,
-        serde_json::to_string(event).unwrap_or_else(|_| "<序列化失败>".to_string())
+        event
+            .get("message_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown"),
+        event
+            .get("user_id")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        event
+            .get("message_id")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
     );
     let user_id = event.get("user_id").and_then(|v| v.as_u64()).unwrap_or(0);
     let sender_name = resolve_sender_name(event);

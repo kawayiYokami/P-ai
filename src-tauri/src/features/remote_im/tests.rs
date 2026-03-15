@@ -1,3 +1,5 @@
+use super::*;
+
     #[test]
     fn remote_im_upsert_contact_for_inbound_should_create_with_send_and_receive_false() {
         let channel = RemoteImChannelConfig {

@@ -1,4 +1,4 @@
-# Easy Call AI
+# P-ai
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](../../LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8D8?logo=tauri)](https://tauri.app)
@@ -13,7 +13,7 @@
 > Turn LLMs into a desktop AI command center that actually gets work done.  
 > This is not just a chat overlay. It is a desktop AI operating system that can manage itself, manage subordinates, manage skills, manage workspace state, and keep executing over time.
 
-Easy Call AI is not trying to be another AI chat website.
+P-ai is not trying to be another AI chat website.
 
 It is trying to do something far more ambitious:
 
@@ -27,7 +27,7 @@ If you want a desktop AI system that can keep working with you for the long run,
 
 ## What It Is Now
 
-Easy Call AI is closer to a combination of:
+P-ai is closer to a combination of:
 
 - a desktop AI overlay
 - a long-running task system
@@ -52,7 +52,7 @@ Most AI products are limited not because the model is weak, but because the syst
 | Expensive and messy memory | Context grows heavier and more fragile |
 | Blurry tool boundaries | Hard to control, hard to reuse |
 
-Easy Call AI goes in the opposite direction:
+P-ai goes in the opposite direction:
 
 - give LLMs identity
 - give LLMs departments
@@ -185,3 +185,5 @@ The point is keeping AI alive for the long run without burning money.
 ## License
 
 This project is licensed under [GNU General Public License v3.0](../../LICENSE).
+
+
