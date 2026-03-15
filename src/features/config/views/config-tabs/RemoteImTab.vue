@@ -1,9 +1,14 @@
 <template>
-  <div class="flex h-full gap-4 min-h-0">
+  <div class="flex flex-col gap-4 min-h-0 h-full overflow-y-auto pr-1">
     <!-- 左侧：渠道列表 -->
-    <div class="bg-base-100 rounded-box border border-base-300 flex-80 min-w-0 flex flex-col h-full overflow-hidden">
+    <div class="bg-base-100 rounded-box border border-base-300 w-full h-[18rem] shrink-0 flex flex-col overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2 shrink-0">
         <span class="font-semibold text-sm">{{ t("config.remoteIm.title") }}</span>
+        <div class="flex items-center gap-1">
+          <button class="btn btn-xs btn-ghost" :disabled="channelPage <= 1" @click="channelPage -= 1">‹</button>
+          <span class="text-xs font-medium opacity-70">{{ channelPage }} / {{ channelPageCount }}</span>
+          <button class="btn btn-xs btn-ghost" :disabled="channelPage >= channelPageCount" @click="channelPage += 1">›</button>
+        </div>
         <div class="flex gap-1">
           <button class="btn  btn-square btn-ghost" :title="t('config.remoteIm.addChannel')" @click="addChannel">
             <Plus class="h-3.5 w-3.5" />
@@ -23,10 +28,10 @@
         <li v-if="channels.length === 0" class="menu-title">
           <span class="text-xs italic opacity-60">{{ t("config.remoteIm.empty") }}</span>
         </li>
-        <li v-for="(ch, idx) in channels" :key="ch.id">
+        <li v-for="(ch, idx) in pagedChannels" :key="ch.id">
           <button :class="{ 'menu-active': selectedChannelId === ch.id }" @click="selectedChannelId = ch.id">
             <span class="badge badge-ghost badge-xs">{{ platformLabel(ch.platform).slice(0, 1) }}</span>
-            {{ ch.name || `#${idx + 1}` }}
+            {{ ch.name || `#${(channelPage - 1) * CHANNELS_PAGE_SIZE + idx + 1}` }}
             <input
               type="checkbox"
               class="toggle toggle-primary bg-base-200"
@@ -40,7 +45,7 @@
     </div>
 
     <!-- 中间：渠道详情 -->
-    <div class="flex-120 min-w-0 flex flex-col min-h-0">
+    <div class="w-full min-h-[22rem] flex flex-col min-h-0">
       <div v-if="!selectedChannel" class="bg-base-100 rounded-box border border-base-300 flex-1 flex items-center justify-center">
         <div class="text-xs italic opacity-60">{{ t("config.remoteIm.empty") }}</div>
       </div>
@@ -53,8 +58,10 @@
             <button
               v-if="selectedChannel.platform === 'onebot_v11'"
               class="btn  btn-ghost"
+              :title="t('common.reset')"
               @click="resetNapcatCredentials"
             >
+              <RotateCcw class="h-3.5 w-3.5" />
               {{ t("common.reset") }}
             </button>
             <button
@@ -154,7 +161,9 @@
             <div class="border-t border-base-300 mt-2 pt-2">
               <div class="flex items-center justify-between">
                 <span class="font-semibold">{{ t("config.remoteIm.connectionStatus") }}</span>
-                <button class="btn  btn-ghost" @click="refreshChannelStatus">{{ t("common.refresh") }}</button>
+                <button class="btn btn-square btn-ghost" :title="t('common.refresh')" @click="refreshChannelStatus">
+                  <RefreshCw class="h-3.5 w-3.5" />
+                </button>
               </div>
               <div class="mt-2 flex items-center gap-2">
                 <span class="size-2 rounded-full" :class="channelStatus?.connected ? 'bg-success' : 'bg-base-300'"></span>
@@ -172,7 +181,9 @@
             <div class="border-t border-base-300 mt-2 pt-2 min-h-0 flex flex-col">
               <div class="flex items-center justify-between shrink-0">
                 <span class="font-semibold">{{ t("config.remoteIm.channelLogs") }}</span>
-                <button class="btn  btn-ghost" @click="refreshChannelLogs">{{ t("common.refresh") }}</button>
+                <button class="btn btn-square btn-ghost" :title="t('common.refresh')" @click="refreshChannelLogs">
+                  <RefreshCw class="h-3.5 w-3.5" />
+                </button>
               </div>
               <div class="mt-2 mb-3 flex-1 min-h-0 overflow-y-auto">
                 <div v-if="channelLogs.length === 0" class="opacity-60 italic text-xs">{{ t("config.remoteIm.noLogs") }}</div>
@@ -185,13 +196,20 @@
     </div>
 
     <!-- 右侧：联系人列表 -->
-    <div class="bg-base-100 rounded-box border border-base-300 flex-160 min-w-0 flex flex-col h-full overflow-hidden">
-      <div class="flex items-center justify-between px-3 py-2 shrink-0">
+    <div class="bg-base-100 rounded-box border border-base-300 w-full h-[22rem] shrink-0 flex flex-col overflow-hidden">
+      <div class="relative flex items-center justify-between px-3 py-2 shrink-0">
         <span class="flex items-center gap-2 font-semibold text-sm">
           {{ t("config.remoteIm.contactsTitle") }}
           <span class="badge badge-ghost badge-xs">{{ currentChannelContacts.length }}</span>
         </span>
-        <button class="btn  btn-ghost" :class="{ loading: contactsLoading }" @click="refreshContacts">{{ t("common.refresh") }}</button>
+        <div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
+          <button class="btn btn-xs btn-ghost" :disabled="contactPage <= 1" @click="contactPage -= 1">‹</button>
+          <span class="text-xs font-medium opacity-70">{{ contactPage }} / {{ contactPageCount }}</span>
+          <button class="btn btn-xs btn-ghost" :disabled="contactPage >= contactPageCount" @click="contactPage += 1">›</button>
+        </div>
+        <button class="btn btn-square btn-ghost" :title="t('common.refresh')" @click="refreshContacts">
+          <RefreshCw class="h-3.5 w-3.5" :class="contactsLoading ? 'animate-spin' : ''" />
+        </button>
       </div>
       <ul class="list w-full flex-1 overflow-y-auto">
         <li v-if="selectedChannel && (selectedChannel.platform === 'feishu' || selectedChannel.platform === 'dingtalk')" class="menu-title">
@@ -203,7 +221,7 @@
         <li v-if="currentChannelContacts.length === 0" class="menu-title">
           <span class="text-xs italic opacity-60">{{ t("config.remoteIm.contactsEmpty") }}</span>
         </li>
-        <li v-for="(item, idx) in currentChannelContacts" :key="item.id" class="flex flex-col border-b border-base-200">
+        <li v-for="(item, idx) in pagedCurrentChannelContacts" :key="item.id" class="flex flex-col border-b border-base-200">
           <!-- 主行（始终显示） -->
           <div class="flex items-center gap-3 px-3 py-2 cursor-pointer bg-base-300" @click="toggleContactExpand(item.id)">
             <span class="badge shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">{{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}</span>
@@ -285,7 +303,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, Save, Trash2 } from "lucide-vue-next";
+import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-vue-next";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { AppConfig, RemoteImChannelConfig, RemoteImContact } from "../../../../types/app";
 
@@ -305,6 +323,10 @@ const napcatCredentials = ref({ wsHost: "0.0.0.0", wsPort: 6199, wsToken: "" });
 const suppressCredentialSync = ref(false);
 const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
+const CHANNELS_PAGE_SIZE = 8;
+const CONTACTS_PAGE_SIZE = 6;
+const channelPage = ref(1);
+const contactPage = ref(1);
 
 // 连接状态和日志
 type ChannelConnectionStatus = {
@@ -377,6 +399,24 @@ const currentChannelContacts = computed(() => {
   return contacts.value.filter((c) => c.channelId === selectedChannelId.value);
 });
 
+const channelPageCount = computed(() =>
+  Math.max(1, Math.ceil(channels.value.length / CHANNELS_PAGE_SIZE)),
+);
+
+const pagedChannels = computed(() => {
+  const start = (channelPage.value - 1) * CHANNELS_PAGE_SIZE;
+  return channels.value.slice(start, start + CHANNELS_PAGE_SIZE);
+});
+
+const contactPageCount = computed(() =>
+  Math.max(1, Math.ceil(currentChannelContacts.value.length / CONTACTS_PAGE_SIZE)),
+);
+
+const pagedCurrentChannelContacts = computed(() => {
+  const start = (contactPage.value - 1) * CONTACTS_PAGE_SIZE;
+  return currentChannelContacts.value.slice(start, start + CONTACTS_PAGE_SIZE);
+});
+
 // 展开的联系人ID集合
 const expandedContactIds = ref<Set<string>>(new Set());
 const contactKeywordDrafts = ref<Record<string, string>>({});
@@ -427,7 +467,8 @@ function removeSelectedChannel() {
   const idx = channels.value.findIndex((ch) => ch.id === selectedChannelId.value);
   if (idx >= 0) {
     props.config.remoteImChannels.splice(idx, 1);
-    selectedChannelId.value = channels.value[0]?.id || "";
+    const nextIdx = Math.min(idx, channels.value.length - 1);
+    selectedChannelId.value = nextIdx >= 0 ? channels.value[nextIdx].id : "";
   }
 }
 
@@ -727,6 +768,9 @@ function formatLogTime(timestamp: string): string {
 watch(
   channels,
   (list) => {
+    if (channelPage.value > channelPageCount.value) {
+      channelPage.value = channelPageCount.value;
+    }
     if (list.length > 0 && !list.some((ch) => ch.id === selectedChannelId.value)) {
       selectedChannelId.value = list[0].id;
     }
@@ -740,6 +784,11 @@ watch(
 );
 
 watch(selectedChannelId, () => {
+  contactPage.value = 1;
+  const selectedIndex = channels.value.findIndex((item) => item.id === selectedChannelId.value);
+  if (selectedIndex >= 0) {
+    channelPage.value = Math.floor(selectedIndex / CHANNELS_PAGE_SIZE) + 1;
+  }
   if (selectedChannel.value) {
     credentialDrafts.value[selectedChannel.value.id] = JSON.stringify(
       selectedChannel.value.credentials || {}, null, 2,
@@ -754,6 +803,12 @@ watch(selectedChannelId, () => {
     }
   }
   lastSavedChannelSnapshot.value = channelSnapshot.value;
+});
+
+watch(currentChannelContacts, () => {
+  if (contactPage.value > contactPageCount.value) {
+    contactPage.value = contactPageCount.value;
+  }
 });
 
 watch(napcatCredentials, () => {

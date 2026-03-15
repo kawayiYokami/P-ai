@@ -375,7 +375,7 @@
       "cacheHint": "缓存按「图转文AI配置」隔离，切换图转文AI后会自动使用对应缓存命名空间。"
     },
     "remoteIm": {
-      "title": "联系人渠道",
+      "title": "渠道列表",
       "hint": "在这里维护 OneBot v11 / 飞书 / 钉钉 渠道配置与联系人回复策略。",
       "addChannel": "新增渠道",
       "empty": "暂无渠道，请先新增一个。",
@@ -401,7 +401,7 @@
       "wsTokenPlaceholder": "可选，留空不验证",
       "enabledState": "已启用",
       "disabledState": "已禁用",
-      "contactsTitle": "远程联系人",
+      "contactsTitle": "联系人列表",
       "contactsEmpty": "暂无远程联系人记录。",
       "contactsEmptyHint": "配置并启用渠道后，收到的消息会自动创建联系人。",
       "experimental": "当前功能处于实验阶段，使用前请注意备份数据",
