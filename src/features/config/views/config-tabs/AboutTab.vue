@@ -14,11 +14,11 @@
 
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
-        <h3 class="card-title text-base">{{ t("about.github") }}</h3>
+        <h3 class="card-title text-base">{{ t("about.repository") }}</h3>
         <button
           class="btn"
-          @click="openGithub"
-        >GitHub</button>
+          @click="openRepository"
+        >{{ t("about.repository") }}</button>
       </div>
     </div>
   </div>
@@ -50,7 +50,6 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "checkUpdate"): void;
-  (e: "openGithub"): void;
 }>();
 
 const { t } = useI18n();
@@ -70,8 +69,13 @@ onMounted(async () => {
   }
 });
 
-function openGithub() {
-  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/P-ai" });
+async function openRepository() {
+  try {
+    const url = await invokeTauri<string>("get_project_repository_url");
+    void invokeTauri("open_external_url", { url });
+  } catch (error) {
+    console.warn("[AboutTab] resolve project repository failed:", error);
+  }
 }
 
 function handleCheckUpdate() {

@@ -1360,8 +1360,13 @@ function summonChatWindowFromConfig() {
   void invokeTauri("show_chat_window");
 }
 
-function openGithubRepository() {
-  void invokeTauri("open_external_url", { url: "https://github.com/kawayiYokami/P-ai" });
+async function openGithubRepository() {
+  try {
+    const url = await invokeTauri<string>("get_project_repository_url");
+    void invokeTauri("open_external_url", { url });
+  } catch (error) {
+    console.warn("[ABOUT] resolve project repository failed:", error);
+  }
 }
 
 function closeUpdateDialog() {
@@ -1518,6 +1523,7 @@ async function checkGithubUpdate(silent: boolean) {
       latestVersion: string;
       hasUpdate: boolean;
       releaseUrl: string;
+      updateSource?: string;
     }>("check_github_update");
     if (!result?.hasUpdate) {
       if (!silent) {
@@ -1529,7 +1535,7 @@ async function checkGithubUpdate(silent: boolean) {
     status.value = `发现新版本 ${result.latestVersion}（当前 ${result.currentVersion}）`;
     if (!silent) {
       openUpdateDialog(
-        `发现新版本 ${result.latestVersion}\n当前版本 ${result.currentVersion}\n\n可前往 GitHub Releases 下载更新。`,
+        `发现新版本 ${result.latestVersion}\n当前版本 ${result.currentVersion}\n\n可前往发布页下载更新（来源：${result.updateSource || "github"}）。`,
         "info",
         result.releaseUrl,
       );
