@@ -26,6 +26,7 @@ struct GithubUpdateInfo {
     latest_version: String,
     has_update: bool,
     release_url: String,
+    update_source: String,
 }
 
 #[tauri::command]
@@ -104,21 +105,82 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
     false
 }
 
-#[tauri::command]
-async fn check_github_update() -> Result<GithubUpdateInfo, String> {
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let api_url = "https://api.github.com/repos/kawayiYokami/P-ai/releases/latest";
+const GITHUB_RELEASE_API: &str = "https://api.github.com/repos/kawayiYokami/P-ai/releases/latest";
+const GITEE_RELEASE_API: &str = "https://gitee.com/api/v5/repos/yokami618/P-ai/releases/latest";
+const GITHUB_RELEASE_PAGE: &str = "https://github.com/kawayiYokami/P-ai/releases/latest";
+const GITEE_RELEASE_PAGE: &str = "https://gitee.com/yokami618/P-ai/releases";
+const GITHUB_REPO_PAGE: &str = "https://github.com/kawayiYokami/P-ai";
+const GITEE_REPO_PAGE: &str = "https://gitee.com/yokami618/P-ai";
+
+fn set_preferred_release_source(state: &AppState, source: &str) {
+    if let Ok(mut slot) = state.preferred_release_source.lock() {
+        *slot = source.to_string();
+    }
+}
+
+fn get_preferred_release_source(state: &AppState) -> String {
+    state
+        .preferred_release_source
+        .lock()
+        .map(|slot| slot.clone())
+        .unwrap_or_else(|_| "github".to_string())
+}
+
+async fn probe_release_source_once(state: &AppState) {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            eprintln!("[更新源] 初始化探测客户端失败: {}", err);
+            return;
+        }
+    };
+    let github_ok = client
+        .get(GITHUB_RELEASE_API)
+        .header(reqwest::header::USER_AGENT, "p-ai/startup-probe")
+        .send()
+        .await
+        .map(|resp| resp.status().is_success())
+        .unwrap_or(false);
+    let gitee_ok = client
+        .get(GITEE_RELEASE_API)
+        .header(reqwest::header::USER_AGENT, "p-ai/startup-probe")
+        .send()
+        .await
+        .map(|resp| resp.status().is_success())
+        .unwrap_or(false);
+    let selected = if github_ok {
+        "github"
+    } else if gitee_ok {
+        "gitee"
+    } else {
+        "github"
+    };
+    set_preferred_release_source(state, selected);
+    eprintln!(
+        "[更新源] 启动探测完成: github_ok={}, gitee_ok={}, selected={}",
+        github_ok, gitee_ok, selected
+    );
+}
+
+async fn fetch_latest_release_from(
+    api_url: &str,
+    release_fallback_url: &str,
+    current_version: &str,
+) -> Result<(String, String), String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
+        .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|err| format!("Build update checker client failed: {err}"))?;
     let response = client
         .get(api_url)
         .header(
             reqwest::header::USER_AGENT,
-            format!("easy-call-ai/{current_version}"),
+            format!("p-ai/{current_version}"),
         )
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
         .map_err(|err| format!("Request latest release failed: {err}"))?;
@@ -134,25 +196,76 @@ async fn check_github_update() -> Result<GithubUpdateInfo, String> {
         .map_err(|err| format!("Parse update response failed: {err}"))?;
     let latest_version = payload
         .get("tag_name")
+        .or_else(|| payload.get("name"))
         .and_then(Value::as_str)
         .map(str::trim)
+        .map(|v| v.trim_start_matches(['v', 'V']))
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| "GitHub release tag_name is empty".to_string())?
+        .ok_or_else(|| "release version is empty".to_string())?
         .to_string();
     let release_url = payload
         .get("html_url")
+        .or_else(|| payload.get("url"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("https://github.com/kawayiYokami/P-ai/releases/latest")
+        .unwrap_or(release_fallback_url)
         .to_string();
+    Ok((latest_version, release_url))
+}
+
+#[tauri::command]
+async fn check_github_update(state: State<'_, AppState>) -> Result<GithubUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let preferred = get_preferred_release_source(state.inner());
+    let primary = if preferred == "gitee" {
+        ("gitee", GITEE_RELEASE_API, GITEE_RELEASE_PAGE)
+    } else {
+        ("github", GITHUB_RELEASE_API, GITHUB_RELEASE_PAGE)
+    };
+    let secondary = if primary.0 == "github" {
+        ("gitee", GITEE_RELEASE_API, GITEE_RELEASE_PAGE)
+    } else {
+        ("github", GITHUB_RELEASE_API, GITHUB_RELEASE_PAGE)
+    };
+    let (source, latest_version, release_url) =
+        match fetch_latest_release_from(primary.1, primary.2, &current_version).await {
+            Ok((latest_version, release_url)) => {
+                set_preferred_release_source(state.inner(), primary.0);
+                (primary.0.to_string(), latest_version, release_url)
+            }
+            Err(first_err) => {
+                match fetch_latest_release_from(secondary.1, secondary.2, &current_version).await {
+                    Ok((latest_version, release_url)) => {
+                        set_preferred_release_source(state.inner(), secondary.0);
+                        (secondary.0.to_string(), latest_version, release_url)
+                    }
+                    Err(second_err) => {
+                        return Err(format!(
+                            "Check update failed: primary={} err={}, secondary={} err={}",
+                            primary.0, first_err, secondary.0, second_err
+                        ));
+                    }
+                }
+            }
+        };
 
     Ok(GithubUpdateInfo {
         current_version: current_version.clone(),
         latest_version: latest_version.clone(),
         has_update: is_newer_version(&current_version, &latest_version),
         release_url,
+        update_source: source,
     })
+}
+
+#[tauri::command]
+fn get_project_repository_url(state: State<'_, AppState>) -> String {
+    if get_preferred_release_source(state.inner()) == "gitee" {
+        GITEE_REPO_PAGE.to_string()
+    } else {
+        GITHUB_REPO_PAGE.to_string()
+    }
 }
 
 #[tauri::command]

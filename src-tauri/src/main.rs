@@ -261,6 +261,12 @@ fn main() {
             }
             let startup_state = app_handle.state::<AppState>().inner().clone();
             start_task_scheduler(startup_state.clone());
+            tauri::async_runtime::spawn({
+                let probe_state = startup_state.clone();
+                async move {
+                    probe_release_source_once(&probe_state).await;
+                }
+            });
             
             // 启动 NapCat WebSocket 服务
             {
@@ -322,6 +328,7 @@ fn main() {
             set_chat_window_active,
             check_github_update,
             get_app_version,
+            get_project_repository_url,
             load_config,
             list_system_fonts,
             save_config,

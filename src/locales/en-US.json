@@ -794,7 +794,7 @@
   "about": {
     "version": "Version",
     "checkUpdate": "Check for Updates",
-    "github": "GitHub Repository"
+    "repository": "Git Repository"
   }
 }
 

@@ -794,6 +794,6 @@
   "about": {
     "version": "版本",
     "checkUpdate": "检查更新",
-    "github": "GitHub 仓库"
+    "repository": "Git 倉庫"
   }
 }

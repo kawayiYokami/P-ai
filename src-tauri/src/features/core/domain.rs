@@ -1403,6 +1403,7 @@ struct AppState {
         Arc<Mutex<std::collections::HashMap<String, DelegateRuntimeThread>>>,
     delegate_recent_threads:
         Arc<Mutex<std::collections::VecDeque<DelegateRuntimeThread>>>,
+    preferred_release_source: Arc<Mutex<String>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -1506,6 +1507,7 @@ impl AppState {
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            preferred_release_source: Arc::new(Mutex::new("github".to_string())),
         })
     }
 }
