@@ -193,10 +193,10 @@ chmod +x install-with-yay.sh
 
 安装后主要文件位置：
 
-- 可执行文件：`/usr/bin/easy-call-ai`
-- 桌面启动项：`/usr/share/applications/easy-call-ai.desktop`
-- 图标：`/usr/share/pixmaps/easy-call-ai.png`
-- 默认数据目录：`~/.config/easy-call-ai/`
+- 可执行文件：`/usr/bin/p-ai`
+- 桌面启动项：`/usr/share/applications/p-ai.desktop`
+- 图标：`/usr/share/pixmaps/p-ai.png`
+- 默认数据目录：`~/.config/p-ai/`（兼容旧目录 `~/.config/easy-call-ai/`）
 
 ## 隐私与数据
 
