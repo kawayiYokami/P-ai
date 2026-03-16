@@ -27,15 +27,29 @@ type UseChatRuntimeOptions = {
   forcingArchive: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
   visibleMessageBlockCount: Ref<number>;
+  hasMoreBackendHistory: Ref<boolean>;
   perfNow: () => number;
   perfLog: (label: string, startedAt: number) => void;
   perfDebug: boolean;
 };
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
+  const MESSAGE_BLOCK_LOAD_STEP = 5;
+
+  type MessagesBeforeResult = {
+    messages: ChatMessage[];
+    hasMore: boolean;
+  };
+
   function currentConversationIdOrNull(): string | null {
     const value = String(options.currentConversationId?.value || "").trim();
     return value || null;
+  }
+
+  function initialVisibleCount(total: number): number {
+    const n = Math.max(0, Math.round(Number(total) || 0));
+    if (n <= 0) return 1;
+    return Math.min(MESSAGE_BLOCK_LOAD_STEP, n);
   }
 
   async function forceArchiveNow() {
@@ -95,7 +109,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setChatError(result.summary);
       }
       await loadAllMessages();
-      options.visibleMessageBlockCount.value = 1;
+      options.visibleMessageBlockCount.value = initialVisibleCount(options.allMessages.value.length);
     } catch (e) {
       const errText = String(e ?? "");
       if (errText.includes("活动对话已变化")) {
@@ -124,6 +138,8 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       });
       if (options.perfDebug) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
       options.allMessages.value = msgs;
+      options.visibleMessageBlockCount.value = initialVisibleCount(msgs.length);
+      options.hasMoreBackendHistory.value = false;
     } catch (e) {
       options.setStatusError("status.loadMessagesFailed", e);
     } finally {
@@ -136,7 +152,72 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
   }
 
   function loadMoreMessageBlocks() {
-    options.visibleMessageBlockCount.value++;
+    const conversationId = currentConversationIdOrNull();
+    const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
+    const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
+    if (!conversationId || !apiConfigId || !agentId) return;
+
+    const blocks = options.allMessages.value;
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      void (async () => {
+        try {
+          const msgs = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", {
+            input: {
+              apiConfigId,
+              agentId,
+              conversationId,
+            },
+          });
+          const recent = Array.isArray(msgs) ? msgs.slice(-MESSAGE_BLOCK_LOAD_STEP) : [];
+          options.allMessages.value = recent;
+          options.visibleMessageBlockCount.value = initialVisibleCount(recent.length);
+          options.hasMoreBackendHistory.value = Array.isArray(msgs) && msgs.length > recent.length;
+        } catch (e) {
+          options.hasMoreBackendHistory.value = false;
+          options.setStatusError("status.loadMessagesFailed", e);
+        }
+      })();
+      return;
+    }
+    const oldest = blocks[0];
+    const beforeMessageId = String(oldest?.id || "").trim();
+    if (!beforeMessageId || beforeMessageId.startsWith("__draft_assistant__:")) {
+      options.hasMoreBackendHistory.value = false;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const result = await invokeTauri<MessagesBeforeResult>("get_active_conversation_messages_before", {
+          input: {
+            session: {
+              apiConfigId,
+              agentId,
+              conversationId,
+            },
+            beforeMessageId,
+            limit: MESSAGE_BLOCK_LOAD_STEP,
+          },
+        });
+        const older = Array.isArray(result?.messages) ? result.messages : [];
+        if (older.length === 0) {
+          options.hasMoreBackendHistory.value = !!result?.hasMore;
+          return;
+        }
+        const existingIds = new Set(options.allMessages.value.map((item) => String(item?.id || "").trim()).filter(Boolean));
+        const prepend = older.filter((item) => {
+          const id = String(item?.id || "").trim();
+          return !!id && !existingIds.has(id);
+        });
+        if (prepend.length > 0) {
+          options.allMessages.value = [...prepend, ...options.allMessages.value];
+        }
+        options.hasMoreBackendHistory.value = !!result?.hasMore;
+      } catch (e) {
+        options.hasMoreBackendHistory.value = false;
+        options.setStatusError("status.loadMessagesFailed", e);
+      }
+    })();
   }
 
   return {
@@ -146,4 +227,3 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     loadMoreMessageBlocks,
   };
 }
-

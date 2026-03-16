@@ -1,70 +1,89 @@
-# Changelog
+# 变更日志
 
-## Unreleased
+## 未发布
 
-- feat(remote-im-ui): 打磨联系人页布局与交互细节
+## v0.5.0 - 2026-03-16
+
+- 新增（chat-render）：将助手 Markdown 渲染器切换为 `markstream-vue`
+  - 用流式优先的渲染链路替换此前方案
+  - 通过 `markstream-vue` 集成启用 Mermaid 与 KaTeX
+  - 依赖集合对齐官方用法（`markstream-vue`、`stream-markdown`、`stream-monaco`、`shiki`、`@terrastruct/d2`）
+- 修复（chat-stream）：降低流式结束时的二次淡入与重复收尾效果
+  - 切换到基于节点的流式渲染模式（`nodes + final`），收尾更平滑
+  - 停用旧的 Mermaid 二次扫描链路，避免额外重渲染
+- 修复（chat-history）：修复加载更多逻辑与空屏上拉加载
+  - 恢复 `hasMoreMessageBlocks` 与后端历史标志的绑定
+  - 当消息列表为空时，上拉可直接拉取并显示最近 5 条消息
+
+- 新增（chat-ui）：对话窗口 UI 逻辑重做与动效增强
+  - 收敛消息渲染路径，减少流式/完成态切换时的布局跳动与重复渲染
+  - 优化出队清屏与历史回放衔接，避免非预期自动刷新
+  - 新增消息入场动画（由下至上淡入），并修正流式草稿转正式消息时误触发动画的问题
+  - 调整对话操作位与气泡布局细节，提升整体稳定性与观感一致性
+
+- 新增（remote-im-ui）：打磨联系人页布局与交互细节
   - 三列卡片改为纵向流式结构，统一卡片尺寸与滚动行为
   - 为渠道列表与联系人列表加入分页并优化页码/操作区对齐
   - 统一刷新为图标按钮，补齐还原图标，优化文案为“渠道列表/联系人列表”
 
-- fix(config-ui): 设置页统一预留滚动条占位（`scrollbar-gutter: stable`）
+- 修复（config-ui）：设置页统一预留滚动条占位（`scrollbar-gutter: stable`）
   - 避免各配置页在有/无滚动条时横向抖动
   - 满足强迫症：内容终于不再左右跳了
 
-- refactor(chat-pipeline): 将多模态兼容处理前移到出队阶段，按“逐条消息”定型
+- 重构（chat-pipeline）：将多模态兼容处理前移到出队阶段，按“逐条消息”定型
   - 在批次写入历史前按会话模型能力处理每条 user 消息
   - 模型支持图片时保留图片，不做额外注入
   - 模型不支持图片时移除图片，并按规则注入文本：
     - 命中已有图转文缓存：注入对应图转文内容
     - 无图转文缓存：注入提示“这里有一张图片，但当前模型不支持图片输入，所以已忽略。”
-- fix(chat-runtime): 收敛运行时重复改写，避免二次注入
+- 修复（chat-runtime）：收敛运行时重复改写，避免二次注入
   - 保留 router 防御性清理，但移除运行时二次文本注入逻辑
   - 统一由“出队定型结果”驱动后续 prompt 构建与请求序列化
 
 ## v0.4.0 - 2026-03-16
 
-- feat(chat-ui): rework chat window rendering pipeline for stable streaming UX
-  - unify streaming/history bubble behavior and keep layout stable during stream start/finish
-  - fix assistant draft lifecycle to avoid duplicate bubbles and message overwrite flashes
-  - keep avatars, spacing, and action areas consistent while streaming state transitions
-- feat(chat-control): improve stop/regenerate interaction model
-  - allow immediate stop right after send (queued stage), and keep backend interruption in sync
-  - make send button switch to stop during active round for faster interruption
-  - only allow regenerate when the latest message is assistant
-- refactor(chat-runtime): remove coarse global refresh coupling
-  - drop window-wide `easy-call:refresh` listeners/emits for chat flow
-  - prevent stale delayed events from reviving cancelled rounds
+- 新增（chat-ui）：重构对话窗口渲染管线，提升流式稳定性
+  - 统一流式/历史气泡行为，保证流开始与结束阶段布局稳定
+  - 修复助手草稿消息生命周期问题，避免重复气泡与覆盖闪烁
+  - 保持头像、间距与操作区在流式状态切换时的一致性
+- 新增（chat-control）：优化停止/重新生成交互模型
+  - 发送后在排队阶段即可立即停止，并与后端中断保持一致
+  - 活跃轮次中发送按钮自动切换为停止按钮，提升打断效率
+  - 仅允许对“最后一条助手消息”执行重新生成
+- 重构（chat-runtime）：移除粗粒度全局刷新耦合
+  - 移除聊天流程中的窗口级 `easy-call:refresh` 监听与广播
+  - 防止延迟事件误触发已取消轮次的恢复
 
 ## v0.3.8 - 2026-03-16
 
-- feat(remote-im): complete remote IM backend integration and main pipeline wiring
-  - add inbound enqueue flow, queue scheduling, and outbound adapter routing
-  - improve OneBot/NapCat channel lifecycle handling and runtime reconciliation
-- feat(remote-contacts): add per-contact controls and activation strategy
-  - split permissions into `allow_receive` and `allow_send` (default off)
-  - add activation mode (`never` / `always` / `keyword`) with cooldown support
-  - add activation decision logs and contact-level activation config command
-- refactor(remote-im): improve maintainability and diagnostics
-  - refactor large validation/parsing paths into helpers
-  - add structured logs for Dingtalk/OneBot send paths and token flow
-  - reduce unsafe/high-volume event logging payloads
-- fix(ui/types): improve config and runtime consistency
-  - fix conversation id/type mismatches and several silent catch blocks
-  - fix RemoteIm tab behavior, list layout updates, and Tailwind class issue
-  - add dynamic app version display in About tab (no hardcoded version text)
-- chore(branding): rename project-facing brand to `P-ai` / `π师傅`
-  - update visible app titles, docs links, and release/update repository URLs
-  - keep legacy data/storage identifiers for compatibility where required
+- 新增（remote-im）：完成远程 IM 后端集成与主流程接线
+  - 增加入站入队、队列调度与出站适配器路由
+  - 优化 OneBot/NapCat 渠道生命周期处理与运行态一致性
+- 新增（remote-contacts）：新增联系人级控制与激活策略
+  - 权限拆分为 `allow_receive` 与 `allow_send`（默认关闭）
+  - 增加激活模式（`never` / `always` / `keyword`）与冷却支持
+  - 增加激活决策日志与联系人级激活配置命令
+- 重构（remote-im）：提升可维护性与诊断能力
+  - 将大段校验/解析路径拆分为辅助函数
+  - 为 Dingtalk/OneBot 发送链路与 token 流增加结构化日志
+  - 减少高风险/高频事件日志的原始载荷输出
+- 修复（ui/types）：提升配置与运行时一致性
+  - 修复会话 id/类型不一致及多个静默 catch 问题
+  - 修复 RemoteIm 页签行为、列表布局与 Tailwind 类名问题
+  - 关于页版本号改为动态显示（移除硬编码）
+- 杂项（branding）：将项目对外品牌统一为 `P-ai` / `π师傅`
+  - 更新可见窗口标题、文档链接与发布/更新仓库地址
+  - 在需要兼容时保留旧数据/存储标识
 
 ## v0.3.2 - 2026-03-13
 
-- fix(multimodal): stabilize latest media prompt semantics
-  - remove previous-message media backfill for `latest_images/latest_audios`
-  - switch overrides to tri-state semantics (`None` / `Some([])` / `Some([...])`)
-  - keep media parsing logic unified with shared resolver
-- fix(multimodal): improve filtered-media transparency
-  - append explicit text notice when image input is filtered
-  - append explicit notice on model-side image rejection fallback
-- fix(audio): map `input_audio.format` to OpenAI-compatible short format
-  - use `wav/mp3/...` instead of full MIME in deepseek/openai-compatible payloads
-  - keep debug request log format consistent with real request payload
+- 修复（multimodal）：稳定 latest 媒体提示语义
+  - 移除 `latest_images/latest_audios` 的“向前回填上一条消息媒体”行为
+  - 覆盖语义切换为三态（`None` / `Some([])` / `Some([...])`）
+  - 统一媒体解析逻辑，复用共享解析器
+- 修复（multimodal）：提升媒体过滤可见性
+  - 图片被过滤时追加显式文本提示
+  - 模型侧拒绝图片时追加显式回退提示
+- 修复（audio）：将 `input_audio.format` 映射为 OpenAI 兼容短格式
+  - 在 deepseek/openai-compatible 请求中使用 `wav/mp3/...`，而非完整 MIME
+  - 保持调试请求日志与真实请求载荷格式一致

@@ -291,7 +291,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeTauri } from "./services/tauri-api";
@@ -418,6 +418,7 @@ const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
 const forcingArchive = ref(false);
+const hasMoreBackendHistory = ref(false);
 const refreshingModels = ref(false);
 const modelRefreshError = ref("");
 const modelRefreshOkFlags = ref<Record<string, boolean>>({});
@@ -854,12 +855,14 @@ const responseStyleIds = computed(() => responseStyleOptions.map((item) => item.
 const { visibleMessageBlocks, hasMoreMessageBlocks, chatContextUsageRatio, chatUsagePercent } = useChatMessageBlocks({
   allMessages,
   visibleMessageBlockCount,
+  hasMoreBackendHistory,
   activeChatApiConfig: assistantDepartmentApiConfig,
   perfDebug: PERF_DEBUG,
   perfNow,
 });
+const DEFAULT_CHAT_VISIBLE_COUNT = 5;
 const displayMessageBlocks = computed(() => visibleMessageBlocks.value);
-const displayHasMoreMessageBlocks = computed(() => hasMoreMessageBlocks.value);
+const displayHasMoreMessageBlocks = computed(() => hasMoreMessageBlocks.value || hasMoreBackendHistory.value);
 const terminalApprovalCurrent = computed(() => terminalApprovalQueue.value[0] ?? null);
 const terminalApprovalDialogOpen = computed(() => !!terminalApprovalCurrent.value);
 const terminalApprovalDialogTitle = computed(
@@ -874,6 +877,15 @@ function syncUserAliasFromPersona() {
   if (userAlias.value !== next) {
     userAlias.value = next;
   }
+}
+
+function resetVisibleMessageBlocksByCurrentMessages() {
+  const total = allMessages.value.length;
+  if (total <= 0) {
+    visibleMessageBlockCount.value = 1;
+    return;
+  }
+  visibleMessageBlockCount.value = Math.min(DEFAULT_CHAT_VISIBLE_COUNT, total);
 }
 
 function updatePersonaEditorIdWithNotice(value: string) {
@@ -978,6 +990,7 @@ const chatRuntime = useChatRuntime({
   forcingArchive,
   allMessages,
   visibleMessageBlockCount,
+  hasMoreBackendHistory,
   perfNow,
   perfLog,
   perfDebug: PERF_DEBUG,
@@ -1018,7 +1031,7 @@ const { suppressChatReloadWatch, refreshAllViewData } = useViewRefresh({
   loadDelegateConversations,
   loadArchives,
   resetVisibleTurnCount: () => {
-    visibleMessageBlockCount.value = 1;
+    resetVisibleMessageBlocksByCurrentMessages();
   },
   perfNow,
   perfLog,
@@ -1056,7 +1069,7 @@ const appBootstrap = useAppBootstrap({
     }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
-      visibleMessageBlockCount.value = 1;
+      resetVisibleMessageBlocksByCurrentMessages();
     }
   },
   onChatSettingsUpdated: async (payload) => {
@@ -1074,7 +1087,7 @@ const appBootstrap = useAppBootstrap({
     }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
-      visibleMessageBlockCount.value = 1;
+      resetVisibleMessageBlocksByCurrentMessages();
     }
   },
   onConfigUpdated: (payload) => {
@@ -1627,12 +1640,11 @@ const chatFlow = useChatFlow({
       currentChatConversationId.value = flushedConversationId;
     }
     // 出队批次是原子重放：先清空，再按队列顺序逐条写入历史。
-    // 该阶段不做 merge / dedupe / 覆盖。
     const queueMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     allMessages.value = [];
-    for (const message of queueMessages) {
-      allMessages.value = [...allMessages.value, message];
-    }
+    await nextTick();
+    allMessages.value = [...queueMessages];
+    hasMoreBackendHistory.value = queueMessages.length > 0;
     await loadUnarchivedConversations();
   },
 });
@@ -1847,7 +1859,7 @@ useAppWatchers({
   refreshImageCacheStats,
   refreshConversationHistory,
   resetVisibleTurnCount: () => {
-    visibleMessageBlockCount.value = 1;
+    resetVisibleMessageBlocksByCurrentMessages();
   },
 });
 </script>
