@@ -2,6 +2,16 @@
 
 ## 未发布
 
+- 重构（terminal）：拆分终端工具模块，降低耦合并提升可维护性
+  - 将 `terminal.rs` 按职责拆分为 `runtime/workspace/approval/guards/exec` 子模块
+  - 保留原有行为与接口，主文件收敛为模块入口
+- 调整（terminal-approval）：默认机器人工作目录内的写操作跳过审批
+  - 当 `cwd` 位于 `llm_workspace_path`（含子目录）时，`Existing/Unknown` 写风险不再触发审批弹窗
+  - 保留原有锁定工作区跳过审批逻辑
+- 测试（terminal）：新增 PowerShell / Git Bash 独立回归用例
+  - 覆盖“默认工作目录写入已有文件不进入审批等待”的场景
+  - 通过超时保护验证不会卡在审批通道
+
 ## v0.5.0 - 2026-03-16
 
 - 新增（chat-render）：将助手 Markdown 渲染器切换为 `markstream-vue`
