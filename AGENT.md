@@ -135,6 +135,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，400×620）、`chat`（对
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。
 - 提交信息默认使用中文，便于与现有项目历史保持一致。
 - 常用类型：`feat`、`fix`、`perf`、`refactor`、`docs`、`chore`。
+- 每次 `git commit` 前必须先更新 `CHANGELOG.md`，确保变更可追溯；未更新时禁止提交。
 
 ### 计划与归档流程
 - 新功能开发必须先产出计划文档（放在 `plan/` 目录）。
