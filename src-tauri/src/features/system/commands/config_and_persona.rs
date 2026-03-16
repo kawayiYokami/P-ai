@@ -1562,6 +1562,128 @@ fn get_active_conversation_messages(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct GetActiveConversationMessagesBeforeInput {
+    session: SessionSelector,
+    before_message_id: String,
+    limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetActiveConversationMessagesBeforeOutput {
+    messages: Vec<ChatMessage>,
+    has_more: bool,
+}
+
+#[tauri::command]
+fn get_active_conversation_messages_before(
+    input: GetActiveConversationMessagesBeforeInput,
+    state: State<'_, AppState>,
+) -> Result<GetActiveConversationMessagesBeforeOutput, String> {
+    let before_message_id = input.before_message_id.trim();
+    if before_message_id.is_empty() {
+        return Err("beforeMessageId is required.".to_string());
+    }
+    let limit = input.limit.clamp(1, 100);
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let mut app_config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let defaults_changed = ensure_default_agent(&mut data);
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
+    if defaults_changed || normalized_changed {
+        state_write_app_data_cached(&state, &data)?;
+    }
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
+    let requested_agent_id = input.session.agent_id.trim();
+    if !requested_agent_id.is_empty()
+        && !runtime_data
+            .agents
+            .iter()
+            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        return Err(format!("Selected agent '{requested_agent_id}' not found."));
+    }
+    let effective_agent_id = if !requested_agent_id.is_empty() {
+        requested_agent_id.to_string()
+    } else if runtime_data
+        .agents
+        .iter()
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
+    {
+        data.assistant_department_agent_id.clone()
+    } else {
+        runtime_data.agents
+            .iter()
+            .find(|a| !a.is_built_in_user)
+            .map(|a| a.id.clone())
+            .ok_or_else(|| "Selected agent not found.".to_string())?
+    };
+
+    let before_len = data.conversations.len();
+    let requested_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let idx = if let Some(conversation_id) = requested_conversation_id {
+        if let Some(idx) = data.conversations
+            .iter()
+            .position(|item| {
+                item.id == conversation_id
+                    && item.summary.trim().is_empty()
+                    && !conversation_is_delegate(item)
+            })
+        {
+            idx
+        } else if let Some(existing_idx) =
+            latest_active_conversation_index(&data, "", &effective_agent_id)
+        {
+            existing_idx
+        } else {
+            let api_config = resolve_selected_api_config(&app_config, None)
+                .ok_or_else(|| "No API config available".to_string())?;
+            ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
+        }
+    } else if let Some(existing_idx) =
+        latest_active_conversation_index(&data, "", &effective_agent_id)
+    {
+        existing_idx
+    } else {
+        let api_config = resolve_selected_api_config(&app_config, None)
+            .ok_or_else(|| "No API config available".to_string())?;
+        ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
+    };
+
+    let messages = data.conversations[idx].messages.clone();
+    if data.conversations.len() != before_len {
+        state_write_app_data_cached(&state, &data)?;
+    }
+    drop(guard);
+
+    let before_idx = messages
+        .iter()
+        .position(|item| item.id == before_message_id)
+        .ok_or_else(|| format!("beforeMessageId not found: {before_message_id}"))?;
+
+    let start = before_idx.saturating_sub(limit);
+    let has_more = start > 0;
+    let mut page = messages[start..before_idx].to_vec();
+    materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
+    Ok(GetActiveConversationMessagesBeforeOutput {
+        messages: page,
+        has_more,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RewindConversationInput {
     session: SessionSelector,
     message_id: String,
