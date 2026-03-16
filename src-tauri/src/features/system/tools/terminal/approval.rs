@@ -1,4 +1,4 @@
-const TERMINAL_APPROVAL_TIMEOUT_MS: u64 = 180_000;
+const TERMINAL_APPROVAL_TIMEOUT_MS: u64 = 60_000;
 
 #[derive(Debug, Clone)]
 enum TerminalWriteRisk {
@@ -548,7 +548,7 @@ async fn terminal_request_user_approval(
         Ok(Ok(approved)) => Ok(approved),
         Ok(Err(_)) => Err("Terminal approval channel closed unexpectedly.".to_string()),
         Err(_) => Err(format!(
-            "Terminal approval timed out after {}ms.",
+            "terminal_approval_timeout: 审核超时（{}ms）",
             TERMINAL_APPROVAL_TIMEOUT_MS
         )),
     }
@@ -589,4 +589,3 @@ fn resolve_terminal_approval_request(
     }
     Ok(true)
 }
-
