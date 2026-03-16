@@ -353,6 +353,7 @@ fn main() {
             get_delegate_conversation_messages,
             delete_unarchived_conversation,
             get_active_conversation_messages,
+            get_active_conversation_messages_before,
             rewind_conversation_from_message,
             get_prompt_preview,
             get_system_prompt_preview,

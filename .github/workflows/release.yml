@@ -111,7 +111,7 @@ jobs:
           Write-Host "=== release bundle files ==="
           @(
             Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File -Include *.msi,*-setup.exe -ErrorAction SilentlyContinue
-            Get-Item src-tauri/target/release/easy-call-ai.exe -ErrorAction SilentlyContinue
+            Get-Item src-tauri/target/release/p-ai.exe -ErrorAction SilentlyContinue
           ) |
             Where-Object { $_ } |
             Sort-Object FullName |
@@ -126,7 +126,7 @@ jobs:
             src-tauri/target/release/bundle/**/*.AppImage
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*-setup.exe
-            src-tauri/target/release/easy-call-ai.exe
+            src-tauri/target/release/p-ai.exe
           if-no-files-found: error
 
   release:
@@ -182,4 +182,4 @@ jobs:
             release-assets/**/*.AppImage
             release-assets/**/*.msi
             release-assets/**/*-setup.exe
-            release-assets/**/easy-call-ai.exe
+            release-assets/**/p-ai.exe

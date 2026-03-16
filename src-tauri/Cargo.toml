@@ -1,9 +1,13 @@
 [package]
 name = "easy-call-ai"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "P-ai desktop app"
-default-run = "easy-call-ai"
+default-run = "p-ai"
+
+[[bin]]
+name = "p-ai"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

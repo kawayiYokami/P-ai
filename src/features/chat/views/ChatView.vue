@@ -13,10 +13,11 @@
       class="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col scrollbar-gutter-stable"
       @scroll="onScroll"
       @wheel.passive="onWheel"
+      @pointerdown.passive="markManualScrollIntent"
     >
       <!-- 历史对话 -->
       <template v-for="(block, blockIndex) in messageBlocks" :key="block.id">
-        <div :class="['chat group/user-turn mt-3', isOwnMessage(block) ? 'chat-end' : 'chat-start']">
+        <div :class="['chat group/user-turn mt-3', isOwnMessage(block) ? 'chat-end' : 'chat-start', shouldAnimateMessage(block, blockIndex) ? 'ecall-message-enter-up' : '']">
           <div class="chat-image self-start ecall-chat-avatar-col">
             <div class="flex w-7 flex-col items-center gap-2">
               <div class="avatar">
@@ -41,9 +42,6 @@
                 @click="$emit('stopChat')"
               >
                 <Square class="h-4 w-4 fill-current" />
-                <span v-if="chatting" class="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <span class="loading loading-spinner loading-xl"></span>
-                </span>
               </button>
             </div>
           </div>
@@ -61,10 +59,21 @@
             >
               <Undo2 class="h-3 w-3" />
             </button>
+            <span v-if="isOwnMessage(block)" class="inline-flex h-4 items-center text-[10px] leading-none">
+              <span v-if="block.isStreaming" class="ecall-time-loading opacity-70">
+                <span class="loading loading-infinity loading-sm"></span>
+              </span>
+              <time v-else-if="formattedBlockTime(block.createdAt)" class="opacity-50 leading-none">{{ formattedBlockTime(block.createdAt) }}</time>
+            </span>
             <span class="text-xs text-base-content">{{ messageName(block) }}</span>
-            <time v-if="formattedBlockTime(block.createdAt) && !block.isStreaming" class="text-[10px] opacity-50">{{ formattedBlockTime(block.createdAt) }}</time>
+            <span v-if="!isOwnMessage(block)" class="inline-flex h-4 items-center text-[10px] leading-none">
+              <span v-if="block.isStreaming" class="ecall-time-loading opacity-70">
+                <span class="loading loading-infinity loading-sm"></span>
+              </span>
+              <time v-else-if="formattedBlockTime(block.createdAt)" class="opacity-50 leading-none">{{ formattedBlockTime(block.createdAt) }}</time>
+            </span>
           </div>
-          <div :class="['chat-bubble max-w-[92%]', isOwnMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70 assistant-markdown']">
+          <div :class="['chat-bubble max-w-[92%]', isOwnMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble']">
             <div v-if="block.taskTrigger" class="space-y-2">
               <div class="flex items-center gap-2">
                 <span class="badge badge-sm badge-outline">{{ t("chat.taskTrigger.badge") }}</span>
@@ -118,7 +127,6 @@
                 <span class="block min-w-0 flex-1 truncate">
                   {{ firstLinePreview(block.reasoningStandard) || "..." }}
                 </span>
-                <span v-if="block.isStreaming" class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
               <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
                 {{ block.reasoningStandard }}
@@ -132,24 +140,26 @@
                 <span class="block min-w-0 flex-1 truncate">
                   {{ firstLinePreview(resolvedInlineReasoning(block)) || "..." }}
                 </span>
-                <span v-if="block.isStreaming" class="loading loading-dots loading-sm opacity-60"></span>
               </summary>
               <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
                 {{ resolvedInlineReasoning(block) }}
               </div>
             </details>
-            <div v-if="block.toolCalls.length > 0" class="mb-2 flex flex-col gap-1 text-[11px] opacity-90">
-              <details
-                v-for="(toolCall, idx) in block.toolCalls"
-                :key="`${block.id}-tool-${idx}`"
-                class="collapse bg-base-200 border-base-300 border"
-              >
+            <div v-if="toolCallsForBlock(block).length > 0" class="mb-2 flex flex-col gap-1 text-[11px] opacity-90">
+              <details class="collapse bg-base-200 border-base-300 border">
                 <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold flex items-center gap-1.5">
                   <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
-                  <span>调用 {{ toolCall.name }}</span>
+                  <span>{{ mergedToolSummaryLabel(block) }}</span>
                 </summary>
                 <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
-                  <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
+                  <div
+                    v-for="(toolCall, idx) in toolCallsForBlock(block)"
+                    :key="`${block.id}-tool-${idx}`"
+                    class="mb-2 last:mb-0"
+                  >
+                    <div class="mb-1 font-semibold opacity-80">#{{ idx + 1 }} {{ toolCall.name }}</div>
+                    <pre class="whitespace-pre-wrap break-all">{{ toolCall.argsText }}</pre>
+                  </div>
                 </div>
               </details>
             </div>
@@ -158,31 +168,22 @@
                 v-if="isOwnMessage(block)"
                 class="whitespace-pre-wrap"
               >{{ block.text }}</div>
-              <div
+              <MarkdownRender
                 v-else
-                class="ecall-markdown-content prose prose-sm max-w-none"
-                v-html="renderMarkdown(splitThinkText(block.text).visible)"
+                :class="[
+                  'ecall-markdown-content max-w-none',
+                  block.isStreaming ? 'ecall-stream-content' : 'ecall-stream-content-done',
+                ]"
+                custom-id="chat-markstream"
+                :nodes="markdownNodesForBlock(block)"
+                :final="!block.isStreaming"
+                :max-live-nodes="0"
+                :batch-rendering="true"
+                :render-batch-size="16"
+                :render-batch-delay="8"
+                :typewriter="false"
                 @click="handleAssistantLinkClick"
-              ></div>
-              <span v-if="showStreamingUi(block)" class="inline-block w-1.5 h-4 bg-base-content animate-pulse"></span>
-            </div>
-            <div v-else-if="showStreamingUi(block)" class="mt-1">
-              <span class="loading loading-dots loading-sm"></span>
-            </div>
-            <div
-              v-if="showStreamingUi(block) && toolStatusText"
-              class="mt-1 text-[11px] opacity-80 flex items-center gap-1"
-            >
-              <span v-if="toolStatusState === 'running'" class="loading loading-spinner loading-sm"></span>
-              <span
-                v-else-if="toolStatusState === 'failed'"
-                class="inline-block w-1.5 h-1.5 rounded-full bg-error"
-              ></span>
-              <span
-                v-else-if="toolStatusState === 'done'"
-                class="inline-block w-1.5 h-1.5 rounded-full bg-success"
-              ></span>
-              <span>{{ toolStatusText }}</span>
+              />
             </div>
             <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
               <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
@@ -225,27 +226,38 @@
                 <span class="text-[11px]">{{ file.fileName }}</span>
               </div>
             </div>
-            <div v-if="!isOwnMessage(block) && !block.isStreaming && !chatting && !frozen" class="mt-2 flex items-center gap-1.5">
-              <button
-                type="button"
-                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
-                :title="t('chat.copy')"
-                :disabled="chatting || frozen"
-                @click="copyMessage(block)"
-              >
-                <Copy class="h-3.5 w-3.5" />
-              </button>
-              <button
-                v-if="canRegenerateBlock(block, blockIndex)"
-                type="button"
-                class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
-                :title="t('chat.regenerate')"
-                :disabled="chatting || frozen"
-                @click="$emit('regenerateTurn', { turnId: block.id })"
-              >
-                <RotateCcw class="h-3.5 w-3.5" />
-              </button>
-            </div>
+          </div>
+          <div
+            v-if="!isOwnMessage(block)"
+            :class="[
+              'chat-footer mt-1 flex h-6 items-center gap-1.5 transition-opacity',
+              canRegenerateBlock(block, blockIndex)
+                ? 'opacity-100 pointer-events-auto'
+                : !chatting && !frozen
+                  ? 'opacity-0 pointer-events-none group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto'
+                  : 'opacity-0 pointer-events-none',
+            ]"
+          >
+            <button
+              type="button"
+              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="t('chat.copy')"
+              :class="!block.isStreaming && !chatting && !frozen ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="block.isStreaming || chatting || frozen"
+              @click="copyMessage(block)"
+            >
+              <Copy class="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="t('chat.regenerate')"
+              :class="!block.isStreaming && !chatting && !frozen && canRegenerateBlock(block, blockIndex) ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="block.isStreaming || chatting || frozen || !canRegenerateBlock(block, blockIndex)"
+              @click="$emit('regenerateTurn', { turnId: block.id })"
+            >
+              <RotateCcw class="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       </template>
@@ -419,6 +431,8 @@
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Paperclip, Pause, Play, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
+import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
+import "markstream-vue/index.css";
 import MarkdownIt from "markdown-it";
 import { katex } from "@mdit/plugin-katex";
 import { mark } from "@mdit/plugin-mark";
@@ -430,6 +444,11 @@ import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
 import ChatQueuePreview from "../components/ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
+
+enableMermaid();
+enableKatex();
+const markstreamMarkdown = getMarkdown();
+const markdownNodeCache = new Map<string, { text: string; final: boolean; nodes: any[] }>();
 
 const props = defineProps<{
   userAlias: string;
@@ -513,7 +532,6 @@ let mermaidApi: any | null = null;
 let mermaidObserver: MutationObserver | null = null;
 let mermaidRenderQueued = false;
 const MERMAID_SENTINEL = "__EASY_CALL_MERMAID__";
-
 const md = new MarkdownIt({
   html: false,
   linkify: true,
@@ -570,6 +588,8 @@ function ensureMermaidInited(): boolean {
 }
 
 function scheduleRenderMermaidBlocks() {
+  // markstream-vue 已内建 mermaid 渲染，停用旧的二次扫描替换链路。
+  return;
   if (mermaidRenderQueued) return;
   mermaidRenderQueued = true;
   requestAnimationFrame(() => {
@@ -688,9 +708,41 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);
 }
 
+function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsText: string }> {
+  if (showStreamingUi(block) && props.streamToolCalls.length > 0) {
+    return props.streamToolCalls;
+  }
+  return block.toolCalls;
+}
+
+function mergedToolSummaryLabel(block: ChatMessageBlock): string {
+  const calls = toolCallsForBlock(block);
+  if (calls.length === 0) return "工具调用";
+  const counts = new Map<string, number>();
+  const order: string[] = [];
+  for (const call of calls) {
+    const name = String(call.name || "").trim() || "未知工具";
+    if (!counts.has(name)) {
+      counts.set(name, 0);
+      order.push(name);
+    }
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const merged = order.map((name) => {
+    const total = counts.get(name) || 0;
+    return total > 1 ? `${name}（+${total - 1}）` : name;
+  });
+  return merged.join("，");
+}
+
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant") return false;
   return blockIndex === props.messageBlocks.length - 1;
+}
+
+function shouldAnimateMessage(block: ChatMessageBlock, blockIndex: number): boolean {
+  if (blockIndex !== props.messageBlocks.length - 1) return false;
+  return animatedMessageIds.value.has(String(block.id || ""));
 }
 
 function formattedBlockTime(value?: string): string {
@@ -701,11 +753,10 @@ function formattedBlockTime(value?: string): string {
   const parts = new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hour12: false,
   }).formatToParts(parsed);
   const pick = (type: string) => parts.find((part) => part.type === type)?.value || "00";
-  return `${pick("hour")}:${pick("minute")}:${pick("second")}`;
+  return `${pick("hour")}:${pick("minute")}`;
 }
 
 function splitThinkText(raw: string): { visible: string; inline: string } {
@@ -753,6 +804,19 @@ function renderMarkdown(text: string): string {
     className: "twemoji",
   });
   return DOMPurify.sanitize(withEmoji);
+}
+
+function markdownNodesForBlock(block: ChatMessageBlock): any[] {
+  const text = splitThinkText(block.text).visible;
+  const final = !block.isStreaming;
+  const cacheKey = String(block.id || "");
+  const cached = markdownNodeCache.get(cacheKey);
+  if (cached && cached.text === text && cached.final === final) {
+    return cached.nodes;
+  }
+  const nodes = parseMarkdownToStructure(text, markstreamMarkdown, { final });
+  markdownNodeCache.set(cacheKey, { text, final, nodes });
+  return nodes;
 }
 
 function resolvedInlineReasoning(block: ChatMessageBlock): string {
@@ -864,6 +928,40 @@ function jumpToBottom() {
 let loadingMore = false;
 let loadingMoreOldHeight = 0;
 let lastScrollTop = 0;
+let loadingMoreResetTimer: ReturnType<typeof setTimeout> | null = null;
+let manualScrollIntentUntil = 0;
+const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
+const seenMessageIds = new Set<string>();
+const animatedMessageIds = ref(new Set<string>());
+let messageListInitialized = false;
+
+function markManualScrollIntent() {
+  manualScrollIntentUntil = Date.now() + 1200;
+}
+
+function hasManualScrollIntent(): boolean {
+  return Date.now() <= manualScrollIntentUntil;
+}
+
+function clearLoadingMoreTimer() {
+  if (!loadingMoreResetTimer) return;
+  clearTimeout(loadingMoreResetTimer);
+  loadingMoreResetTimer = null;
+}
+
+function requestLoadMore() {
+  if (!props.hasMoreMessageBlocks) return;
+  if (loadingMore) return;
+  loadingMore = true;
+  loadingMoreOldHeight = scrollContainer.value?.scrollHeight || 0;
+  clearLoadingMoreTimer();
+  // 防止异常情况下 loadingMore 卡死，确保随时可再次上拉。
+  loadingMoreResetTimer = setTimeout(() => {
+    loadingMore = false;
+    loadingMoreResetTimer = null;
+  }, 900);
+  emit("loadMoreMessageBlocks");
+}
 
 function evaluateFollowState(el: HTMLElement) {
   // Hysteresis: avoid jitter around the boundary during streaming updates.
@@ -885,27 +983,31 @@ function onScroll() {
   const el = scrollContainer.value;
   if (!el) return;
   const scrollingUp = el.scrollTop < lastScrollTop;
+  if (scrollingUp) {
+    autoFollowOutput.value = false;
+  }
   lastScrollTop = el.scrollTop;
   if (followScrollRaf) cancelAnimationFrame(followScrollRaf);
   followScrollRaf = requestAnimationFrame(() => {
     evaluateFollowState(el);
     followScrollRaf = 0;
   });
-  if (scrollingUp && el.scrollTop <= 20 && props.hasMoreMessageBlocks && !loadingMore) {
-    loadingMore = true;
-    loadingMoreOldHeight = el.scrollHeight;
-    emit("loadMoreMessageBlocks");
+  // 只在用户手势触发的上滚中请求，避免布局变化/程序滚动引发自动加载更多。
+  if (scrollingUp && el.scrollTop <= 20 && hasManualScrollIntent()) {
+    requestLoadMore();
   }
 }
 
 function onWheel(event: WheelEvent) {
   const el = scrollContainer.value;
   if (!el) return;
+  if (event.deltaY < 0) {
+    markManualScrollIntent();
+    autoFollowOutput.value = false;
+  }
   const pushingUpAtTop = event.deltaY < 0 && el.scrollTop <= 20;
-  if (pushingUpAtTop && props.hasMoreMessageBlocks && !loadingMore) {
-    loadingMore = true;
-    loadingMoreOldHeight = el.scrollHeight;
-    emit("loadMoreMessageBlocks");
+  if (pushingUpAtTop) {
+    requestLoadMore();
   }
 }
 
@@ -957,6 +1059,7 @@ onBeforeUnmount(() => {
     mermaidObserver.disconnect();
     mermaidObserver = null;
   }
+  clearLoadingMoreTimer();
   stopAudioPlayback();
 });
 
@@ -985,11 +1088,13 @@ watch(
       nextTick(() => {
         const el = scrollContainer.value;
         if (!el) {
+          clearLoadingMoreTimer();
           loadingMore = false;
           return;
         }
         const newHeight = el.scrollHeight;
         el.scrollTop = Math.max(0, newHeight - loadingMoreOldHeight);
+        clearLoadingMoreTimer();
         loadingMore = false;
       });
       return;
@@ -1007,6 +1112,7 @@ watch(
   () => props.hasMoreMessageBlocks,
   (hasMore) => {
     if (hasMore) return;
+    clearLoadingMoreTimer();
     loadingMore = false;
   },
 );
@@ -1027,6 +1133,47 @@ watch(
     });
   },
 );
+
+watch(
+  () => props.messageBlocks.map((item) => String(item.id || "")),
+  (ids, oldIds) => {
+    if (!messageListInitialized) {
+      ids.forEach((id) => seenMessageIds.add(id));
+      messageListInitialized = true;
+      return;
+    }
+    const prev = Array.isArray(oldIds) ? oldIds : [];
+    const prevLastId = String(prev[prev.length - 1] || "");
+    const nextLastId = String(ids[ids.length - 1] || "");
+    const isDraftFinalizeReplace =
+      ids.length === prev.length
+      && !!prevLastId
+      && !!nextLastId
+      && prevLastId !== nextLastId
+      && prevLastId.startsWith(DRAFT_ASSISTANT_ID_PREFIX);
+    if (isDraftFinalizeReplace) {
+      ids.forEach((id) => seenMessageIds.add(id));
+      return;
+    }
+    const newIds = ids.filter((id) => id && !seenMessageIds.has(id));
+    ids.forEach((id) => seenMessageIds.add(id));
+    if (newIds.length === 0) return;
+    const latestId = String(ids[ids.length - 1] || "");
+    const appendedIds = newIds.filter((id) => id === latestId);
+    if (appendedIds.length === 0) return;
+    const next = new Set(animatedMessageIds.value);
+    appendedIds.forEach((id) => next.add(id));
+    animatedMessageIds.value = next;
+    setTimeout(() => {
+      const current = new Set(animatedMessageIds.value);
+      let changed = false;
+      appendedIds.forEach((id) => {
+        if (current.delete(id)) changed = true;
+      });
+      if (changed) animatedMessageIds.value = current;
+    }, 1000);
+  },
+);
 </script>
 
 <style scoped>
@@ -1039,27 +1186,51 @@ watch(
   min-width: 1.75rem;
 }
 
+.ecall-time-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  transform: scale(0.82);
+  transform-origin: right center;
+}
+
 .ecall-stream-block-enter {
   animation: ecall-stream-block-fade 140ms ease-out;
 }
 
-.ecall-stream-content {
-  position: relative;
+.ecall-stream-segments {
+  display: block;
 }
 
-.ecall-stream-content :deep(p:last-child),
-.ecall-stream-content :deep(li:last-child),
-.ecall-stream-content :deep(blockquote:last-child) {
-  animation: ecall-stream-line-fade 120ms ease-out;
+.ecall-stream-segment {
+  display: block;
+  margin: 0;
+}
+
+.ecall-stream-tail {
+  opacity: 1;
+}
+
+.ecall-stream-content {
+  opacity: 0;
+  animation: ecall-stream-fade-in 1s ease-out forwards;
 }
 
 .ecall-stream-content-done {
-  animation: ecall-stream-finish 180ms ease-out;
+  opacity: 1;
 }
 
-@keyframes ecall-stream-line-fade {
+.ecall-message-enter-up {
+  animation: ecall-message-enter-up 0.3s ease-out both;
+}
+
+.assistant-markdown :deep(.ecall-markdown-content.ecall-stream-content) * {
+  animation: inherit;
+}
+
+@keyframes ecall-stream-fade-in {
   from {
-    opacity: 0.75;
+    opacity: 0;
   }
   to {
     opacity: 1;
@@ -1077,19 +1248,22 @@ watch(
   }
 }
 
-@keyframes ecall-stream-finish {
+@keyframes ecall-message-enter-up {
   from {
-    opacity: 0.88;
+    opacity: 0;
+    transform: translateY(60px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.assistant-markdown :deep(.ecall-markdown-content) {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+.assistant-markdown :deep(.ecall-markdown-content :where(h1,h2,h3,h4,h5,h6,p,ul,ol,pre,blockquote,figure)) {
+  margin: 0.24em 0;
 }
+
+
 
 .assistant-markdown :deep(.ecall-markdown-content.prose) {
   --tw-prose-body: currentColor;
@@ -1135,6 +1309,11 @@ watch(
 :deep(.chat-bubble) {
   min-width: 0;
   min-height: 0;
+}
+
+.ecall-assistant-bubble {
+  min-width: 3rem;
+  min-height: 2.25rem;
 }
 
 :deep(.chat-input-no-focus),
