@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 重构（chat-routing）：彻底移除“消息/会话绑定模型 API”路径，统一改为“部门 -> 模型”解析
+  - `ChatSessionInfo` 改为仅携带 `department_id + agent_id`，不再持有 `api_config_id`
+  - `send_chat_message_inner`、远程 IM 入队、任务/委托入队统一按部门解析模型
+  - `Conversation` 移除 `api_config_id` 字段，清理会话层对应读写与筛选依赖
+  - 停止/中断会话键移除 API 维度，统一以会话与人格标识定位
+  - 归档与会话摘要链路改为按人格所属部门反查模型配置
+
 - 重构（terminal）：拆分终端工具模块，降低耦合并提升可维护性
   - 将 `terminal.rs` 按职责拆分为 `runtime/workspace/approval/guards/exec` 子模块
   - 保留原有行为与接口，主文件收敛为模块入口

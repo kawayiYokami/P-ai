@@ -341,7 +341,7 @@ fn resolve_chat_tool_session_id(
     }
     drop(guard);
 
-    let session_id = inflight_chat_key(api_id, agent, None);
+    let session_id = inflight_chat_key(agent, None);
     Ok(normalize_terminal_tool_session_id(&session_id))
 }
 

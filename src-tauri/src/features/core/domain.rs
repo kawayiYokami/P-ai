@@ -822,6 +822,8 @@ struct StopChatResult {
 #[serde(rename_all = "camelCase")]
 struct SessionSelector {
     api_config_id: Option<String>,
+    #[serde(default)]
+    department_id: Option<String>,
     agent_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
@@ -1048,7 +1050,6 @@ struct RemoteImMessageSource {
 struct Conversation {
     id: String,
     title: String,
-    api_config_id: String,
     agent_id: String,
     #[serde(default)]
     conversation_kind: String,

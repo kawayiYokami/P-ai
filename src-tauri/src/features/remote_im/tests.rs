@@ -29,6 +29,7 @@ use super::*;
             activate_assistant: Some(true),
             session: SessionSelector {
                 api_config_id: Some("api".to_string()),
+                department_id: None,
                 agent_id: "agent".to_string(),
                 conversation_id: Some("conv-1".to_string()),
             },

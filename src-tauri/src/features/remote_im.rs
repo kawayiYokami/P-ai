@@ -186,7 +186,7 @@ struct ValidatedEnqueueInput {
     audios: Vec<BinaryPart>,
     attachments: Vec<AttachmentMetaInput>,
     channel: RemoteImChannelConfig,
-    api_config_id: String,
+    department_id: String,
     agent_id: String,
     conversation_id: String,
 }
@@ -235,25 +235,53 @@ fn resolve_channel_config(
     Ok((channel_id, channel))
 }
 
-fn resolve_route_config(input: &RemoteImEnqueueInput) -> Result<(String, String), String> {
-    let api_config_id = input
+fn resolve_route_config(
+    input: &RemoteImEnqueueInput,
+    config: &AppConfig,
+) -> Result<(String, String, String), String> {
+    let requested_department_id = input
         .session
-        .api_config_id
+        .department_id
         .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    let agent_id = input.session.agent_id.trim().to_string();
-    if api_config_id.is_empty() || agent_id.is_empty() {
-        return Err("路由信息不完整（apiConfigId/agentId）".to_string());
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let requested_agent_id = input.session.agent_id.trim().to_string();
+    let agent_id = if !requested_agent_id.is_empty() {
+        requested_agent_id
+    } else {
+        assistant_department_agent_id(config)
+            .ok_or_else(|| "路由信息不完整（缺少 agentId）".to_string())?
+    };
+    let department = if let Some(department_id) = requested_department_id.as_deref() {
+        department_by_id(config, department_id)
+            .ok_or_else(|| format!("路由部门不存在: {department_id}"))?
+    } else {
+        department_for_agent_id(config, &agent_id)
+            .or_else(|| assistant_department(config))
+            .ok_or_else(|| "路由部门不存在".to_string())?
+    };
+    if !department
+        .agent_ids
+        .iter()
+        .any(|id| id.trim() == agent_id)
+    {
+        return Err(format!(
+            "agentId 与部门不匹配: agentId={}, departmentId={}",
+            agent_id, department.id
+        ));
     }
-    Ok((api_config_id, agent_id))
+    let api_config_id = department_primary_api_config_id(department);
+    if api_config_id.trim().is_empty() {
+        return Err(format!("部门模型未配置: {}", department.id));
+    }
+    Ok((department.id.clone(), api_config_id, agent_id))
 }
 
 fn resolve_conversation_id(
     input: &RemoteImEnqueueInput,
     data: &mut AppData,
-    api_config_id: &str,
+    _api_config_id: &str,
     agent_id: &str,
 ) -> Result<String, String> {
     if let Some(requested) = input
@@ -268,13 +296,12 @@ fn resolve_conversation_id(
                 && conv.status == "active"
                 && conv.summary.trim().is_empty()
                 && !conversation_is_delegate(conv)
-                && conv.api_config_id == api_config_id
                 && conv.agent_id == agent_id
         }) {
             return Ok(requested.to_string());
         }
     }
-    let idx = ensure_active_conversation_index(data, api_config_id, agent_id);
+    let idx = ensure_active_conversation_index(data, "", agent_id);
     data.conversations
         .get(idx)
         .map(|item| item.id.clone())
@@ -288,7 +315,7 @@ fn validate_enqueue_input(
 ) -> Result<ValidatedEnqueueInput, String> {
     let text = input.payload.text.as_deref().unwrap_or("").trim().to_string();
     let (_channel_id, channel) = resolve_channel_config(input, config)?;
-    let (api_config_id, agent_id) = resolve_route_config(input)?;
+    let (department_id, api_config_id, agent_id) = resolve_route_config(input, config)?;
     let images = validate_images(&channel, input);
     let audios = validate_audios(&channel, input);
     let attachments = validate_attachments(&channel, input);
@@ -303,7 +330,7 @@ fn validate_enqueue_input(
         audios,
         attachments,
         channel,
-        api_config_id,
+        department_id,
         agent_id,
         conversation_id,
     })
@@ -550,7 +577,7 @@ pub(crate) fn remote_im_enqueue_message_internal(
     let mut data = state_read_app_data_cached(state)?;
     let validated = validate_enqueue_input(&input, &config, &mut data)?;
     let channel = validated.channel;
-    let api_config_id = validated.api_config_id;
+    let department_id = validated.department_id;
     let agent_id = validated.agent_id;
     let conversation_id = validated.conversation_id;
     let text = validated.text;
@@ -590,7 +617,7 @@ pub(crate) fn remote_im_enqueue_message_internal(
         vec![message],
         activate_assistant,
         ChatSessionInfo {
-            api_config_id,
+            department_id,
             agent_id,
         },
         RemoteImMessageSource {

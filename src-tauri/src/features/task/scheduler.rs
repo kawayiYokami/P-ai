@@ -1,4 +1,4 @@
-fn task_resolve_default_session(state: &AppState) -> Result<(String, String, String, String), String> {
+fn task_resolve_default_session(state: &AppState) -> Result<(String, String, String, String, String), String> {
     let guard = state
         .state_lock
         .lock()
@@ -22,10 +22,6 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
             .map(|a| a.id.clone())
             .ok_or_else(|| "No assistant agent configured for task dispatch.".to_string())?
     };
-    let active_conversation_api_aligned = latest_active_conversation_index(&data, &selected_api.id, &agent_id)
-        .and_then(|idx| data.conversations.get(idx))
-        .map(|conversation| conversation.api_config_id == selected_api.id)
-        .unwrap_or(false);
     let conversation_idx = ensure_active_conversation_index(&mut data, &selected_api.id, &agent_id);
     let conversation_id = data
         .conversations
@@ -33,18 +29,20 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
         .map(|item| item.id.clone())
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "No active main conversation configured for task dispatch.".to_string())?;
-    changed = changed
-        || data.conversations.len() != before_conversation_count
-        || !active_conversation_api_aligned;
+    changed = changed || data.conversations.len() != before_conversation_count;
+    let department_id = department_for_agent_id(&app_config, &agent_id)
+        .map(|item| item.id.clone())
+        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
     if changed {
         state_write_app_data_cached(state, &data)?;
     }
     drop(guard);
     Ok((
         selected_api.id.clone(),
+        department_id,
         agent_id.clone(),
         conversation_id.clone(),
-        inflight_chat_key(&selected_api.id, &agent_id, Some(&conversation_id)),
+        inflight_chat_key(&agent_id, Some(&conversation_id)),
     ))
 }
 
@@ -83,7 +81,8 @@ fn task_dequeue_dispatch(state: &AppState, chat_key: &str) -> Result<Option<Task
 }
 
 async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskEntry) -> Result<(), String> {
-    let (_api_id, _agent_id, _conversation_id, chat_key) = task_resolve_default_session(state)?;
+    let (_api_id, _department_id, _agent_id, _conversation_id, chat_key) =
+        task_resolve_default_session(state)?;
     if task_is_chat_busy(state, &chat_key)? {
         let queued = task_enqueue_dispatch(state, &task.task_id)?;
         if queued {
@@ -105,7 +104,8 @@ async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskEntry) -> Res
 }
 
 pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), String> {
-    let (_api_id, _agent_id, _conversation_id, chat_key) = task_resolve_default_session(state)?;
+    let (_api_id, _department_id, _agent_id, _conversation_id, chat_key) =
+        task_resolve_default_session(state)?;
     let Some(item) = task_dequeue_dispatch(state, &chat_key)? else {
         return Ok(());
     };
@@ -318,7 +318,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
     task_store_mark_triggered(&state.data_path, &task.task_id)?;
 
     // 获取会话信息
-    let (api_id, agent_id, conversation_id, _) = task_resolve_default_session(state)?;
+    let (_api_id, department_id, agent_id, conversation_id, _) = task_resolve_default_session(state)?;
 
     // 构造任务消息
     let task_message = ChatMessage {
@@ -344,7 +344,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
         messages: vec![task_message],
         activate_assistant: true,
         session_info: ChatSessionInfo {
-            api_config_id: api_id,
+            department_id,
             agent_id,
         },
         sender_info: None,

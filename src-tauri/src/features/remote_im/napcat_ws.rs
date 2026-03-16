@@ -892,6 +892,7 @@ fn build_remote_im_enqueue_input(
         activate_assistant,
         session: SessionSelector {
             api_config_id: Some(api_config_id),
+            department_id: None,
             agent_id,
             conversation_id: None,
         },

@@ -61,7 +61,7 @@ pub(crate) enum ChatEventSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatSessionInfo {
-    pub api_config_id: String,
+    pub department_id: String,
     pub agent_id: String,
 }
 
@@ -458,7 +458,12 @@ async fn process_conversation_batch(
     let mut event_activate_flags = Vec::<bool>::with_capacity(events.len());
 
     fn session_enable_image(app_config: &AppConfig, session: &ChatSessionInfo) -> bool {
-        resolve_selected_api_config(app_config, Some(session.api_config_id.as_str()))
+        let api_id = department_by_id(app_config, &session.department_id)
+            .map(department_primary_api_config_id)
+            .or_else(|| {
+                department_for_agent_id(app_config, &session.agent_id).map(department_primary_api_config_id)
+            });
+        resolve_selected_api_config(app_config, api_id.as_deref())
             .map(|api| api.enable_image)
             .unwrap_or(true)
     }
@@ -548,7 +553,7 @@ async fn process_conversation_batch(
                 };
                 event_activate_flags.push(event_should_activate);
                 let enable_image = *session_image_capability
-                    .entry(event.session_info.api_config_id.clone())
+                    .entry(event.session_info.department_id.clone())
                     .or_insert_with(|| session_enable_image(&app_config, &event.session_info));
                 let conversation = &mut data.conversations[conversation_idx];
                 for message in &event.messages {
@@ -696,9 +701,9 @@ async fn activate_main_assistant(
     oldest_queue_created_at: &str,
 ) -> Result<SendChatResult, String> {
     eprintln!(
-        "[聊天调度] 开始: 激活主助理, conversation_id={}, api_config_id={}, agent_id={}, oldest_queue_created_at={}",
+        "[聊天调度] 开始: 激活主助理, conversation_id={}, department_id={}, agent_id={}, oldest_queue_created_at={}",
         conversation_id,
-        session_info.api_config_id,
+        session_info.department_id,
         session_info.agent_id,
         oldest_queue_created_at,
     );
@@ -715,7 +720,8 @@ async fn activate_main_assistant(
     let request = SendChatRequest {
         trigger_only: true,  // 不写入新消息，只触发助理回复
         session: Some(SessionSelector {
-            api_config_id: Some(session_info.api_config_id.clone()),
+            api_config_id: None,
+            department_id: Some(session_info.department_id.clone()),
             agent_id: session_info.agent_id.clone(),
             conversation_id: Some(conversation_id.to_string()),
         }),

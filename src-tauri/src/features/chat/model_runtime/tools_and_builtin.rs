@@ -1579,7 +1579,7 @@ fn delegate_enqueue_result_message(
     notify_assistant: bool,
 ) -> Result<(), String> {
     // 获取会话信息
-    let (api_config_id, agent_id) = {
+    let (department_id, agent_id) = {
         let guard = app_state
             .state_lock
             .lock()
@@ -1587,10 +1587,11 @@ fn delegate_enqueue_result_message(
         let config = read_config(&app_state.config_path)?;
         let assistant_agent_id = assistant_department_agent_id(&config)
             .ok_or_else(|| "未找到助理部门委任人".to_string())?;
-        let selected_api = resolve_selected_api_config(&config, None)
-            .ok_or_else(|| "No API config configured.".to_string())?;
+        let department_id = department_for_agent_id(&config, &assistant_agent_id)
+            .map(|item| item.id.clone())
+            .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
         drop(guard);
-        (selected_api.id.clone(), assistant_agent_id)
+        (department_id, assistant_agent_id)
     };
 
     // 构造委托结果消息
@@ -1617,7 +1618,7 @@ fn delegate_enqueue_result_message(
         messages: vec![delegate_message],
         activate_assistant: notify_assistant,
         session_info: ChatSessionInfo {
-            api_config_id,
+            department_id,
             agent_id,
         },
         sender_info: None,
@@ -1695,6 +1696,7 @@ async fn delegate_execute_agent_run(
         },
         session: Some(SessionSelector {
             api_config_id: Some(target_api_config_id.to_string()),
+            department_id: Some(delegate.target_department_id.clone()),
             agent_id: delegate.target_agent_id.clone(),
             conversation_id: Some(delegate_conversation_id.to_string()),
         }),
@@ -1710,10 +1712,9 @@ async fn delegate_execute_agent_run(
 fn delegate_runtime_thread_update_api_config_id(
     app_state: &AppState,
     delegate_id: &str,
-    api_config_id: &str,
+    _api_config_id: &str,
 ) -> Result<(), String> {
     delegate_runtime_thread_modify(app_state, delegate_id, |thread| {
-        thread.conversation.api_config_id = api_config_id.to_string();
         thread.conversation.updated_at = now_iso();
         Ok(())
     })

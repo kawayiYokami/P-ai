@@ -1219,7 +1219,6 @@ struct UnarchivedConversationSummary {
     last_message_at: Option<String>,
     message_count: usize,
     agent_id: String,
-    api_config_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1232,7 +1231,6 @@ struct DelegateConversationSummary {
     last_message_at: Option<String>,
     message_count: usize,
     agent_id: String,
-    api_config_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     delegate_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1285,7 +1283,6 @@ fn delegate_conversation_summary_from_runtime_thread(
         last_message_at,
         message_count: thread.conversation.messages.len(),
         agent_id: thread.target_agent_id.clone(),
-        api_config_id: thread.conversation.api_config_id.clone(),
         delegate_id: Some(thread.delegate_id.clone()),
         root_conversation_id: Some(thread.root_conversation_id.clone()),
         archived_at: thread.archived_at.clone(),
@@ -1319,7 +1316,6 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
                 last_message_at,
                 message_count: c.messages.len(),
                 agent_id: c.agent_id.clone(),
-                api_config_id: c.api_config_id.clone(),
             }
         })
         .collect::<Vec<_>>();
@@ -1735,15 +1731,6 @@ fn rewind_conversation_from_message(
     }
 
     let before_len = data.conversations.len();
-    let requested_api_config_id = input
-        .session
-        .api_config_id
-        .as_deref()
-        .unwrap_or_default()
-        .trim();
-    if requested_api_config_id.is_empty() {
-        return Err("apiConfigId is required.".to_string());
-    }
     let requested_conversation_id = input
         .session
         .conversation_id
@@ -1763,7 +1750,7 @@ fn rewind_conversation_from_message(
                 format!("Target active conversation not found, conversationId={conversation_id}")
             })?
     } else {
-        latest_active_conversation_index(&data, requested_api_config_id, requested_agent_id)
+        latest_active_conversation_index(&data, "", requested_agent_id)
             .ok_or_else(|| "No active conversation found for current agent.".to_string())?
     };
     let conversation = data
@@ -1793,10 +1780,16 @@ fn rewind_conversation_from_message(
         .rev()
         .find(|m| m.role == "assistant")
         .map(|m| m.created_at.clone());
-    let context_window_tokens = app_config
-        .api_configs
-        .iter()
-        .find(|api| api.id == conversation.api_config_id)
+    let context_window_tokens = input
+        .session
+        .department_id
+        .as_deref()
+        .and_then(|id| department_by_id(&app_config, id))
+        .map(department_primary_api_config_id)
+        .or_else(|| {
+            department_for_agent_id(&app_config, requested_agent_id).map(department_primary_api_config_id)
+        })
+        .and_then(|api_id| app_config.api_configs.iter().find(|api| api.id == api_id))
         .map(|api| api.context_window_tokens)
         .unwrap_or(128000);
     conversation.last_context_usage_ratio = if conversation.messages.is_empty() {
@@ -1820,6 +1813,5 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
-
 
 

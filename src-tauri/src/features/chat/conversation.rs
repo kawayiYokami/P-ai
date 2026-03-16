@@ -110,7 +110,7 @@ fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
 }
 
 fn build_conversation_record(
-    api_config_id: &str,
+    _api_config_id: &str,
     agent_id: &str,
     title: &str,
     conversation_kind: &str,
@@ -125,7 +125,6 @@ fn build_conversation_record(
         } else {
             title.trim().to_string()
         },
-        api_config_id: api_config_id.to_string(),
         agent_id: agent_id.to_string(),
         conversation_kind: conversation_kind.trim().to_string(),
         root_conversation_id,
@@ -151,11 +150,6 @@ fn ensure_active_conversation_index(
 ) -> usize {
     let _ = normalize_single_active_main_conversation(data);
     if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
-        // Keep conversation metadata aligned with the currently selected chat API.
-        if data.conversations[idx].api_config_id != api_config_id {
-            data.conversations[idx].api_config_id = api_config_id.to_string();
-            data.conversations[idx].updated_at = now_iso();
-        }
         return idx;
     }
 

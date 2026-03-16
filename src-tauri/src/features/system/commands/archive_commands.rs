@@ -41,7 +41,6 @@ fn get_prompt_preview(
         .unwrap_or_else(|| Conversation {
             id: "preview".to_string(),
             title: "Preview".to_string(),
-            api_config_id: api_config.id.clone(),
             agent_id: effective_agent_id.clone(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
@@ -311,16 +310,21 @@ fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, Stri
         .conversations
         .iter()
         .filter(|c| !c.summary.trim().is_empty())
-        .map(|archive| ArchiveSummary {
-            archive_id: archive.id.clone(),
-            archived_at: archive
-                .archived_at
-                .clone()
-                .unwrap_or_else(|| archive.updated_at.clone()),
-            title: archive_first_user_preview(archive, &app_config.ui_language),
-            message_count: archive.messages.len(),
-            api_config_id: archive.api_config_id.clone(),
-            agent_id: archive.agent_id.clone(),
+        .map(|archive| {
+            let api_config_id = department_for_agent_id(&app_config, &archive.agent_id)
+                .map(department_primary_api_config_id)
+                .unwrap_or_default();
+            ArchiveSummary {
+                archive_id: archive.id.clone(),
+                archived_at: archive
+                    .archived_at
+                    .clone()
+                    .unwrap_or_else(|| archive.updated_at.clone()),
+                title: archive_first_user_preview(archive, &app_config.ui_language),
+                message_count: archive.messages.len(),
+                api_config_id,
+                agent_id: archive.agent_id.clone(),
+            }
         })
         .collect::<Vec<_>>();
     summaries.sort_by(|a, b| b.archived_at.cmp(&a.archived_at));

@@ -1,16 +1,10 @@
 fn inflight_chat_key(
-    api_config_id: &str,
     agent_id: &str,
     conversation_id: Option<&str>,
 ) -> String {
     match conversation_id.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(conversation_id) => format!(
-            "{}::{}::{}",
-            api_config_id.trim(),
-            agent_id.trim(),
-            conversation_id
-        ),
-        None => format!("{}::{}", api_config_id.trim(), agent_id.trim()),
+        Some(conversation_id) => format!("{}::{}", agent_id.trim(), conversation_id),
+        None => agent_id.trim().to_string(),
     }
 }
 
@@ -53,7 +47,6 @@ fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<
 
 fn delegate_thread_chat_key(thread: &DelegateRuntimeThread) -> String {
     inflight_chat_key(
-        &thread.conversation.api_config_id,
         &thread.target_agent_id,
         Some(&thread.conversation.id),
     )
@@ -225,10 +218,10 @@ async fn send_chat_message_inner(
     log_chat_stage("send_chat_message_inner.start");
 
     let trigger_only = input.trigger_only;
-    let requested_api_id = input
+    let requested_department_id = input
         .session
         .as_ref()
-        .and_then(|s| s.api_config_id.as_deref())
+        .and_then(|s| s.department_id.as_deref())
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
@@ -245,7 +238,7 @@ async fn send_chat_message_inner(
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
 
-    let (app_config, selected_api, resolved_api, effective_agent_id, candidate_api_ids) = {
+    let (app_config, selected_api, resolved_api, effective_department_id, effective_agent_id, candidate_api_ids) = {
         let guard = state
             .state_lock
             .lock()
@@ -258,18 +251,6 @@ async fn send_chat_message_inner(
         }
         let mut runtime_data = data.clone();
         merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
-        let selected_api = if let Some(api_id) = requested_api_id.as_deref() {
-            app_config
-                .api_configs
-                .iter()
-                .find(|a| a.id == api_id)
-                .cloned()
-                .ok_or_else(|| format!("Selected API config '{api_id}' not found."))?
-        } else {
-            resolve_selected_api_config(&app_config, None)
-                .ok_or_else(|| "No API config configured. Please add one.".to_string())?
-        };
-        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         let effective_agent_id = if let Some(agent_id) = requested_agent_id.as_deref() {
             if runtime_data
                 .agents
@@ -293,9 +274,26 @@ async fn send_chat_message_inner(
                 .map(|a| a.id.clone())
                 .ok_or_else(|| "No assistant agent configured.".to_string())?
         };
-        let mut candidate_api_ids = department_for_agent_id(&app_config, &effective_agent_id)
-            .map(department_api_config_ids)
-            .unwrap_or_default()
+        let effective_department = if let Some(department_id) = requested_department_id.as_deref() {
+            department_by_id(&app_config, department_id)
+                .ok_or_else(|| format!("Department '{department_id}' not found."))?
+        } else {
+            department_for_agent_id(&app_config, &effective_agent_id)
+                .or_else(|| assistant_department(&app_config))
+                .ok_or_else(|| "No assistant department configured.".to_string())?
+        };
+        if !effective_department
+            .agent_ids
+            .iter()
+            .any(|id| id.trim() == effective_agent_id)
+        {
+            return Err(format!(
+                "Agent '{effective_agent_id}' is not assigned to department '{}'.",
+                effective_department.id
+            ));
+        }
+        let effective_department_id = effective_department.id.clone();
+        let mut candidate_api_ids = department_api_config_ids(effective_department)
             .into_iter()
             .filter(|api_id| {
                 app_config
@@ -305,15 +303,27 @@ async fn send_chat_message_inner(
             })
             .collect::<Vec<_>>();
         if candidate_api_ids.is_empty() {
-            candidate_api_ids.push(selected_api.id.clone());
-        } else if !candidate_api_ids.iter().any(|api_id| api_id == &selected_api.id) {
-            candidate_api_ids.insert(0, selected_api.id.clone());
+            let fallback = resolve_selected_api_config(&app_config, None)
+                .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+            candidate_api_ids.push(fallback.id.clone());
         }
+        let selected_api_id = candidate_api_ids
+            .first()
+            .cloned()
+            .ok_or_else(|| format!("Department '{}' has no available chat model.", effective_department_id))?;
+        let selected_api = app_config
+            .api_configs
+            .iter()
+            .find(|a| a.id == selected_api_id)
+            .cloned()
+            .ok_or_else(|| format!("Selected API config '{}' not found.", selected_api_id))?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         drop(guard);
         (
             app_config,
             selected_api,
             resolved_api,
+            effective_department_id,
             effective_agent_id,
             candidate_api_ids,
         )
@@ -321,7 +331,6 @@ async fn send_chat_message_inner(
     log_chat_stage("runtime_and_session_ready");
 
     let chat_key = inflight_chat_key(
-        &selected_api.id,
         &effective_agent_id,
         requested_conversation_id.as_deref(),
     );
@@ -700,7 +709,6 @@ async fn send_chat_message_inner(
             Conversation {
                 id: String::new(),
                 title: String::new(),
-                api_config_id: String::new(),
                 agent_id: String::new(),
                 conversation_kind: String::new(),
                 root_conversation_id: None,
@@ -1191,7 +1199,6 @@ async fn send_chat_message_inner(
                 conversation.updated_at = now.clone();
                 conversation.last_assistant_at = Some(now);
             }
-            conversation.api_config_id = active_selected_api.id.clone();
             conversation.last_effective_prompt_tokens = effective_prompt_tokens;
             conversation.last_context_usage_ratio = context_usage_ratio;
             if !suppress_assistant_message && conversation.last_context_usage_ratio >= 0.82 {
@@ -1225,7 +1232,6 @@ async fn send_chat_message_inner(
                 conversation.updated_at = now.clone();
                 conversation.last_assistant_at = Some(now);
             }
-            conversation.api_config_id = active_selected_api.id.clone();
             conversation.last_effective_prompt_tokens = effective_prompt_tokens;
             conversation.last_context_usage_ratio = context_usage_ratio;
             delegate_runtime_thread_conversation_update(&state, &conversation_id, conversation)?;
@@ -1353,6 +1359,7 @@ async fn send_chat_message_inner(
             "queueWaitMs": queue_wait_ms,
             "oldestQueueCreatedAt": oldest_queue_created_at,
             "chatSessionKey": chat_session_key_for_log,
+            "effectiveDepartmentId": effective_department_id,
             "session": session_for_log,
         }),
         final_result
@@ -1407,18 +1414,36 @@ async fn send_chat_message(
 
     // 获取会话信息
     let session = input.session.as_ref().ok_or_else(|| "缺少会话信息".to_string())?;
-    let api_config_id = session.api_config_id.as_deref().unwrap_or("").trim().to_string();
+    let requested_department_id = session
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
     let agent_id = session.agent_id.trim().to_string();
 
-    if api_config_id.is_empty() || agent_id.is_empty() {
+    if agent_id.is_empty() {
         return Err("会话信息不完整".to_string());
     }
 
     // 获取或创建会话ID
-    let conversation_id = {
+    let (conversation_id, department_id) = {
         let guard = state.state_lock.lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+        let app_config = state_read_config_cached(&state)?;
         let mut data = state_read_app_data_cached(&state)?;
+        let department = if let Some(department_id) = requested_department_id.as_deref() {
+            department_by_id(&app_config, department_id)
+                .ok_or_else(|| format!("部门不存在: {department_id}"))?
+        } else {
+            department_for_agent_id(&app_config, &agent_id)
+                .or_else(|| assistant_department(&app_config))
+                .ok_or_else(|| "未找到可用部门".to_string())?
+        };
+        let api_config_id = department_primary_api_config_id(department);
+        if api_config_id.trim().is_empty() {
+            return Err(format!("部门模型未配置: {}", department.id));
+        }
 
         let conversation_id = if let Some(cid) = session
             .conversation_id
@@ -1431,7 +1456,6 @@ async fn send_chat_message(
                     && conv.status == "active"
                     && conv.summary.trim().is_empty()
                     && !conversation_is_delegate(conv)
-                    && conv.api_config_id == api_config_id
                     && conv.agent_id == agent_id
             }) {
                 cid.to_string()
@@ -1446,8 +1470,8 @@ async fn send_chat_message(
                     .iter()
                     .find(|conv| conv.id == cid)
                     .map(|conv| {
-                        if conv.api_config_id != api_config_id || conv.agent_id != agent_id {
-                            "mismatched_api_config_or_agent"
+                        if conv.agent_id != agent_id {
+                            "mismatched_agent"
                         } else if conv.status != "active" {
                             "inactive"
                         } else if !conv.summary.trim().is_empty() {
@@ -1460,11 +1484,11 @@ async fn send_chat_message(
                     })
                     .unwrap_or("not_found");
                 eprintln!(
-                    "[INFO][CHAT] session conversation id rejected and fallback selected: requested_cid={}, reject_reason={}, fallback_cid={}, api_config_id={}, agent_id={}",
+                    "[INFO][CHAT] session conversation id rejected and fallback selected: requested_cid={}, reject_reason={}, fallback_cid={}, department_id={}, agent_id={}",
                     cid,
                     reject_reason,
                     fallback_id,
-                    api_config_id,
+                    department.id,
                     agent_id
                 );
                 fallback_id
@@ -1479,7 +1503,7 @@ async fn send_chat_message(
         state_write_app_data_cached(&state, &data)?;
 
         drop(guard);
-        conversation_id
+        (conversation_id, department.id.clone())
     };
 
     // 构造用户消息
@@ -1521,7 +1545,7 @@ async fn send_chat_message(
         messages: vec![user_message],
         activate_assistant: true,
         session_info: ChatSessionInfo {
-            api_config_id,
+            department_id: department_id.clone(),
             agent_id: agent_id.clone(),
         },
         sender_info: None,
@@ -1557,10 +1581,10 @@ async fn send_chat_message(
         .map(|queue| queue.len())
         .unwrap_or_default();
     eprintln!(
-        "[聊天调度] 用户消息已入队: event_id={}, conversation_id={}, api_config_id={}, agent_id={}, queue_len={}, main_session_state={}",
+        "[聊天调度] 用户消息已入队: event_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
         event_id,
         conversation_id,
-        session.api_config_id.as_deref().unwrap_or(""),
+        department_id,
         agent_id,
         queue_len,
         main_session_state_text,
@@ -1621,23 +1645,28 @@ async fn stop_chat_message(
     input: StopChatRequest,
     state: State<'_, AppState>,
 ) -> Result<StopChatResult, String> {
-    let api_config_id = input
-        .session
-        .api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "Missing session.apiConfigId".to_string())?
-        .to_string();
     let agent_id = input.session.agent_id.trim().to_string();
     if agent_id.is_empty() {
         return Err("Missing session.agentId".to_string());
     }
+    let requested_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let requested_department_id = input
+        .session
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
     let chat_key = inflight_chat_key(
-        &api_config_id,
         &agent_id,
-        input.session.conversation_id.as_deref(),
+        requested_conversation_id.as_deref(),
     );
     let aborted_chat = {
         let mut inflight = state
@@ -1693,22 +1722,35 @@ async fn stop_chat_message(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let app_config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    ensure_default_agent(&mut data);
+    let api_config_id = if let Some(_conversation_id) = requested_conversation_id.as_deref() {
+        requested_department_id
+            .as_deref()
+            .and_then(|id| department_by_id(&app_config, id))
+            .map(department_primary_api_config_id)
+            .or_else(|| {
+                department_for_agent_id(&app_config, &agent_id).map(department_primary_api_config_id)
+            })
+            .or_else(|| resolve_selected_api_config(&app_config, None).map(|api| api.id.clone()))
+            .ok_or_else(|| "Missing available API config for stop request".to_string())?
+    } else {
+        requested_department_id
+            .as_deref()
+            .and_then(|id| department_by_id(&app_config, id))
+            .map(department_primary_api_config_id)
+            .or_else(|| {
+                department_for_agent_id(&app_config, &agent_id).map(department_primary_api_config_id)
+            })
+            .or_else(|| resolve_selected_api_config(&app_config, None).map(|api| api.id.clone()))
+            .ok_or_else(|| "Missing available API config for stop request".to_string())?
+    };
     let selected_api = app_config
         .api_configs
         .iter()
         .find(|api| api.id == api_config_id)
         .cloned()
         .ok_or_else(|| format!("Selected API config '{api_config_id}' not found."))?;
-    let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
-
-    let requested_conversation_id = input
-        .session
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let runtime_requested = requested_conversation_id
         .as_deref()
         .filter(|conversation_id| {
@@ -1726,7 +1768,7 @@ async fn stop_chat_message(
     let idx = if runtime_conversation.is_some() {
         None
     } else {
-        latest_active_conversation_index(&data, &api_config_id, &agent_id)
+        latest_active_conversation_index(&data, "", &agent_id)
     };
     let conversation = if let Some(conversation) = runtime_conversation.as_mut() {
         conversation

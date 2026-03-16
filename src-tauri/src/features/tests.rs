@@ -36,7 +36,6 @@
         Conversation {
             id: Uuid::new_v4().to_string(),
             title: "t".to_string(),
-            api_config_id: "api".to_string(),
             agent_id: "agent".to_string(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
