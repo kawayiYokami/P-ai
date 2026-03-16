@@ -103,10 +103,6 @@ type UseChatFlowOptions = {
 // 2. 常量
 // ---------------------------------------------------------------------------
 
-const STREAM_FLUSH_INTERVAL_MS = 33;
-const STREAM_DRAIN_TARGET_MS = 1000;
-const STREAM_DRAIN_TARGET_FAST_MS = 500;
-const STREAM_DRAIN_MIN_MS = 120;
 const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 
 // ---------------------------------------------------------------------------
@@ -115,11 +111,8 @@ const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 //   idle ──sendChat()──→ queued
 //   queued ──history_flushed──→ streaming（清屏 + reload + 插 draft）
 //   queued ──promise settled(无 history_flushed)──→ idle
-//   streaming ──round_completed(有剩余文本)──→ draining
-//   streaming ──round_completed(无剩余文本)──→ idle
+//   streaming ──round_completed──→ idle
 //   streaming ──stopChat()──→ idle
-//   draining ──排空完毕──→ idle
-//   draining ──stopChat()──→ idle
 //
 //   核心不变量：history_flushed 之后只允许更新 draft 气泡文字，
 //   不对 allMessages 做任何其他读写。
@@ -128,8 +121,7 @@ const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 type RoundState =
   | { phase: "idle" }
   | { phase: "queued"; gen: number }
-  | { phase: "streaming"; gen: number; draftId: string }
-  | { phase: "draining"; gen: number; draftId: string; commitMessage: ChatMessage | null };
+  | { phase: "streaming"; gen: number; draftId: string };
 
 export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
@@ -138,10 +130,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let sendChatActiveGen = 0; // 防止 bound channel 抢占 sendChat 轮次
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
 
-  // ── 流式缓冲 ──
-  let streamPendingText = "";
-  let streamDrainDeadline = 0;
-  let streamFlushTimer: ReturnType<typeof setInterval> | null = null;
+  // ── 流式统计 ──
   let streamToolCallCount = 0;
   let streamLastToolName = "";
 
@@ -159,24 +148,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (!finalValue) return current;
     if (finalValue.startsWith(current)) return finalValue;
     return finalValue;
-  }
-
-  function reconcilePendingWithFinal(finalText: string): {
-    nextVisibleText: string;
-    nextPendingText: string;
-  } {
-    const finalValue = String(finalText || "");
-    const visible = String(options.latestAssistantText.value || "");
-    const pending = String(streamPendingText || "");
-    if (!finalValue) return { nextVisibleText: visible, nextPendingText: pending };
-    const combined = `${visible}${pending}`;
-    if (finalValue.startsWith(combined)) {
-      return { nextVisibleText: visible, nextPendingText: `${pending}${finalValue.slice(combined.length)}` };
-    }
-    if (finalValue.startsWith(visible)) {
-      return { nextVisibleText: visible, nextPendingText: finalValue.slice(visible.length) };
-    }
-    return { nextVisibleText: mergeAssistantText(visible, finalValue), nextPendingText: "" };
   }
 
   function readHistoryFlushedPayload(raw: string | undefined): HistoryFlushedPayload | null {
@@ -297,7 +268,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
       createdAt: new Date().toISOString(),
       speakerAgentId: agentId || "assistant-draft",
       parts: [{ type: "text", text: "" }],
-      providerMeta: { reasoningStandard: "", reasoningInline: "", _streaming: true },
+      providerMeta: {
+        reasoningStandard: "",
+        reasoningInline: "",
+        _streaming: true,
+        _streamSegments: [] as string[],
+        _streamTail: "",
+      },
     };
     const cur = options.allMessages.value;
     const idx = cur.findIndex((m) => m.id === draftId);
@@ -305,9 +282,83 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return draftId;
   }
 
-  function updateDraftText(draftId: string) {
+  function readDraftStreamSegments(draftId: string): string[] {
+    if (!draftId) return [];
+    const draft = options.allMessages.value.find((item) => item.id === draftId);
+    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
+    if (!Array.isArray(meta._streamSegments)) return [];
+    return (meta._streamSegments as unknown[])
+      .map((item) => String(item ?? ""))
+      .filter((item) => item.length > 0);
+  }
+
+  function readDraftStreamTail(draftId: string): string {
+    if (!draftId) return "";
+    const draft = options.allMessages.value.find((item) => item.id === draftId);
+    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
+    return String(meta._streamTail ?? "");
+  }
+
+  function consumeClosedMarkdownBlocks(input: string): { chunks: string[]; tail: string } {
+    const chunks: string[] = [];
+    let cursor = 0;
+    let scan = 0;
+    let inFence = false;
+    let fenceMarker = "";
+    let lineStart = 0;
+    let lastSafe = 0;
+    let prevBlank = false;
+
+    while (scan <= input.length) {
+      const isEnd = scan === input.length;
+      const ch = isEnd ? "\n" : input[scan];
+      if (ch !== "\n" && !isEnd) {
+        scan += 1;
+        continue;
+      }
+      const lineEnd = scan;
+      const line = input.slice(lineStart, lineEnd);
+      const trimmed = line.trimStart();
+      const isBlank = line.trim().length === 0;
+
+      if (!inFence && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) {
+        inFence = true;
+        fenceMarker = trimmed.startsWith("~~~") ? "~~~" : "```";
+      } else if (inFence && fenceMarker && trimmed.startsWith(fenceMarker)) {
+        inFence = false;
+        lastSafe = isEnd ? lineEnd : lineEnd + 1;
+      }
+
+      if (!inFence && prevBlank && !isBlank) {
+        const splitAt = lineStart;
+        if (splitAt > cursor) {
+          const chunk = input.slice(cursor, splitAt).trim();
+          if (chunk) chunks.push(chunk);
+          cursor = splitAt;
+          lastSafe = splitAt;
+        }
+      }
+
+      prevBlank = isBlank;
+      lineStart = scan + 1;
+      scan += 1;
+    }
+
+    if (lastSafe > cursor) {
+      const chunk = input.slice(cursor, lastSafe).trim();
+      if (chunk) chunks.push(chunk);
+      cursor = lastSafe;
+    }
+
+    const tail = input.slice(cursor);
+    return { chunks, tail };
+  }
+
+  function updateDraftText(draftId: string, streamSegments?: string[], streamTail?: string) {
     if (!draftId) return;
     const agentId = String(options.getSession()?.agentId || "").trim();
+    const nextStreamSegments = streamSegments || readDraftStreamSegments(draftId);
+    const nextStreamTail = streamTail ?? readDraftStreamTail(draftId);
     const msg: ChatMessage = {
       id: draftId,
       role: "assistant",
@@ -318,6 +369,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
         reasoningStandard: String(options.latestReasoningStandardText.value || ""),
         reasoningInline: String(options.latestReasoningInlineText.value || ""),
         _streaming: true,
+        _streamSegments: nextStreamSegments,
+        _streamTail: nextStreamTail,
       },
     };
     const cur = options.allMessages.value;
@@ -357,70 +410,23 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
 
   // =========================================================================
-  // 流式缓冲
+  // 流式输出
   // =========================================================================
 
   function clearStreamBuffer() {
-    streamPendingText = "";
-    streamDrainDeadline = 0;
-    if (streamFlushTimer) {
-      clearInterval(streamFlushTimer);
-      streamFlushTimer = null;
-    }
+    // 兼容保留：当前改为“delta 直写”，无额外缓冲需要清理。
   }
 
-  function nextStreamChunk(pending: string, ticksLeft: number): string {
-    if (!pending) return "";
-    const maxChars = Math.max(1, Math.ceil(pending.length / Math.max(1, ticksLeft)));
-    const newlineIdx = pending.indexOf("\n");
-    if (newlineIdx >= 0 && newlineIdx + 1 <= maxChars) return pending.slice(0, newlineIdx + 1);
-    return pending.slice(0, maxChars);
-  }
-
-  function flushStreamBuffer(gen: number) {
-    if (round.phase !== "streaming" && round.phase !== "draining") { clearStreamBuffer(); return; }
-    if (round.gen !== gen) { clearStreamBuffer(); return; }
-
-    if (!streamPendingText) {
-      // draining 排空 → 回到 idle
-      if (round.phase === "draining") {
-        finalizeDraft(round.draftId, round.commitMessage ?? undefined);
-        round = { phase: "idle" };
-        options.chatting.value = false;
-        reasoningStartedAtMs.value = 0;
-      }
-      clearStreamBuffer();
-      return;
-    }
-
-    const msLeft = Math.max(1, streamDrainDeadline - Date.now());
-    const ticksLeft = Math.max(1, Math.ceil(msLeft / STREAM_FLUSH_INTERVAL_MS));
-    const chunk = nextStreamChunk(streamPendingText, ticksLeft);
-    options.latestAssistantText.value += chunk;
-    streamPendingText = streamPendingText.slice(chunk.length);
-    // 更新 draft 气泡文字（唯一允许的 allMessages 写入）
-    if (round.phase === "streaming" || round.phase === "draining") {
-      updateDraftText(round.draftId);
-    }
-
-    // 排空检查
-    if (!streamPendingText && round.phase === "draining") {
-      finalizeDraft(round.draftId, round.commitMessage ?? undefined);
-      round = { phase: "idle" };
-      options.chatting.value = false;
-      reasoningStartedAtMs.value = 0;
-      clearStreamBuffer();
-    }
-  }
-
-  function enqueueStreamDelta(gen: number, delta: string, speedMultiplier = 1) {
+  function enqueueStreamDelta(gen: number, delta: string) {
     if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
-    streamPendingText += delta;
-    const safeSpeed = Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
-    streamDrainDeadline = Date.now() + Math.max(STREAM_DRAIN_MIN_MS, Math.round(STREAM_DRAIN_TARGET_MS / safeSpeed));
-    if (!streamFlushTimer) {
-      streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
-    }
+    options.latestAssistantText.value += delta;
+    const currentSegments = readDraftStreamSegments(round.draftId);
+    const currentTail = readDraftStreamTail(round.draftId);
+    const parsed = consumeClosedMarkdownBlocks(`${currentTail}${delta}`);
+    const nextStreamSegments = parsed.chunks.length > 0
+      ? [...currentSegments, ...parsed.chunks]
+      : currentSegments;
+    updateDraftText(round.draftId, nextStreamSegments, parsed.tail);
   }
 
   // =========================================================================
@@ -459,12 +465,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (source === "bound" && sendChatActiveGen > 0) return;
 
     const flushed = readHistoryFlushedPayload(parsed.message);
-    const batchVisibleCount = Math.max(1, flushed?.messageCount || 0);
+    const replayMessages = Array.isArray(flushed?.messages) ? flushed!.messages : [];
+    const batchVisibleCount = Math.max(1, replayMessages.length);
     activeHistoryMessageCount = batchVisibleCount;
     options.visibleMessageBlockCount.value = batchVisibleCount;
 
     // ── 清屏 ──
-    const oldDraftId = (round.phase === "streaming" || round.phase === "draining") ? round.draftId : "";
+    const oldDraftId = round.phase === "streaming" ? round.draftId : "";
     resetDisplayState();
     if (oldDraftId) removeDraft(oldDraftId);
 
@@ -475,7 +482,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       await options.onHistoryFlushed({
         conversationId: String(flushed?.conversationId || "").trim(),
         messageCount: batchVisibleCount,
-        pendingMessages: flushed?.messages || [],
+        pendingMessages: replayMessages,
       });
     } else {
       await options.onReloadMessages();
@@ -513,10 +520,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
 
-    // 对齐最终文本
-    const reconciled = reconcilePendingWithFinal(String(result.assistantText || ""));
-    options.latestAssistantText.value = reconciled.nextVisibleText;
-    streamPendingText = reconciled.nextPendingText;
+    // 对齐最终文本（delta 直写后只做最终兜底对齐）
+    options.latestAssistantText.value = mergeAssistantText(
+      options.latestAssistantText.value,
+      String(result.assistantText || ""),
+    );
 
     if (typeof result.reasoningStandard === "string") {
       options.latestReasoningStandardText.value = result.reasoningStandard;
@@ -533,25 +541,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.visibleMessageBlockCount.value =
       activeHistoryMessageCount + (hasAssistantVisibleOutput(result) ? 1 : 0);
 
-    if (streamPendingText) {
-      // 有剩余 → draining，逐帧排空后自动 idle
-      streamDrainDeadline = Date.now() + Math.max(STREAM_DRAIN_MIN_MS, Math.round(STREAM_DRAIN_TARGET_FAST_MS));
-      if (!streamFlushTimer) {
-        streamFlushTimer = setInterval(() => flushStreamBuffer(gen), STREAM_FLUSH_INTERVAL_MS);
-      }
-      updateDraftText(draftId);
-      round = { phase: "draining", gen, draftId, commitMessage: result.assistantMessage || null };
-      // draining 仍属于当前轮次，保持 chatting=true，避免被外部 refresh 抢写最终消息。
-      options.chatting.value = true;
-    } else {
-      // 无剩余 → 写完最后一帧，直接 idle
-      updateDraftText(draftId);
-      finalizeDraft(draftId, result.assistantMessage);
-      round = { phase: "idle" };
-      clearStreamBuffer();
-      options.chatting.value = false;
-      reasoningStartedAtMs.value = 0;
-    }
+    updateDraftText(draftId);
+    finalizeDraft(draftId, result.assistantMessage);
+    round = { phase: "idle" };
+    clearStreamBuffer();
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
   }
 
   function handleRoundFailed(gen: number, error: unknown) {
@@ -608,7 +603,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
       const currentGen = getGen();
       if (!currentGen) return;
-      if (round.phase !== "streaming" && round.phase !== "draining") return;
+      if (round.phase !== "streaming") return;
       if (round.gen !== currentGen) return;
 
       if (parsed.kind === "round_completed") {
@@ -716,7 +711,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     if (!wasChatting) {
       resetDisplayState();
-      if (round.phase === "streaming" || round.phase === "draining") removeDraft(round.draftId);
+      if (round.phase === "streaming") removeDraft(round.draftId);
       round = { phase: "queued", gen };
       // 发送后立即进入可停止态（即使流式尚未开始）。
       options.chatting.value = true;
@@ -797,7 +792,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (!options.chatting.value) return;
     const stopSession = options.getSession();
     const cid = options.getConversationId ? options.getConversationId() : "";
-    const partialAssistantText = `${options.latestAssistantText.value}${streamPendingText}`;
+    const partialAssistantText = options.latestAssistantText.value;
     const partialReasoningStandard = options.latestReasoningStandardText.value;
     const partialReasoningInline = options.latestReasoningInlineText.value;
 
@@ -838,10 +833,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
           partialReasoningStandard,
           partialReasoningInline,
         });
-        const activeGen =
-          round.phase === "streaming" || round.phase === "draining"
-            ? round.gen
-            : 0;
+        const activeGen = round.phase === "streaming" ? round.gen : 0;
         if (activeGen > 0) {
           handleRoundCompleted(activeGen, {
             assistantText: String(stopResult?.assistantText || partialAssistantText),
@@ -869,7 +861,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     ++generation;
     sendChatActiveGen = 0;
     clearStreamBuffer();
-    if (round.phase === "streaming" || round.phase === "draining") {
+    if (round.phase === "streaming") {
       removeDraft(round.draftId);
     }
     round = { phase: "idle" };

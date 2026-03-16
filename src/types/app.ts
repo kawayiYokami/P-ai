@@ -299,6 +299,8 @@ export type ChatMessageBlock = {
   id: string;
   role: ChatRole;
   isStreaming?: boolean;
+  streamSegments?: string[];
+  streamTail?: string;
   speakerAgentId?: string;
   createdAt?: string;
   text: string;

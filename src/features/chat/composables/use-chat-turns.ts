@@ -111,10 +111,18 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       const parsed = parseAssistantStoredText(rendered);
       const meta = (message.providerMeta || {}) as Record<string, unknown>;
       const toolSummary = summarizeToolHistory(message.toolCall);
+      const streamSegments = Array.isArray(meta._streamSegments)
+        ? (meta._streamSegments as unknown[])
+          .map((item) => String(item ?? ""))
+          .filter((item) => item.length > 0)
+        : [];
+      const streamTail = String(meta._streamTail ?? "");
       return {
         id: message.id,
         role: message.role,
         isStreaming: !!meta._streaming,
+        streamSegments,
+        streamTail,
         speakerAgentId: resolveSpeakerAgentId(message) || undefined,
         createdAt: String(message.createdAt || "").trim() || undefined,
         text: message.role === "assistant" ? parsed.assistantText : rendered,
@@ -161,11 +169,11 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return blocks;
   });
 
-  const visibleMessageBlocks = computed(() =>
-    allMessageBlocks.value.slice(Math.max(0, allMessageBlocks.value.length - options.visibleMessageBlockCount.value)),
-  );
+  // 无窗口模式：渲染层直接消费当前持有的全量消息块，不再做本地 slice。
+  const visibleMessageBlocks = computed(() => allMessageBlocks.value);
 
-  const hasMoreMessageBlocks = computed(() => options.visibleMessageBlockCount.value < allMessageBlocks.value.length);
+  // 是否还能继续加载更早消息，交由后端游标标志（hasMoreBackendHistory）控制。
+  const hasMoreMessageBlocks = computed(() => false);
 
   const chatContextUsageRatio = computed(() => {
     const backendPercent = latestBackendContextUsagePercent(options.allMessages.value);
