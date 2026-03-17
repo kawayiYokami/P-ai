@@ -192,7 +192,8 @@
                   :src="`data:${img.mime};base64,${img.bytesBase64}`"
                   loading="lazy"
                   decoding="async"
-                  class="rounded max-h-28 object-contain bg-base-100/40"
+                  class="rounded max-h-28 object-contain bg-base-100/40 cursor-zoom-in"
+                  @dblclick.stop="openImagePreview(img)"
                 />
                 <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
                   <FileText class="h-3.5 w-3.5" />
@@ -397,6 +398,41 @@
               <Paperclip class="h-3.5 w-3.5" />
             </button>
           </div>
+          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-base-200 px-2 py-1.5 text-[11px]">
+            <div class="flex items-center gap-1">
+              <button
+                class="btn btn-xs btn-primary shrink-0"
+                :class="{ 'btn-disabled': chatting || frozen || !unarchivedConversationItems[0]?.canCreateNew }"
+                :title="unarchivedConversationItems[0]?.canCreateNew ? t('chat.newConversation') : t('chat.maxConversations')"
+                @click="$emit('createConversation')"
+              >
+                <Plus class="h-3 w-3" />
+              </button>
+              <button
+                v-for="item in unarchivedConversationItems"
+                :key="item.conversationId"
+                class="btn btn-xs flex-1 flex items-center gap-1.5 min-w-0 max-w-[120px] !px-1"
+                :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'btn-secondary' : 'bg-base-100 border-base-300'"
+                :disabled="chatting || frozen"
+                @click="onConversationItemClick(item)"
+              >
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :class="{
+                    'bg-primary': item.color === 'primary',
+                    'bg-secondary': item.color === 'secondary',
+                    'bg-accent': item.color === 'accent',
+                    'bg-neutral': item.color === 'neutral',
+                    'bg-info': item.color === 'info',
+                    'bg-success': item.color === 'success',
+                    'bg-warning': item.color === 'warning',
+                    'bg-error': item.color === 'error',
+                  }"
+                ></span>
+                <span class="truncate">{{ item.messageCount }}条 · {{ formatRelativeTime(item.updatedAt) }}</span>
+              </button>
+            </div>
+          </div>
           <div class="flex items-end gap-2">
             <button
               class="btn btn-sm btn-circle shrink-0"
@@ -424,13 +460,26 @@
         </div>
       </div>
     </div>
+
+    <dialog class="modal" :class="{ 'modal-open': imagePreviewOpen }">
+      <div class="modal-box w-11/12 max-w-6xl p-2 bg-base-100">
+        <img
+          v-if="imagePreviewDataUrl"
+          :src="imagePreviewDataUrl"
+          class="max-h-[80vh] w-full object-contain rounded"
+        />
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeImagePreview">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Paperclip, Pause, Play, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
+import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, MessageCircle, Mic, Paperclip, Pause, Play, Plus, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import "markstream-vue/index.css";
 import MarkdownIt from "markdown-it";
@@ -483,6 +532,8 @@ const props = defineProps<{
   hasMoreMessageBlocks: boolean;
   currentWorkspaceName: string;
   workspaceLocked: boolean;
+  activeConversationId: string;
+  unarchivedConversationItems: Array<{ conversationId: string; messageCount: number; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
 }>();
 
 const emit = defineEmits<{
@@ -499,6 +550,8 @@ const emit = defineEmits<{
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "lockWorkspace"): void;
   (e: "unlockWorkspace"): void;
+  (e: "switchConversation", conversationId: string): void;
+  (e: "createConversation"): void;
 }>();
 const { t } = useI18n();
 
@@ -919,10 +972,54 @@ function isNearBottom(el: HTMLElement): boolean {
 }
 
 const showJumpToBottom = computed(() => !autoFollowOutput.value);
+const imagePreviewOpen = ref(false);
+const imagePreviewDataUrl = ref("");
 
 function jumpToBottom() {
   autoFollowOutput.value = true;
   nextTick(() => scrollToBottom("smooth"));
+}
+
+function openImagePreview(image: { mime: string; bytesBase64: string }) {
+  const mime = String(image.mime || "").trim() || "image/webp";
+  const bytes = String(image.bytesBase64 || "").trim();
+  if (!bytes) return;
+  imagePreviewDataUrl.value = `data:${mime};base64,${bytes}`;
+  imagePreviewOpen.value = true;
+}
+
+function closeImagePreview() {
+  imagePreviewOpen.value = false;
+  imagePreviewDataUrl.value = "";
+}
+
+function onConversationItemClick(item: { conversationId: string; isActive?: boolean }) {
+  const conversationId = String(item.conversationId || "").trim();
+  if (!conversationId) return;
+  const isCurrent = conversationId === String(props.activeConversationId || "").trim()
+    || (!props.activeConversationId && !!item.isActive);
+  if (isCurrent) return;
+  emit("switchConversation", conversationId);
+}
+
+function formatRelativeTime(isoTime: string): string {
+  const date = new Date(isoTime);
+  if (isNaN(date.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  const diffMonth = Math.floor(diffDay / 30);
+  const diffYear = Math.floor(diffDay / 365);
+
+  if (diffSec < 60) return `${diffSec}秒前`;
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  if (diffHour < 24) return `${diffHour}小时前`;
+  if (diffDay < 30) return `${diffDay}天前`;
+  if (diffMonth < 12) return `${diffMonth}个月前`;
+  return `${diffYear}年前`;
 }
 
 let loadingMore = false;
@@ -1326,3 +1423,4 @@ watch(
 }
 
 </style>
+
