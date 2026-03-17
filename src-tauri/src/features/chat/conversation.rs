@@ -1286,7 +1286,7 @@ fn build_prompt_with_mode(
             }
         }
         let is_user = role == "user";
-        let text = if is_user {
+        let mut text = if is_user {
             let base_text = render_prompt_user_text_only(message);
             let extra_blocks = prompt_user_extra_blocks_for_message(message);
             append_prompt_user_blocks_to_text(&base_text, &extra_blocks)
@@ -1299,7 +1299,8 @@ fn build_prompt_with_mode(
             (Vec::new(), Vec::new())
         };
         if text.trim().is_empty() && images.is_empty() && audios.is_empty() {
-            continue;
+            // Keep message shape stable for providers that reject empty messages.
+            text = " ".to_string();
         }
         history_messages.push(PreparedHistoryMessage {
             role: role.clone(),
@@ -1536,6 +1537,14 @@ fn build_prompt_with_mode(
                 latest_user_extra_text.push('\n');
             }
             latest_user_extra_text.push_str(&extra);
+        }
+        if latest_user_text.trim().is_empty()
+            && latest_user_meta_text.trim().is_empty()
+            && latest_user_extra_text.trim().is_empty()
+            && latest_images.is_empty()
+            && latest_audios.is_empty()
+        {
+            latest_user_text = " ".to_string();
         }
     }
 

@@ -1367,6 +1367,10 @@ fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<Str
             blocks.push(text.to_string());
         }
     }
+    if blocks.is_empty() {
+        // Guardrail: never send an empty latest user turn to model providers.
+        blocks.push(" ".to_string());
+    }
     blocks
 }
 

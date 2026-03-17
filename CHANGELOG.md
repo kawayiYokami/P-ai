@@ -2,6 +2,12 @@
 
 ## 未发布
 
+- 修复（chat-message-shape）：统一空消息兜底，避免仅文件/仅工具回合被组装为空消息后丢失
+  - 组装 `latest_user_text` 文本块时，若文本/元信息/额外块/媒体均为空，自动注入单空格 `" "`
+  - 历史消息组装阶段不再跳过“空文本且无媒体”消息，改为保留占位空格
+  - Rig 历史回放中 user/assistant/tool 空文本统一回填 `" "`，避免 provider 端空内容报错
+  - DeepSeek 消息序列化路径同步兜底：空 content 自动注入文本占位
+
 - 修复（ide-findings）：完成本轮 IDE 指出的问题收敛与健壮性补强
   - 修正远程 IM 规则文案错字（`中間調用/中间调用`）
   - 增补聊天 ingress 行为日志（含 route/mode/key_count/duration_ms）

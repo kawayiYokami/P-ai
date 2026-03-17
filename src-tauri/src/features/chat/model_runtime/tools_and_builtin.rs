@@ -12,7 +12,12 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
     let mut chat_history = Vec::<RigMessage>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
-            let mut user_blocks = vec![UserContent::text(hm.text.clone())];
+            let base_user_text = if hm.text.trim().is_empty() {
+                " ".to_string()
+            } else {
+                hm.text.clone()
+            };
+            let mut user_blocks = vec![UserContent::text(base_user_text)];
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     user_blocks.push(UserContent::text(time_text.clone()));
@@ -94,7 +99,7 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                 }
             }
             if assistant_blocks.is_empty() {
-                assistant_blocks.push(AssistantContent::text(String::new()));
+                assistant_blocks.push(AssistantContent::text(" ".to_string()));
             }
             chat_history.push(RigMessage::Assistant {
                 id: None,
@@ -102,7 +107,12 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                     .map_err(|_| "Failed to build assistant history message".to_string())?,
             });
         } else if hm.role == "tool" {
-            let result_content = OneOrMany::one(ToolResultContent::text(hm.text.clone()));
+            let safe_tool_text = if hm.text.trim().is_empty() {
+                " ".to_string()
+            } else {
+                hm.text.clone()
+            };
+            let result_content = OneOrMany::one(ToolResultContent::text(safe_tool_text.clone()));
             let tool_user_content = if let Some(tool_call_id) = hm
                 .tool_call_id
                 .as_deref()
@@ -115,7 +125,7 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                     result_content,
                 )
             } else {
-                UserContent::text(hm.text.clone())
+                UserContent::text(safe_tool_text)
             };
             chat_history.push(RigMessage::User {
                 content: OneOrMany::one(tool_user_content),
