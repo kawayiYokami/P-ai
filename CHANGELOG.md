@@ -21,6 +21,14 @@
   - 删除换行符，删除中文字符之间空白
   - 缓存 key 升级 `v2`，避免旧缓存影响新清洗规则
 
+- 优化（token-estimate）：改用 `tiktoken-rs` 进行 token 估算
+  - 会话 token 估算由启发式字符规则切换为 `cl100k_base` 编码估算
+  - tokenizer 初始化失败时保留旧启发式作为兜底，避免中断主流程
+
+- 优化（pdf-text-limit）：PDF 文本模式新增 `30K token` 上限（`tiktoken-rs`）
+  - PDF 转文字后按 token 截断到前 `30,000`
+  - 超出部分不再注入 prompt，降低超长上下文风险
+
 - 发布（release）：版本号提升到 `0.5.1`
   - 同步更新 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
   - 本地 `pnpm tauri build` 验证通过，已产出 Windows 可执行与安装包

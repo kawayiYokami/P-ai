@@ -203,17 +203,47 @@ fn persist_raw_attachment_to_downloads(
     let file_name = apply_download_extension_policy(suggested_name, mime);
     let target = dir.join(file_name);
     let final_target = if target.exists() {
-        let stem = target
-            .file_stem()
-            .and_then(|v| v.to_str())
-            .unwrap_or("attachment");
-        let ext = target.extension().and_then(|v| v.to_str()).unwrap_or("bin");
-        dir.join(format!("{stem}-{}.{}", Uuid::new_v4(), ext))
+        if existing_file_content_equals_raw(&target, raw)? {
+            target
+        } else {
+            let stem = target
+                .file_stem()
+                .and_then(|v| v.to_str())
+                .unwrap_or("attachment");
+            let ext = target.extension().and_then(|v| v.to_str()).unwrap_or("bin");
+            dir.join(format!("{stem}-{}.{}", Uuid::new_v4(), ext))
+        }
     } else {
         target
     };
+    if final_target.exists() {
+        return Ok(final_target);
+    }
     fs::write(&final_target, raw).map_err(|err| format!("Write attachment failed: {err}"))?;
     Ok(final_target)
+}
+
+fn existing_file_content_equals_raw(path: &std::path::Path, raw: &[u8]) -> Result<bool, String> {
+    let meta = fs::metadata(path).map_err(|err| format!("Read existing attachment metadata failed: {err}"))?;
+    if meta.len() != raw.len() as u64 {
+        return Ok(false);
+    }
+    let mut file = fs::File::open(path).map_err(|err| format!("Open existing attachment failed: {err}"))?;
+    let mut offset = 0usize;
+    let mut buf = [0u8; 8192];
+    while offset < raw.len() {
+        let read = std::io::Read::read(&mut file, &mut buf)
+            .map_err(|err| format!("Read existing attachment failed: {err}"))?;
+        if read == 0 {
+            return Ok(false);
+        }
+        let end = offset + read;
+        if end > raw.len() || buf[..read] != raw[offset..end] {
+            return Ok(false);
+        }
+        offset = end;
+    }
+    Ok(true)
 }
 
 fn workspace_relative_path(state: &AppState, absolute: &std::path::Path) -> String {

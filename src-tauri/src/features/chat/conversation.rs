@@ -175,6 +175,15 @@ struct ArchiveDecision {
 }
 
 fn estimated_tokens_for_text(text: &str) -> f64 {
+    static TOKEN_BPE: std::sync::OnceLock<Option<tiktoken_rs::CoreBPE>> = std::sync::OnceLock::new();
+    if let Some(bpe) = TOKEN_BPE
+        .get_or_init(|| tiktoken_rs::cl100k_base().ok())
+        .as_ref()
+    {
+        return bpe.encode_with_special_tokens(text).len() as f64;
+    }
+
+    // 极端情况下 tokenizer 初始化失败，回退到旧启发式，避免中断主流程。
     let mut zh_chars = 0usize;
     let mut other_chars = 0usize;
     for ch in text.chars() {

@@ -45,6 +45,7 @@ enigo = "0.6"
 arboard = "3"
 webp = "0.3"
 rayon = "1.10"
+tiktoken-rs = "0.7"
 captis = "0.6"
 xcap = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -1,6 +1,7 @@
 use rayon::prelude::*;
 
 const MAX_PDF_CONVERT_PAGES: usize = 100;
+const MAX_PDF_TEXT_TOKENS: usize = 30_000;
 const PDF_PAGE_LIMIT_ERR_PREFIX: &str = "pdf_page_limit_exceeded";
 
 static PDF_SESSION_MEMORY_CACHE: std::sync::OnceLock<
@@ -149,6 +150,51 @@ fn normalize_pdf_page_text_once(input: &str) -> String {
     out
 }
 
+fn truncate_pdf_pages_to_token_limit(
+    pages: &mut Vec<PdfPageExtractBlock>,
+    token_limit: usize,
+) -> Result<(), String> {
+    static TOKEN_BPE: std::sync::OnceLock<Option<tiktoken_rs::CoreBPE>> = std::sync::OnceLock::new();
+    let Some(bpe) = TOKEN_BPE
+        .get_or_init(|| tiktoken_rs::cl100k_base().ok())
+        .as_ref()
+    else {
+        eprintln!("[PDF提取] tiktoken 初始化失败，跳过 30K token 截断。");
+        return Ok(());
+    };
+
+    if token_limit == 0 {
+        pages.clear();
+        return Ok(());
+    }
+
+    let mut remaining = token_limit;
+    let mut kept = Vec::<PdfPageExtractBlock>::with_capacity(pages.len());
+    for mut page in pages.drain(..) {
+        if remaining == 0 {
+            break;
+        }
+        if page.text.trim().is_empty() {
+            kept.push(page);
+            continue;
+        }
+        let tokens = bpe.encode_with_special_tokens(&page.text);
+        if tokens.len() <= remaining {
+            remaining -= tokens.len();
+            kept.push(page);
+            continue;
+        }
+        let truncated = bpe
+            .decode(tokens[..remaining].to_vec())
+            .map_err(|err| format!("tiktoken decode failed: {err}"))?;
+        page.text = truncated;
+        kept.push(page);
+        break;
+    }
+    *pages = kept;
+    Ok(())
+}
+
 fn encode_rgba_page_to_webp(
     page_index: usize,
     width: u32,
@@ -267,6 +313,7 @@ pub(crate) fn get_or_extract_pdf_structured(
             images: Vec::new(),
         });
     }
+    truncate_pdf_pages_to_token_limit(&mut pages, MAX_PDF_TEXT_TOKENS)?;
 
     let result = PdfExtractStructuredResult {
         file_name,
