@@ -618,18 +618,121 @@ fn build_prompt_user_meta_text(
     agents: &[AgentProfile],
     user_name: &str,
     ui_language: &str,
+    include_remote_identity: bool,
 ) -> Option<String> {
     let speaker_block = build_prompt_speaker_block(message, agents, user_name, ui_language);
-    let time_text = format_message_time_rfc3339_local(&message.created_at);
+    let time_text = format_message_time_rfc3339_local_to_minute(&message.created_at);
     let has_speaker = !speaker_block.trim().is_empty();
     let has_time = !time_text.trim().is_empty();
-    match (has_speaker, has_time) {
-        (true, true) => Some(format!("{} {}", speaker_block, time_text)),
-        (true, false) => Some(speaker_block),
-        (false, true) => Some(format!("[{}]", time_text)),
-        (false, false) => None,
+    let mut base = match (has_speaker, has_time) {
+        (true, true) => format!("{} {}", speaker_block, time_text),
+        (true, false) => speaker_block,
+        (false, true) => format!("[{}]", time_text),
+        (false, false) => String::new(),
+    };
+    let mut tags = Vec::<String>::new();
+    if include_remote_identity {
+        if let Some(origin) = remote_im_origin_from_message(message) {
+        let channel_id = origin
+            .get("channelId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let contact_id = origin
+            .get("remoteContactId")
+            .and_then(Value::as_str)
+            .or_else(|| origin.get("contactId").and_then(Value::as_str))
+            .map(str::trim)
+            .unwrap_or("");
+        if !channel_id.is_empty() {
+            tags.push(format!("channelId={}", channel_id));
+        }
+        if !contact_id.is_empty() {
+            tags.push(format!("contactId={}", contact_id));
+        }
+    }
+    }
+    if let Some(memory_ids) = message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("memoryIds"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty())
+    {
+        tags.push(format!("memory={}", memory_ids.join(",")));
+    } else if message
+        .extra_text_blocks
+        .iter()
+        .any(|item| item.contains("[MemoryBoard]") || item.contains("<memory_board"))
+    {
+        tags.push("memory=已注入".to_string());
+    }
+    if !tags.is_empty() {
+        if !base.trim().is_empty() {
+            base.push_str(" | ");
+        }
+        base.push_str(&tags.join(" | "));
+    }
+    if base.trim().is_empty() {
+        None
+    } else {
+        Some(base)
     }
 }
+
+fn format_message_time_rfc3339_local_to_minute(raw: &str) -> String {
+    let full = format_message_time_rfc3339_local(raw);
+    let trimmed = full.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let Some(t_idx) = trimmed.find('T') else {
+        return format_message_time_text(raw)
+            .chars()
+            .take(16)
+            .collect::<String>();
+    };
+    let date = &trimmed[..t_idx];
+    let rest = &trimmed[t_idx + 1..];
+    let tz_idx = rest
+        .find(|ch: char| ch == '+' || ch == '-' || ch == 'Z')
+        .unwrap_or(rest.len());
+    let time = &rest[..tz_idx];
+    let mut segs = time.split(':');
+    let hh = segs.next().unwrap_or("");
+    let mm = segs.next().unwrap_or("");
+    if hh.len() == 2 && mm.len() == 2 {
+        return format!("{date}T{hh}:{mm}");
+    }
+    trimmed.to_string()
+}
+
+fn prompt_current_date_timezone_line(ui_language: &str) -> String {
+    let tz = local_utc_offset()
+        .map(|offset| {
+            let seconds = offset.whole_seconds();
+            let sign = if seconds < 0 { '-' } else { '+' };
+            let abs = seconds.abs();
+            let hours = abs / 3600;
+            let minutes = (abs % 3600) / 60;
+            format!("{sign}{hours:02}:{minutes:02}")
+        })
+        .unwrap_or_else(|| "local".to_string());
+    match ui_language.trim() {
+        "en-US" => format!("- Timezone: {}", tz),
+        "zh-TW" => format!("- 時區：{}", tz),
+        _ => format!("- 时区：{}", tz),
+    }
+}
+
 fn render_prompt_message_text(message: &ChatMessage) -> String {
     render_message_content_for_model(message)
 }
@@ -644,6 +747,127 @@ fn render_prompt_user_text_only(message: &ChatMessage) -> String {
         }
     }
     chunks.join("\n")
+}
+
+fn remote_im_origin_from_message(message: &ChatMessage) -> Option<&Value> {
+    let meta = message.provider_meta.as_ref()?;
+    let origin = meta.get("origin")?;
+    if origin.get("kind").and_then(Value::as_str) != Some("remote_im") {
+        return None;
+    }
+    Some(origin)
+}
+
+fn remote_im_contact_key_from_message(message: &ChatMessage) -> Option<String> {
+    let origin = remote_im_origin_from_message(message)?;
+    let channel_id = origin
+        .get("channelId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let contact_id = origin
+        .get("remoteContactId")
+        .and_then(Value::as_str)
+        .or_else(|| origin.get("contactId").and_then(Value::as_str))
+        .map(str::trim)
+        .unwrap_or("");
+    if channel_id.is_empty() || contact_id.is_empty() {
+        return None;
+    }
+    Some(format!("{}::{}", channel_id, contact_id))
+}
+
+fn build_prompt_message_context_block(message: &ChatMessage) -> Option<String> {
+    let mut lines = Vec::<String>::new();
+    if let Some(meta) = message.provider_meta.as_ref() {
+        if let Some(target_department_id) = meta
+            .get("targetDepartmentId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("targetDepartmentId: {}", target_department_id));
+        }
+        if let Some(target_agent_id) = meta
+            .get("targetAgentId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("targetAgentId: {}", target_agent_id));
+        }
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!("[消息上下文]\n{}", lines.join("\n")))
+}
+
+fn prompt_user_extra_blocks_for_message(
+    message: &ChatMessage,
+) -> Vec<String> {
+    let mut blocks = Vec::<String>::new();
+    if let Some(context_block) = build_prompt_message_context_block(message) {
+        blocks.push(context_block);
+    }
+    for extra in &message.extra_text_blocks {
+        if extra.trim().is_empty() {
+            continue;
+        }
+        let trimmed = extra.trim();
+        if trimmed.starts_with("[远程IM] 发送者:")
+            || trimmed.starts_with("[RemoteIM] sender:")
+        {
+            continue;
+        }
+        let extra = sanitize_memory_block_xml(extra);
+        if extra.trim().is_empty() {
+            continue;
+        }
+        blocks.push(extra);
+    }
+    if let Some(meta) = message.provider_meta.as_ref() {
+        if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
+            for item in attachments {
+                let file_name = item
+                    .get("fileName")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                let relative_path = item
+                    .get("relativePath")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if file_name.is_empty() || relative_path.is_empty() {
+                    continue;
+                }
+                blocks.push(format!(
+                    "用户本次上传了一个附件：{}\n保存到了你工作区的downloads文件夹内（路径：{}）\n如果需要，请使用 shell 工具读取该文件内容。",
+                    file_name, relative_path
+                ));
+            }
+        }
+    }
+    blocks
+}
+
+fn append_prompt_user_blocks_to_text(base_text: &str, blocks: &[String]) -> String {
+    let mut out = String::new();
+    if !base_text.trim().is_empty() {
+        out.push_str(base_text);
+    }
+    for block in blocks {
+        let trimmed = block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.trim().is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(trimmed);
+    }
+    out
 }
 
 fn resolve_media_from_parts(
@@ -988,6 +1212,7 @@ fn build_prompt_with_mode(
     data_path: Option<&PathBuf>,
 ) -> PreparedPrompt {
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
+    let mut seen_remote_contacts = std::collections::HashSet::<String>::new();
     let latest_user_index = conversation
         .messages
         .iter()
@@ -1062,7 +1287,9 @@ fn build_prompt_with_mode(
         }
         let is_user = role == "user";
         let text = if is_user {
-            render_prompt_user_text_only(message)
+            let base_text = render_prompt_user_text_only(message);
+            let extra_blocks = prompt_user_extra_blocks_for_message(message);
+            append_prompt_user_blocks_to_text(&base_text, &extra_blocks)
         } else {
             render_prompt_message_text(message)
         };
@@ -1078,7 +1305,16 @@ fn build_prompt_with_mode(
             role: role.clone(),
             text,
             user_time_text: if role == "user" {
-                build_prompt_user_meta_text(message, agents, prompt_user_name, ui_language)
+                let include_remote_identity = remote_im_contact_key_from_message(message)
+                    .map(|key| seen_remote_contacts.insert(key))
+                    .unwrap_or(false);
+                build_prompt_user_meta_text(
+                    message,
+                    agents,
+                    prompt_user_name,
+                    ui_language,
+                    include_remote_identity,
+                )
             } else {
                 None
             },
@@ -1090,6 +1326,7 @@ fn build_prompt_with_mode(
         });
     }
     let response_style = response_style_preset(response_style_id);
+    let date_timezone_line = prompt_current_date_timezone_line(ui_language);
     let highest_instruction_md = highest_instruction_markdown();
     let (
         not_provided_label,
@@ -1148,8 +1385,13 @@ fn build_prompt_with_mode(
             "默认使用中文回答。",
         ),
     };
+    let remote_im_rules_block = match ui_language.trim() {
+        "en-US" => "## Remote IM Contact Tool Rules\n- If a message contains remote IM context, do not fabricate contact info.\n- First call `remote_im_send` with `action=list` to get available contacts when needed.\n- To send, call `remote_im_send` with `action=send` and exact `channel_id` + `contact_id` from context/list.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final send in this round.",
+        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 當訊息包含遠端 IM 上下文時，不要自行編造聯絡人資訊。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- 發送時呼叫 `remote_im_send`，`action=send`，並使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一條用 `done`。",
+        _ => "## 远程 IM 联系人工具规则\n- 当消息包含远程 IM 上下文时，不要自行编造联系人信息。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- 发送时调用 `remote_im_send`，`action=send`，并使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一条用 `done`。",
+    };
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
-    let preamble = if let Some((user_name, user_intro)) = user_profile {
+    let mut preamble = if let Some((user_name, user_intro)) = user_profile {
         let user_intro_display = if user_intro.trim().is_empty() {
             not_provided_label.to_string()
         } else {
@@ -1179,6 +1421,7 @@ fn build_prompt_with_mode(
 ## {}\n\
 - {}\n\
 - {}\n\
+- {}\n\
 \n",
             highest_instruction_md,
             departments_block,
@@ -1197,7 +1440,8 @@ fn build_prompt_with_mode(
             response_style.prompt,
             language_settings_label,
             language_instruction,
-            language_follow_user_line
+            language_follow_user_line,
+            date_timezone_line
         )
     } else {
         let delegate_role_line = match ui_language.trim() {
@@ -1226,6 +1470,7 @@ fn build_prompt_with_mode(
 \n\
 ## {}\n\
 - {}\n\
+- {}\n\
 \n",
             highest_instruction_md,
             departments_block,
@@ -1239,8 +1484,17 @@ fn build_prompt_with_mode(
             response_style.prompt,
             language_settings_label,
             language_instruction,
+            date_timezone_line,
         )
     };
+    if !remote_im_rules_block.trim().is_empty() {
+        if !preamble.ends_with('\n') {
+            preamble.push('\n');
+        }
+        preamble.push('\n');
+        preamble.push_str(remote_im_rules_block);
+        preamble.push('\n');
+    }
 
     let latest_user = conversation
         .messages
@@ -1256,23 +1510,25 @@ fn build_prompt_with_mode(
     let mut latest_audios = Vec::<(String, String)>::new();
 
     if let Some(msg) = latest_user {
-        let user_meta_text =
-            build_prompt_user_meta_text(&msg, agents, prompt_user_name, ui_language);
         let latest_user_text_rendered = render_prompt_user_text_only(&msg);
         let (resolved_images, resolved_audios) =
             resolve_media_from_parts(&msg.parts, data_path, "[提示词] 最新消息");
-        let ChatMessage {
-            extra_text_blocks, ..
-        } = msg;
-        latest_user_meta_text = user_meta_text.unwrap_or_default();
+        let latest_extra_blocks = prompt_user_extra_blocks_for_message(&msg);
+        let include_remote_identity = remote_im_contact_key_from_message(&msg)
+            .map(|key| seen_remote_contacts.insert(key))
+            .unwrap_or(false);
+        latest_user_meta_text = build_prompt_user_meta_text(
+            &msg,
+            agents,
+            prompt_user_name,
+            ui_language,
+            include_remote_identity,
+        )
+        .unwrap_or_default();
         latest_user_text = latest_user_text_rendered;
         latest_images = resolved_images;
         latest_audios = resolved_audios;
-        for extra in extra_text_blocks {
-            if extra.trim().is_empty() {
-                continue;
-            }
-            let extra = sanitize_memory_block_xml(&extra);
+        for extra in latest_extra_blocks {
             if extra.trim().is_empty() {
                 continue;
             }
@@ -1280,32 +1536,6 @@ fn build_prompt_with_mode(
                 latest_user_extra_text.push('\n');
             }
             latest_user_extra_text.push_str(&extra);
-        }
-        if let Some(meta) = msg.provider_meta.as_ref() {
-            if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
-                for item in attachments {
-                    let file_name = item
-                        .get("fileName")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .unwrap_or("");
-                    let relative_path = item
-                        .get("relativePath")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .unwrap_or("");
-                    if file_name.is_empty() || relative_path.is_empty() {
-                        continue;
-                    }
-                    if !latest_user_extra_text.is_empty() {
-                        latest_user_extra_text.push('\n');
-                    }
-                    latest_user_extra_text.push_str(&format!(
-                        "用户本次上传了一个附件：{}\n保存到了你工作区的downloads文件夹内（路径：{}）\n如果需要，请使用 shell 工具读取该文件内容。",
-                        file_name, relative_path
-                    ));
-                }
-            }
         }
     }
 

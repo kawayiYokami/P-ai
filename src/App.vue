@@ -294,6 +294,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "./services/tauri-api";
 import { useAppBootstrap } from "./features/shell/composables/use-app-bootstrap";
 import { useAppCore } from "./features/shell/composables/use-app-core";
@@ -376,6 +378,14 @@ const config = reactive<AppConfig>({
 const recordHotkeyProbeLastSeq = ref(0);
 const recordHotkeyProbeDown = ref(false);
 const chatWindowActiveSynced = ref<boolean | null>(null);
+const tauriWindowLabel = ref("unknown");
+const isChatTauriWindow = ref(false);
+const CHAT_STREAM_BIND_HEARTBEAT_MS = 10_000;
+let chatStreamBindHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let chatHistoryFlushedUnlisten: UnlistenFn | null = null;
+let chatRoundCompletedUnlisten: UnlistenFn | null = null;
+let chatRoundFailedUnlisten: UnlistenFn | null = null;
+let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
 const assistantDepartmentAgentId = ref("default-agent");
@@ -640,10 +650,13 @@ function clearRecordHotkeyProbeState() {
 }
 
 function syncChatWindowActiveState() {
+  if (!isChatTauriWindow.value) return;
   const active = isChatWindowActiveNow();
   if (chatWindowActiveSynced.value === active) return;
   chatWindowActiveSynced.value = active;
   if (active) {
+    // 每次窗口激活都强制重绑一次聊天流通道，确保后端绑定表不丢失。
+    void chatFlow.bindActiveConversationStream(String(currentChatConversationId.value || "").trim(), true);
     void stopRecording(false);
     recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
   }
@@ -1196,6 +1209,73 @@ function handleVisibilityForMicPrewarm() {
 }
 
 onMounted(() => {
+  try {
+    const label = String(getCurrentWindow().label || "").trim();
+    tauriWindowLabel.value = label || "unknown";
+    isChatTauriWindow.value = tauriWindowLabel.value === "chat";
+  } catch {
+    tauriWindowLabel.value = "unknown";
+    isChatTauriWindow.value = false;
+  }
+  console.warn("[CHAT_TRACE][window] init", {
+    label: tauriWindowLabel.value,
+    isChatWindow: isChatTauriWindow.value,
+  });
+  if (isChatTauriWindow.value) {
+    void listen<unknown>("easy-call:history-flushed", (event) => {
+      console.warn("[CHAT_TRACE][emit_history_flushed] received", {
+        windowLabel: tauriWindowLabel.value,
+        hasPayload: event.payload !== undefined,
+      });
+      void chatFlow.handleExternalHistoryFlushed(event.payload);
+    })
+      .then((unlisten) => {
+        chatHistoryFlushedUnlisten = unlisten;
+        console.warn("[CHAT_TRACE][emit_history_flushed] listener_ready", {
+          windowLabel: tauriWindowLabel.value,
+        });
+      })
+      .catch((error) => {
+        console.error("[CHAT_TRACE][emit_history_flushed] listener_failed", error);
+      });
+    void listen<unknown>("easy-call:round-completed", (event) => {
+      void chatFlow.handleExternalRoundCompleted(event.payload);
+    })
+      .then((unlisten) => {
+        chatRoundCompletedUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[CHAT_TRACE][emit_round_completed] listener_failed", error);
+      });
+    void listen<unknown>("easy-call:round-failed", (event) => {
+      void chatFlow.handleExternalRoundFailed(event.payload);
+    })
+      .then((unlisten) => {
+        chatRoundFailedUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[CHAT_TRACE][emit_round_failed] listener_failed", error);
+      });
+    void listen<unknown>("easy-call:assistant-delta", (event) => {
+      void chatFlow.handleExternalAssistantDelta(event.payload);
+    })
+      .then((unlisten) => {
+        chatAssistantDeltaUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[CHAT_TRACE][emit_assistant_delta] listener_failed", error);
+      });
+
+    chatStreamBindHeartbeatTimer = setInterval(() => {
+      if (!isChatWindowActiveNow()) return;
+      const conversationId = String(currentChatConversationId.value || "").trim();
+      console.warn("[CHAT_TRACE][bind_heartbeat] force_rebind", {
+        windowLabel: tauriWindowLabel.value,
+        conversationId,
+      });
+      void chatFlow.bindActiveConversationStream(conversationId, true);
+    }, CHAT_STREAM_BIND_HEARTBEAT_MS);
+  }
   syncChatWindowActiveState();
   window.addEventListener("focus", handleWindowFocusForStateSync);
   window.addEventListener("blur", handleWindowBlurForStateSync);
@@ -1205,14 +1285,38 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  void chatFlow.bindActiveConversationStream("");
+  if (chatHistoryFlushedUnlisten) {
+    chatHistoryFlushedUnlisten();
+    chatHistoryFlushedUnlisten = null;
+  }
+  if (chatRoundCompletedUnlisten) {
+    chatRoundCompletedUnlisten();
+    chatRoundCompletedUnlisten = null;
+  }
+  if (chatRoundFailedUnlisten) {
+    chatRoundFailedUnlisten();
+    chatRoundFailedUnlisten = null;
+  }
+  if (chatAssistantDeltaUnlisten) {
+    chatAssistantDeltaUnlisten();
+    chatAssistantDeltaUnlisten = null;
+  }
+  if (chatStreamBindHeartbeatTimer) {
+    clearInterval(chatStreamBindHeartbeatTimer);
+    chatStreamBindHeartbeatTimer = null;
+  }
+  if (isChatTauriWindow.value) {
+    void chatFlow.bindActiveConversationStream("");
+  }
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
   clearRecordHotkeyProbeState();
   agentWorkPresence.cleanup();
   chatWindowActiveSynced.value = null;
-  void invokeTauri("set_chat_window_active", { active: false }).catch(() => {});
+  if (isChatTauriWindow.value) {
+    void invokeTauri("set_chat_window_active", { active: false }).catch(() => {});
+  }
   window.removeEventListener("focus", handleWindowFocusForMicPrewarm);
   document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
 });
@@ -1427,6 +1531,14 @@ const chatFlow = useChatFlow({
   onReloadMessages: () => loadAllMessages(),
   onHistoryFlushed: async ({ conversationId, pendingMessages, activateAssistant }) => {
     const flushedConversationId = String(conversationId || "").trim();
+    console.warn("[CHAT_TRACE][onHistoryFlushed] start", {
+      windowLabel: tauriWindowLabel.value,
+      flushedConversationId,
+      activateAssistant,
+      pendingCount: Array.isArray(pendingMessages) ? pendingMessages.length : 0,
+      currentConversationId: String(currentChatConversationId.value || "").trim(),
+      currentMessageCount: allMessages.value.length,
+    });
     if (flushedConversationId) {
       currentChatConversationId.value = flushedConversationId;
     }
@@ -1437,9 +1549,15 @@ const chatFlow = useChatFlow({
       await nextTick();
       allMessages.value = [...queueMessages];
       hasMoreBackendHistory.value = queueMessages.length > 0;
+      console.warn("[CHAT_TRACE][onHistoryFlushed] activate_replace_done", {
+        windowLabel: tauriWindowLabel.value,
+        replacedCount: queueMessages.length,
+        finalMessageCount: allMessages.value.length,
+      });
     } else if (queueMessages.length > 0) {
       const existing = allMessages.value;
       const dedup = new Set(existing.map((m) => String(m.id || "").trim()).filter((id) => !!id));
+      const beforeDedupCount = queueMessages.length;
       const appended = queueMessages.filter((m) => {
         const id = String(m.id || "").trim();
         if (!id) return true;
@@ -1449,14 +1567,36 @@ const chatFlow = useChatFlow({
       });
       allMessages.value = [...existing, ...appended];
       hasMoreBackendHistory.value = existing.length > 0 || appended.length > 0;
+      console.warn("[CHAT_TRACE][onHistoryFlushed] append_done", {
+        windowLabel: tauriWindowLabel.value,
+        beforeDedupCount,
+        appendedCount: appended.length,
+        droppedAsDuplicate: beforeDedupCount - appended.length,
+        previousMessageCount: existing.length,
+        finalMessageCount: allMessages.value.length,
+        firstAppendedId: String(appended[0]?.id || ""),
+        lastAppendedId: String(appended[appended.length - 1]?.id || ""),
+      });
+    } else {
+      console.warn("[CHAT_TRACE][onHistoryFlushed] no_pending_messages", {
+        windowLabel: tauriWindowLabel.value,
+        activateAssistant,
+        finalMessageCount: allMessages.value.length,
+      });
     }
     await loadUnarchivedConversations();
+    console.warn("[CHAT_TRACE][onHistoryFlushed] done", {
+      windowLabel: tauriWindowLabel.value,
+      flushedConversationId: String(currentChatConversationId.value || "").trim(),
+      finalMessageCount: allMessages.value.length,
+    });
   },
 });
 
 watch(
   () => String(currentChatConversationId.value || "").trim(),
   (conversationId) => {
+    if (!isChatTauriWindow.value) return;
     void chatFlow.bindActiveConversationStream(conversationId);
   },
   { immediate: true },

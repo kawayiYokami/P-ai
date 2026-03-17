@@ -101,6 +101,11 @@ enum QueuedChatActivationSource {
     ActiveViewBinding,
 }
 
+pub(crate) enum ChatEventIngress {
+    Direct(ChatPendingEvent),
+    Queued { event_id: String },
+}
+
 // ==================== 队列查询和管理 ====================
 
 /// 队列事件摘要（用于前端显示）
@@ -113,6 +118,19 @@ pub(crate) struct ChatQueueEventSummary {
     pub message_preview: String,
     pub conversation_id: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatQueueSnapshotPush {
+    queue_events: Vec<ChatQueueEventSummary>,
+    session_state: MainSessionState,
+}
+
+const CHAT_QUEUE_SNAPSHOT_EVENT: &str = "easy-call:chat-queue-snapshot";
+const CHAT_HISTORY_FLUSHED_EVENT: &str = "easy-call:history-flushed";
+const CHAT_ROUND_COMPLETED_EVENT: &str = "easy-call:round-completed";
+const CHAT_ROUND_FAILED_EVENT: &str = "easy-call:round-failed";
+const CHAT_ASSISTANT_DELTA_EVENT: &str = "easy-call:assistant-delta";
 
 fn lock_chat_pending_queue(
     state: &AppState,
@@ -163,8 +181,29 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
     Ok(summaries)
 }
 
+pub(crate) fn emit_chat_queue_snapshot(state: &AppState) {
+    let queue_events = get_queue_snapshot(state).unwrap_or_default();
+    let session_state = get_main_session_state(state).unwrap_or(MainSessionState::Idle);
+    let payload = ChatQueueSnapshotPush {
+        queue_events,
+        session_state,
+    };
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    if let Some(app_handle) = app_handle {
+        let _ = app_handle.emit(CHAT_QUEUE_SNAPSHOT_EVENT, payload);
+    }
+}
+
 /// 从队列中移除指定事件
 pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Option<ChatPendingEvent>, String> {
+    // 队列修改统一走 dequeue_lock -> queue_lock，保证进出队原子顺序一致。
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
     let mut queue = lock_chat_pending_queue(state)?;
 
     if let Some(pos) = queue.iter().position(|e| e.id == event_id) {
@@ -174,6 +213,7 @@ pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Opti
             event_id, removed.as_ref().map(|e| &e.source), queue.len()
         );
         drop(queue);
+        emit_chat_queue_snapshot(state);
         complete_pending_chat_events_with_error(state, &[event_id.to_string()], "消息已从队列移除")?;
         Ok(removed)
     } else {
@@ -183,24 +223,24 @@ pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Opti
 
 // ==================== 队列管理函数 ====================
 
-/// 入队函数：添加事件到队列
-pub(crate) fn enqueue_chat_event(
+pub(crate) fn ingress_chat_event(
     state: &AppState,
     event: ChatPendingEvent,
-) -> Result<(), String> {
-    let started_at = std::time::Instant::now();
+) -> Result<ChatEventIngress, String> {
+    // 原子区间：阻塞判定 +（可选）入队，在同一把流程锁内完成。
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let current_state = get_main_session_state(state)?;
     let mut queue = lock_chat_pending_queue(state)?;
-
-    let queue_len_before = queue.len();
-    queue.push_back(event.clone());
-    let elapsed_ms = started_at.elapsed().as_millis();
-
-    eprintln!(
-        "[聊天调度] 完成: 事件入队, id={}, source={:?}, activate={}, queue_len={}->{}, elapsed_ms={}",
-        event.id, event.source, event.activate_assistant, queue_len_before, queue.len(), elapsed_ms
-    );
-
-    Ok(())
+    let blocked = current_state != MainSessionState::Idle || !queue.is_empty();
+    if blocked {
+        let event_id = event.id.clone();
+        queue.push_back(event);
+        return Ok(ChatEventIngress::Queued { event_id });
+    }
+    Ok(ChatEventIngress::Direct(event))
 }
 
 pub(crate) fn register_chat_event_runtime(
@@ -254,6 +294,7 @@ pub(crate) fn set_active_chat_view_stream_binding(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn clear_active_chat_view_stream_binding(
     state: &AppState,
     window_label: &str,
@@ -272,6 +313,44 @@ pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
         if let Err(err) = process_chat_queue(&state_clone).await {
             eprintln!("[聊天调度] process_chat_queue 失败: {}", err);
         }
+    });
+}
+
+pub(crate) fn is_chat_event_queued(state: &AppState, event_id: &str) -> Result<bool, String> {
+    let queue = lock_chat_pending_queue(state)?;
+    Ok(queue.iter().any(|item| item.id == event_id))
+}
+
+pub(crate) async fn process_chat_queue_for_event(state: &AppState, event_id: &str) {
+    if let Err(err) = process_chat_queue(state).await {
+        eprintln!("[聊天调度] process_chat_queue 失败: {}", err);
+    }
+    if is_chat_event_queued(state, event_id).unwrap_or(false) {
+        emit_chat_queue_snapshot(state);
+    }
+}
+
+pub(crate) async fn process_chat_event_after_ingress(
+    state: &AppState,
+    ingress: ChatEventIngress,
+) {
+    match ingress {
+        ChatEventIngress::Direct(event) => {
+            let conversation_id = event.conversation_id.clone();
+            if let Err(err) = process_conversation_batch(state, &conversation_id, vec![event]).await {
+                eprintln!("[聊天调度] 处理直接事件失败: {}", err);
+            }
+        }
+        ChatEventIngress::Queued { event_id } => {
+            process_chat_queue_for_event(state, &event_id).await;
+        }
+    }
+}
+
+pub(crate) fn trigger_chat_event_after_ingress(state: &AppState, ingress: ChatEventIngress) {
+    let state_clone = state.clone();
+    tauri::async_runtime::spawn(async move {
+        process_chat_event_after_ingress(&state_clone, ingress).await;
     });
 }
 
@@ -305,23 +384,26 @@ pub(crate) fn set_main_session_state(
     state: &AppState,
     new_state: MainSessionState,
 ) -> Result<(), String> {
-    let mut state_guard = state
+    let (old_state_cn, new_state_cn) = {
+        let mut state_guard = state
         .main_session_state
         .lock()
         .map_err(|_| "Failed to lock main session state".to_string())?;
 
-    let old_state = state_guard.clone();
-    *state_guard = new_state.clone();
+        let old_state = state_guard.clone();
+        *state_guard = new_state.clone();
 
-    let old_state_cn = match old_state {
-        MainSessionState::Idle => "空闲",
-        MainSessionState::AssistantStreaming => "助理流式输出",
-        MainSessionState::OrganizingContext => "整理上下文",
-    };
-    let new_state_cn = match new_state {
-        MainSessionState::Idle => "空闲",
-        MainSessionState::AssistantStreaming => "助理流式输出",
-        MainSessionState::OrganizingContext => "整理上下文",
+        let old_state_cn = match old_state {
+            MainSessionState::Idle => "空闲",
+            MainSessionState::AssistantStreaming => "助理流式输出",
+            MainSessionState::OrganizingContext => "整理上下文",
+        };
+        let new_state_cn = match new_state {
+            MainSessionState::Idle => "空闲",
+            MainSessionState::AssistantStreaming => "助理流式输出",
+            MainSessionState::OrganizingContext => "整理上下文",
+        };
+        (old_state_cn, new_state_cn)
     };
 
     eprintln!(
@@ -334,6 +416,7 @@ pub(crate) fn set_main_session_state(
     //     let _ = app_handle.emit("main-session-state-changed", &new_state);
     // }
 
+    emit_chat_queue_snapshot(state);
     Ok(())
 }
 
@@ -395,6 +478,7 @@ pub(crate) async fn process_chat_queue(state: &AppState) -> Result<(), String> {
         if batch.is_empty() {
             return Ok(());
         }
+        emit_chat_queue_snapshot(state);
 
         eprintln!(
             "[CHAT-SCHEDULER] Processing batch: size={}, events={:?}",
@@ -604,6 +688,13 @@ async fn process_conversation_batch(
         oldest_queue_created_at,
     );
     let mut activations = take_queued_chat_activations(state, &event_ids)?;
+    if !activations.is_empty() {
+        eprintln!(
+            "[聊天调度] 使用请求绑定通道: conversation_id={}, binding_count={}",
+            conversation_id,
+            activations.len()
+        );
+    }
     if activations.is_empty() {
         activations = collect_active_chat_view_activations(state, conversation_id)?;
         if !activations.is_empty() {
@@ -614,16 +705,13 @@ async fn process_conversation_batch(
             );
         }
     }
-    let history_flushed_message = serde_json::json!({
+    let history_flushed_payload = serde_json::json!({
         "conversationId": conversation_id,
         "messageCount": batch_message_count,
         "messages": persisted_batch_messages,
         "activateAssistant": should_activate,
-    })
-    .to_string();
-    for active in &activations {
-        send_history_flushed_event(active, &history_flushed_message);
-    }
+    });
+    emit_history_flushed_event(state, &history_flushed_payload, conversation_id, &event_ids);
 
     // 3. 如果需要激活，调用主助理。
     if should_activate {
@@ -647,13 +735,13 @@ async fn process_conversation_batch(
             ).await {
                 Ok(result) => {
                     if let Some(active) = activation.as_ref() {
-                        send_round_completed_event(active, &result);
+                        send_round_completed_event(state, conversation_id, active, &result);
                     }
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                 }
                 Err(err) => {
                     if let Some(active) = activation.as_ref() {
-                        send_round_failed_event(active, &err);
+                        send_round_failed_event(state, conversation_id, active, &err);
                     }
                     complete_pending_chat_events_with_error(state, &event_ids, &err)?;
                     return Err(err);
@@ -740,15 +828,31 @@ async fn activate_main_assistant(
         oldest_queue_created_at: Some(oldest_queue_created_at.to_string()),
     };
 
-    // 创建一个空的 delta channel
-    let noop_channel = tauri::ipc::Channel::new(|_event| {
-        // 不处理，实际流式输出由前端的 channel 处理
-        Ok(())
-    });
-    let active_channel = activation
-        .as_ref()
-        .map(|item| item.on_delta.clone())
-        .unwrap_or(noop_channel);
+    // 使用 emit 作为远程激活轮次的流式主通道，避免前端窗口重绑定造成 channel 失联。
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let conversation_id_for_emit = conversation_id.to_string();
+    let active_channel: tauri::ipc::Channel<AssistantDeltaEvent> =
+        tauri::ipc::Channel::new(move |body| {
+            let parsed_event = match body {
+                tauri::ipc::InvokeResponseBody::Json(json) => {
+                    serde_json::from_str::<AssistantDeltaEvent>(&json).ok()
+                }
+                tauri::ipc::InvokeResponseBody::Raw(bytes) => {
+                    serde_json::from_slice::<AssistantDeltaEvent>(&bytes).ok()
+                }
+            };
+            if let (Some(app), Some(event)) = (app_handle.as_ref(), parsed_event) {
+                let payload = serde_json::json!({
+                    "conversationId": conversation_id_for_emit.clone(),
+                    "event": event,
+                });
+                let _ = app.emit(CHAT_ASSISTANT_DELTA_EVENT, payload);
+            }
+            Ok(())
+        });
 
     // 调用 send_chat_message_inner
     let result = send_chat_message_inner(request, state, &active_channel).await;
@@ -781,6 +885,79 @@ fn text_contains_keyword(text: &str, keyword: &str) -> bool {
         .contains(&keyword.to_ascii_lowercase())
 }
 
+struct RemoteImActivationContext<'a> {
+    message_text: &'a str,
+    now_ts: i64,
+}
+
+struct RemoteImActivationDecision {
+    activate: bool,
+    reason: String,
+}
+
+trait RemoteImActivationStrategy {
+    fn decide(
+        &self,
+        contact: &RemoteImContact,
+        ctx: &RemoteImActivationContext<'_>,
+    ) -> RemoteImActivationDecision;
+}
+
+struct DefaultRemoteImActivationStrategy;
+
+impl RemoteImActivationStrategy for DefaultRemoteImActivationStrategy {
+    fn decide(
+        &self,
+        contact: &RemoteImContact,
+        ctx: &RemoteImActivationContext<'_>,
+    ) -> RemoteImActivationDecision {
+        let mode = contact.activation_mode.trim().to_ascii_lowercase();
+        if mode != "always" && mode != "keyword" {
+            return RemoteImActivationDecision {
+                activate: false,
+                reason: format!("activationMode={}（不激活）", mode),
+            };
+        }
+
+        if mode == "keyword" {
+            let matched = contact
+                .activation_keywords
+                .iter()
+                .map(|item| item.trim())
+                .filter(|item| !item.is_empty())
+                .any(|keyword| text_contains_keyword(ctx.message_text, keyword));
+            if !matched {
+                return RemoteImActivationDecision {
+                    activate: false,
+                    reason: "keyword 未命中，跳过激活".to_string(),
+                };
+            }
+        }
+
+        if contact.activation_cooldown_seconds > 0 {
+            if let Some(last) = contact
+                .last_activated_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            {
+                let elapsed = ctx.now_ts.saturating_sub(last.timestamp()) as u64;
+                if elapsed < contact.activation_cooldown_seconds {
+                    let remaining = contact.activation_cooldown_seconds.saturating_sub(elapsed);
+                    return RemoteImActivationDecision {
+                        activate: false,
+                        reason: format!("冷却中，remaining={}s", remaining),
+                    };
+                }
+            }
+        }
+
+        RemoteImActivationDecision {
+            activate: true,
+            reason: "满足激活条件，触发主助理".to_string(),
+        }
+    }
+}
+
 fn should_activate_remote_im_event(
     event: &ChatPendingEvent,
     data: &mut AppData,
@@ -801,36 +978,6 @@ fn should_activate_remote_im_event(
         return false;
     };
 
-    let mode = contact.activation_mode.trim().to_ascii_lowercase();
-    if mode != "always" && mode != "keyword" {
-        log_remote_im_activation_decision(
-            &sender.channel_id,
-            &contact.remote_contact_id,
-            "skip",
-            &format!("activationMode={}（不激活）", mode),
-        );
-        return false;
-    }
-
-    if mode == "keyword" {
-        let text = remote_im_event_message_text(event);
-        let matched = contact
-            .activation_keywords
-            .iter()
-            .map(|item| item.trim())
-            .filter(|item| !item.is_empty())
-            .any(|keyword| text_contains_keyword(&text, keyword));
-        if !matched {
-            log_remote_im_activation_decision(
-                &sender.channel_id,
-                &contact.remote_contact_id,
-                "skip",
-                "keyword 未命中，跳过激活",
-            );
-            return false;
-        }
-    }
-
     let now_ts = match chrono::DateTime::parse_from_rfc3339(now) {
         Ok(dt) => dt.timestamp(),
         Err(err) => {
@@ -841,34 +988,25 @@ fn should_activate_remote_im_event(
             chrono::Utc::now().timestamp()
         }
     };
-    if contact.activation_cooldown_seconds > 0 {
-        if let Some(last) = contact
-            .last_activated_at
-            .as_deref()
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        {
-            let elapsed = now_ts.saturating_sub(last.timestamp()) as u64;
-            if elapsed < contact.activation_cooldown_seconds {
-                let remaining = contact.activation_cooldown_seconds.saturating_sub(elapsed);
-                log_remote_im_activation_decision(
-                    &sender.channel_id,
-                    &contact.remote_contact_id,
-                    "skip",
-                    &format!("冷却中，remaining={}s", remaining),
-                );
-                return false;
-            }
-        }
+    let message_text = remote_im_event_message_text(event);
+    let strategy = DefaultRemoteImActivationStrategy;
+    let decision = strategy.decide(
+        contact,
+        &RemoteImActivationContext {
+            message_text: &message_text,
+            now_ts,
+        },
+    );
+    if decision.activate {
+        contact.last_activated_at = Some(now.to_string());
     }
-
-    contact.last_activated_at = Some(now.to_string());
     log_remote_im_activation_decision(
         &sender.channel_id,
         &contact.remote_contact_id,
-        "activate",
-        "满足激活条件，触发主助理",
+        if decision.activate { "activate" } else { "skip" },
+        &decision.reason,
     );
-    true
+    decision.activate
 }
 
 fn log_remote_im_activation_decision(
@@ -911,21 +1049,42 @@ fn latest_user_text_from_events(events: &[ChatPendingEvent]) -> String {
         .unwrap_or_default()
 }
 
-fn send_history_flushed_event(
-    activation: &QueuedChatActivation,
-    payload_json: &str,
+fn emit_history_flushed_event(
+    state: &AppState,
+    payload: &serde_json::Value,
+    conversation_id: &str,
+    event_ids: &[String],
 ) {
-    let _ = activation.on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("history_flushed".to_string()),
-        tool_name: None,
-        tool_status: None,
-        tool_args: None,
-        message: Some(payload_json.to_string()),
-    });
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        eprintln!(
+            "[聊天调度] history_flushed emit 失败: app_handle unavailable, conversation_id={}, event_ids={:?}",
+            conversation_id, event_ids
+        );
+        return;
+    };
+    match app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
+        Ok(_) => {
+            eprintln!(
+                "[聊天调度] history_flushed 已通过 emit 发送: conversation_id={}, event_ids={:?}",
+                conversation_id, event_ids
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "[聊天调度] history_flushed emit 失败: conversation_id={}, event_ids={:?}, error={}",
+                conversation_id, event_ids, err
+            );
+        }
+    }
 }
 
 fn send_round_completed_event(
+    state: &AppState,
+    conversation_id: &str,
     activation: &QueuedChatActivation,
     result: &SendChatResult,
 ) {
@@ -951,9 +1110,12 @@ fn send_round_completed_event(
         tool_args: None,
         message: Some(payload_json),
     });
+    emit_round_completed_event(state, conversation_id, result);
 }
 
 fn send_round_failed_event(
+    state: &AppState,
+    conversation_id: &str,
     activation: &QueuedChatActivation,
     error_text: &str,
 ) {
@@ -972,6 +1134,49 @@ fn send_round_failed_event(
         tool_args: None,
         message: Some(payload_json),
     });
+    emit_round_failed_event(state, conversation_id, error_text);
+}
+
+fn emit_round_completed_event(
+    state: &AppState,
+    conversation_id: &str,
+    result: &SendChatResult,
+) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "assistantText": result.assistant_text,
+        "reasoningStandard": result.reasoning_standard,
+        "reasoningInline": result.reasoning_inline,
+        "archivedBeforeSend": result.archived_before_send,
+        "assistantMessage": result.assistant_message,
+    });
+    let _ = app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload);
+}
+
+fn emit_round_failed_event(
+    state: &AppState,
+    conversation_id: &str,
+    error_text: &str,
+) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "error": error_text,
+    });
+    let _ = app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload);
 }
 
 fn collect_active_chat_view_activations(
@@ -982,10 +1187,19 @@ fn collect_active_chat_view_activations(
         .active_chat_view_bindings
         .lock()
         .map_err(|_| "Failed to lock active chat view bindings".to_string())?;
-    Ok(bindings
+    let conversation_id = conversation_id.trim();
+    let binding_snapshot = bindings
+        .iter()
+        .map(|(window_label, binding)| format!("{}=>{}", window_label, binding.conversation_id))
+        .collect::<Vec<_>>();
+    eprintln!(
+        "[聊天调度] 绑定快照: conversation_id={}, bindings={:?}",
+        conversation_id, binding_snapshot
+    );
+    let mut exact = bindings
         .iter()
         .filter_map(|(window_label, binding)| {
-            if binding.conversation_id != conversation_id.trim() {
+            if binding.conversation_id != conversation_id {
                 return None;
             }
             Some(QueuedChatActivation {
@@ -994,7 +1208,61 @@ fn collect_active_chat_view_activations(
                 source: QueuedChatActivationSource::ActiveViewBinding,
             })
         })
-        .collect())
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        eprintln!(
+            "[聊天调度] 绑定筛选命中(exact): conversation_id={}, hit={}",
+            conversation_id,
+            exact.len()
+        );
+        return Ok(exact);
+    }
+
+    let wildcard = bindings
+        .iter()
+        .filter_map(|(window_label, binding)| {
+            if binding.conversation_id != "*" {
+                return None;
+            }
+            Some(QueuedChatActivation {
+                event_id: format!("active-view:{window_label}"),
+                on_delta: binding.on_delta.clone(),
+                source: QueuedChatActivationSource::ActiveViewBinding,
+            })
+        })
+        .collect::<Vec<_>>();
+    if !wildcard.is_empty() {
+        eprintln!(
+            "[聊天调度] 使用通配前端绑定: conversation_id={}, binding_count={}",
+            conversation_id,
+            wildcard.len()
+        );
+        return Ok(wildcard);
+    }
+
+    // 兜底：项目当前通常只有一个会话窗口，若仅有一个绑定则仍推送，避免“已入历史但前端无感知”。
+    if bindings.len() == 1 {
+        if let Some((window_label, binding)) = bindings.iter().next() {
+            eprintln!(
+                "[聊天调度] 会话绑定不匹配，使用单窗口兜底推送: conversation_id={}, bound_conversation_id={}, window={}",
+                conversation_id,
+                binding.conversation_id,
+                window_label
+            );
+            exact.push(QueuedChatActivation {
+                event_id: format!("active-view:{window_label}"),
+                on_delta: binding.on_delta.clone(),
+                source: QueuedChatActivationSource::ActiveViewBinding,
+            });
+            return Ok(exact);
+        }
+    }
+    eprintln!(
+        "[聊天调度] 绑定筛选未命中: conversation_id={}, bindings_count={}",
+        conversation_id,
+        bindings.len()
+    );
+    Ok(Vec::new())
 }
 
 fn take_queued_chat_activations(

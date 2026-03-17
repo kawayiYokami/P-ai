@@ -173,8 +173,10 @@ async fn send_chat_message(
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
     register_chat_event_runtime(state.inner(), &event_id, on_delta.clone(), result_tx)?;
 
-    // 入队
-    if let Err(err) = enqueue_chat_event(state.inner(), event) {
+    // 入队前先做阻塞判定：空闲且无排队则直写历史；否则入队。
+    let ingress = match ingress_chat_event(state.inner(), event) {
+        Ok(value) => value,
+        Err(err) => {
         let _ = state
             .pending_chat_delta_channels
             .lock()
@@ -184,15 +186,21 @@ async fn send_chat_message(
             .lock()
             .map(|mut map| map.remove(&event_id));
         return Err(err);
-    }
+        }
+    };
 
     let queue_len = state
         .chat_pending_queue
         .lock()
         .map(|queue| queue.len())
         .unwrap_or_default();
+    let ingress_mode = match &ingress {
+        ChatEventIngress::Direct(_) => "direct",
+        ChatEventIngress::Queued { .. } => "queued",
+    };
     eprintln!(
-        "[聊天调度] 用户消息已入队: event_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
+        "[聊天调度] 用户消息已接入调度: mode={}, event_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
+        ingress_mode,
         event_id,
         conversation_id,
         department_id,
@@ -201,16 +209,8 @@ async fn send_chat_message(
         main_session_state_text,
     );
 
-    // 优先尝试当前请求内立即处理，避免可直出队场景在前端出现排队态。
-    // 仅当当前不可出队时，再退化为异步调度。
-    if can_dequeue(state.inner()).unwrap_or(false) {
-        if let Err(err) = process_chat_queue(state.inner()).await {
-            eprintln!("[聊天调度] 立即处理队列失败，退回异步调度: {}", err);
-            trigger_chat_queue_processing(state.inner());
-        }
-    } else {
-        trigger_chat_queue_processing(state.inner());
-    }
+    // 根据 ingress 结果执行：直写或排队；排队仅在事件仍滞留时才通知前端。
+    process_chat_event_after_ingress(state.inner(), ingress).await;
 
     result_rx
         .await
@@ -250,10 +250,16 @@ async fn bind_active_chat_view_stream(
             conversation_id
         );
     } else {
-        clear_active_chat_view_stream_binding(state.inner(), &window_label)?;
+        // 空会话视图仍保留绑定，作为单窗口通配接收端，避免远程消息落地后前端无推送。
+        set_active_chat_view_stream_binding(
+            state.inner(),
+            &window_label,
+            Some("*"),
+            on_delta,
+        )?;
         eprintln!(
-            "[INFO][CHAT] active chat stream unbound: window={}",
-            window_label
+            "[聊天调度] 活动聊天流已通配绑定：window={}",
+            window_label,
         );
     }
     Ok(())

@@ -54,6 +54,8 @@ fn default_ws_port() -> u16 {
     6199
 }
 
+const NAPCAT_RECONNECT_INTERVAL_SECS: u64 = 30;
+
 impl NapcatCredentials {
     pub fn from_credentials(credentials: &Value) -> Self {
         serde_json::from_value(credentials.clone()).unwrap_or_default()
@@ -802,16 +804,13 @@ async fn resolve_contact_info(
     }
 }
 
-fn read_routing_config(
+fn read_channel_config(
     state: &AppState,
     channel_id: &str,
-) -> Result<(String, String, Option<RemoteImChannelConfig>), String> {
+) -> Result<Option<RemoteImChannelConfig>, String> {
     let config = state_read_config_cached(state)?;
-    let data = state_read_app_data_cached(state)?;
     let channel_config = remote_im_channel_by_id(&config, channel_id).cloned();
-    let api_config_id = config.assistant_department_api_config_id.clone();
-    let agent_id = data.assistant_department_agent_id.clone();
-    Ok((api_config_id, agent_id, channel_config))
+    Ok(channel_config)
 }
 
 fn resolve_sender_name(event: &Value) -> String {
@@ -840,29 +839,6 @@ fn message_field_kind(message_field: Option<&Value>) -> &'static str {
         .unwrap_or("missing")
 }
 
-fn build_source_hint(
-    channel_id: &str,
-    sender_name: &str,
-    remote_contact_type: &str,
-    remote_contact_id: &str,
-    remote_contact_name: Option<&str>,
-) -> String {
-    if remote_contact_type == "group" {
-        format!(
-            "[远程IM] 发送者: {} | 群: {} | channelId: {} | contactId: {}",
-            sender_name,
-            remote_contact_name.unwrap_or(remote_contact_id),
-            channel_id,
-            remote_contact_id
-        )
-    } else {
-        format!(
-            "[远程IM] 发送者: {} | channelId: {} | contactId: {}",
-            sender_name, channel_id, remote_contact_id
-        )
-    }
-}
-
 fn build_remote_im_enqueue_input(
     channel_id: &str,
     sender_name: String,
@@ -873,10 +849,7 @@ fn build_remote_im_enqueue_input(
     remote_contact_id: String,
     remote_contact_name: Option<String>,
     platform_message_id: Option<String>,
-    api_config_id: String,
-    agent_id: String,
     final_text: String,
-    source_hint: String,
 ) -> RemoteImEnqueueInput {
     RemoteImEnqueueInput {
         channel_id: channel_id.to_string(),
@@ -889,11 +862,13 @@ fn build_remote_im_enqueue_input(
         sender_name,
         sender_avatar_url: None,
         platform_message_id,
+        dingtalk_session_webhook: None,
+        dingtalk_session_webhook_expired_time: None,
         activate_assistant,
         session: SessionSelector {
-            api_config_id: Some(api_config_id),
+            api_config_id: None,
             department_id: None,
-            agent_id,
+            agent_id: String::new(),
             conversation_id: None,
         },
         payload: ChatInputPayload {
@@ -903,7 +878,7 @@ fn build_remote_im_enqueue_input(
             audios: None,
             attachments: None,
             model: None,
-            extra_text_blocks: Some(vec![source_hint]),
+            extra_text_blocks: None,
             provider_meta: None,
         },
     }
@@ -963,10 +938,7 @@ async fn parse_and_enqueue_onebot_event(
                 .and_then(|v| v.as_i64())
                 .map(|id| id.to_string())
         });
-    let (api_config_id, agent_id, channel_config) = read_routing_config(state, channel_id)?;
-    if api_config_id.trim().is_empty() || agent_id.trim().is_empty() {
-        return Err("路由信息不完整（apiConfigId/agentId），请先配置助理部门".to_string());
-    }
+    let channel_config = read_channel_config(state, channel_id)?;
     let im_name = channel_config
         .as_ref()
         .map(|ch| ch.name.clone())
@@ -977,13 +949,6 @@ async fn parse_and_enqueue_onebot_event(
     } else {
         text
     };
-    let source_hint = build_source_hint(
-        channel_id,
-        &sender_name,
-        &remote_contact_type,
-        &remote_contact_id,
-        remote_contact_name.as_deref(),
-    );
     let input = build_remote_im_enqueue_input(
         channel_id,
         sender_name,
@@ -994,10 +959,7 @@ async fn parse_and_enqueue_onebot_event(
         remote_contact_id,
         remote_contact_name,
         platform_message_id,
-        api_config_id,
-        agent_id,
         final_text,
-        source_hint,
     );
     remote_im_enqueue_message_internal(input, state)
 }
@@ -1017,8 +979,8 @@ pub(crate) async fn napcat_start_event_consumer(
                     break (rx, srx);
                 }
             }
-            // 连接尚未建立或渠道已停止，等待后重试
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            // 连接尚未建立或渠道已停止，按节流间隔重试
+            tokio::time::sleep(Duration::from_secs(NAPCAT_RECONNECT_INTERVAL_SECS)).await;
         };
 
         eprintln!("[NapCat Event] 渠道 {} 开始消费事件", channel_id);
@@ -1065,8 +1027,8 @@ pub(crate) async fn napcat_start_event_consumer(
             }
         }
 
-        // 事件通道关闭（客户端断开），等待重连
+        // 事件通道关闭（客户端断开），按节流间隔等待重连
         eprintln!("[NapCat Event] 渠道 {} 等待重新连接...", channel_id);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(NAPCAT_RECONNECT_INTERVAL_SECS)).await;
     }
 }

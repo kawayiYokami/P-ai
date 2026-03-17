@@ -462,12 +462,37 @@ export function useChatFlow(options: UseChatFlowOptions) {
     parsed: AssistantDeltaEvent,
     source: "sendChat" | "bound",
   ) {
-    // sendChat 活跃时，bound channel 不抢占
-    if (source === "bound" && sendChatActiveGen > 0) return;
-
     const flushed = readHistoryFlushedPayload(parsed.message);
     const shouldActivate = source === "sendChat" || !!flushed?.activateAssistant;
+    console.info("[CHAT_TRACE][history_flushed] 开始", {
+      source,
+      gen,
+      sendChatActiveGen,
+      shouldActivate,
+      payloadConversationId: String(flushed?.conversationId || "").trim(),
+    });
+    // sendChat 活跃时，仅拦截“会激活助理”的 bound 批次，避免抢占当前轮次；
+    // 非激活批次只做历史追加，不应被阻塞。
+    if (source === "bound" && sendChatActiveGen > 0 && shouldActivate) {
+      console.info("[CHAT_TRACE][history_flushed] 跳过", {
+        source,
+        gen,
+        sendChatActiveGen,
+        shouldActivate,
+      });
+      return;
+    }
     const replayMessages = Array.isArray(flushed?.messages) ? flushed!.messages : [];
+    console.info("[CHAT_TRACE][history_flushed] 完成", {
+      source,
+      gen,
+      shouldActivate,
+      payloadConversationId: String(flushed?.conversationId || "").trim(),
+      replayCount: replayMessages.length,
+      messageCount: Number(flushed?.messageCount || 0),
+      firstMessageId: String(replayMessages[0]?.id || ""),
+      lastMessageId: String(replayMessages[replayMessages.length - 1]?.id || ""),
+    });
     const batchVisibleCount = Math.max(1, replayMessages.length);
     activeHistoryMessageCount = batchVisibleCount;
     if (shouldActivate) {
@@ -481,11 +506,23 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     // ── reload ──
     if (options.onHistoryFlushed) {
+      console.info("[CHAT_TRACE][history_flushed] apply_start", {
+        source,
+        gen,
+        shouldActivate,
+        batchVisibleCount,
+      });
       await options.onHistoryFlushed({
         conversationId: String(flushed?.conversationId || "").trim(),
         messageCount: batchVisibleCount,
         pendingMessages: replayMessages,
         activateAssistant: shouldActivate,
+      });
+      console.info("[CHAT_TRACE][history_flushed] apply_done", {
+        source,
+        gen,
+        shouldActivate,
+        batchVisibleCount,
       });
     } else {
       await options.onReloadMessages();
@@ -496,6 +533,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
       if (gen !== generation) return;
       round = { phase: "idle" };
       options.chatting.value = false;
+      console.info("[CHAT_TRACE][history_flushed] non_activate_finish", {
+        source,
+        gen,
+        generation,
+      });
       return;
     }
 
@@ -578,6 +620,63 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // Delta 分发
   // =========================================================================
 
+  function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {
+    if (!currentGen) return;
+    if (round.phase !== "streaming") return;
+    if (round.gen !== currentGen) return;
+
+    if (parsed.kind === "round_completed") {
+      const p = readRoundCompletedPayload(parsed.message);
+      handleRoundCompleted(currentGen, {
+        assistantText: String(p?.assistantText || ""),
+        reasoningStandard: p?.reasoningStandard,
+        reasoningInline: p?.reasoningInline,
+        assistantMessage: p?.assistantMessage,
+      });
+      return;
+    }
+    if (parsed.kind === "round_failed") {
+      const p = readRoundFailedPayload(parsed.message);
+      handleRoundFailed(currentGen, p?.error || parsed.message || JSON.stringify(parsed));
+      return;
+    }
+
+    if (parsed.kind === "tool_status") {
+      const toolName = String(parsed.toolName || "").trim();
+      if (parsed.toolStatus === "running" && toolName) {
+        streamToolCallCount += 1;
+        streamLastToolName = toolName;
+        if (options.streamToolCalls) {
+          options.streamToolCalls.value = [
+            ...options.streamToolCalls.value,
+            { name: toolName, argsText: String(parsed.toolArgs || "").trim() },
+          ];
+        }
+      }
+      options.toolStatusText.value = parsed.message || "";
+      options.toolStatusState.value =
+        parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
+          ? parsed.toolStatus : "";
+      return;
+    }
+    if (parsed.kind === "reasoning_standard") {
+      const dt = readDeltaMessage(parsed);
+      if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
+      options.latestReasoningStandardText.value += dt;
+      updateDraftText(round.draftId);
+      return;
+    }
+    if (parsed.kind === "reasoning_inline") {
+      const dt = readDeltaMessage(parsed);
+      if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
+      options.latestReasoningInlineText.value += dt;
+      updateDraftText(round.draftId);
+      return;
+    }
+
+    enqueueStreamDelta(currentGen, readDeltaMessage(parsed));
+  }
+
   function attachDeltaHandler(
     channel: Channel<AssistantDeltaEvent>,
     source: "sendChat" | "bound",
@@ -607,62 +706,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       }
 
       const currentGen = getGen();
-      if (!currentGen) return;
-      if (round.phase !== "streaming") return;
-      if (round.gen !== currentGen) return;
-
-      if (parsed.kind === "round_completed") {
-        const p = readRoundCompletedPayload(parsed.message);
-        handleRoundCompleted(currentGen, {
-          assistantText: String(p?.assistantText || ""),
-          reasoningStandard: p?.reasoningStandard,
-          reasoningInline: p?.reasoningInline,
-          assistantMessage: p?.assistantMessage,
-        });
-        return;
-      }
-      if (parsed.kind === "round_failed") {
-        const p = readRoundFailedPayload(parsed.message);
-        handleRoundFailed(currentGen, p?.error || parsed.message || "round_failed");
-        return;
-      }
-
-      if (round.phase !== "streaming") return;
-
-      if (parsed.kind === "tool_status") {
-        const toolName = String(parsed.toolName || "").trim();
-        if (parsed.toolStatus === "running" && toolName) {
-          streamToolCallCount += 1;
-          streamLastToolName = toolName;
-          if (options.streamToolCalls) {
-            options.streamToolCalls.value = [
-              ...options.streamToolCalls.value,
-              { name: toolName, argsText: String(parsed.toolArgs || "").trim() },
-            ];
-          }
-        }
-        options.toolStatusText.value = parsed.message || "";
-        options.toolStatusState.value =
-          parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
-            ? parsed.toolStatus : "";
-        return;
-      }
-      if (parsed.kind === "reasoning_standard") {
-        const dt = readDeltaMessage(parsed);
-        if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
-        options.latestReasoningStandardText.value += dt;
-        updateDraftText(round.draftId);
-        return;
-      }
-      if (parsed.kind === "reasoning_inline") {
-        const dt = readDeltaMessage(parsed);
-        if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
-        options.latestReasoningInlineText.value += dt;
-        updateDraftText(round.draftId);
-        return;
-      }
-
-      enqueueStreamDelta(currentGen, readDeltaMessage(parsed));
+      handleStreamingEvent(currentGen, parsed);
     };
   }
 
@@ -671,6 +715,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   let boundConversationId = "";
+  let boundConversationInitialized = false;
   let boundDisplayGeneration = 0;
   const boundDeltaChannel = new Channel<AssistantDeltaEvent>();
   attachDeltaHandler(
@@ -680,13 +725,101 @@ export function useChatFlow(options: UseChatFlowOptions) {
     () => { boundDisplayGeneration = ++generation; return boundDisplayGeneration; },
   );
 
-  async function bindActiveConversationStream(conversationId: string) {
+  async function bindActiveConversationStream(conversationId: string, force = false) {
     if (!options.invokeBindActiveChatViewStream) return;
     const id = String(conversationId || "").trim();
-    if (id === boundConversationId) return;
+    if (!force && boundConversationInitialized && id === boundConversationId) return;
     await options.invokeBindActiveChatViewStream({ conversationId: id || undefined, onDelta: boundDeltaChannel });
     boundConversationId = id;
+    boundConversationInitialized = true;
     if (!id) boundDisplayGeneration = 0;
+  }
+
+  async function handleExternalHistoryFlushed(payload: unknown) {
+    const raw = (() => {
+      if (typeof payload === "string") return payload;
+      if (payload && typeof payload === "object") {
+        try {
+          return JSON.stringify(payload);
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    })();
+    const parsed = readHistoryFlushedPayload(raw);
+    if (!parsed) return;
+    const treatAsSendChat = sendChatActiveGen > 0 && !!parsed.activateAssistant;
+    const source: "sendChat" | "bound" = treatAsSendChat ? "sendChat" : "bound";
+    const gen = treatAsSendChat ? sendChatActiveGen : ++generation;
+    if (!treatAsSendChat) {
+      boundDisplayGeneration = gen;
+    }
+    await handleHistoryFlushed(
+      gen,
+      {
+        kind: "history_flushed",
+        message: JSON.stringify(parsed),
+      },
+      source,
+    );
+  }
+
+  async function handleExternalRoundCompleted(payload: unknown) {
+    if (round.phase !== "streaming") return;
+    const raw = (() => {
+      if (typeof payload === "string") return payload;
+      if (payload && typeof payload === "object") {
+        try {
+          return JSON.stringify(payload);
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    })();
+    const parsed = readRoundCompletedPayload(raw);
+    if (!parsed) return;
+    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
+    const payloadConversationId = String(parsed.conversationId || "").trim();
+    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return;
+    }
+    handleRoundCompleted(round.gen, {
+      assistantText: String(parsed.assistantText || ""),
+      reasoningStandard: parsed.reasoningStandard,
+      reasoningInline: parsed.reasoningInline,
+      assistantMessage: parsed.assistantMessage,
+    });
+  }
+
+  async function handleExternalRoundFailed(payload: unknown) {
+    if (round.phase !== "streaming") return;
+    const raw = (() => {
+      if (typeof payload === "string") return payload;
+      if (payload && typeof payload === "object") {
+        try {
+          return JSON.stringify(payload);
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    })();
+    const parsed = readRoundFailedPayload(raw);
+    handleRoundFailed(round.gen, parsed?.error || raw || String(raw));
+  }
+
+  async function handleExternalAssistantDelta(payload: unknown) {
+    const rawObj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
+    const payloadConversationId = String(rawObj?.conversationId || "").trim();
+    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return;
+    }
+    const parsed = readAssistantEvent(rawObj?.event ?? payload);
+    const currentGen = round.phase === "streaming" ? round.gen : 0;
+    handleStreamingEvent(currentGen, parsed);
   }
 
   // =========================================================================
@@ -877,5 +1010,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
     await options.onReloadMessages();
   }
 
-  return { sendChat, stopChat, bindActiveConversationStream, clearStreamBuffer, reasoningStartedAtMs };
+  return {
+    sendChat,
+    stopChat,
+    bindActiveConversationStream,
+    handleExternalHistoryFlushed,
+    handleExternalRoundCompleted,
+    handleExternalRoundFailed,
+    handleExternalAssistantDelta,
+    clearStreamBuffer,
+    reasoningStartedAtMs,
+  };
 }

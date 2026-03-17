@@ -52,6 +52,29 @@ fn organize_context_succeeded(tool_name: &str, tool_result: &str) -> bool {
             .unwrap_or(false)
 }
 
+fn should_stop_after_remote_im_send(tool_name: &str, tool_result: &str) -> bool {
+    if tool_name != "remote_im_send" {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(tool_result) else {
+        return false;
+    };
+    if let Some(status) = value.get("status").and_then(Value::as_str) {
+        let normalized = status.trim().to_ascii_lowercase();
+        if normalized == "done" {
+            return true;
+        }
+        if normalized == "continue" {
+            return false;
+        }
+    }
+    value
+        .get("stopToolLoop")
+        .and_then(Value::as_bool)
+        .or_else(|| value.get("done").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
 fn tool_history_without_organize_context(events: &[Value]) -> Vec<Value> {
     let mut filtered = Vec::<Value>::new();
     let mut skip_next_tool = false;
@@ -346,6 +369,25 @@ where
                     tool_history_events: tool_history_without_organize_context(&tool_history_events),
                     suppress_assistant_message: true,
                     trusted_input_tokens: None,
+                });
+            }
+            if should_stop_after_remote_im_send(&tool_name, &tool_result) {
+                eprintln!(
+                    "[INFO][CHAT] remote_im_send done=true; stop tool loop immediately (session={})",
+                    chat_session_key
+                );
+                let final_text = if full_assistant_text.trim().is_empty() {
+                    "已发送完成。".to_string()
+                } else {
+                    full_assistant_text.clone()
+                };
+                return Ok(ModelReply {
+                    assistant_text: final_text,
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    tool_history_events,
+                    suppress_assistant_message: false,
+                    trusted_input_tokens,
                 });
             }
             let (tool_result_for_model, screenshot_forward) =

@@ -938,7 +938,7 @@ struct AnthropicModelListResponse {
     data: Vec<AnthropicModelListItem>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AssistantDeltaEvent {
     delta: String,
@@ -1207,6 +1207,10 @@ struct RemoteImContact {
     last_activated_at: Option<String>,
     #[serde(default)]
     last_message_at: Option<String>,
+    #[serde(default)]
+    dingtalk_session_webhook: Option<String>,
+    #[serde(default)]
+    dingtalk_session_webhook_expired_time: Option<i64>,
 }
 
 fn default_assistant_department_agent_id() -> String {

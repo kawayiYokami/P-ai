@@ -360,10 +360,10 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
     let todo_count = task.todos.len();
 
     // 入队
-    match enqueue_chat_event(state, event) {
-        Ok(_) => {
-            // 异步触发出队处理
-            trigger_chat_queue_processing(state);
+    match ingress_chat_event(state, event) {
+        Ok(ingress) => {
+            // 异步触发处理：直写或排队由 ingress 判定，排队仅在确实滞留时通知前端。
+            trigger_chat_event_after_ingress(state, ingress);
 
             let duration_ms = started_at.elapsed().as_millis();
             task_store_insert_run_log(

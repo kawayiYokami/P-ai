@@ -490,12 +490,29 @@ impl DingtalkSdk {
         self.access_token(channel).await
     }
 
-    fn get_robot_code(&self, channel: &RemoteImChannelConfig) -> Result<String, String> {
+    fn get_robot_code(&self, channel: &RemoteImChannelConfig) -> Option<String> {
         let robot_code = remote_im_credential_text(&channel.credentials, "robotCode");
         if robot_code.is_empty() {
-            return Err(format!("dingtalk channel '{}' missing robotCode", channel.id));
+            return None;
         }
-        Ok(robot_code)
+        Some(robot_code)
+    }
+
+    fn session_webhook_from_contact(&self, contact: &RemoteImContact) -> Option<String> {
+        contact
+            .dingtalk_session_webhook
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    }
+
+    fn session_webhook_expired(&self, contact: &RemoteImContact) -> bool {
+        let Some(expired_ms) = contact.dingtalk_session_webhook_expired_time else {
+            return false;
+        };
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        now_ms >= expired_ms
     }
 
     fn validate_target_is_private(&self, contact: &RemoteImContact) -> Result<(), String> {
@@ -578,6 +595,46 @@ impl DingtalkSdk {
         Ok(parsed)
     }
 
+    async fn send_via_session_webhook(
+        &self,
+        client: &reqwest::Client,
+        webhook: &str,
+        text: &str,
+    ) -> Result<Value, String> {
+        let response = client
+            .post(webhook)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&serde_json::json!({
+                "msgtype": "text",
+                "text": {
+                    "content": text
+                }
+            }))
+            .send()
+            .await
+            .map_err(|err| format!("dingtalk sessionWebhook send failed: {err}"))?;
+
+        let status = response.status();
+        let response_text = response
+            .text()
+            .await
+            .map_err(|err| format!("read dingtalk sessionWebhook response failed: {err}"))?;
+        let parsed = remote_im_json_or_text(&response_text);
+        if !status.is_success() {
+            return Err(format!(
+                "dingtalk sessionWebhook rejected http {}: {}",
+                status.as_u16(),
+                parsed
+            ));
+        }
+        if parsed.get("errcode").and_then(Value::as_i64).unwrap_or(0) != 0
+            || parsed.get("code").and_then(Value::as_i64).unwrap_or(0) != 0
+        {
+            return Err(format!("dingtalk sessionWebhook rejected: {}", parsed));
+        }
+        Ok(parsed)
+    }
+
     fn process_query_key_from_response(&self, body: &Value) -> String {
         body.get("processQueryKey")
             .and_then(Value::as_str)
@@ -602,6 +659,7 @@ impl DingtalkSdk {
         status: &str,
         process_query_key: Option<&str>,
         error: Option<&str>,
+        send_mode: Option<&str>,
     ) {
         let mut fields = serde_json::json!({
             "task_name": "dingtalk.send_outbound",
@@ -625,6 +683,11 @@ impl DingtalkSdk {
                 obj.insert("error".to_string(), serde_json::json!(value));
             }
         }
+        if let Some(value) = send_mode {
+            if let Some(obj) = fields.as_object_mut() {
+                obj.insert("send_mode".to_string(), serde_json::json!(value));
+            }
+        }
         remote_im_log(level, "dingtalk.send_outbound", fields);
     }
 }
@@ -637,7 +700,6 @@ impl RemoteImSdk for DingtalkSdk {
     fn validate_channel(&self, channel: &RemoteImChannelConfig) -> Result<(), String> {
         if remote_im_credential_text(&channel.credentials, "clientId").is_empty()
             || remote_im_credential_text(&channel.credentials, "clientSecret").is_empty()
-            || remote_im_credential_text(&channel.credentials, "robotCode").is_empty()
         {
             return Err(format!("dingtalk channel '{}' credentials invalid", channel.id));
         }
@@ -673,9 +735,19 @@ impl RemoteImSdk for DingtalkSdk {
                         "失败",
                         None,
                         Some(&err),
+                        None,
                     );
                     return Err(err);
                 }
+            };
+            let has_session_webhook = self.session_webhook_from_contact(contact).is_some();
+            let has_robot_code = self.get_robot_code(channel).is_some();
+            let default_mode = if has_session_webhook {
+                "stream_session_webhook"
+            } else if has_robot_code {
+                "openapi_robot"
+            } else {
+                "none"
             };
             self.log_outcome(
                 "INFO",
@@ -688,63 +760,9 @@ impl RemoteImSdk for DingtalkSdk {
                 "开始",
                 None,
                 None,
+                Some(default_mode),
             );
 
-            // ========== auth ==========
-            let token = match self.access_token_for_channel(channel).await {
-                Ok(token) => token,
-                Err(err) => {
-                    self.log_outcome(
-                        "ERROR",
-                        channel,
-                        contact,
-                        is_group,
-                        content_count,
-                        text.len(),
-                        started,
-                        "失败",
-                        None,
-                        Some(&err),
-                    );
-                    return Err(err);
-                }
-            };
-            let robot_code = match self.get_robot_code(channel) {
-                Ok(code) => code,
-                Err(err) => {
-                    self.log_outcome(
-                        "ERROR",
-                        channel,
-                        contact,
-                        is_group,
-                        content_count,
-                        text.len(),
-                        started,
-                        "失败",
-                        None,
-                        Some(&err),
-                    );
-                    return Err(err);
-                }
-            };
-            if let Err(err) = self.validate_target_is_private(contact) {
-                self.log_outcome(
-                    "ERROR",
-                    channel,
-                    contact,
-                    is_group,
-                    content_count,
-                    text.len(),
-                    started,
-                    "失败",
-                    None,
-                    Some(&err),
-                );
-                return Err(err);
-            }
-
-            // ========== request build ==========
-            let (url, body) = self.build_request_body(is_group, contact, &robot_code, &text);
             let client = match reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(12))
                 .build()
@@ -763,12 +781,128 @@ impl RemoteImSdk for DingtalkSdk {
                         "失败",
                         None,
                         Some(&message),
+                        None,
                     );
                     return Err(message);
                 }
             };
 
-            // ========== HTTP send/parse ==========
+            // ========== stream session webhook ==========
+            if let Some(webhook) = self.session_webhook_from_contact(contact) {
+                if self.session_webhook_expired(contact) {
+                    let err =
+                        "dingtalk sessionWebhook 已过期，请等待联系人发送新消息后再回复".to_string();
+                    self.log_outcome(
+                        "ERROR",
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
+                        Some("stream_session_webhook"),
+                    );
+                    return Err(err);
+                }
+                let parsed = match self.send_via_session_webhook(&client, &webhook, &text).await {
+                    Ok(parsed) => parsed,
+                    Err(err) => {
+                        self.log_outcome(
+                            "ERROR",
+                            channel,
+                            contact,
+                            is_group,
+                            content_count,
+                            text.len(),
+                            started,
+                            "失败",
+                            None,
+                            Some(&err),
+                            Some("stream_session_webhook"),
+                        );
+                        return Err(err);
+                    }
+                };
+                let message_id = parsed
+                    .get("processQueryKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                self.log_outcome(
+                    "INFO",
+                    channel,
+                    contact,
+                    is_group,
+                    content_count,
+                    text.len(),
+                    started,
+                    "完成",
+                    Some(&message_id),
+                    None,
+                    Some("stream_session_webhook"),
+                );
+                return Ok(message_id);
+            }
+
+            // ========== openapi fallback ==========
+            let Some(robot_code) = self.get_robot_code(channel) else {
+                let err =
+                    "dingtalk stream 模式缺少可用会话（sessionWebhook），且未配置 robotCode 兜底发送"
+                        .to_string();
+                self.log_outcome(
+                    "ERROR",
+                    channel,
+                    contact,
+                    is_group,
+                    content_count,
+                    text.len(),
+                    started,
+                    "失败",
+                    None,
+                    Some(&err),
+                    Some("none"),
+                );
+                return Err(err);
+            };
+            if let Err(err) = self.validate_target_is_private(contact) {
+                self.log_outcome(
+                    "ERROR",
+                    channel,
+                    contact,
+                    is_group,
+                    content_count,
+                    text.len(),
+                    started,
+                    "失败",
+                    None,
+                    Some(&err),
+                    Some("openapi_robot"),
+                );
+                return Err(err);
+            }
+            let token = match self.access_token_for_channel(channel).await {
+                Ok(token) => token,
+                Err(err) => {
+                    self.log_outcome(
+                        "ERROR",
+                        channel,
+                        contact,
+                        is_group,
+                        content_count,
+                        text.len(),
+                        started,
+                        "失败",
+                        None,
+                        Some(&err),
+                        Some("openapi_robot"),
+                    );
+                    return Err(err);
+                }
+            };
+            let (url, body) = self.build_request_body(is_group, contact, &robot_code, &text);
             let parsed = match self.send_and_parse(&client, url, &token, &body).await {
                 Ok(parsed) => parsed,
                 Err(err) => {
@@ -783,6 +917,7 @@ impl RemoteImSdk for DingtalkSdk {
                         "失败",
                         None,
                         Some(&err),
+                        Some("openapi_robot"),
                     );
                     return Err(err);
                 }
@@ -801,6 +936,7 @@ impl RemoteImSdk for DingtalkSdk {
                 "完成",
                 Some(&process_query_key),
                 None,
+                Some("openapi_robot"),
             );
             Ok(process_query_key)
         })
@@ -1038,6 +1174,8 @@ mod remote_im_adapter_tests {
             activation_cooldown_seconds: 0,
             last_activated_at: None,
             last_message_at: None,
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
         };
         let private = RemoteImContact {
             remote_contact_type: "private".to_string(),

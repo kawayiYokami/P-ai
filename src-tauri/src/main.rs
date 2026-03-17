@@ -50,6 +50,7 @@ include!("features/chat/conversation.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
 include!("features/remote_im/napcat_ws.rs");
+include!("features/remote_im/dingtalk_stream.rs");
 include!("features/remote_im.rs");
 include!("features/remote_im_adapters.rs");
 
@@ -72,9 +73,39 @@ include!("features/delegate.rs");
 
 include!("features/system/commands.rs");
 
+fn should_enable_devtools() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+    matches!(
+        std::env::var("EASYCALL_DEVTOOLS")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 // Remote IM 命令包装
 #[tauri::command]
-async fn remote_im_get_channel_status(channel_id: String) -> Result<ChannelConnectionStatus, String> {
+async fn remote_im_get_channel_status(
+    channel_id: String,
+    state: State<'_, AppState>,
+) -> Result<ChannelConnectionStatus, String> {
+    let config = state_read_config_cached(&state).map_err(|e| format!("{e:?}"))?;
+    if let Some(channel) = config.remote_im_channels.iter().find(|ch| ch.id == channel_id) {
+        return match channel.platform {
+            RemoteImPlatform::OnebotV11 => get_channel_connection_status(channel_id).await,
+            RemoteImPlatform::Dingtalk => Ok(dingtalk_stream_manager().get_channel_status(&channel.id).await),
+            RemoteImPlatform::Feishu => Ok(ChannelConnectionStatus {
+                channel_id: channel.id.clone(),
+                connected: false,
+                peer_addr: None,
+                connected_at: None,
+                listen_addr: String::new(),
+            }),
+        };
+    }
     get_channel_connection_status(channel_id).await
 }
 
@@ -90,7 +121,7 @@ async fn remote_im_restart_channel(
 ) -> Result<ChannelConnectionStatus, String> {
     eprintln!("[远程IM] 重启渠道: {}", channel_id);
     let config = state_read_config_cached(&state)
-        .map_err(|e| format!("{e}"))?;
+        .map_err(|e| format!("{e:?}"))?;
     let channel = config.remote_im_channels.iter()
         .find(|ch| ch.id == channel_id)
         .ok_or_else(|| format!("渠道 {} 未找到", channel_id))?
@@ -113,9 +144,30 @@ async fn remote_im_restart_channel(
         tauri::async_runtime::spawn(async move {
             napcat_start_event_consumer(cid, state_clone).await;
         });
+    } else if channel.enabled && channel.platform == RemoteImPlatform::Dingtalk {
+        let state_clone = state.inner().clone();
+        let manager = dingtalk_stream_manager();
+        let channel_clone = channel.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(err) = manager
+                .reconcile_channel_runtime(&channel_clone, state_clone)
+                .await
+            {
+                eprintln!(
+                    "[远程IM] 钉钉渠道收敛失败: channel_id={}, platform={:?}, error={}",
+                    channel_clone.id,
+                    channel_clone.platform,
+                    err
+                );
+            }
+        });
     }
 
-    Ok(manager.get_connection_status(&channel_id).await)
+    if channel.platform == RemoteImPlatform::Dingtalk {
+        Ok(dingtalk_stream_manager().get_channel_status(&channel_id).await)
+    } else {
+        Ok(manager.get_connection_status(&channel_id).await)
+    }
 }
 
 fn main() {
@@ -259,6 +311,13 @@ fn main() {
                     let _ = window.set_focus();
                 }
             }
+            if should_enable_devtools() {
+                for label in ["main", "chat", "archives"] {
+                    if let Some(window) = app_handle.get_webview_window(label) {
+                        let _ = window.open_devtools();
+                    }
+                }
+            }
             let startup_state = app_handle.state::<AppState>().inner().clone();
             start_task_scheduler(startup_state.clone());
             tauri::async_runtime::spawn({
@@ -295,6 +354,27 @@ fn main() {
                     let state_clone = event_state.clone();
                     tauri::async_runtime::spawn(async move {
                         napcat_start_event_consumer(channel_id, state_clone).await;
+                    });
+                }
+
+                let dingtalk_channels: Vec<_> = config
+                    .remote_im_channels
+                    .iter()
+                    .filter(|ch| ch.enabled && ch.platform == RemoteImPlatform::Dingtalk)
+                    .cloned()
+                    .collect();
+                for channel in dingtalk_channels {
+                    let state_clone = event_state.clone();
+                    let manager = dingtalk_stream_manager();
+                    tauri::async_runtime::spawn(async move {
+                        let channel_id = channel.id.clone();
+                        if let Err(err) = manager.start_channel(channel, state_clone).await {
+                            eprintln!(
+                                "[启动] 启动钉钉 Stream 渠道失败: channel_id={}, error={}",
+                                channel_id,
+                                err
+                            );
+                        }
                     });
                 }
             }

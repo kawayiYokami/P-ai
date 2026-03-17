@@ -17,6 +17,7 @@
             'badge-info': event.source === 'task',
             'badge-secondary': event.source === 'delegate',
             'badge-neutral': event.source === 'system',
+            'badge-accent': event.source === 'remote_im',
           }"
         >
           {{ sourceText(event.source) }}
@@ -81,6 +82,8 @@ function sourceText(source: string): string {
       return "委托";
     case "system":
       return "系统";
+    case "remote_im":
+      return "远程";
     default:
       return source;
   }

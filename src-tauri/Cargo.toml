@@ -24,7 +24,8 @@ time = { version = "=0.3.36", features = ["local-offset"] }
 rig = { package = "rig-core", version = "0.31.0", features = ["rmcp"] }
 rmcp = { version = "0.13.0", features = ["client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "sync"] }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+dingtalk-stream = "0.1.5"
 reqwest = { version = "0.11.27", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
 async-openai = { version = "0.33.0", default-features = false, features = ["rustls", "chat-completion", "byot"] }
 base64 = "0.22"

@@ -32,9 +32,13 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   }
 
   function resolveSpeakerAgentId(message: ChatMessage): string {
+    const meta = (message.providerMeta || {}) as Record<string, unknown>;
+    const origin = meta.origin as Record<string, unknown> | undefined;
+    if (origin && origin.kind === "remote_im") {
+      return "";
+    }
     const direct = String(message.speakerAgentId || "").trim();
     if (direct) return direct;
-    const meta = (message.providerMeta || {}) as Record<string, unknown>;
     for (const key of [
       "speakerAgentId",
       "speaker_agent_id",

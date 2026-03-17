@@ -29,16 +29,9 @@
           <span class="text-xs italic opacity-60">{{ t("config.remoteIm.empty") }}</span>
         </li>
         <li v-for="(ch, idx) in pagedChannels" :key="ch.id">
-          <button :class="{ 'menu-active': selectedChannelId === ch.id }" @click="selectedChannelId = ch.id">
-            <span class="badge badge-ghost badge-xs">{{ platformLabel(ch.platform).slice(0, 1) }}</span>
-            {{ ch.name || `#${(channelPage - 1) * CHANNELS_PAGE_SIZE + idx + 1}` }}
-            <input
-              type="checkbox"
-              class="toggle toggle-primary bg-base-200"
-              :checked="ch.enabled"
-              @click.stop
-              @change="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
-            />
+          <button class="flex items-center gap-2" :class="{ 'menu-active': selectedChannelId === ch.id }" @click="selectedChannelId = ch.id">
+            <span class="badge badge-xs" :class="channelListStatusBadgeClass(ch)">{{ channelListStatusBadgeText(ch) }}</span>
+            <span class="truncate">{{ ch.name || `#${(channelPage - 1) * CHANNELS_PAGE_SIZE + idx + 1}` }}</span>
           </button>
         </li>
       </ul>
@@ -74,6 +67,41 @@
               <span v-else class="loading loading-spinner loading-xs"></span>
               {{ t("common.save") }}
             </button>
+          </div>
+        </div>
+
+        <!-- 状态栏 -->
+        <div class="px-3 pb-2 shrink-0">
+          <div class="rounded-box border border-base-300 bg-base-200/60 px-3 py-2 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <span
+                class="size-2 rounded-full shrink-0"
+                :class="selectedChannel.platform === 'onebot_v11'
+                  ? (channelRuntimeStates[selectedChannel.id]?.connected ? 'bg-success' : (selectedChannel.enabled ? 'bg-warning' : 'bg-base-300'))
+                  : (selectedChannel.platform === 'dingtalk'
+                    ? (channelRuntimeStates[selectedChannel.id]?.connected ? 'bg-success' : (selectedChannel.enabled ? 'bg-warning' : 'bg-base-300'))
+                    : ((selectedChannel.platform === 'feishu')
+                      ? (selectedChannel.enabled ? 'bg-warning' : 'bg-base-300')
+                      : (selectedChannel.enabled ? 'bg-success' : 'bg-base-300')))"
+              ></span>
+              <span class="text-xs font-medium">{{ t("config.remoteIm.connectionStatus") }}</span>
+              <span class="text-xs opacity-80 truncate">{{ channelStatusPreview(selectedChannel!) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-xs btn-ghost" @click="openChannelLogsModal">
+                {{ t("config.remoteIm.viewLogs") }}
+              </button>
+              <label class="flex items-center gap-2">
+                <span class="text-xs opacity-70">{{ t("config.remoteIm.enabled") }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-primary bg-base-100"
+                  :checked="selectedChannel.enabled"
+                  :disabled="saving"
+                  @change="(e) => toggleSelectedChannelEnabled((e.target as HTMLInputElement).checked)"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
@@ -143,7 +171,40 @@
               </div>
             </template>
 
-            <!-- 飞书/钉钉 凭证JSON -->
+            <!-- 钉钉凭证 -->
+            <template v-else-if="selectedChannel.platform === 'dingtalk'">
+              <div class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2 mt-2">
+                <span class="font-semibold">{{ t("config.remoteIm.dingtalkCredentials") }}</span>
+              </div>
+              <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+                <span>{{ t("config.remoteIm.dingtalkClientId") }}</span>
+                <input
+                  v-model="dingtalkCredentials.clientId"
+                  class="input input-bordered input-sm w-72"
+                  placeholder="dingxxxxxxxxxxxxxxxx"
+                />
+              </div>
+              <div class="border-b-base-content/5 flex items-center justify-between gap-2 border-b border-dashed py-2">
+                <span>{{ t("config.remoteIm.dingtalkClientSecret") }}</span>
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model="dingtalkCredentials.clientSecret"
+                    :type="showDingtalkSecret ? 'text' : 'password'"
+                    class="input input-bordered input-sm w-72"
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  />
+                  <button
+                    class="btn btn-xs btn-ghost"
+                    type="button"
+                    @click="showDingtalkSecret = !showDingtalkSecret"
+                  >
+                    {{ showDingtalkSecret ? "隐藏" : "显示" }}
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 飞书凭证 JSON -->
             <template v-else>
               <div class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2 mt-2">
                 <span class="font-semibold">{{ t("config.remoteIm.credentialsJson") }}</span>
@@ -297,11 +358,31 @@
         </li>
       </ul>
     </div>
+
+    <div class="modal" :class="{ 'modal-open': channelLogsModalOpen }" @click.self="closeChannelLogsModal">
+      <div class="modal-box max-w-4xl">
+        <div class="flex items-center justify-between">
+          <div class="font-semibold">
+            {{ t("config.remoteIm.channelLogs") }} · {{ selectedChannel?.name || "-" }}
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-sm btn-ghost" :title="t('common.refresh')" @click="refreshChannelLogs">
+              <RefreshCw class="h-4 w-4" :class="channelLogsLoading ? 'animate-spin' : ''" />
+            </button>
+            <button class="btn btn-sm" @click="closeChannelLogsModal">{{ t("common.close") }}</button>
+          </div>
+        </div>
+        <div class="mt-3 max-h-[60vh] overflow-y-auto">
+          <div v-if="channelLogs.length === 0" class="opacity-60 italic text-xs">{{ t("config.remoteIm.noLogs") }}</div>
+          <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(log, idx) in channelLogs" :key="idx"><span :class="log.level === 'error' ? 'text-error' : log.level === 'warn' ? 'text-warning' : ''"><span class="opacity-50">{{ formatLogTime(log.timestamp) }}</span> {{ log.message }}</span>{{ '\n' }}</template></pre>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-vue-next";
 import { invokeTauri } from "../../../../services/tauri-api";
@@ -320,6 +401,8 @@ const contactsError = ref("");
 const contacts = ref<RemoteImContact[]>([]);
 const credentialDrafts = ref<Record<string, string>>({});
 const napcatCredentials = ref({ wsHost: "0.0.0.0", wsPort: 6199, wsToken: "" });
+const dingtalkCredentials = ref({ clientId: "", clientSecret: "" });
+const showDingtalkSecret = ref(false);
 const suppressCredentialSync = ref(false);
 const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
@@ -343,6 +426,10 @@ type ChannelLogEntry = {
 };
 const channelStatus = ref<ChannelConnectionStatus | null>(null);
 const channelLogs = ref<ChannelLogEntry[]>([]);
+const channelLogsModalOpen = ref(false);
+const channelLogsLoading = ref(false);
+const channelRuntimeStates = ref<Record<string, ChannelConnectionStatus | null>>({});
+let channelStatusTimer: ReturnType<typeof setInterval> | null = null;
 
 const selectedChannel = computed(() =>
   channels.value.find((ch) => ch.id === selectedChannelId.value) ?? null,
@@ -438,8 +525,27 @@ function platformLabelOf(platform: string): string {
   return "OneBot v11";
 }
 
-function platformLabel(platform: RemoteImChannelConfig["platform"]): string {
-  return platformLabelOf(platform);
+function asNonEmptyString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function validateChannelBeforeEnable(channel: RemoteImChannelConfig): string {
+  const creds = channel.credentials || {};
+  if (channel.platform === "dingtalk") {
+    const clientId = asNonEmptyString(creds.clientId);
+    const clientSecret = asNonEmptyString(creds.clientSecret);
+    if (!clientId || !clientSecret) {
+      return t("config.remoteIm.enableNeedDingtalkCredentials");
+    }
+  }
+  if (channel.platform === "feishu") {
+    const appId = asNonEmptyString(creds.appId);
+    const appSecret = asNonEmptyString(creds.appSecret);
+    if (!appId || !appSecret) {
+      return t("config.remoteIm.enableNeedFeishuCredentials");
+    }
+  }
+  return "";
 }
 
 function newChannel(): RemoteImChannelConfig {
@@ -502,6 +608,18 @@ function loadNapcatCredentials(channel: RemoteImChannelConfig) {
   });
 }
 
+function loadDingtalkCredentials(channel: RemoteImChannelConfig) {
+  suppressCredentialSync.value = true;
+  const creds = channel.credentials || {};
+  dingtalkCredentials.value = {
+    clientId: String(creds.clientId || creds.clientID || ""),
+    clientSecret: String(creds.clientSecret || creds.appSecret || ""),
+  };
+  nextTick(() => {
+    suppressCredentialSync.value = false;
+  });
+}
+
 function resetNapcatCredentials() {
   if (!selectedChannel.value) return;
   loadNapcatCredentials(selectedChannel.value);
@@ -511,7 +629,7 @@ function resetNapcatCredentials() {
 
 async function saveChannels() {
   if (saving.value || !selectedChannel.value) return;
-  if (selectedChannel.value.platform !== "onebot_v11") {
+  if (selectedChannel.value.platform === "feishu") {
     syncCredentialJson(selectedChannel.value);
   }
   const savedId = selectedChannelId.value;
@@ -525,10 +643,15 @@ async function saveChannels() {
       if (selectedChannel.value && selectedChannel.value.platform === "onebot_v11") {
         loadNapcatCredentials(selectedChannel.value);
         try {
-          channelStatus.value = await invokeTauri<ChannelConnectionStatus>(
+          const status = await invokeTauri<ChannelConnectionStatus>(
             "remote_im_restart_channel",
             { channelId: selectedChannel.value.id },
           );
+          channelStatus.value = status;
+          channelRuntimeStates.value = {
+            ...channelRuntimeStates.value,
+            [selectedChannel.value.id]: status,
+          };
         } catch (err) {
           console.warn("[RemoteImTab] restart channel failed:", err);
           void refreshChannelStatus();
@@ -543,17 +666,30 @@ async function saveChannels() {
 }
 
 async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boolean) {
+  const previousEnabled = channel.enabled;
+  if (enabled) {
+    const validationError = validateChannelBeforeEnable(channel);
+    if (validationError) {
+      props.setStatusAction(validationError);
+      return;
+    }
+  }
   channel.enabled = enabled;
   saving.value = true;
   try {
     const result = await Promise.resolve(props.saveConfigAction());
     if (result) {
-      if (channel.platform === "onebot_v11") {
+      if (channel.platform === "onebot_v11" || channel.platform === "dingtalk") {
         try {
-          channelStatus.value = await invokeTauri<ChannelConnectionStatus>(
+          const status = await invokeTauri<ChannelConnectionStatus>(
             "remote_im_restart_channel",
             { channelId: channel.id },
           );
+          channelStatus.value = status;
+          channelRuntimeStates.value = {
+            ...channelRuntimeStates.value,
+            [channel.id]: status,
+          };
         } catch (err) {
           console.warn("[RemoteImTab] restart channel failed:", err);
           void refreshChannelStatus();
@@ -562,14 +698,19 @@ async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boo
       await nextTick();
       lastSavedChannelSnapshot.value = channelSnapshot.value;
     } else {
-      channel.enabled = !enabled;
+      channel.enabled = previousEnabled;
     }
   } catch (error) {
-    channel.enabled = !enabled;
+    channel.enabled = previousEnabled;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   } finally {
     saving.value = false;
   }
+}
+
+async function toggleSelectedChannelEnabled(enabled: boolean) {
+  if (!selectedChannel.value) return;
+  await toggleChannelEnabled(selectedChannel.value, enabled);
 }
 
 async function toggleContactAllowSend(item: RemoteImContact, enabled: boolean) {
@@ -739,25 +880,125 @@ function formatRelativeTime(raw?: string): string {
 
 async function refreshChannelStatus() {
   if (!selectedChannel.value) return;
+  const channelId = selectedChannel.value.id;
   try {
-    channelStatus.value = await invokeTauri<ChannelConnectionStatus>("remote_im_get_channel_status", {
-      channelId: selectedChannel.value.id,
+    const status = await invokeTauri<ChannelConnectionStatus>("remote_im_get_channel_status", {
+      channelId,
     });
+    if (selectedChannel.value?.id === channelId) {
+      channelStatus.value = status;
+    }
+    channelRuntimeStates.value = {
+      ...channelRuntimeStates.value,
+      [channelId]: status,
+    };
   } catch (error) {
     console.error("[RemoteImTab] refreshChannelStatus failed:", error);
-    channelStatus.value = null;
+    if (selectedChannel.value?.id === channelId) {
+      channelStatus.value = null;
+    }
+    channelRuntimeStates.value = {
+      ...channelRuntimeStates.value,
+      [channelId]: null,
+    };
   }
+}
+
+async function refreshChannelStatusById(channelId: string) {
+  try {
+    const status = await invokeTauri<ChannelConnectionStatus>("remote_im_get_channel_status", { channelId });
+    channelRuntimeStates.value = {
+      ...channelRuntimeStates.value,
+      [channelId]: status,
+    };
+    if (selectedChannel.value?.id === channelId) {
+      channelStatus.value = status;
+    }
+  } catch {
+    channelRuntimeStates.value = {
+      ...channelRuntimeStates.value,
+      [channelId]: null,
+    };
+    if (selectedChannel.value?.id === channelId) {
+      channelStatus.value = null;
+    }
+  }
+}
+
+async function refreshAllChannelStatuses() {
+  const jobs = channels.value
+    .filter((item) => item.platform === "onebot_v11" || item.platform === "dingtalk")
+    .map((item) => refreshChannelStatusById(item.id));
+  await Promise.all(jobs);
+}
+
+function channelStatusPreview(channel: RemoteImChannelConfig): string {
+  if (channel.platform === "dingtalk") {
+    const status = channelRuntimeStates.value[channel.id];
+    if (!channel.enabled) return t("config.remoteIm.disabledState");
+    if (!status) return t("config.remoteIm.dingtalkConnectingState");
+    if (status.connected) return t("config.remoteIm.connected");
+    return t("config.remoteIm.dingtalkConnectingState");
+  }
+  if (channel.platform === "feishu") {
+    return channel.enabled
+      ? t("config.remoteIm.feishuSendOnlyState")
+      : t("config.remoteIm.disabledState");
+  }
+  if (channel.platform !== "onebot_v11") {
+    return channel.enabled ? t("config.remoteIm.enabledState") : t("config.remoteIm.disabledState");
+  }
+  const status = channelRuntimeStates.value[channel.id];
+  if (!status) {
+    return channel.enabled ? t("config.remoteIm.serverNotStarted") : t("config.remoteIm.disabledState");
+  }
+  if (status.connected) {
+    return t("config.remoteIm.connected");
+  }
+  return status.listenAddr ? t("config.remoteIm.waitingForConnection") : t("config.remoteIm.serverNotStarted");
+}
+
+function channelListStatusBadgeText(channel: RemoteImChannelConfig): string {
+  if (!channel.enabled) return t("config.remoteIm.disabledState");
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk") {
+    const status = channelRuntimeStates.value[channel.id];
+    if (status?.connected) return t("config.remoteIm.connected");
+    return t("config.remoteIm.enabledState");
+  }
+  return t("config.remoteIm.enabledState");
+}
+
+function channelListStatusBadgeClass(channel: RemoteImChannelConfig): string {
+  if (!channel.enabled) return "badge-ghost";
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk") {
+    const status = channelRuntimeStates.value[channel.id];
+    return status?.connected ? "badge-success" : "badge-warning";
+  }
+  return "badge-success";
 }
 
 async function refreshChannelLogs() {
   if (!selectedChannel.value) return;
+  channelLogsLoading.value = true;
   try {
     channelLogs.value = await invokeTauri<ChannelLogEntry[]>("remote_im_get_channel_logs", {
       channelId: selectedChannel.value.id,
     });
   } catch {
     channelLogs.value = [];
+  } finally {
+    channelLogsLoading.value = false;
   }
+}
+
+function openChannelLogsModal() {
+  if (!selectedChannel.value) return;
+  channelLogsModalOpen.value = true;
+  void refreshChannelLogs();
+}
+
+function closeChannelLogsModal() {
+  channelLogsModalOpen.value = false;
 }
 
 function formatLogTime(timestamp: string): string {
@@ -795,10 +1036,18 @@ watch(selectedChannelId, () => {
     );
     if (selectedChannel.value.platform === "onebot_v11") {
       loadNapcatCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
       void refreshChannelStatus();
-      void refreshChannelLogs();
+    } else if (selectedChannel.value.platform === "dingtalk") {
+      loadDingtalkCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
+      void refreshChannelStatus();
     } else {
       channelStatus.value = null;
+    }
+    if (channelLogsModalOpen.value) {
+      void refreshChannelLogs();
+    } else {
       channelLogs.value = [];
     }
   }
@@ -822,6 +1071,18 @@ watch(napcatCredentials, () => {
   }
 }, { deep: true });
 
+watch(dingtalkCredentials, () => {
+  if (suppressCredentialSync.value) return;
+  if (selectedChannel.value && selectedChannel.value.platform === "dingtalk") {
+    const current = selectedChannel.value.credentials || {};
+    selectedChannel.value.credentials = {
+      ...current,
+      clientId: dingtalkCredentials.value.clientId || "",
+      clientSecret: dingtalkCredentials.value.clientSecret || "",
+    };
+  }
+}, { deep: true });
+
 onMounted(() => {
   if (channels.value.length > 0 && !selectedChannelId.value) {
     selectedChannelId.value = channels.value[0].id;
@@ -835,11 +1096,30 @@ onMounted(() => {
     );
     if (selectedChannel.value.platform === "onebot_v11") {
       loadNapcatCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
       void refreshChannelStatus();
-      void refreshChannelLogs();
+    } else if (selectedChannel.value.platform === "dingtalk") {
+      loadDingtalkCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
+      void refreshChannelStatus();
     }
   }
+  void refreshAllChannelStatuses();
+  channelStatusTimer = setInterval(() => {
+    void refreshAllChannelStatuses();
+    void refreshContacts();
+    if (channelLogsModalOpen.value) {
+      void refreshChannelLogs();
+    }
+  }, 3000);
   lastSavedChannelSnapshot.value = channelSnapshot.value;
   void refreshContacts();
+});
+
+onUnmounted(() => {
+  if (channelStatusTimer) {
+    clearInterval(channelStatusTimer);
+    channelStatusTimer = null;
+  }
 });
 </script>

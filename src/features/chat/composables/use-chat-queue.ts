@@ -1,9 +1,10 @@
 import { ref, onMounted, onUnmounted } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
 
 export type ChatQueueEvent = {
   id: string;
-  source: "user" | "task" | "delegate" | "system";
+  source: "user" | "task" | "delegate" | "system" | "remote_im";
   createdAt: string;
   messagePreview: string;
   conversationId: string;
@@ -11,11 +12,20 @@ export type ChatQueueEvent = {
 
 export type MainSessionState = "idle" | "assistant_streaming" | "organizing_context";
 
+type ChatQueueSnapshotPush = {
+  queueEvents: ChatQueueEvent[];
+  sessionState: MainSessionState;
+};
+
+function isMainSessionState(value: unknown): value is MainSessionState {
+  return value === "idle" || value === "assistant_streaming" || value === "organizing_context";
+}
+
 export function useChatQueue() {
   const queueEvents = ref<ChatQueueEvent[]>([]);
   const sessionState = ref<MainSessionState>("idle");
   const polling = ref(false);
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let unlisten: UnlistenFn | null = null;
 
   async function refreshQueue() {
     try {
@@ -49,30 +59,35 @@ export function useChatQueue() {
     }
   }
 
-  function startPolling(intervalMs = 1000) {
+  async function startPolling() {
     if (polling.value) return;
     polling.value = true;
 
-    // 立即刷新一次
-    refreshQueue();
-    refreshSessionState();
-
-    pollTimer = setInterval(() => {
-      refreshQueue();
-      refreshSessionState();
-    }, intervalMs);
+    try {
+      await refreshQueue();
+      await refreshSessionState();
+      unlisten = await listen<ChatQueueSnapshotPush>("easy-call:chat-queue-snapshot", (event) => {
+        const payload = event.payload;
+        queueEvents.value = Array.isArray(payload?.queueEvents) ? payload.queueEvents : [];
+        sessionState.value = isMainSessionState(payload?.sessionState) ? payload.sessionState : "idle";
+      });
+    } catch (error) {
+      polling.value = false;
+      unlisten = null;
+      throw error;
+    }
   }
 
   function stopPolling() {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
+    if (unlisten) {
+      unlisten();
+      unlisten = null;
     }
     polling.value = false;
   }
 
   onMounted(() => {
-    startPolling();
+    void startPolling();
   });
 
   onUnmounted(() => {

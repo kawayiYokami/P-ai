@@ -1,7 +1,7 @@
 use super::*;
 
     #[test]
-    fn remote_im_upsert_contact_for_inbound_should_create_with_send_and_receive_false() {
+    fn remote_im_upsert_contact_for_inbound_should_create_with_send_false_and_receive_follow_channel_activation() {
         let channel = RemoteImChannelConfig {
             id: "c1".to_string(),
             name: "qq".to_string(),
@@ -26,9 +26,11 @@ use super::*;
             sender_name: "张三".to_string(),
             sender_avatar_url: None,
             platform_message_id: Some("m1".to_string()),
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
             activate_assistant: Some(true),
             session: SessionSelector {
-                api_config_id: Some("api".to_string()),
+                api_config_id: None,
                 department_id: None,
                 agent_id: "agent".to_string(),
                 conversation_id: Some("conv-1".to_string()),
@@ -53,7 +55,7 @@ use super::*;
             .find(|item| item.id == contact_id)
             .expect("contact exists");
         assert!(!contact.allow_send);
-        assert!(!contact.allow_receive);
+        assert!(contact.allow_receive);
         assert_eq!(contact.activation_mode, "never");
         assert!(contact.activation_keywords.is_empty());
         assert_eq!(contact.activation_cooldown_seconds, 0);

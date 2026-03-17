@@ -1345,11 +1345,144 @@ struct TerminalExecToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct RemoteImSendToolArgs {
-    channel_id: String,
-    contact_id: String,
-    text: String,
+    #[serde(
+        default = "remote_im_action_default",
+        deserialize_with = "deserialize_remote_im_action"
+    )]
+    action: String,
+    #[serde(default)]
+    channel_id: Option<String>,
+    #[serde(default)]
+    contact_id: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(
+        default = "remote_im_send_status_default",
+        deserialize_with = "deserialize_remote_im_send_status"
+    )]
+    status: String,
     #[serde(default)]
     file_paths: Option<Vec<String>>,
+}
+
+fn remote_im_action_default() -> String {
+    "send".to_string()
+}
+
+fn deserialize_remote_im_action<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct RemoteImActionVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for RemoteImActionVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("action string: list or send")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "list" | "send" => Ok(normalized),
+                _ => Err(E::custom(format!(
+                    "action 非法：`{value}`。请返回正确动作：list 或 send"
+                ))),
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(remote_im_action_default())
+        }
+    }
+
+    deserializer.deserialize_any(RemoteImActionVisitor)
+}
+
+fn remote_im_send_status_default() -> String {
+    "done".to_string()
+}
+
+fn deserialize_remote_im_send_status<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct RemoteImStatusVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for RemoteImStatusVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("status string: continue or done")
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if value { "done" } else { "continue" }.to_string())
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if value == 0 { "continue" } else { "done" }.to_string())
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if value == 0 { "continue" } else { "done" }.to_string())
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "done" => Ok("done".to_string()),
+                "continue" => Ok("continue".to_string()),
+                "true" | "1" | "yes" | "y" | "on" => Ok("done".to_string()),
+                "false" | "0" | "no" | "n" | "off" => Ok("continue".to_string()),
+                _ => Err(E::custom(format!(
+                    "status 非法：`{value}`。请返回正确状态：continue 或 done"
+                ))),
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(remote_im_send_status_default())
+        }
+    }
+
+    deserializer.deserialize_any(RemoteImStatusVisitor)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1624,10 +1757,34 @@ fn delegate_enqueue_result_message(
         sender_info: None,
     };
 
-    enqueue_chat_event(app_state, event)?;
+    let ingress_started_at = std::time::Instant::now();
+    let ingress = ingress_chat_event(app_state, event)?;
+    let ingress_duration_ms = ingress_started_at
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    let (ingress_route, ingress_mode, ingress_key_count) = match &ingress {
+        ChatEventIngress::Direct(event) => (
+            "direct_write",
+            "direct",
+            usize::from(!event.id.trim().is_empty()),
+        ),
+        ChatEventIngress::Queued { event_id } => (
+            "queue",
+            "queued",
+            usize::from(!event_id.trim().is_empty()),
+        ),
+    };
+    eprintln!(
+        "[INFO][CHAT] task=chat_ingress trigger=delegate_publish route={} mode={} key_count={} duration_ms={}",
+        ingress_route,
+        ingress_mode,
+        ingress_key_count,
+        ingress_duration_ms
+    );
 
-    // 异步触发出队处理
-    trigger_chat_queue_processing(app_state);
+    // 异步触发处理：直写或排队由 ingress 判定，排队仅在确实滞留时通知前端。
+    trigger_chat_event_after_ingress(app_state, ingress);
 
     Ok(())
 }
@@ -2812,20 +2969,22 @@ impl Tool for BuiltinRemoteImSendTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "remote_im_send".to_string(),
-            description: "向远程IM联系人发送消息。当你在 [远程IM] 标记的消息中收到来自QQ等平台的消息时，你的普通文字回复对方无法看到，必须调用此工具才能将回复送达对方。channelId 和 contactId 在 [远程IM] 来源标记中已提供。".to_string(),
+            description: "远程IM联系人工具。action=list 可列出当前可用联系人；action=send 可向指定联系人发送消息。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "channel_id": { "type": "string", "description": "远程IM渠道 ID（channelId）" },
-                "contact_id": { "type": "string", "description": "远程联系人 ID（contactId，即QQ号或群号）" },
-                "text": { "type": "string", "description": "要发送的文本内容" },
+                "action": { "type": "string", "enum": ["list", "send"], "description": "动作。list=列出可用联系人；send=发送消息", "default": "send" },
+                "channel_id": { "type": "string", "description": "action=send 时必填；action=list 时可选（用于按渠道过滤）" },
+                "contact_id": { "type": "string", "description": "action=send 时必填；远程联系人 ID（contactId，即QQ号或群号）" },
+                "text": { "type": "string", "description": "action=send 时必填；要发送的文本内容" },
+                "status": { "type": "string", "enum": ["continue", "done"], "description": "发送后状态。continue=还需继续下一步；done=本轮已完成并停止后续工具链。大小写不敏感，内部统一转小写。", "default": "done" },
                 "file_paths": {
                   "type": "array",
                   "items": { "type": "string" },
                   "description": "（预留）附件文件路径列表，当前版本暂不支持"
                 }
               },
-              "required": ["channel_id", "contact_id", "text"]
+              "required": ["action"]
             }),
         }
     }
@@ -2853,18 +3012,83 @@ async fn builtin_remote_im_send(
     state: &AppState,
     args: RemoteImSendToolArgs,
 ) -> Result<Value, String> {
-    let channel_id = args.channel_id.trim().to_string();
-    let contact_id_input = args.contact_id.trim().to_string();
-    let text = args.text.trim().to_string();
-    if channel_id.is_empty() {
-        return Err("channel_id 不能为空".to_string());
+    let action = args.action.trim().to_ascii_lowercase();
+    match action.as_str() {
+        "list" => {
+            let channel_filter = args
+                .channel_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned);
+            let config = state_read_config_cached(state)?;
+            let data = state_read_app_data_cached(state)?;
+            let mut contacts = Vec::<Value>::new();
+            for contact in &data.remote_im_contacts {
+                if let Some(filter) = channel_filter.as_deref() {
+                    if contact.channel_id != filter {
+                        continue;
+                    }
+                }
+                let Some(channel) = config
+                    .remote_im_channels
+                    .iter()
+                    .find(|item| item.id == contact.channel_id)
+                else {
+                    continue;
+                };
+                if !channel.enabled {
+                    continue;
+                }
+                contacts.push(serde_json::json!({
+                    "channelId": contact.channel_id,
+                    "channelName": channel.name,
+                    "platform": contact.platform,
+                    "contactId": contact.remote_contact_id,
+                    "contactName": contact.remote_contact_name,
+                    "remarkName": contact.remark_name,
+                    "contactType": contact.remote_contact_type,
+                    "allowSend": contact.allow_send,
+                    "allowReceive": contact.allow_receive,
+                    "activationMode": contact.activation_mode,
+                }));
+            }
+            return Ok(serde_json::json!({
+                "ok": true,
+                "action": "list",
+                "count": contacts.len(),
+                "contacts": contacts
+            }));
+        }
+        "send" => {}
+        other => {
+            return Err(format!(
+                "remote_im_send.action 非法：`{other}`。请返回正确动作：list 或 send"
+            ));
+        }
     }
-    if contact_id_input.is_empty() {
-        return Err("contact_id 不能为空".to_string());
-    }
-    if text.is_empty() {
-        return Err("text 不能为空".to_string());
-    }
+
+    let channel_id = args
+        .channel_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "action=send 时 channel_id 不能为空".to_string())?
+        .to_string();
+    let contact_id_input = args
+        .contact_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "action=send 时 contact_id 不能为空".to_string())?
+        .to_string();
+    let text = args
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "action=send 时 text 不能为空".to_string())?
+        .to_string();
 
     let config = state_read_config_cached(state)?;
     let channel = remote_im_channel_by_id(&config, &channel_id)
@@ -2889,25 +3113,38 @@ async fn builtin_remote_im_send(
         ));
     }
 
-    let mut content = Vec::<Value>::new();
-    content.push(serde_json::json!({
-        "type": "text",
-        "text": text
-    }));
-
     let payload = serde_json::json!({
         "channelId": contact.channel_id,
         "contactId": contact.id,
         "platform": channel.platform,
         "remoteContactType": contact.remote_contact_type,
         "remoteContactId": contact.remote_contact_id,
-        "content": content,
+        "content": [{
+            "type": "text",
+            "text": text
+        }],
     });
+
+    let status = args.status.trim().to_ascii_lowercase();
+    let stop_tool_loop = match status.as_str() {
+        "done" => true,
+        "continue" => false,
+        other => {
+            return Err(format!(
+                "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
+            ))
+        }
+    };
 
     let platform_message_id = remote_im_send_via_sdk(&channel, &contact, &payload).await?;
 
     Ok(serde_json::json!({
         "ok": true,
+        "action": "send",
+        "status": status,
+        "done": stop_tool_loop,
+        "continue": !stop_tool_loop,
+        "stopToolLoop": stop_tool_loop,
         "channelId": channel_id,
         "contactId": contact_id_input,
         "contactName": contact.remote_contact_name,

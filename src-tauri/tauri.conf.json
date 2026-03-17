@@ -64,4 +64,3 @@
     "targets": ["deb", "appimage", "msi", "nsis"]
   }
 }
-

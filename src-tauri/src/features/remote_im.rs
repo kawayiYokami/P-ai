@@ -15,9 +15,60 @@ struct RemoteImEnqueueInput {
     #[serde(default)]
     platform_message_id: Option<String>,
     #[serde(default)]
+    dingtalk_session_webhook: Option<String>,
+    #[serde(default)]
+    dingtalk_session_webhook_expired_time: Option<i64>,
+    #[serde(default)]
     activate_assistant: Option<bool>,
     session: SessionSelector,
     payload: ChatInputPayload,
+}
+
+fn provider_meta_string(meta: &Option<Value>, key: &str) -> Option<String> {
+    meta.as_ref()
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn provider_meta_i64(meta: &Option<Value>, key: &str) -> Option<i64> {
+    let value = meta.as_ref().and_then(|item| item.get(key))?;
+    if let Some(v) = value.as_i64() {
+        return Some(v);
+    }
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<i64>().ok())
+}
+
+fn resolve_dingtalk_session_webhook(input: &RemoteImEnqueueInput) -> Option<String> {
+    let direct = input
+        .dingtalk_session_webhook
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    if direct.is_some() {
+        return direct;
+    }
+
+    provider_meta_string(&input.payload.provider_meta, "sessionWebhook")
+        .or_else(|| provider_meta_string(&input.payload.provider_meta, "dingtalkSessionWebhook"))
+}
+
+fn resolve_dingtalk_session_webhook_expired_time(input: &RemoteImEnqueueInput) -> Option<i64> {
+    input.dingtalk_session_webhook_expired_time
+        .or_else(|| provider_meta_i64(&input.payload.provider_meta, "sessionWebhookExpiredTime"))
+        .or_else(|| {
+            provider_meta_i64(
+                &input.payload.provider_meta,
+                "dingtalkSessionWebhookExpiredTime",
+            )
+        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,10 +131,11 @@ fn remote_im_channel_by_id<'a>(
 
 fn remote_im_upsert_contact_for_inbound(
     data: &mut AppData,
-    _channel: &RemoteImChannelConfig,
+    channel: &RemoteImChannelConfig,
     input: &RemoteImEnqueueInput,
     now: &str,
 ) -> String {
+    let default_allow_receive = remote_im_resolve_inbound_activate(channel, input.activate_assistant);
     if let Some(contact) = data.remote_im_contacts.iter_mut().find(|item| {
         item.channel_id == input.channel_id
             && item.remote_contact_type == input.remote_contact_type.trim()
@@ -96,6 +148,16 @@ fn remote_im_upsert_contact_for_inbound(
             .filter(|v| !v.is_empty())
         {
             contact.remote_contact_name = name.to_string();
+        }
+        if matches!(input.platform, RemoteImPlatform::Dingtalk) {
+            let session_webhook = resolve_dingtalk_session_webhook(input);
+            if session_webhook.is_some() {
+                contact.dingtalk_session_webhook = session_webhook;
+            }
+            let expired_time = resolve_dingtalk_session_webhook_expired_time(input);
+            if expired_time.is_some() {
+                contact.dingtalk_session_webhook_expired_time = expired_time;
+            }
         }
         contact.last_message_at = Some(now.to_string());
         return contact.id.clone();
@@ -116,12 +178,23 @@ fn remote_im_upsert_contact_for_inbound(
             .to_string(),
         remark_name: String::new(),
         allow_send: false,
-        allow_receive: false,
+        allow_receive: default_allow_receive,
         activation_mode: "never".to_string(),
         activation_keywords: Vec::new(),
         activation_cooldown_seconds: 0,
         last_activated_at: None,
         last_message_at: Some(now.to_string()),
+        dingtalk_session_webhook: if matches!(input.platform, RemoteImPlatform::Dingtalk) {
+            resolve_dingtalk_session_webhook(input)
+        } else {
+            None
+        },
+        dingtalk_session_webhook_expired_time: if matches!(input.platform, RemoteImPlatform::Dingtalk)
+        {
+            resolve_dingtalk_session_webhook_expired_time(input)
+        } else {
+            None
+        },
     });
     contact_id
 }
@@ -238,7 +311,7 @@ fn resolve_channel_config(
 fn resolve_route_config(
     input: &RemoteImEnqueueInput,
     config: &AppConfig,
-) -> Result<(String, String, String), String> {
+) -> Result<(String, String), String> {
     let requested_department_id = input
         .session
         .department_id
@@ -271,17 +344,16 @@ fn resolve_route_config(
             agent_id, department.id
         ));
     }
-    let api_config_id = department_primary_api_config_id(department);
-    if api_config_id.trim().is_empty() {
+    let department_model_api_id = department_primary_api_config_id(department);
+    if department_model_api_id.trim().is_empty() {
         return Err(format!("部门模型未配置: {}", department.id));
     }
-    Ok((department.id.clone(), api_config_id, agent_id))
+    Ok((department.id.clone(), agent_id))
 }
 
 fn resolve_conversation_id(
     input: &RemoteImEnqueueInput,
     data: &mut AppData,
-    _api_config_id: &str,
     agent_id: &str,
 ) -> Result<String, String> {
     if let Some(requested) = input
@@ -315,14 +387,14 @@ fn validate_enqueue_input(
 ) -> Result<ValidatedEnqueueInput, String> {
     let text = input.payload.text.as_deref().unwrap_or("").trim().to_string();
     let (_channel_id, channel) = resolve_channel_config(input, config)?;
-    let (department_id, api_config_id, agent_id) = resolve_route_config(input, config)?;
+    let (department_id, agent_id) = resolve_route_config(input, config)?;
     let images = validate_images(&channel, input);
     let audios = validate_audios(&channel, input);
     let attachments = validate_attachments(&channel, input);
     if text.is_empty() && images.is_empty() && audios.is_empty() && attachments.is_empty() {
         return Err("远程IM消息内容为空".to_string());
     }
-    let conversation_id = resolve_conversation_id(input, data, &api_config_id, &agent_id)?;
+    let conversation_id = resolve_conversation_id(input, data, &agent_id)?;
 
     Ok(ValidatedEnqueueInput {
         text,
@@ -587,12 +659,35 @@ pub(crate) fn remote_im_enqueue_message_internal(
 
     let now = now_iso();
     let contact_id = remote_im_upsert_contact_for_inbound(&mut data, &channel, &input, &now);
-    let allow_receive = data
+    let mut allow_receive = data
         .remote_im_contacts
         .iter()
         .find(|item| item.id == contact_id)
         .map(|item| item.allow_receive)
         .unwrap_or(false);
+    if !allow_receive
+        && matches!(channel.platform, RemoteImPlatform::Dingtalk)
+        && channel.activate_assistant
+    {
+        if let Some(contact) = data.remote_im_contacts.iter_mut().find(|item| item.id == contact_id) {
+            let looks_like_default_contact = !contact.allow_send
+                && !contact.allow_receive
+                && contact.activation_mode == "never"
+                && contact.activation_keywords.is_empty()
+                && contact.activation_cooldown_seconds == 0;
+            if looks_like_default_contact {
+                contact.allow_receive = true;
+                eprintln!(
+                    "[远程IM] 自动开启收信: contact_id={}, contact_name={}, channel_id={}, platform={:?}, reason=matched_default_contact",
+                    contact.id,
+                    contact.remote_contact_name,
+                    channel.id,
+                    channel.platform
+                );
+                allow_receive = true;
+            }
+        }
+    }
     if !allow_receive {
         state_write_app_data_cached(state, &data)?;
         drop(guard);
@@ -633,10 +728,10 @@ pub(crate) fn remote_im_enqueue_message_internal(
             platform_message_id: input.platform_message_id,
         },
     );
-    enqueue_chat_event(state, event)?;
+    let ingress = ingress_chat_event(state, event)?;
     state_write_app_data_cached(state, &data)?;
     drop(guard);
-    trigger_chat_queue_processing(state);
+    trigger_chat_event_after_ingress(state, ingress);
     Ok(RemoteImEnqueueResult {
         event_id,
         conversation_id,

@@ -133,6 +133,8 @@ export type RemoteImContact = {
   activationCooldownSeconds: number;
   lastActivatedAt?: string;
   lastMessageAt?: string;
+  dingtalkSessionWebhook?: string;
+  dingtalkSessionWebhookExpiredTime?: number;
 };
 
 export type McpDefinitionValidateResult = {
