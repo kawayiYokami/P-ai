@@ -1,3 +1,7 @@
+fn terminal_decode_live_line(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).to_string()
+}
+
 async fn terminal_live_exec_command(
     state: &AppState,
     session_id: &str,
@@ -40,14 +44,14 @@ async fn terminal_live_exec_command(
             return Err(format!("terminal_exec timed out after {}ms", timeout_ms));
         }
         let remain = timeout_ms.saturating_sub(elapsed).max(1);
-        let mut out_line = String::new();
-        let mut err_line = String::new();
+        let mut out_line = Vec::<u8>::new();
+        let mut err_line = Vec::<u8>::new();
         let selected = tokio::time::timeout(
             std::time::Duration::from_millis(remain),
             async {
                 tokio::select! {
-                    out = stdout_reader.read_line(&mut out_line) => ("stdout", out.map(|n| n as i64), out_line),
-                    err = stderr_reader.read_line(&mut err_line) => ("stderr", err.map(|n| n as i64), err_line),
+                    out = stdout_reader.read_until(b'\n', &mut out_line) => ("stdout", out.map(|n| n as i64), out_line),
+                    err = stderr_reader.read_until(b'\n', &mut err_line) => ("stderr", err.map(|n| n as i64), err_line),
                 }
             },
         )
@@ -64,6 +68,7 @@ async fn terminal_live_exec_command(
             let _ = terminal_live_close_session(state, session_id).await;
             return Err("live shell closed unexpectedly".to_string());
         }
+        let line = terminal_decode_live_line(&line);
         let trimmed = line.trim_end_matches(['\r', '\n']);
         // Some commands (for example `cat`/`head` on files without trailing newline)
         // may print payload and marker in the same line. Detect marker anywhere in stdout.
@@ -83,10 +88,10 @@ async fn terminal_live_exec_command(
                     break;
                 }
                 let drain_remain = timeout_ms.saturating_sub(drain_elapsed).max(1).min(50);
-                let mut drain_err_line = String::new();
+                let mut drain_err_line = Vec::<u8>::new();
                 let drained = tokio::time::timeout(
                     std::time::Duration::from_millis(drain_remain),
-                    stderr_reader.read_line(&mut drain_err_line),
+                    stderr_reader.read_until(b'\n', &mut drain_err_line),
                 )
                 .await;
                 let drain_n = match drained {
@@ -96,7 +101,7 @@ async fn terminal_live_exec_command(
                 if drain_n == 0 {
                     break;
                 }
-                stderr_text.push_str(&drain_err_line);
+                stderr_text.push_str(&terminal_decode_live_line(&drain_err_line));
             }
             break;
         }

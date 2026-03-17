@@ -96,7 +96,7 @@ fn terminal_live_compose_command(shell: &TerminalShellProfile, cwd: &Path, comma
         let cwd_raw = cwd.to_string_lossy().to_string();
         let cwd_text = terminal_powershell_escape_literal(&cwd_raw);
         return format!(
-            "$ErrorActionPreference='Continue'; try {{ Set-Location -LiteralPath '{cwd_text}'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; $ecaExit = if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }}; Write-Output \"{marker}:$ecaExit\""
+            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; Set-Location -LiteralPath '{cwd_text}'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; $ecaExit = if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }}; Write-Output \"{marker}:$ecaExit\""
         );
     }
     if shell.kind == "git-bash" {
@@ -104,7 +104,7 @@ fn terminal_live_compose_command(shell: &TerminalShellProfile, cwd: &Path, comma
         {
             let cwd_text = terminal_bash_escape_literal(&terminal_windows_path_to_bash(cwd));
             return format!(
-                "cd '{cwd_text}' || exit 1\n{command}\nprintf '%s:%s\\n' '{marker}' \"$?\""
+                "chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; cd '{cwd_text}' || exit 1; {command}; printf '%s:%s\\n' '{marker}' \"$?\""
             );
         }
     }
@@ -146,6 +146,8 @@ async fn terminal_live_create_session(
     } else if shell.kind == "git-bash" {
         command_builder.arg("--noprofile");
         command_builder.arg("--norc");
+        command_builder.env("LANG", "en_US.UTF-8");
+        command_builder.env("LC_ALL", "en_US.UTF-8");
     } else if shell.kind == "bash" {
         command_builder.arg("--noprofile");
         command_builder.arg("--norc");
@@ -507,4 +509,3 @@ fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
         terminal_shell_runtime_label(shell)
     )
 }
-
