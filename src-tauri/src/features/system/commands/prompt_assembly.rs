@@ -29,6 +29,9 @@ fn build_prepared_prompt_for_mode(
     last_archive_summary: Option<&str>,
     terminal_block: Option<String>,
     chat_overrides: Option<ChatPromptOverrides>,
+    state: Option<&AppState>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: Option<bool>,
 ) -> PreparedPrompt {
     match mode {
         PromptBuildMode::Chat => {
@@ -66,6 +69,9 @@ fn build_prepared_prompt_for_mode(
                 response_style_id,
                 ui_language,
                 data_path,
+                state,
+                resolved_api,
+                enable_pdf_images.unwrap_or(false),
             );
             prepared = enrich_prepared_prompt_with_common_preamble(
                 prepared,
@@ -104,6 +110,9 @@ fn build_prepared_prompt_for_mode(
                 response_style_id,
                 ui_language,
                 data_path,
+                state,
+                resolved_api,
+                enable_pdf_images.unwrap_or(false),
             );
             prepared = enrich_prepared_prompt_with_common_preamble(prepared, None, terminal_block);
             if let Some(overrides) = chat_overrides {
@@ -331,4 +340,3 @@ fn merge_latest_user_extra_text(existing: &str, appended_blocks: &[String]) -> S
     }
     merged.join("\n\n")
 }
-

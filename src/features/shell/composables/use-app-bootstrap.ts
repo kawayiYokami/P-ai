@@ -12,6 +12,7 @@ type ChatSettingsPayload = {
   assistantDepartmentAgentId: string;
   userAlias: string;
   responseStyleId: string;
+  pdfReadMode?: "text" | "image";
 };
 
 export type TerminalApprovalRequestPayload = {

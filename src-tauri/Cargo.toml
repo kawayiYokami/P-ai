@@ -38,10 +38,13 @@ webbrowser = "1.0"
 futures-util = "0.3"
 sse-stream = "0.2"
 sha2 = "0.10"
+pdf_oxide = { version = "0.3.17", default-features = false }
+hayro = "0.5.0"
 aho-corasick = "1.1"
 enigo = "0.6"
 arboard = "3"
 webp = "0.3"
+rayon = "1.10"
 captis = "0.6"
 xcap = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -68,3 +71,6 @@ rdev = "0.5"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 rdev = "0.5"
+
+
+

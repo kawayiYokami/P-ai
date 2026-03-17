@@ -778,6 +778,9 @@ async fn send_chat_message_inner(
             last_archive_summary.as_deref(),
             terminal_prompt_trusted_roots_block(&state, &selected_api),
             chat_overrides,
+            Some(&state),
+            Some(&resolved_api),
+            Some(data.pdf_read_mode == "image" && selected_api.enable_image),
         );
 
         // Use persisted API config as the source of truth to avoid stale
@@ -1215,4 +1218,3 @@ async fn send_chat_message_inner(
     );
     final_result
 }
-

@@ -31,6 +31,9 @@ include!("commands/archive_io_commands.rs");
 // ==================== 归档主持人格选择 ====================
 include!("commands/archive_host_selector.rs");
 
+// ==================== PDF文本服务 ====================
+include!("services/pdf_text_service.rs");
+
 // ==================== 归档执行流水线 ====================
 include!("commands/archive_pipeline.rs");
 

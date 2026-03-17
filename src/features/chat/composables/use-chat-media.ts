@@ -52,14 +52,10 @@ export function useChatMedia(options: UseChatMediaOptions) {
     return !!apiConfig.enableImage || options.hasVisionFallback.value;
   }
 
-  function canAcceptPdf(apiConfig: ApiConfigItem): boolean {
-    return !!apiConfig.enableImage && apiConfig.requestFormat === "gemini";
-  }
-
   function classifyFileMime(
     mime: string,
     apiConfig: ApiConfigItem,
-  ): { kind: "image" | "pdf" | null; reason: "imageUnsupported" | "pdfNeedsImage" | "pdfNeedsGemini" | null } {
+  ): { kind: "image" | "pdf" | null; reason: "imageUnsupported" | null } {
     const normalized = (mime || "").trim().toLowerCase();
     if (normalized.startsWith("image/")) {
       return canAcceptImage(apiConfig)
@@ -67,9 +63,8 @@ export function useChatMedia(options: UseChatMediaOptions) {
         : { kind: null, reason: "imageUnsupported" };
     }
     if (normalized === "application/pdf") {
-      if (!apiConfig.enableImage) return { kind: null, reason: "pdfNeedsImage" };
-      if (canAcceptPdf(apiConfig)) return { kind: "pdf", reason: null };
-      return { kind: null, reason: "pdfNeedsGemini" };
+      // PDF 不再走多模态直发，统一入队为普通附件，交由后端阅读链路处理。
+      return { kind: null, reason: null };
     }
     return { kind: null, reason: null };
   }

@@ -1,5 +1,5 @@
 import { watch, type ComputedRef, type Ref } from "vue";
-import type { ApiConfigItem, AppConfig, PersonaProfile, ToolLoadStatus } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, PdfReadMode, PersonaProfile, ToolLoadStatus } from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -14,6 +14,7 @@ type UseAppWatchersOptions = {
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
+  selectedPdfReadMode: Ref<PdfReadMode>;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
   activeChatApiConfigId: ComputedRef<string>;
@@ -190,6 +191,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => ({
       userAlias: options.userAlias.value,
       responseStyleId: options.selectedResponseStyleId.value,
+      pdfReadMode: options.selectedPdfReadMode.value,
     }),
     () => {
       void options.saveChatSettings();

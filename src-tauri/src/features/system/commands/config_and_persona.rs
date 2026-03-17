@@ -787,6 +787,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         assistant_department_agent_id: data.assistant_department_agent_id.clone(),
         user_alias: user_persona_name(&runtime_data),
         response_style_id: data.response_style_id.clone(),
+        pdf_read_mode: data.pdf_read_mode.clone(),
     })
 }
 
@@ -818,6 +819,7 @@ fn save_chat_settings(
     data.assistant_department_agent_id = target_agent_id.clone();
     data.user_alias = user_persona_name(&data);
     data.response_style_id = normalize_response_style_id(&input.response_style_id);
+    data.pdf_read_mode = normalize_pdf_read_mode(&input.pdf_read_mode);
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
@@ -825,6 +827,7 @@ fn save_chat_settings(
         assistant_department_agent_id: target_agent_id,
         user_alias: data.user_alias,
         response_style_id: data.response_style_id,
+        pdf_read_mode: data.pdf_read_mode,
     };
 
     let _ = app.emit("easy-call:chat-settings-updated", &payload);
@@ -1437,6 +1440,12 @@ fn delete_unarchived_conversation(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
     let before = data.conversations.len();
+    let removed_ids = data
+        .conversations
+        .iter()
+        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
+        .map(|c| c.id.clone())
+        .collect::<Vec<_>>();
     let removed_count = data
         .conversations
         .iter()
@@ -1454,6 +1463,9 @@ fn delete_unarchived_conversation(
         removed_count
     );
     drop(guard);
+    for conversation_id in removed_ids {
+        cleanup_pdf_session_memory_cache_for_conversation(&conversation_id);
+    }
     Ok(())
 }
 
@@ -1813,5 +1825,3 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
-
-

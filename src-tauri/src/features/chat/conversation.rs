@@ -333,7 +333,6 @@ fn is_supported_image_upload_mime(mime: &str) -> bool {
             | "image/heic"
             | "image/heif"
             | "image/svg+xml"
-            | "application/pdf"
     )
 }
 
@@ -375,30 +374,14 @@ fn build_user_parts(
             let raw = B64
                 .decode(bytes_base64)
                 .map_err(|err| format!("Decode image base64 failed: {err}"))?;
-            if mime == "application/pdf" {
-                if !api_config.request_format.is_gemini() {
-                    return Err(
-                        "PDF attachment is only supported when request format is 'gemini'."
-                            .to_string(),
-                    );
-                }
-                total_binary += raw.len();
-                parts.push(MessagePart::Image {
-                    mime: "application/pdf".to_string(),
-                    bytes_base64: bytes_base64.to_string(),
-                    name: None,
-                    compressed: false,
-                });
-            } else {
-                let webp = compress_image_to_webp(&raw)?;
-                total_binary += webp.len();
-                parts.push(MessagePart::Image {
-                    mime: "image/webp".to_string(),
-                    bytes_base64: B64.encode(webp),
-                    name: None,
-                    compressed: true,
-                });
-            }
+            let webp = compress_image_to_webp(&raw)?;
+            total_binary += webp.len();
+            parts.push(MessagePart::Image {
+                mime: "image/webp".to_string(),
+                bytes_base64: B64.encode(webp),
+                name: None,
+                compressed: true,
+            });
         }
     }
 
@@ -1157,6 +1140,9 @@ fn build_prompt(
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
+    state: Option<&AppState>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: bool,
 ) -> PreparedPrompt {
     build_prompt_with_mode(
         conversation,
@@ -1167,6 +1153,9 @@ fn build_prompt(
         response_style_id,
         ui_language,
         data_path,
+        state,
+        resolved_api,
+        enable_pdf_images,
     )
 }
 
@@ -1178,6 +1167,9 @@ fn build_delegate_prompt(
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
+    state: Option<&AppState>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: bool,
 ) -> PreparedPrompt {
     build_prompt_with_mode(
         conversation,
@@ -1188,6 +1180,9 @@ fn build_delegate_prompt(
         response_style_id,
         ui_language,
         data_path,
+        state,
+        resolved_api,
+        enable_pdf_images,
     )
 }
 
@@ -1200,15 +1195,115 @@ fn build_prompt_with_mode(
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
+    state: Option<&AppState>,
+    _resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: bool,
 ) -> PreparedPrompt {
+    // 预处理PDF附件：按页提取文本，可选按页提取图片
+    let mut enriched_messages = conversation.messages.clone();
+
+    if let Some(state) = state {
+        for message in &mut enriched_messages {
+            if let Some(meta) = message.provider_meta.as_ref() {
+                if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
+                    for item in attachments {
+                        let mime = item.get("mime").and_then(Value::as_str).unwrap_or("");
+                        if mime != "application/pdf" {
+                            continue;
+                        }
+                        let relative_path = item.get("relativePath").and_then(Value::as_str).unwrap_or("");
+                        if relative_path.is_empty() {
+                            continue;
+                        }
+                        let file_name = item.get("fileName").and_then(Value::as_str).unwrap_or("");
+                        let include_images = enable_pdf_images;
+                        let file_path = state.llm_workspace_path.join(relative_path);
+                        let Some(file_path_str) = file_path.to_str() else {
+                            eprintln!(
+                                "[PDF提取] 跳过 路径包含非UTF-8字符, conversation_id={}, relative_path={}",
+                                conversation.id, relative_path
+                            );
+                            continue;
+                        };
+                        let conversation_id = conversation.id.clone();
+                        match get_or_extract_pdf_structured(
+                            state,
+                            &conversation_id,
+                            file_path_str,
+                            include_images,
+                        ) {
+                            Ok(result) => {
+                                if enable_pdf_images {
+                                    for page in result.pages {
+                                        for (img_idx, img) in page.images.iter().enumerate() {
+                                            message.parts.push(MessagePart::Image {
+                                                mime: img.mime.clone(),
+                                                bytes_base64: img.bytes_base64.clone(),
+                                                name: Some(format!(
+                                                    "{}_p{}_img{}.webp",
+                                                    result.file_name,
+                                                    page.page_index + 1,
+                                                    img_idx + 1,
+                                                )),
+                                                compressed: false,
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    for page in result.pages {
+                                        let page_text = format!(
+                                            "[PDF文档分页]\n文件名：{}\n页码：{}/{}\n\n{}",
+                                            result.file_name,
+                                            page.page_index + 1,
+                                            result.total_pages,
+                                            page.text
+                                        );
+                                        message.extra_text_blocks.push(page_text);
+                                    }
+                                }
+                                message.extra_text_blocks.push(format!(
+                                    "提示：如需阅读完整内容，请使用 shell 工具读取 {}",
+                                    relative_path
+                                ));
+                            }
+                            Err(e) => {
+                                if is_pdf_page_limit_exceeded_error(&e) {
+                                    message.extra_text_blocks.push(format!(
+                                        "提示：PDF 页数超过 {} 页，已按普通文件处理，不进行自动提取。",
+                                        100
+                                    ));
+                                    message.extra_text_blocks.push(format!(
+                                        "提示：如需阅读完整内容，请使用 shell 工具读取 {}",
+                                        relative_path
+                                    ));
+                                    continue;
+                                }
+                                eprintln!(
+                                    "[PDF提取] 失败 conversation_id={}, file_name={}, error={:?}",
+                                    conversation_id, file_name, e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 使用enriched_messages替代conversation.messages
+    let enriched_conversation = Conversation {
+        messages: enriched_messages,
+        ..conversation.clone()
+    };
+
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let mut seen_remote_contacts = std::collections::HashSet::<String>::new();
-    let latest_user_index = conversation
+    let latest_user_index = enriched_conversation
         .messages
         .iter()
         .rposition(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"));
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
-    for (idx, message) in conversation.messages.iter().enumerate() {
+    for (idx, message) in enriched_conversation.messages.iter().enumerate() {
         let Some(role) = prompt_role_for_message(message, &agent.id) else {
             continue;
         };
@@ -1487,7 +1582,7 @@ fn build_prompt_with_mode(
         preamble.push('\n');
     }
 
-    let latest_user = conversation
+    let latest_user = enriched_conversation
         .messages
         .iter()
         .rev()

@@ -41,6 +41,8 @@
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
             None,
+            None,
+            false,
         );
 
         assert!(
@@ -116,6 +118,8 @@
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
             None,
+            None,
+            false,
         );
 
         assert_eq!(prepared.history_messages.len(), 2);

@@ -47,6 +47,7 @@
       :user-persona-avatar-url="userPersonaAvatarUrl"
       :response-style-options="responseStyleOptions"
       :selected-response-style-id="selectedResponseStyleId"
+      :selected-pdf-read-mode="selectedPdfReadMode"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
       :stt-capable-api-configs="sttCapableApiConfigs"
@@ -123,6 +124,7 @@
       :update-persona-editor-id="updatePersonaEditorIdWithNotice"
       :update-selected-persona-id="updateAssistantDepartmentAgentId"
       :update-selected-response-style-id="updateSelectedResponseStyleId"
+      :update-selected-pdf-read-mode="updateSelectedPdfReadMode"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
@@ -392,6 +394,7 @@ const assistantDepartmentAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
+const selectedPdfReadMode = ref<"text" | "image">("image");
 const chatInput = ref("");
 const currentChatConversationId = ref("");
 const latestUserText = ref("");
@@ -947,6 +950,9 @@ function updateSelectedResponseStyleId(value: string) {
   selectedResponseStyleId.value = value;
 }
 
+function updateSelectedPdfReadMode(value: "text" | "image") {
+  selectedPdfReadMode.value = value;
+}
 const {
   syncTrayIcon,
   saveAgentAvatar,
@@ -995,6 +1001,7 @@ const configPersistence = useConfigPersistence({
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
+  selectedPdfReadMode,
   responseStyleIds,
   createApiConfig,
   normalizeApiBindingsLocal,
@@ -1126,6 +1133,7 @@ const appBootstrap = useAppBootstrap({
     if (nextStyleId) {
       selectedResponseStyleId.value = nextStyleId;
     }
+    selectedPdfReadMode.value = payload.pdfReadMode === "text" ? "text" : "image";
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
       resetVisibleMessageBlocksByCurrentMessages();
@@ -1714,6 +1722,7 @@ useAppWatchers({
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
+  selectedPdfReadMode,
   selectedApiConfig,
   toolApiConfig,
   activeChatApiConfigId: assistantDepartmentApiConfigId,
@@ -1734,3 +1743,5 @@ useAppWatchers({
   },
 });
 </script>
+
+

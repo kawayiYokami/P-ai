@@ -142,9 +142,11 @@
           :stt-capable-api-configs="sttCapableApiConfigs"
           :response-style-options="responseStyleOptions"
           :response-style-id="responseStyleId"
+          :pdf-read-mode="pdfReadMode"
           :cache-stats="cacheStats"
           :cache-stats-loading="cacheStatsLoading"
           @update:response-style-id="$emit('update:responseStyleId', $event)"
+          @update:pdf-read-mode="$emit('update:pdfReadMode', $event)"
           @open-current-history="$emit('openCurrentHistory')"
           @open-prompt-preview="$emit('openPromptPreview')"
           @open-system-prompt-preview="$emit('openSystemPromptPreview')"
@@ -304,6 +306,7 @@ const props = defineProps<{
   assistantDepartmentAgentId: string;
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
+  pdfReadMode: "text" | "image";
   selectedPersona: PersonaProfile | null;
   toolPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
@@ -333,6 +336,7 @@ const emit = defineEmits<{
   (e: "update:personaEditorId", value: string): void;
   (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
+  (e: "update:pdfReadMode", value: "text" | "image"): void;
   (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;
   (e: "toolSwitchChanged"): void;
@@ -684,4 +688,5 @@ onBeforeUnmount(() => {
   scrollbar-gutter: stable;
 }
 </style>
+
 

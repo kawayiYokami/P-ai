@@ -9,6 +9,7 @@ const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
+const DEFAULT_PDF_READ_MODE: &str = "image";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,18 @@ fn built_in_response_styles() -> &'static Vec<ResponseStylePreset> {
 
 fn default_response_style_id() -> String {
     DEFAULT_RESPONSE_STYLE_ID.to_string()
+}
+
+fn default_pdf_read_mode() -> String {
+    DEFAULT_PDF_READ_MODE.to_string()
+}
+
+fn normalize_pdf_read_mode(value: &str) -> String {
+    match value.trim() {
+        "text" => "text".to_string(),
+        "image" => "image".to_string(),
+        _ => default_pdf_read_mode(),
+    }
 }
 
 fn normalize_response_style_id(value: &str) -> String {
@@ -1121,6 +1134,46 @@ struct ImageTextCacheEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PdfTextCacheEntry {
+    pub file_hash: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub extracted_text: String,
+    pub total_pages: u32,
+    pub extracted_pages: u32,
+    pub is_truncated: bool,
+    pub conversation_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfImageCacheEntry {
+    pub file_hash: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub total_pages: u32,
+    pub rendered_pages: u32,
+    pub dpi: u32,
+    pub images: Vec<PdfRenderedImage>,
+    pub conversation_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfRenderedImage {
+    pub page_index: usize,
+    pub width: u32,
+    pub height: u32,
+    pub bytes_base64: String,
+    pub mime: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MemoryEntry {
     id: String,
     #[serde(default, alias = "memoryType")]
@@ -1152,11 +1205,17 @@ struct AppData {
     user_alias: String,
     #[serde(default = "default_response_style_id")]
     response_style_id: String,
+    #[serde(default = "default_pdf_read_mode")]
+    pdf_read_mode: String,
     conversations: Vec<Conversation>,
     #[serde(default, skip_serializing)]
     archived_conversations: Vec<ConversationArchive>,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
+    #[serde(default)]
+    pdf_text_cache: Vec<PdfTextCacheEntry>,
+    #[serde(default)]
+    pdf_image_cache: Vec<PdfImageCacheEntry>,
     #[serde(default)]
     remote_im_contacts: Vec<RemoteImContact>,
 }
@@ -1173,9 +1232,12 @@ impl Default for AppData {
             assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
+            pdf_read_mode: default_pdf_read_mode(),
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
+            pdf_text_cache: Vec::new(),
+            pdf_image_cache: Vec::new(),
             remote_im_contacts: Vec::new(),
         }
     }
@@ -1956,6 +2018,11 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
         data.response_style_id = desired_style;
         changed = true;
     }
+    let desired_pdf_read_mode = normalize_pdf_read_mode(&data.pdf_read_mode);
+    if data.pdf_read_mode != desired_pdf_read_mode {
+        data.pdf_read_mode = desired_pdf_read_mode;
+        changed = true;
+    }
     changed
 }
 
@@ -2043,6 +2110,8 @@ struct ChatSettings {
     user_alias: String,
     #[serde(default = "default_response_style_id")]
     response_style_id: String,
+    #[serde(default = "default_pdf_read_mode")]
+    pdf_read_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

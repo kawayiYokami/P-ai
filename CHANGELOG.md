@@ -2,6 +2,25 @@
 
 ## 未发布
 
+- 新增（pdf-read-mode）：对话设置新增 `PDF 阅读方式（文本/图片）` 并贯通前后端
+  - 新增 `pdf_read_mode` 配置读写、事件同步与自动保存
+  - 发送链路按 `pdf_read_mode == image && selected_api.enable_image` 判定
+  - 预览链路同步使用同一判定，避免“预览与实发不一致”
+  - 新增文案说明：即使设置为图片，模型不支持图片时仍自动回退文本
+
+- 优化（pdf-render）：Hayro 页面渲染改为并行执行，PDF 图片模式显著提速
+  - 引入 `rayon`，将按页渲染+编码改为 `par_iter` 并行
+  - 同一 PDF 对比结果：`17757ms -> 3375ms`，约 `5.26x` 加速
+  - 删除临时 benchmark demo，仅保留产品内并行实现
+
+- 修复（pdf-path-utf8）：修复 PDF 路径 `to_str().unwrap_or(\"\")` 静默退化问题
+  - 路径非 UTF-8 时改为显式跳过并打印日志
+  - 避免空路径继续下游调用导致隐性异常
+
+- 优化（pdf-text-clean）：PDF 文本清洗前移到提取入缓存阶段（一次性执行）
+  - 删除换行符，删除中文字符之间空白
+  - 缓存 key 升级 `v2`，避免旧缓存影响新清洗规则
+
 - 发布（release）：版本号提升到 `0.5.1`
   - 同步更新 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
   - 本地 `pnpm tauri build` 验证通过，已产出 Windows 可执行与安装包

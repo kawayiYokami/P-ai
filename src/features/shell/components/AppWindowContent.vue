@@ -33,6 +33,7 @@
       :user-persona-avatar-url="userPersonaAvatarUrl"
       :response-style-options="responseStyleOptions"
       :response-style-id="selectedResponseStyleId"
+      :pdf-read-mode="selectedPdfReadMode"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
       :stt-capable-api-configs="sttCapableApiConfigs"
@@ -55,6 +56,7 @@
       @update:persona-editor-id="updatePersonaEditorId"
       @update:assistant-department-agent-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
+      @update:pdf-read-mode="updateSelectedPdfReadMode"
       @set-theme="setTheme"
       @refresh-models="refreshModels"
       @tool-switch-changed="onToolsChanged"
@@ -263,6 +265,7 @@ const props = defineProps<{
   userPersonaAvatarUrl: string;
   responseStyleOptions: ResponseStyleOption[];
   selectedResponseStyleId: string;
+  selectedPdfReadMode: "text" | "image";
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   sttCapableApiConfigs: ApiConfigItem[];
@@ -340,6 +343,7 @@ const props = defineProps<{
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
+  updateSelectedPdfReadMode: (value: "text" | "image") => void;
   setTheme: (value: string) => void;
   refreshModels: () => void;
   saveConfig: () => Promise<boolean> | boolean;
@@ -403,4 +407,5 @@ const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
   props.setPromptPreviewDialogRef((el as Element | null) ?? null);
 };
 </script>
+
 

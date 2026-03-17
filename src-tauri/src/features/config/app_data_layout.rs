@@ -154,6 +154,8 @@ struct RuntimeStateFile {
     assistant_department_agent_id: String,
     user_alias: String,
     response_style_id: String,
+    #[serde(default = "default_pdf_read_mode")]
+    pdf_read_mode: String,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
     #[serde(default)]
@@ -167,6 +169,7 @@ impl Default for RuntimeStateFile {
             assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
+            pdf_read_mode: default_pdf_read_mode(),
             image_text_cache: Vec::new(),
             remote_im_contacts: Vec::new(),
         }
@@ -315,6 +318,8 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         assistant_department_agent_id: String,
         user_alias: String,
         response_style_id: String,
+        #[serde(default = "default_pdf_read_mode")]
+        pdf_read_mode: String,
     }
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     #[serde(rename_all = "camelCase")]
@@ -342,6 +347,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
             assistant_department_agent_id: defaults.assistant_department_agent_id.clone(),
             user_alias: defaults.user_alias.clone(),
             response_style_id: defaults.response_style_id.clone(),
+            pdf_read_mode: defaults.pdf_read_mode.clone(),
         }
     };
     let conversations = if conversations_path.exists() {
@@ -361,10 +367,13 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         assistant_department_agent_id: profile.assistant_department_agent_id,
         user_alias: profile.user_alias,
         response_style_id: profile.response_style_id,
+        pdf_read_mode: profile.pdf_read_mode,
         conversations: conversations.conversations,
         archived_conversations: Vec::new(),
         image_text_cache: image_cache.image_text_cache,
         remote_im_contacts: Vec::new(),
+        pdf_text_cache: Vec::new(),
+        pdf_image_cache: Vec::new(),
     })
 }
 
@@ -419,10 +428,13 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
         assistant_department_agent_id: runtime.assistant_department_agent_id,
         user_alias: runtime.user_alias,
         response_style_id: runtime.response_style_id,
+        pdf_read_mode: runtime.pdf_read_mode,
         conversations,
         archived_conversations: Vec::new(),
         image_text_cache: runtime.image_text_cache,
         remote_im_contacts: runtime.remote_im_contacts,
+        pdf_text_cache: Vec::new(),
+        pdf_image_cache: Vec::new(),
     })
 }
 
@@ -463,6 +475,7 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
         assistant_department_agent_id: data.assistant_department_agent_id.clone(),
         user_alias: data.user_alias.clone(),
         response_style_id: data.response_style_id.clone(),
+        pdf_read_mode: data.pdf_read_mode.clone(),
         image_text_cache: data.image_text_cache.clone(),
         remote_im_contacts: data.remote_im_contacts.clone(),
     };
@@ -527,4 +540,3 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
     }
     Ok(())
 }
-

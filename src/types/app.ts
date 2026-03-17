@@ -374,7 +374,14 @@ export type ResponseStyleOption = {
   prompt: string;
 };
 
-export type ChatSettings = { assistantDepartmentAgentId: string; userAlias: string; responseStyleId: string };
+export type PdfReadMode = "text" | "image";
+
+export type ChatSettings = {
+  assistantDepartmentAgentId: string;
+  userAlias: string;
+  responseStyleId: string;
+  pdfReadMode: PdfReadMode;
+};
 
 export type ToolLoadStatus = {
   id: string;

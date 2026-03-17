@@ -134,6 +134,9 @@ async fn summarize_archived_conversation_with_model_v2(
         None,
         None,
         None,
+        Some(state),
+        None,
+        None,
     );
     prepared.latest_user_text =
         build_archive_latest_user_text(&instruction, &used_memories, archive_example_output_block());
@@ -491,6 +494,12 @@ async fn run_archive_pipeline_inner(
     let merged_groups =
         merge_memory_groups_into_store(&state.data_path, &merge_groups, owner_agent_id)?;
     state_write_app_data_cached(&state, &data)?;
+
+    // 清理PDF缓存
+    if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
+        eprintln!("[WARN] 清理PDF缓存失败: conversation={}, error={}", source.id, e);
+    }
+
     drop(guard);
 
     eprintln!(

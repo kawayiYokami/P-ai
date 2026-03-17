@@ -39,6 +39,26 @@
       </button>
     </div>
   </div>
+  <div class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.pdfReadMode") }}</span></div>
+    <div class="join w-full">
+      <button
+        class="btn btn-sm join-item flex-1"
+        :class="pdfReadMode === 'text' ? 'btn-primary' : 'bg-base-100'"
+        @click="$emit('update:pdfReadMode', 'text')"
+      >
+        {{ t("config.chatSettings.pdfReadModeText") }}
+      </button>
+      <button
+        class="btn btn-sm join-item flex-1"
+        :class="pdfReadMode === 'image' ? 'btn-primary' : 'bg-base-100'"
+        @click="$emit('update:pdfReadMode', 'image')"
+      >
+        {{ t("config.chatSettings.pdfReadModeImage") }}
+      </button>
+    </div>
+    <div class="mt-1 text-xs opacity-70">{{ t("config.chatSettings.pdfReadModeHint") }}</div>
+  </div>
   <div class="grid grid-cols-3 gap-2 mb-3">
     <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
     <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
@@ -70,12 +90,14 @@ const props = defineProps<{
   sttCapableApiConfigs: ApiConfigItem[];
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
+  pdfReadMode: "text" | "image";
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
 }>();
 
 defineEmits<{
   (e: "update:responseStyleId", value: string): void;
+  (e: "update:pdfReadMode", value: "text" | "image"): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;
   (e: "openSystemPromptPreview"): void;

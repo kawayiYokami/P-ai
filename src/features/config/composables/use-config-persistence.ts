@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { AppConfig, PersonaProfile, RemoteImChannelConfig } from "../../../types/app";
+import type { AppConfig, PdfReadMode, PersonaProfile, RemoteImChannelConfig } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
 import { normalizeToolBindings } from "../utils/builtin-tools";
 
@@ -32,6 +32,7 @@ type UseConfigPersistenceOptions = {
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
+  selectedPdfReadMode: Ref<PdfReadMode>;
   responseStyleIds: ComputedRef<string[]>;
   createApiConfig: (name?: string) => AppConfig["apiConfigs"][number];
   normalizeApiBindingsLocal: () => void;
@@ -364,7 +365,12 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   async function loadChatSettings() {
     options.suppressAutosave.value = true;
     try {
-      const settings = await invokeTauri<{ assistantDepartmentAgentId: string; userAlias: string; responseStyleId: string }>(
+      const settings = await invokeTauri<{
+        assistantDepartmentAgentId: string;
+        userAlias: string;
+        responseStyleId: string;
+        pdfReadMode?: string;
+      }>(
         "load_chat_settings",
       );
       if (options.assistantPersonas.value.some((p) => p.id === settings.assistantDepartmentAgentId)) {
@@ -379,6 +385,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       } else {
         options.selectedResponseStyleId.value = "concise";
       }
+      options.selectedPdfReadMode.value = settings.pdfReadMode === "text" ? "text" : "image";
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
@@ -423,6 +430,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           assistantDepartmentAgentId: targetAgentId,
           userAlias: options.userAlias.value,
           responseStyleId: options.selectedResponseStyleId.value,
+          pdfReadMode: options.selectedPdfReadMode.value,
         },
       });
       options.assistantDepartmentAgentId.value = targetAgentId;
@@ -474,4 +482,3 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     saveConversationApiSettings,
   };
 }
-

@@ -11,6 +11,7 @@ fn get_prompt_preview(
     let mut app_config = read_config(&state.config_path)?;
     let api_config = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config available".to_string())?;
+    let resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
@@ -86,6 +87,9 @@ fn get_prompt_preview(
             ],
             ..Default::default()
         }),
+        Some(&*state),
+        Some(&resolved_api),
+        Some(data.pdf_read_mode == "image" && api_config.enable_image),
     );
     let mut user_content = Vec::<Value>::new();
     for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
@@ -402,4 +406,3 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
     drop(guard);
     Ok(())
 }
-
