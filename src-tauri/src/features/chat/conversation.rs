@@ -480,22 +480,17 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
         }
         if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
             for item in attachments {
-                let file_name = item
-                    .get("fileName")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or("");
                 let relative_path = item
                     .get("relativePath")
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .unwrap_or("");
-                if file_name.is_empty() || relative_path.is_empty() {
+                if relative_path.is_empty() {
                     continue;
                 }
                 chunks.push(format!(
-                    "用户本次上传了一个附件：{}\n保存到了你工作区的downloads文件夹内（路径：{}）\n如果需要，请使用 shell 工具读取该文件内容。",
-                    file_name, relative_path
+                    "用户上传了附件，文件位于你工作区的 downloads 目录（路径：{}）。\n你可以先用 shell 工具定位或查看基础文件信息；具体解析方式应按文件类型选择合适 skill 或在线检索正确方法。\n仅当用户明确要求处理该附件时再处理；若用户未明确要求，请先询问用户想如何处理。",
+                    relative_path
                 ));
             }
         }
@@ -829,22 +824,17 @@ fn prompt_user_extra_blocks_for_message(
     if let Some(meta) = message.provider_meta.as_ref() {
         if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
             for item in attachments {
-                let file_name = item
-                    .get("fileName")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or("");
                 let relative_path = item
                     .get("relativePath")
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .unwrap_or("");
-                if file_name.is_empty() || relative_path.is_empty() {
+                if relative_path.is_empty() {
                     continue;
                 }
                 blocks.push(format!(
-                    "用户本次上传了一个附件：{}\n保存到了你工作区的downloads文件夹内（路径：{}）\n如果需要，请使用 shell 工具读取该文件内容。",
-                    file_name, relative_path
+                    "用户上传了附件，文件位于你工作区的 downloads 目录（路径：{}）。\n你可以先用 shell 工具定位或查看基础文件信息；具体解析方式应按文件类型选择合适 skill 或在线检索正确方法。\n仅当用户明确要求处理该附件时再处理；若用户未明确要求，请先询问用户想如何处理。",
+                    relative_path
                 ));
             }
         }
