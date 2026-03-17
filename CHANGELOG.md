@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 发布（release）：版本号提升到 `0.5.1`
+  - 同步更新 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
+  - 本地 `pnpm tauri build` 验证通过，已产出 Windows 可执行与安装包
+
 - 调整（attachment-prompt）：附件提示文案去重，移除重复文件名
   - 附件提示仅保留路径字段，不再重复展示文件名
   - 保留“先定位、按类型选 skill/检索、未明确要求先询问用户”的行为约束
