@@ -1,18 +1,59 @@
-use jieba_rs::Jieba;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::QueryParser;
 use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions, STORED};
 use tantivy::tokenizer::{SimpleTokenizer, TextAnalyzer};
 use tantivy::{doc, Index};
 
-fn tokenize_cn(jieba: &Jieba, text: &str) -> String {
-    jieba
-        .cut(text, false)
-        .into_iter()
-        .map(|t| t.trim().to_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+fn is_cjk_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0x20000..=0x2A6DF
+            | 0x2A700..=0x2B73F
+            | 0x2B740..=0x2B81F
+            | 0x2B820..=0x2CEAF
+            | 0x2CEB0..=0x2EBEF
+            | 0x30000..=0x3134F
+    )
+}
+
+fn tokenize_cn(text: &str) -> String {
+    let mut out = Vec::<String>::new();
+    let mut ascii = String::new();
+    let mut cjk_run = Vec::<char>::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if !cjk_run.is_empty() {
+                for c in cjk_run.drain(..) {
+                    out.push(c.to_string());
+                }
+            }
+            ascii.push(ch.to_ascii_lowercase());
+            continue;
+        }
+        if !ascii.is_empty() {
+            out.push(ascii.clone());
+            ascii.clear();
+        }
+        if is_cjk_char(ch) {
+            cjk_run.push(ch);
+        } else if !cjk_run.is_empty() {
+            for c in cjk_run.drain(..) {
+                out.push(c.to_string());
+            }
+        }
+    }
+    if !ascii.is_empty() {
+        out.push(ascii);
+    }
+    if !cjk_run.is_empty() {
+        for c in cjk_run {
+            out.push(c.to_string());
+        }
+    }
+    out.join(" ")
 }
 
 fn run_case(
@@ -20,9 +61,6 @@ fn run_case(
     docs: &[&str],
     queries: &[&str],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut jieba = Jieba::new();
-    jieba.add_word("遥酱", None, None);
-
     let mut schema_builder = Schema::builder();
     let indexing = TextFieldIndexing::default()
         .set_tokenizer("zh_ws")
@@ -41,7 +79,7 @@ fn run_case(
     let mut writer = index.writer(20_000_000)?;
 
     for d in docs {
-        let toks = tokenize_cn(&jieba, d);
+        let toks = tokenize_cn(d);
         writer.add_document(doc!(content => toks, raw => d.to_string()))?;
     }
     writer.commit()?;
@@ -51,7 +89,7 @@ fn run_case(
     println!("\n=== CASE: {case_name} | docs={} ===", docs.len());
     let qp = QueryParser::for_index(&index, vec![content]);
     for query_text in queries {
-        let query_tokens = tokenize_cn(&jieba, query_text);
+        let query_tokens = tokenize_cn(query_text);
         let query = qp.parse_query(&query_tokens)?;
         let hit_count = searcher.search(&query, &Count)?;
         let hits = searcher.search(&query, &TopDocs::with_limit(3))?;
