@@ -1222,6 +1222,8 @@ struct UnarchivedConversationSummary {
     last_message_at: Option<String>,
     message_count: usize,
     agent_id: String,
+    #[serde(default)]
+    is_active: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1319,6 +1321,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
                 last_message_at,
                 message_count: c.messages.len(),
                 agent_id: c.agent_id.clone(),
+                is_active: c.status.trim() == "active",
             }
         })
         .collect::<Vec<_>>();
@@ -1333,15 +1336,186 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
             .unwrap_or(a.updated_at.as_str());
         bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
     });
-    if summaries.len() > 1 {
-        summaries.truncate(1);
-    }
-
     if defaults_changed || normalized_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
     Ok(summaries)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetActiveUnarchivedConversationInput {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetActiveUnarchivedConversationOutput {
+    conversation_id: String,
+}
+
+#[tauri::command]
+fn set_active_unarchived_conversation(
+    input: SetActiveUnarchivedConversationInput,
+    state: State<'_, AppState>,
+) -> Result<SetActiveUnarchivedConversationOutput, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let app_config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let defaults_changed = ensure_default_agent(&mut data);
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
+    let requested_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let mut target_idx = requested_conversation_id.and_then(|conversation_id| {
+        data.conversations.iter().position(|item| {
+            item.id == conversation_id
+                && item.summary.trim().is_empty()
+                && !conversation_is_delegate(item)
+                && item.agent_id.trim() == requested_agent_id
+        })
+    });
+    if target_idx.is_none() {
+        target_idx = latest_active_conversation_index(&data, "", &requested_agent_id)
+            .or_else(|| {
+                data.conversations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| {
+                        item.summary.trim().is_empty()
+                            && !conversation_is_delegate(item)
+                            && item.agent_id.trim() == requested_agent_id
+                    })
+                    .max_by(|(idx_a, a), (idx_b, b)| {
+                        let a_updated = a.updated_at.trim();
+                        let b_updated = b.updated_at.trim();
+                        let a_created = a.created_at.trim();
+                        let b_created = b.created_at.trim();
+                        a_updated
+                            .cmp(b_updated)
+                            .then_with(|| a_created.cmp(b_created))
+                            .then_with(|| idx_a.cmp(idx_b))
+                    })
+                    .map(|(idx, _)| idx)
+            });
+    }
+    if target_idx.is_none() {
+        let api_config = resolve_selected_api_config(&app_config, None)
+            .ok_or_else(|| "No API config available".to_string())?;
+        target_idx = Some(ensure_active_conversation_index(
+            &mut data,
+            &api_config.id,
+            &requested_agent_id,
+        ));
+    }
+    let target_idx = target_idx.ok_or_else(|| "Unarchived conversation not found.".to_string())?;
+
+    let mut changed = defaults_changed || normalized_changed;
+    for (idx, conversation) in data.conversations.iter_mut().enumerate() {
+        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            continue;
+        }
+        let target_status = if idx == target_idx { "active" } else { "inactive" };
+        if conversation.status.trim() != target_status {
+            conversation.status = target_status.to_string();
+            changed = true;
+        }
+    }
+    let conversation_id = data
+        .conversations
+        .get(target_idx)
+        .map(|item| item.id.clone())
+        .ok_or_else(|| "Unarchived conversation index out of bounds.".to_string())?;
+    if changed {
+        state_write_app_data_cached(&state, &data)?;
+    }
+    drop(guard);
+    Ok(SetActiveUnarchivedConversationOutput { conversation_id })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateUnarchivedConversationInput {
+    #[serde(default)]
+    api_config_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateUnarchivedConversationOutput {
+    conversation_id: String,
+}
+
+#[tauri::command]
+fn create_unarchived_conversation(
+    input: CreateUnarchivedConversationInput,
+    state: State<'_, AppState>,
+) -> Result<CreateUnarchivedConversationOutput, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let app_config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    ensure_default_agent(&mut data);
+    let agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
+
+    let api_config_id = input
+        .api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| resolve_selected_api_config(&app_config, None).map(|item| item.id.clone()))
+        .ok_or_else(|| "No API config available".to_string())?;
+
+    for conversation in &mut data.conversations {
+        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            continue;
+        }
+        conversation.status = "inactive".to_string();
+    }
+    let conversation = build_conversation_record(
+        &api_config_id,
+        &agent_id,
+        "",
+        CONVERSATION_KIND_CHAT,
+        None,
+        None,
+    );
+    let conversation_id = conversation.id.clone();
+    data.conversations.push(conversation);
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+
+    Ok(CreateUnarchivedConversationOutput { conversation_id })
 }
 
 #[tauri::command]
@@ -1429,43 +1603,45 @@ fn get_delegate_conversation_messages(
     Ok(messages)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteUnarchivedConversationInput {
+    conversation_id: String,
+}
+
 #[tauri::command]
 fn delete_unarchived_conversation(
+    input: DeleteUnarchivedConversationInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     eprintln!("[会话] 请求删除当前未归档主会话");
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
     let guard = state
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
     let before = data.conversations.len();
-    let removed_ids = data
-        .conversations
-        .iter()
-        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
-        .map(|c| c.id.clone())
-        .collect::<Vec<_>>();
-    let removed_count = data
-        .conversations
-        .iter()
-        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
-        .count();
-    data.conversations
-        .retain(|c| !(c.summary.trim().is_empty() && !conversation_is_delegate(c)));
+    data.conversations.retain(|conversation| {
+        !(conversation.id == conversation_id
+            && conversation.summary.trim().is_empty()
+            && !conversation_is_delegate(conversation))
+    });
     if data.conversations.len() == before {
         drop(guard);
         return Err("Unarchived conversation not found.".to_string());
     }
+    let _ = normalize_single_active_main_conversation(&mut data);
     state_write_app_data_cached(&state, &data)?;
     eprintln!(
-        "[会话] 已删除未归档主会话残留: removed_count={}",
-        removed_count
+        "[会话] 已删除未归档主会话: conversation_id={}",
+        conversation_id
     );
     drop(guard);
-    for conversation_id in removed_ids {
-        cleanup_pdf_session_memory_cache_for_conversation(&conversation_id);
-    }
+    cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
     Ok(())
 }
 
@@ -1558,9 +1734,21 @@ fn get_active_conversation_messages(
             .ok_or_else(|| "No API config available".to_string())?;
         ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
     };
+    let mut status_changed = false;
+    for (i, conversation) in data.conversations.iter_mut().enumerate() {
+        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            continue;
+        }
+        let next_status = if i == idx { "active" } else { "inactive" };
+        if conversation.status.trim() != next_status {
+            conversation.status = next_status.to_string();
+            status_changed = true;
+        }
+    }
+
     let mut messages = data.conversations[idx].messages.clone();
 
-    if data.conversations.len() != before_len {
+    if data.conversations.len() != before_len || status_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
@@ -1669,8 +1857,20 @@ fn get_active_conversation_messages_before(
         ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id)
     };
 
+    let mut status_changed = false;
+    for (i, conversation) in data.conversations.iter_mut().enumerate() {
+        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            continue;
+        }
+        let next_status = if i == idx { "active" } else { "inactive" };
+        if conversation.status.trim() != next_status {
+            conversation.status = next_status.to_string();
+            status_changed = true;
+        }
+    }
+
     let messages = data.conversations[idx].messages.clone();
-    if data.conversations.len() != before_len {
+    if data.conversations.len() != before_len || status_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
@@ -1825,3 +2025,4 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+

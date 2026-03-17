@@ -347,7 +347,8 @@ export type UnarchivedConversationSummary = {
   lastMessageAt?: string;
   messageCount: number;
   agentId: string;
-  apiConfigId: string;
+  apiConfigId?: string;
+  isActive?: boolean;
 };
 
 export type DelegateConversationSummary = {

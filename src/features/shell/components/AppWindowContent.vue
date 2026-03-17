@@ -118,6 +118,8 @@
         :has-more-message-blocks="hasMoreMessageBlocks"
         :current-workspace-name="currentChatWorkspaceName"
         :workspace-locked="chatWorkspaceLocked"
+        :active-conversation-id="currentChatConversationId"
+        :unarchived-conversation-items="chatUnarchivedConversationItems"
         @update:chat-input="updateChatInput"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
@@ -131,6 +133,8 @@
         @regenerate-turn="onRegenerateTurn"
         @lock-workspace="onLockChatWorkspace"
         @unlock-workspace="onUnlockChatWorkspace"
+        @switch-conversation="onSwitchConversation"
+        @create-conversation="onCreateConversation"
       />
       <div
         v-if="forcingArchive"
@@ -314,6 +318,8 @@ const props = defineProps<{
   hasMoreMessageBlocks: boolean;
   currentChatWorkspaceName: string;
   chatWorkspaceLocked: boolean;
+  currentChatConversationId: string;
+  chatUnarchivedConversationItems: Array<{ conversationId: string; messageCount: number; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];
@@ -380,6 +386,8 @@ const props = defineProps<{
   onRegenerateTurn: (payload: { turnId: string }) => void;
   onLockChatWorkspace: () => void;
   onUnlockChatWorkspace: () => void;
+  onSwitchConversation: (conversationId: string) => void;
+  onCreateConversation: () => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;
@@ -407,5 +415,3 @@ const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
   props.setPromptPreviewDialogRef((el as Element | null) ?? null);
 };
 </script>
-
-

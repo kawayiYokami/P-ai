@@ -326,7 +326,7 @@ fn main() {
                     probe_release_source_once(&probe_state).await;
                 }
             });
-            
+
             // 启动 NapCat WebSocket 服务
             {
                 let config = match state_read_config_cached(&app_handle.state::<AppState>()) {
@@ -378,7 +378,7 @@ fn main() {
                     });
                 }
             }
-            
+
             tauri::async_runtime::spawn(async move {
                 match mcp_redeploy_all_from_policy(&startup_state).await {
                     Ok(errors) => {
@@ -428,6 +428,8 @@ fn main() {
             save_conversation_api_settings,
             get_chat_snapshot,
             list_unarchived_conversations,
+            set_active_unarchived_conversation,
+            create_unarchived_conversation,
             get_unarchived_conversation_messages,
             list_delegate_conversations,
             get_delegate_conversation_messages,
@@ -534,4 +536,3 @@ fn main() {
 mod tests {
     include!("features/tests.rs");
 }
-

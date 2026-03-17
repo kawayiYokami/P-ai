@@ -619,6 +619,10 @@
     "dropImageOrPdf": "拖放文件（图片/PDF 可直接多模态）",
     "attach": "添加附件",
     "send": "发送",
+    "newConversation": "新建会话",
+    "newConversationShort": "",
+    "untitledConversation": "未命名会话",
+    "maxConversations": "最多8个会话，请先归档旧对话",
     "taskTrigger": {
       "badge": "任务提醒",
       "kindImmediate": "立即任务",

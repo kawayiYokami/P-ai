@@ -577,6 +577,19 @@ async fn send_chat_message_inner(
         } else {
             Some(ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id))
         };
+        if let Some(selected_idx) = idx {
+            for (i, conversation) in data.conversations.iter_mut().enumerate() {
+                if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+                    continue;
+                }
+                conversation.status = if i == selected_idx {
+                    "active".to_string()
+                } else {
+                    "inactive".to_string()
+                };
+            }
+        }
+
         let conversation_before = if let Some(idx) = idx {
             data.conversations[idx].clone()
         } else {

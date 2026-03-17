@@ -94,6 +94,8 @@
       :forcing-archive="forcingArchive"
       :visible-message-blocks="displayMessageBlocks"
       :has-more-message-blocks="displayHasMoreMessageBlocks"
+      :current-chat-conversation-id="currentChatConversationId"
+      :chat-unarchived-conversation-items="chatUnarchivedConversationItems"
       :archives="archives"
       :selected-archive-id="selectedArchiveId"
       :archive-messages="archiveMessages"
@@ -161,6 +163,8 @@
       :on-regenerate-turn="handleRegenerateTurn"
       :on-lock-chat-workspace="lockChatWorkspaceFromPicker"
       :on-unlock-chat-workspace="unlockChatWorkspace"
+      :on-switch-conversation="switchUnarchivedConversation"
+      :on-create-conversation="createUnarchivedConversation"
       :on-open-skill-panel="openSkillPlaceholderDialog"
       :load-archives="loadArchives"
       :select-archive="selectArchive"
@@ -756,6 +760,48 @@ const assistantDepartmentPersona = computed(
     ?? null,
 );
 const activeAssistantAgentId = computed(() => assistantDepartmentAgentId.value);
+// 对话颜色（跳跃分配，最大化对比度）
+const CONVERSATION_COLORS = [
+  'primary',   // 0: 紫
+  'warning',   // 1: 黄
+  'secondary', // 2: 粉
+  'error',     // 3: 红
+  'accent',    // 4: 青
+  'info',      // 5: 蓝
+  'success',   // 6: 绿
+  'neutral',   // 7: 黑
+] as const;
+
+const chatUnarchivedConversationItems = computed(() => {
+  const items = unarchivedConversations.value
+    .filter((item) => String(item.agentId || "").trim() === String(activeAssistantAgentId.value || "").trim())
+    .map((item) => ({
+      conversationId: item.conversationId,
+      messageCount: Number(item.messageCount || 0),
+      isActive: !!item.isActive,
+      updatedAt: item.lastMessageAt || item.updatedAt || "",
+    }))
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+
+  // 分配颜色（按顺序取可用颜色）
+  const usedIndices = new Set<number>();
+  return items.map((item, index) => {
+    // 找到第一个未使用的颜色索引
+    let colorIdx = 0;
+    for (let i = 0; i < 8; i++) {
+      if (!usedIndices.has(i)) {
+        colorIdx = i;
+        usedIndices.add(i);
+        break;
+      }
+    }
+    return {
+      ...item,
+      color: CONVERSATION_COLORS[colorIdx],
+      canCreateNew: items.length < 8,
+    };
+  });
+});
 const {
   chatWorkspaceName,
   chatWorkspaceLocked,
@@ -1049,6 +1095,52 @@ const {
   loadAllMessages,
   loadMoreMessageBlocks,
 } = chatRuntime;
+
+async function refreshChatUnarchivedConversations() {
+  await loadUnarchivedConversations();
+}
+
+async function switchUnarchivedConversation(conversationId: string) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  const agentId = String(activeAssistantAgentId.value || "").trim();
+  try {
+    const result = await invokeTauri<{ conversationId: string }>("set_active_unarchived_conversation", {
+      input: {
+        conversationId: cid,
+        agentId: agentId || null,
+      },
+    });
+    const nextConversationId = String(result?.conversationId || cid).trim();
+    if (!nextConversationId) return;
+    currentChatConversationId.value = nextConversationId;
+    await loadAllMessages();
+    await refreshChatUnarchivedConversations();
+  } catch (error) {
+    setStatusError("status.loadMessagesFailed", error);
+  }
+}
+
+async function createUnarchivedConversation() {
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
+  if (!apiConfigId || !agentId) return;
+  try {
+    const result = await invokeTauri<{ conversationId: string }>("create_unarchived_conversation", {
+      input: {
+        apiConfigId,
+        agentId,
+      },
+    });
+    const conversationId = String(result?.conversationId || "").trim();
+    if (!conversationId) return;
+    currentChatConversationId.value = conversationId;
+    await loadAllMessages();
+    await refreshChatUnarchivedConversations();
+  } catch (error) {
+    setStatusError("status.loadMessagesFailed", error);
+  }
+}
 
 const {
   addApiConfig,
@@ -1600,6 +1692,18 @@ const chatFlow = useChatFlow({
     });
   },
 });
+
+watch(
+  () => ({
+    mode: viewMode.value,
+    agentId: String(activeAssistantAgentId.value || "").trim(),
+  }),
+  ({ mode }) => {
+    if (mode !== "chat") return;
+    void refreshChatUnarchivedConversations();
+  },
+  { immediate: true },
+);
 
 watch(
   () => String(currentChatConversationId.value || "").trim(),

@@ -602,7 +602,12 @@
     "stop": "Stop",
     "stopReplying": "Stop Replying",
     "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
-    "attach": "Attach files",
+    "attach": "Attach",
+    "send": "Send",
+    "newConversation": "New Conversation",
+    "newConversationShort": "",
+    "untitledConversation": "Untitled",
+    "maxConversations": "Max 8 conversations, please archive old ones",
     "copy": "Copy",
     "regenerate": "Regenerate",
     "recall": "Recall",
@@ -810,5 +815,3 @@
     "repository": "Git Repository"
   }
 }
-
-
