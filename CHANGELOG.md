@@ -29,6 +29,11 @@
   - PDF 转文字后按 token 截断到前 `30,000`
   - 超出部分不再注入 prompt，降低超长上下文风险
 
+- 重构（memory-tokenizer）：移除 `jieba-rs`，改为原生分词路径
+  - 内存检索切词改为本地实现（ASCII 词 + CJK 单字/双字）
+  - Tantivy probe 同步移除 jieba 依赖
+  - 删除 `jieba-rs` 依赖，减少构建与运行时复杂度
+
 - 发布（release）：版本号提升到 `0.5.1`
   - 同步更新 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
   - 本地 `pnpm tauri build` 验证通过，已产出 Windows 可执行与安装包

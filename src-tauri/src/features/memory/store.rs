@@ -562,22 +562,6 @@ fn memory_store_sync_memory_fts(conn: &Connection, memory_id: &str) -> Result<()
     Ok(())
 }
 
-fn memory_store_ensure_jieba_tags(data_path: &PathBuf) {
-    static LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if LOADED.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
-    }
-    if let Ok(conn) = memory_store_open(data_path) {
-        if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT name FROM global_tag") {
-            if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                let tags: Vec<String> = rows.filter_map(|r| r.ok()).collect();
-                memory_jieba_add_words(&tags);
-            }
-        }
-    }
-    LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
-}
-
 #[cfg(test)]
 fn memory_store_search_fts_bm25(
     data_path: &PathBuf,

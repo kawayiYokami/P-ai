@@ -1,6 +1,5 @@
 #[cfg(test)]
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use jieba_rs::Jieba;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use tantivy::collector::TopDocs;
@@ -42,23 +41,38 @@ fn memory_matcher_cache() -> &'static std::sync::Mutex<Option<CompiledMemoryMatc
     CACHE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-fn memory_jieba() -> &'static std::sync::Mutex<Jieba> {
-    static JIEBA: std::sync::OnceLock<std::sync::Mutex<Jieba>> = std::sync::OnceLock::new();
-    JIEBA.get_or_init(|| std::sync::Mutex::new(Jieba::new()))
+fn memory_jieba_add_words(words: &[String]) {
+    let _ = words;
 }
 
-fn memory_jieba_add_words(words: &[String]) {
-    if words.is_empty() {
+fn memory_is_cjk_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0x20000..=0x2A6DF
+            | 0x2A700..=0x2B73F
+            | 0x2B740..=0x2B81F
+            | 0x2B820..=0x2CEAF
+            | 0x2CEB0..=0x2EBEF
+            | 0x30000..=0x3134F
+    )
+}
+
+fn memory_push_token(
+    out: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    token: String,
+    dedup: bool,
+) {
+    if token.is_empty() {
         return;
     }
-    if let Ok(mut jieba) = memory_jieba().lock() {
-        for word in words {
-            let w = word.trim();
-            if w.chars().count() >= 2 {
-                jieba.add_word(w, None, None);
-            }
-        }
+    if dedup && !seen.insert(token.clone()) {
+        return;
     }
+    out.push(token);
 }
 
 fn memory_tokenize_terms(text: &str, dedup: bool) -> Vec<String> {
@@ -66,33 +80,48 @@ fn memory_tokenize_terms(text: &str, dedup: bool) -> Vec<String> {
         return Vec::new();
     }
 
-    let jieba = memory_jieba().lock().unwrap_or_else(|e| e.into_inner());
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
-    for term in jieba.cut(text, false) {
-        let normalized = term.trim().to_lowercase();
-        if normalized.is_empty() {
-            continue;
-        }
-        if dedup && !seen.insert(normalized.clone()) {
-            continue;
-        }
-        out.push(normalized);
-    }
-    drop(jieba);
+    let mut ascii = String::new();
+    let mut cjk_run = Vec::<char>::new();
 
-    if out.is_empty() {
-        for term in text.split_whitespace() {
-            let normalized = term.trim().to_lowercase();
-            if normalized.is_empty() {
-                continue;
+    let flush_ascii = |ascii: &mut String, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        if ascii.is_empty() {
+            return;
+        }
+        memory_push_token(out, seen, ascii.clone(), dedup);
+        ascii.clear();
+    };
+    let flush_cjk = |cjk_run: &mut Vec<char>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        if cjk_run.is_empty() {
+            return;
+        }
+        for ch in cjk_run.iter() {
+            memory_push_token(out, seen, ch.to_string(), dedup);
+        }
+        if cjk_run.len() >= 2 {
+            for pair in cjk_run.windows(2) {
+                memory_push_token(out, seen, format!("{}{}", pair[0], pair[1]), dedup);
             }
-            if dedup && !seen.insert(normalized.clone()) {
-                continue;
-            }
-            out.push(normalized);
+        }
+        cjk_run.clear();
+    };
+
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            flush_cjk(&mut cjk_run, &mut out, &mut seen);
+            ascii.push(ch.to_ascii_lowercase());
+            continue;
+        }
+        flush_ascii(&mut ascii, &mut out, &mut seen);
+        if memory_is_cjk_char(ch) {
+            cjk_run.push(ch);
+        } else {
+            flush_cjk(&mut cjk_run, &mut out, &mut seen);
         }
     }
+    flush_ascii(&mut ascii, &mut out, &mut seen);
+    flush_cjk(&mut cjk_run, &mut out, &mut seen);
 
     out
 }
@@ -552,8 +581,6 @@ fn memory_mixed_ranked_items(
     if memories.is_empty() || query_text.trim().is_empty() {
         return Vec::new();
     }
-
-    memory_store_ensure_jieba_tags(data_path);
 
     let memory_index = memories
         .iter()
