@@ -2,6 +2,12 @@
 
 ## 未发布
 
+
+## v0.6.0 - 2026-03-17
+
+- 解决部分配置无法保存的BUG
+- 废除jieba
+
 - 新增（pdf-read-mode）：对话设置新增 `PDF 阅读方式（文本/图片）` 并贯通前后端
   - 新增 `pdf_read_mode` 配置读写、事件同步与自动保存
   - 发送链路按 `pdf_read_mode == image && selected_api.enable_image` 判定

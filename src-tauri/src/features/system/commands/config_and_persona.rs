@@ -449,7 +449,7 @@ fn save_agents(
     }
 
     state_write_app_data_cached(&state, &data)?;
-    let mut config = read_config(&state.config_path)?;
+    let mut config = state_read_config_cached(&state)?;
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     let valid_agent_ids = runtime_agents
         .iter()
@@ -473,7 +473,7 @@ fn save_agents(
     }
     if config_changed {
         normalize_app_config(&mut config);
-        write_config(&state.config_path, &config)?;
+        state_write_config_cached(&state, &config)?;
     }
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     drop(guard);
@@ -1097,7 +1097,7 @@ fn save_conversation_api_settings(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-    let mut config = read_config(&state.config_path)?;
+    let mut config = state_read_config_cached(&state)?;
     config.assistant_department_api_config_id = input.assistant_department_api_config_id.clone();
     config.vision_api_config_id = input.vision_api_config_id.clone();
     config.stt_api_config_id = input.stt_api_config_id.clone();
@@ -1108,7 +1108,7 @@ fn save_conversation_api_settings(
         dept.api_config_id = assistant_api_config_id;
         dept.updated_at = now_iso();
     }
-    write_config(&state.config_path, &config)?;
+    state_write_config_cached(&state, &config)?;
     drop(guard);
 
     let payload = ConversationApiSettings {
