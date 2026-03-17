@@ -110,6 +110,12 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
                     }
                 }));
             }
+            if content.is_empty() {
+                content.push(serde_json::json!({
+                    "type": "text",
+                    "text": " "
+                }));
+            }
             messages.push(serde_json::json!({
                 "role": "user",
                 "content": content
@@ -118,7 +124,7 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
             let mut msg = serde_json::Map::new();
             msg.insert("role".to_string(), Value::String("assistant".to_string()));
             if hm.text.trim().is_empty() {
-                msg.insert("content".to_string(), Value::Null);
+                msg.insert("content".to_string(), Value::String(" ".to_string()));
             } else {
                 msg.insert("content".to_string(), Value::String(hm.text.clone()));
             }
@@ -152,14 +158,24 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
             }
             messages.push(Value::Object(msg));
         } else if hm.role == "assistant" {
+            let content = if hm.text.trim().is_empty() {
+                " ".to_string()
+            } else {
+                hm.text.clone()
+            };
             messages.push(serde_json::json!({
                 "role": "assistant",
-                "content": hm.text
+                "content": content
             }));
         } else if hm.role == "tool" {
             let mut msg = serde_json::Map::new();
             msg.insert("role".to_string(), Value::String("tool".to_string()));
-            msg.insert("content".to_string(), Value::String(hm.text.clone()));
+            let content = if hm.text.trim().is_empty() {
+                " ".to_string()
+            } else {
+                hm.text.clone()
+            };
+            msg.insert("content".to_string(), Value::String(content));
             if let Some(call_id) = &hm.tool_call_id {
                 if !call_id.trim().is_empty() {
                     msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
