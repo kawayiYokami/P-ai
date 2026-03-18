@@ -220,6 +220,13 @@ export type LlmRoundLogEntry = {
   success: boolean;
 };
 
+export type RuntimeLogEntry = {
+  id: string;
+  createdAt: string;
+  level: string;
+  message: string;
+};
+
 export type PersonaProfile = {
   id: string;
   name: string;

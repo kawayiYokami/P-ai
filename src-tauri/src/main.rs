@@ -468,6 +468,8 @@ fn main() {
             clear_image_text_cache,
             list_recent_llm_round_logs,
             clear_recent_llm_round_logs,
+            list_recent_runtime_logs,
+            clear_recent_runtime_logs,
             remote_im_list_channels,
             remote_im_list_contacts,
             remote_im_update_contact_allow_send,

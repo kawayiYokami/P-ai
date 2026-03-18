@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 新增（runtime-logs）：内存运行日志与前端弹窗查看
+  - 后端新增运行日志内存缓冲（仅内存，最大 10MB，超限丢弃最旧日志）
+  - 新增 `list_recent_runtime_logs` / `clear_recent_runtime_logs` 命令
+  - 记忆存储关键日志改为写入运行日志缓冲（开始/完成/失败/跳过），并保留终端输出
+  - 聊天窗口标题栏新增“运行日志”按钮，可弹出日志窗口
+  - 日志窗口支持刷新、清空与虚拟滚动，避免大列表渲染卡顿
+
 - 重构（memory-store）：拆分记忆存储模块并清理 legacy 迁移路径
   - `memory/store.rs` 改为聚合入口，拆分为 `types/db/crud/ownership/import_export/archive_feedback/provider_index/maintenance/tests` 子模块
   - 移除 legacy memories 迁移能力（启动迁移调用、迁移函数、相关类型与测试）

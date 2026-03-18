@@ -1,4 +1,5 @@
 const LLM_ROUND_LOG_CAPACITY: usize = 10;
+const RUNTIME_LOG_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +37,57 @@ struct LlmRoundLogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     timeline: Option<Vec<LlmRoundLogStage>>,
     success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeLogEntry {
+    id: String,
+    created_at: String,
+    level: String,
+    message: String,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeLogBuffer {
+    entries: std::collections::VecDeque<RuntimeLogEntry>,
+    total_bytes: usize,
+}
+
+fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
+    static RUNTIME_LOGS: OnceLock<Mutex<RuntimeLogBuffer>> = OnceLock::new();
+    RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
+}
+
+fn runtime_log_push(level: &str, message: String) {
+    eprintln!("{message}");
+    let Ok(mut buf) = runtime_log_buffer().lock() else {
+        return;
+    };
+    let entry = RuntimeLogEntry {
+        id: Uuid::new_v4().to_string(),
+        created_at: now_iso(),
+        level: level.to_string(),
+        message,
+    };
+    let entry_bytes = entry.created_at.len() + entry.level.len() + entry.message.len();
+    buf.total_bytes = buf.total_bytes.saturating_add(entry_bytes);
+    buf.entries.push_back(entry);
+    while buf.total_bytes > RUNTIME_LOG_MAX_BYTES {
+        let Some(old) = buf.entries.pop_front() else {
+            break;
+        };
+        let old_bytes = old.created_at.len() + old.level.len() + old.message.len();
+        buf.total_bytes = buf.total_bytes.saturating_sub(old_bytes);
+    }
+}
+
+fn runtime_log_info(message: String) {
+    runtime_log_push("info", message);
+}
+
+fn runtime_log_error(message: String) {
+    runtime_log_push("error", message);
 }
 
 fn mask_secret_keep_edges(value: &str) -> String {
@@ -363,5 +415,23 @@ fn clear_recent_llm_round_logs(state: State<'_, AppState>) -> Result<bool, Strin
         .lock()
         .map_err(|_| "Failed to lock llm round logs".to_string())?;
     logs.clear();
+    Ok(true)
+}
+
+#[tauri::command]
+fn list_recent_runtime_logs() -> Result<Vec<RuntimeLogEntry>, String> {
+    let logs = runtime_log_buffer()
+        .lock()
+        .map_err(|_| "Failed to lock runtime logs".to_string())?;
+    Ok(logs.entries.iter().cloned().collect::<Vec<_>>())
+}
+
+#[tauri::command]
+fn clear_recent_runtime_logs() -> Result<bool, String> {
+    let mut logs = runtime_log_buffer()
+        .lock()
+        .map_err(|_| "Failed to lock runtime logs".to_string())?;
+    logs.entries.clear();
+    logs.total_bytes = 0;
     Ok(true)
 }

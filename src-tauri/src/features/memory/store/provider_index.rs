@@ -227,20 +227,20 @@ where
     let mut conn = memory_store_open(data_path)?;
 
     let old_provider_id = memory_store_get_runtime_state(&conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID)?;
-    eprintln!(
+    runtime_log_info(format!(
         "[记忆存储] 开始，任务=向量索引同步，old_provider_id={}，new_provider_id={}，model_name={}",
         old_provider_id.clone().unwrap_or_default(),
         new_provider_id.trim(),
         model_name.trim()
-    );
+    ));
     let provider_store_exists = memory_store_model_store_db_path(data_path, model_name)
         .map(|p| p.exists())
         .unwrap_or(false);
     if old_provider_id.as_deref() == Some(new_provider_id.trim()) && provider_store_exists {
-        eprintln!(
+        runtime_log_info(format!(
             "[记忆存储] 跳过，任务=向量索引同步，reason=no_op，provider_id={}",
             new_provider_id.trim()
-        );
+        ));
         return Ok(MemoryStoreProviderSyncReport {
             status: "no_op".to_string(),
             old_provider_id,
@@ -320,23 +320,23 @@ where
     if let Err(err) = sync_result.as_ref() {
         let _ = memory_store_set_runtime_state(&conn, KB_STATE_REBUILD_STATUS, "failed");
         let _ = memory_store_set_runtime_state(&conn, KB_STATE_REBUILD_ERROR, err);
-        eprintln!(
+        runtime_log_error(format!(
             "[记忆存储] 失败，任务=向量索引同步，provider_id={}，error={}，duration_ms={}",
             new_provider_id.trim(),
             err,
             started_at.elapsed().as_millis()
-        );
+        ));
     }
 
     if let Ok(report) = sync_result.as_ref() {
-        eprintln!(
+        runtime_log_info(format!(
             "[记忆存储] 完成，任务=向量索引同步，provider_id={}，deleted={}，added={}，batch_count={}，duration_ms={}",
             new_provider_id.trim(),
             report.deleted,
             report.added,
             report.batch_count,
             started_at.elapsed().as_millis()
-        );
+        ));
     }
 
     sync_result

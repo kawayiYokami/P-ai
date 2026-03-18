@@ -240,7 +240,7 @@ fn memory_store_apply_archive_feedback(
 
     tx.commit()
         .map_err(|err| format!("Commit archive feedback transaction failed: {err}"))?;
-    eprintln!(
+    runtime_log_info(format!(
         "[记忆存储] [简单记忆回灌] 完成，任务=archive_feedback，recalled_count={}，useful_requested_count={}，useful_accepted_count={}，useful_rejected_count={}，boosted_count={}，penalized_count={}，natural_decay_count={}，elapsed_ms={}",
         recalled_existing.len(),
         useful_requested_count,
@@ -250,7 +250,7 @@ fn memory_store_apply_archive_feedback(
         penalized_count,
         natural_decay_count,
         started_at.elapsed().as_millis()
-    );
+    ));
 
     Ok(MemoryArchiveFeedbackReport {
         recalled_count: recalled_existing.len(),

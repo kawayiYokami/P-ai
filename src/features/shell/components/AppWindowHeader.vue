@@ -13,6 +13,13 @@
       >
         <Settings class="h-3.5 w-3.5" />
       </button>
+      <button
+        class="btn btn-ghost btn-sm"
+        :title="openLogsTitle"
+        @click.stop="$emit('open-runtime-logs')"
+      >
+        <ScrollText class="h-3.5 w-3.5" />
+      </button>
     </div>
     <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
       <span class="font-semibold text-sm">{{ titleText }}</span>
@@ -64,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { Pin, Settings, X } from "lucide-vue-next";
+import { Pin, ScrollText, Settings, X } from "lucide-vue-next";
 
 defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -78,6 +85,7 @@ defineProps<{
   alwaysOnTopOnTitle: string;
   alwaysOnTopOffTitle: string;
   openConfigTitle: string;
+  openLogsTitle: string;
   closeTitle?: string;
 }>();
 
@@ -86,6 +94,7 @@ defineEmits<{
   (e: "force-archive"): void;
   (e: "toggle-always-on-top"): void;
   (e: "open-config"): void;
+  (e: "open-runtime-logs"): void;
   (e: "close-window"): void;
 }>();
 </script>
