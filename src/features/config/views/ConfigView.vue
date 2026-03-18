@@ -147,6 +147,7 @@
           :cache-stats-loading="cacheStatsLoading"
           @update:response-style-id="$emit('update:responseStyleId', $event)"
           @update:pdf-read-mode="$emit('update:pdfReadMode', $event)"
+          @save-chat-settings="$emit('saveChatSettings')"
           @open-current-history="$emit('openCurrentHistory')"
           @open-prompt-preview="$emit('openPromptPreview')"
           @open-system-prompt-preview="$emit('openSystemPromptPreview')"
@@ -337,6 +338,7 @@ const emit = defineEmits<{
   (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
   (e: "update:pdfReadMode", value: "text" | "image"): void;
+  (e: "saveChatSettings"): void;
   (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;
   (e: "toolSwitchChanged"): void;

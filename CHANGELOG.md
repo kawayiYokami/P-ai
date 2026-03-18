@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 修复（chat-settings-stt）：修复语音转写配置重启后丢失
+  - STT 相关设置（视觉 API、STT API、完成后发送）在用户改动后立即保存
+  - 修复仅依赖异步 watcher 导致的重启前未落盘问题
+
 - 修复（workspace-multi-session）：多会话工作目录支持
   - 工作目录锁定从 `agent` 维度改为 `agent + conversation` 维度，不同会话可独立锁定目录
   - 会话胶囊显示改为“时间 + 工作目录备注名”，并统一使用后端返回的 `workspaceName`

@@ -57,6 +57,7 @@
       @update:assistant-department-agent-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
       @update:pdf-read-mode="updateSelectedPdfReadMode"
+      @save-chat-settings="saveChatSettings"
       @set-theme="setTheme"
       @refresh-models="refreshModels"
       @tool-switch-changed="onToolsChanged"
@@ -350,6 +351,7 @@ const props = defineProps<{
   updateSelectedPersonaId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
   updateSelectedPdfReadMode: (value: "text" | "image") => void;
+  saveChatSettings: () => void;
   setTheme: (value: string) => void;
   refreshModels: () => void;
   saveConfig: () => Promise<boolean> | boolean;

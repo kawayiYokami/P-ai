@@ -1,7 +1,7 @@
 <template>
   <label class="mb-3 flex w-full flex-col gap-1">
     <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.visionApi") }}</span></div>
-    <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="config.visionApiConfigId = (($event.target as HTMLSelectElement).value || undefined)">
+    <select :value="config.visionApiConfigId ?? ''" class="select select-bordered select-sm" @change="onVisionSelectChange">
       <option value="">{{ t("config.chatSettings.noVision") }}</option>
       <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
     </select>
@@ -95,9 +95,11 @@ const props = defineProps<{
   cacheStatsLoading: boolean;
 }>();
 
-defineEmits<{
+const { t } = useI18n();
+const emit = defineEmits<{
   (e: "update:responseStyleId", value: string): void;
   (e: "update:pdfReadMode", value: "text" | "image"): void;
+  (e: "saveChatSettings"): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;
   (e: "openSystemPromptPreview"): void;
@@ -105,7 +107,10 @@ defineEmits<{
   (e: "clearImageCache"): void;
 }>();
 
-const { t } = useI18n();
+function onVisionSelectChange(event: Event) {
+  props.config.visionApiConfigId = ((event.target as HTMLSelectElement).value || undefined);
+  emit("saveChatSettings");
+}
 
 function onSttSelectChange(event: Event) {
   const value = (event.target as HTMLSelectElement).value || undefined;
@@ -113,13 +118,16 @@ function onSttSelectChange(event: Event) {
   if (!value) {
     props.config.sttAutoSend = false;
   }
+  emit("saveChatSettings");
 }
 
 function onSttAutoSendChange(event: Event) {
   if (!props.config.sttApiConfigId) {
     props.config.sttAutoSend = false;
+    emit("saveChatSettings");
     return;
   }
   props.config.sttAutoSend = (event.target as HTMLInputElement).checked;
+  emit("saveChatSettings");
 }
 </script>
