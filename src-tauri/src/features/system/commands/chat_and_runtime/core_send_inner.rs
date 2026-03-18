@@ -451,18 +451,18 @@ async fn send_chat_message_inner(
                 tool_name: Some("archive".to_string()),
                 tool_status: Some("running".to_string()),
                 tool_args: None,
-                message: Some("正在归档优化上下文...".to_string()),
+                message: Some("正在压缩上下文...".to_string()),
             });
         }
 
-        let archive_res = run_archive_pipeline(
+        let archive_res = run_context_compaction_pipeline(
             &state,
             &selected_api,
             &resolved_api,
             &source,
             &effective_agent_id,
             &pending_archive_reason,
-            "ARCHIVE-AUTO",
+            "COMPACTION-AUTO",
         )
         .await;
 
@@ -471,10 +471,10 @@ async fn send_chat_message_inner(
                 archived_before_send = result.archived;
                 if pending_archive_forced {
                     let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
-                        "归档完成，已开启新对话。".to_string()
+                        "压缩完成，将继续当前会话。".to_string()
                     } else {
                         format!(
-                            "归档完成（降级摘要）：{}",
+                            "压缩完成（降级摘要）：{}",
                             result.warning.unwrap_or_default()
                         )
                     };
@@ -496,10 +496,10 @@ async fn send_chat_message_inner(
                         tool_name: Some("archive".to_string()),
                         tool_status: Some("failed".to_string()),
                         tool_args: None,
-                        message: Some(format!("归档失败：{err}")),
+                        message: Some(format!("压缩失败：{err}")),
                     });
                 }
-                return Err(format!("归档失败：{err}"));
+                return Err(format!("压缩失败：{err}"));
             }
         }
     }
@@ -1092,24 +1092,24 @@ async fn send_chat_message_inner(
             tool_name: Some("archive".to_string()),
             tool_status: Some("running".to_string()),
             tool_args: None,
-            message: Some("回复后上下文已达到 82%，正在自动归档...".to_string()),
+            message: Some("回复后上下文已达到 82%，正在自动压缩...".to_string()),
         });
-        let archive_res = run_archive_pipeline(
+        let archive_res = run_context_compaction_pipeline(
             &state,
             &active_selected_api,
             &active_resolved_api,
             &source,
             &effective_agent_id,
             "force_context_usage_82_after_reply",
-            "ARCHIVE-AFTER-REPLY",
+            "COMPACTION-AFTER-REPLY",
         )
         .await;
         match archive_res {
             Ok(result) => {
                 let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
-                    "自动归档完成，已开启新对话。".to_string()
+                    "自动压缩完成，将继续当前会话。".to_string()
                 } else {
-                    format!("自动归档完成（降级摘要）：{}", result.warning.unwrap_or_default())
+                    format!("自动压缩完成（降级摘要）：{}", result.warning.unwrap_or_default())
                 };
                 let _ = on_delta.send(AssistantDeltaEvent {
                     delta: "".to_string(),
@@ -1127,9 +1127,9 @@ async fn send_chat_message_inner(
                     tool_name: Some("archive".to_string()),
                     tool_status: Some("failed".to_string()),
                     tool_args: None,
-                    message: Some(format!("自动归档失败：{err}")),
+                    message: Some(format!("自动压缩失败：{err}")),
                 });
-                return Err(format!("自动归档失败：{err}"));
+                return Err(format!("自动压缩失败：{err}"));
             }
         }
     }
