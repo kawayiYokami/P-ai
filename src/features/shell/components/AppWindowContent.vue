@@ -326,7 +326,15 @@ const props = defineProps<{
   currentChatWorkspaceName: string;
   chatWorkspaceLocked: boolean;
   currentChatConversationId: string;
-  chatUnarchivedConversationItems: Array<{ conversationId: string; messageCount: number; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
+  chatUnarchivedConversationItems: Array<{
+    conversationId: string;
+    messageCount: number;
+    updatedAt?: string;
+    workspaceLabel?: string;
+    isActive?: boolean;
+    color?: string;
+    canCreateNew?: boolean;
+  }>;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];
