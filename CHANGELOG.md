@@ -2,6 +2,15 @@
 
 ## 未发布
 
+- 重构（chat-runtime-tools）：拆分 `tools_and_builtin.rs` 并收敛审查问题
+  - 将超大文件拆分为 `tools_and_builtin/` 目录下多个职责子文件（provider 调用、网络、记忆、task、delegate、remote_im、参数类型、Tool 实现）
+  - `task/delegate/core_provider` 进一步分层为聚合入口 + 子模块，降低单文件复杂度并减少协作冲突
+  - `memory_save` 接入敏感内容拦截，避免密码/密钥等信息被写入记忆存储
+  - `task` 工具改为异步执行并使用 `spawn_blocking` 承载阻塞 I/O，补齐关键动作日志
+  - 修复 `fetch/websearch` 错误细节丢失问题，完善 HTTP client 构建失败与请求失败的可观测性
+  - 统一多处日志为中文与规范前缀，补齐状态词（开始/完成/跳过/失败）及关键字段
+  - 调整委托分发逻辑：提取参数校验、前置检查、调用链检查与异步派发 helper，降低 `builtin_delegate` 体积
+
 - 新增（chat-image-preview）：图片预览支持缩放与拖动
   - 双击打开的图片预览框新增放大/缩小/100% 还原控制
   - 支持鼠标滚轮缩放
