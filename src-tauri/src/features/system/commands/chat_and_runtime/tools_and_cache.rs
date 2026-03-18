@@ -41,6 +41,13 @@ fn check_tools_status(
             .tools
             .iter()
             .map(|tool| {
+                if tool.id == "wait" {
+                    return ToolLoadStatus {
+                        id: tool.id.clone(),
+                        status: "unavailable".to_string(),
+                        detail: "wait 工具已永久禁用。".to_string(),
+                    };
+                }
                 let restricted_reason = tool_restricted_by_department(current_department, &tool.id);
                 let detail = if let Some(reason) = restricted_reason.clone() {
                     reason
@@ -86,6 +93,14 @@ fn check_tools_status(
     let runtime_shell = terminal_shell_for_state(&state);
     let mut statuses = Vec::new();
     for tool in selected_agent.tools {
+        if tool.id == "wait" {
+            statuses.push(ToolLoadStatus {
+                id: tool.id,
+                status: "unavailable".to_string(),
+                detail: "wait 工具已永久禁用。".to_string(),
+            });
+            continue;
+        }
         if let Some(reason) = tool_restricted_by_department(current_department, &tool.id) {
             statuses.push(ToolLoadStatus {
                 id: tool.id,

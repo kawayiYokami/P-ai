@@ -50,7 +50,7 @@ async fn assemble_runtime_tools(
     let has_remember = tool_enabled(selected_api, agent, current_department, "remember");
     let has_recall = tool_enabled(selected_api, agent, current_department, "recall");
     let has_screenshot = tool_enabled(selected_api, agent, current_department, "screenshot");
-    let has_wait = tool_enabled(selected_api, agent, current_department, "wait");
+    let has_wait = false;
     let has_refresh_mcp_skills = tool_enabled(selected_api, agent, current_department, "reload");
     let has_organize_context = tool_enabled(selected_api, agent, current_department, "organize_context");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
@@ -237,7 +237,7 @@ async fn assemble_runtime_tools(
             "wait",
             false,
             false,
-            department_reason("wait").or_else(|| Some("当前人格未启用该工具".to_string())),
+            Some("wait 工具已永久禁用".to_string()),
         ));
     }
 
