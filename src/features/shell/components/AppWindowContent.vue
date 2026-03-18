@@ -34,6 +34,8 @@
       :response-style-options="responseStyleOptions"
       :response-style-id="selectedResponseStyleId"
       :pdf-read-mode="selectedPdfReadMode"
+      :background-voice-screenshot-keywords="backgroundVoiceScreenshotKeywords"
+      :background-voice-screenshot-mode="backgroundVoiceScreenshotMode"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
       :stt-capable-api-configs="sttCapableApiConfigs"
@@ -57,6 +59,8 @@
       @update:assistant-department-agent-id="updateSelectedPersonaId"
       @update:response-style-id="updateSelectedResponseStyleId"
       @update:pdf-read-mode="updateSelectedPdfReadMode"
+      @update:background-voice-screenshot-keywords="updateBackgroundVoiceScreenshotKeywords"
+      @update:background-voice-screenshot-mode="updateBackgroundVoiceScreenshotMode"
       @save-chat-settings="saveChatSettings"
       @set-theme="setTheme"
       @refresh-models="refreshModels"
@@ -271,6 +275,8 @@ const props = defineProps<{
   responseStyleOptions: ResponseStyleOption[];
   selectedResponseStyleId: string;
   selectedPdfReadMode: "text" | "image";
+  backgroundVoiceScreenshotKeywords: string;
+  backgroundVoiceScreenshotMode: "desktop" | "focused_window";
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   sttCapableApiConfigs: ApiConfigItem[];
@@ -351,6 +357,8 @@ const props = defineProps<{
   updateSelectedPersonaId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
   updateSelectedPdfReadMode: (value: "text" | "image") => void;
+  updateBackgroundVoiceScreenshotKeywords: (value: string) => void;
+  updateBackgroundVoiceScreenshotMode: (value: "desktop" | "focused_window") => void;
   saveChatSettings: () => void;
   setTheme: (value: string) => void;
   refreshModels: () => void;

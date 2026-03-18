@@ -10,6 +10,7 @@ const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const DEFAULT_PDF_READ_MODE: &str = "image";
+const DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE: &str = "focused_window";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +57,22 @@ fn normalize_pdf_read_mode(value: &str) -> String {
         "text" => "text".to_string(),
         "image" => "image".to_string(),
         _ => default_pdf_read_mode(),
+    }
+}
+
+fn default_background_voice_screenshot_keywords() -> String {
+    "看看,这个,屏幕上,see,look,watch".to_string()
+}
+
+fn default_background_voice_screenshot_mode() -> String {
+    DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE.to_string()
+}
+
+fn normalize_background_voice_screenshot_mode(value: &str) -> String {
+    match value.trim() {
+        "desktop" => "desktop".to_string(),
+        "focused_window" => "focused_window".to_string(),
+        _ => default_background_voice_screenshot_mode(),
     }
 }
 
@@ -1214,6 +1231,10 @@ struct AppData {
     response_style_id: String,
     #[serde(default = "default_pdf_read_mode")]
     pdf_read_mode: String,
+    #[serde(default = "default_background_voice_screenshot_keywords")]
+    background_voice_screenshot_keywords: String,
+    #[serde(default = "default_background_voice_screenshot_mode")]
+    background_voice_screenshot_mode: String,
     conversations: Vec<Conversation>,
     #[serde(default, skip_serializing)]
     archived_conversations: Vec<ConversationArchive>,
@@ -1240,6 +1261,8 @@ impl Default for AppData {
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
             pdf_read_mode: default_pdf_read_mode(),
+            background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
+            background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),
@@ -2032,6 +2055,16 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
         data.pdf_read_mode = desired_pdf_read_mode;
         changed = true;
     }
+    let desired_screenshot_mode =
+        normalize_background_voice_screenshot_mode(&data.background_voice_screenshot_mode);
+    if data.background_voice_screenshot_mode != desired_screenshot_mode {
+        data.background_voice_screenshot_mode = desired_screenshot_mode;
+        changed = true;
+    }
+    if data.background_voice_screenshot_keywords.trim().is_empty() {
+        data.background_voice_screenshot_keywords = default_background_voice_screenshot_keywords();
+        changed = true;
+    }
     changed
 }
 
@@ -2121,6 +2154,10 @@ struct ChatSettings {
     response_style_id: String,
     #[serde(default = "default_pdf_read_mode")]
     pdf_read_mode: String,
+    #[serde(default = "default_background_voice_screenshot_keywords")]
+    background_voice_screenshot_keywords: String,
+    #[serde(default = "default_background_voice_screenshot_mode")]
+    background_voice_screenshot_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

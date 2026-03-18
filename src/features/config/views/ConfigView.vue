@@ -143,10 +143,14 @@
           :response-style-options="responseStyleOptions"
           :response-style-id="responseStyleId"
           :pdf-read-mode="pdfReadMode"
+          :background-voice-screenshot-keywords="backgroundVoiceScreenshotKeywords"
+          :background-voice-screenshot-mode="backgroundVoiceScreenshotMode"
           :cache-stats="cacheStats"
           :cache-stats-loading="cacheStatsLoading"
           @update:response-style-id="$emit('update:responseStyleId', $event)"
           @update:pdf-read-mode="$emit('update:pdfReadMode', $event)"
+          @update:background-voice-screenshot-keywords="$emit('update:backgroundVoiceScreenshotKeywords', $event)"
+          @update:background-voice-screenshot-mode="$emit('update:backgroundVoiceScreenshotMode', $event)"
           @save-chat-settings="$emit('saveChatSettings')"
           @open-current-history="$emit('openCurrentHistory')"
           @open-prompt-preview="$emit('openPromptPreview')"
@@ -308,6 +312,8 @@ const props = defineProps<{
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
   pdfReadMode: "text" | "image";
+  backgroundVoiceScreenshotKeywords: string;
+  backgroundVoiceScreenshotMode: "desktop" | "focused_window";
   selectedPersona: PersonaProfile | null;
   toolPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
@@ -338,6 +344,8 @@ const emit = defineEmits<{
   (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
   (e: "update:pdfReadMode", value: "text" | "image"): void;
+  (e: "update:backgroundVoiceScreenshotKeywords", value: string): void;
+  (e: "update:backgroundVoiceScreenshotMode", value: "desktop" | "focused_window"): void;
   (e: "saveChatSettings"): void;
   (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;

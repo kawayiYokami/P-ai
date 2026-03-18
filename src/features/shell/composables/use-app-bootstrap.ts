@@ -13,6 +13,8 @@ type ChatSettingsPayload = {
   userAlias: string;
   responseStyleId: string;
   pdfReadMode?: "text" | "image";
+  backgroundVoiceScreenshotKeywords?: string;
+  backgroundVoiceScreenshotMode?: "desktop" | "focused_window";
 };
 
 export type TerminalApprovalRequestPayload = {
