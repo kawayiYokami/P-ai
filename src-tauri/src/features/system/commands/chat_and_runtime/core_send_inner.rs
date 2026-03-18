@@ -1229,5 +1229,7 @@ async fn send_chat_message_inner(
         chat_started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         timeline,
     );
+    // 兜底催处理：归档阶段可能短暂阻塞出队，这里在当前轮次结束后补一次调度触发。
+    trigger_chat_queue_processing(state);
     final_result
 }
