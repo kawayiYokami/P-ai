@@ -18,7 +18,7 @@
         "height": 900,
         "devtools": false,
         "dragDropEnabled": false,
-        "resizable": true,
+        "resizable": false,
         "visible": false,
         "decorations": false,
         "shadow": true
