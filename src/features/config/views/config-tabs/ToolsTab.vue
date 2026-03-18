@@ -433,6 +433,7 @@ function toolDescription(id: string): string {
   if (id === "screenshot") return t("config.tools.descDesktopScreenshot");
   if (id === "wait") return t("config.tools.descDesktopWait");
   if (id === "exec") return t("config.tools.descTerminalExec");
+  if (id === "apply_patch") return "结构化补丁编辑工具";
   
   if (id === "reload") return t("config.tools.descReload");
   if (id === "organize_context") return t("config.tools.descOrganizeContext");

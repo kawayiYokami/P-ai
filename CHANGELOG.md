@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 新增（apply-patch）：接入内置 `apply_patch` 工具并默认启用
+  - 新增结构化补丁编辑工具，支持 `Add/Delete/Update/Move` 与 `@@` hunk 语法
+  - 增加路径越界防护（禁止绝对路径与 `../` 逃逸）
+  - 安全判定调整为：LLM 默认工作区免审批；用户工具区走 `AutoApprove/AskUser/Reject` 三态
+  - 接入运行时工具装配、工具状态检查、配置默认工具列表与工具页文案
+  - `exec` 与 `apply_patch` 默认开关调整为开启
+
 - 修复（chat-settings-stt）：修复语音转写配置重启后丢失
   - STT 相关设置（视觉 API、STT API、完成后发送）在用户改动后立即保存
   - 修复仅依赖异步 watcher 导致的重启前未落盘问题

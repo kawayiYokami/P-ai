@@ -161,6 +161,10 @@ fn check_tools_status(
                     )
                 }
             }
+            "apply_patch" => (
+                "loaded".to_string(),
+                "结构化补丁编辑工具可用".to_string(),
+            ),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

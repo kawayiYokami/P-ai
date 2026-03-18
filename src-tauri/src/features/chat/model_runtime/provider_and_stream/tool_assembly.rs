@@ -54,6 +54,7 @@ async fn assemble_runtime_tools(
     let has_refresh_mcp_skills = tool_enabled(selected_api, agent, current_department, "reload");
     let has_organize_context = tool_enabled(selected_api, agent, current_department, "organize_context");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
+    let has_apply_patch = tool_enabled(selected_api, agent, current_department, "apply_patch");
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
     let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
     let delegate_runtime_reason = if has_delegate_base {
@@ -311,6 +312,31 @@ async fn assemble_runtime_tools(
             false,
             false,
             department_reason("exec").or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_apply_patch {
+        let state = app_state
+            .ok_or_else(|| "apply_patch requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinApplyPatchTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "apply_patch",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "apply_patch",
+            false,
+            false,
+            department_reason("apply_patch").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 

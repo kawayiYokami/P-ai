@@ -2961,6 +2961,63 @@ impl Tool for BuiltinTerminalExecTool {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinApplyPatchTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+impl Tool for BuiltinApplyPatchTool {
+    const NAME: &'static str = "apply_patch";
+    type Error = ToolInvokeError;
+    type Args = ApplyPatchToolArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "apply_patch".to_string(),
+            description: format!(
+                "{}\nUse the `apply_patch` tool to edit files.\nPatch format:\n*** Begin Patch\n[ one or more file sections ]\n*** End Patch\n\nFile headers:\n*** Add File: <path>\n*** Delete File: <path>\n*** Update File: <path>\n(optional) *** Move to: <new path>\n\nHunk lines:\n@@\n<space> context line\n- removed line\n+ added line\n\nImportant:\n- Input must be Codex patch, NOT git diff (`diff --git ...`).\n- Paths must be relative.\n\nMinimal examples:\n*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** End Patch\n\n*** Begin Patch\n*** Update File: src/main.ts\n@@\n-old\n+new\n*** End Patch\n\n*** Begin Patch\n*** Delete File: old.txt\n*** End Patch",
+                apply_patch_tool_description()
+            ),
+            parameters: serde_json::json!({
+              "type": "object",
+              "properties": {
+                "input": { "type": "string", "description": "Full patch text. Must start with *** Begin Patch and end with *** End Patch." },
+                "session_id": { "type": "string", "description": "Optional tool session id; defaults to current chat session id." }
+              },
+              "required": ["input"],
+              "additionalProperties": false
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
+        eprintln!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=apply_patch args={}",
+            debug_value_snippet(&args_json, 240)
+        );
+        let resolved_session_id = args
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .unwrap_or(&self.session_id);
+        let result = builtin_apply_patch(&self.app_state, resolved_session_id, &args.input)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => eprintln!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=apply_patch result={}",
+                debug_value_snippet(v, 240)
+            ),
+            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=apply_patch err={err}"),
+        }
+        result
+    }
+}
+
 
 
 

@@ -197,7 +197,7 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
                 tool.enabled
                     && matches!(
                         tool.id.as_str(),
-                        "exec"
+                        "exec" | "apply_patch"
                     )
             });
     if !terminal_enabled {
