@@ -133,10 +133,10 @@ fn memory_store_upsert_drafts(
     drafts: &[MemoryDraftInput],
 ) -> Result<(Vec<MemorySaveUpsertItemResult>, usize), String> {
     let started_at = std::time::Instant::now();
-    eprintln!(
+    runtime_log_info(format!(
         "[记忆存储] 开始，任务=memory_store_upsert_drafts，drafts={}",
         drafts.len()
-    );
+    ));
     if drafts.is_empty() {
         return Ok((Vec::new(), memory_store_count(data_path)?));
     }
@@ -158,10 +158,10 @@ fn memory_store_upsert_drafts(
     for draft in drafts {
         let memory_type = memory_store_normalize_memory_type(&draft.memory_type)?;
         if memory_contains_sensitive(&draft.judgment, &draft.tags) {
-            eprintln!(
+            runtime_log_info(format!(
                 "[记忆存储] 跳过，任务=memory_store_upsert_drafts，reason=sensitive_rejected，judgment_len={}",
                 draft.judgment.len()
-            );
+            ));
             results.push(MemorySaveUpsertItemResult {
                 saved: false,
                 id: None,
@@ -241,13 +241,13 @@ fn memory_store_upsert_drafts(
     let total = memory_store_count(data_path)?;
     let success_count = results.iter().filter(|item| item.saved).count();
     let skipped_count = results.len().saturating_sub(success_count);
-    eprintln!(
+    runtime_log_info(format!(
         "[记忆存储] 完成，任务=memory_store_upsert_drafts，success_count={}，skipped_count={}，total={}，elapsed_ms={}",
         success_count,
         skipped_count,
         total,
         started_at.elapsed().as_millis()
-    );
+    ));
     Ok((results, total))
 }
 
@@ -343,7 +343,10 @@ fn memory_store_delete_memory(data_path: &PathBuf, memory_id: &str) -> Result<()
 
     tx.commit()
         .map_err(|err| format!("Commit memory delete transaction failed: {err}"))?;
-    eprintln!("[记忆存储] 完成，任务=memory_store_delete_memory，memory_id={}", target_id);
+    runtime_log_info(format!(
+        "[记忆存储] 完成，任务=memory_store_delete_memory，memory_id={}",
+        target_id
+    ));
     invalidate_memory_matcher_cache();
     Ok(())
 }

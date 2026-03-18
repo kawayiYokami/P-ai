@@ -13,11 +13,13 @@
       :always-on-top-on-title="t('chat.alwaysOnTopOn')"
       :always-on-top-off-title="t('chat.alwaysOnTopOff')"
       :open-config-title="t('window.configTitle')"
+      :open-logs-title="'运行日志'"
       :close-title="t('common.close')"
       @start-drag="startDrag"
       @force-archive="forceArchiveNow"
       @toggle-always-on-top="toggleAlwaysOnTop"
       @open-config="openConfigWindow"
+      @open-runtime-logs="openRuntimeLogsDialog"
       @close-window="closeWindow"
     />
 
@@ -215,6 +217,15 @@
         <button @click.prevent="closeUpdateDialog">close</button>
       </form>
     </dialog>
+    <RuntimeLogsDialog
+      :open="runtimeLogsDialogOpen"
+      :logs="runtimeLogs"
+      :loading="runtimeLogsLoading"
+      :error-text="runtimeLogsError"
+      @close="closeRuntimeLogsDialog"
+      @refresh="refreshRuntimeLogs"
+      @clear="clearRuntimeLogs"
+    />
     <dialog class="modal" :class="{ 'modal-open': configSaveErrorDialogOpen }">
       <div class="modal-box max-w-md">
         <h3 class="font-semibold text-base">
@@ -345,12 +356,14 @@ import {
 import { formatI18nError } from "./utils/error";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
+import RuntimeLogsDialog from "./features/shell/components/RuntimeLogsDialog.vue";
 import type {
   PersonaProfile,
   AppConfig,
   ChatMessage,
   ChatPersonaPresenceChip,
   ImageTextCacheStats,
+  RuntimeLogEntry,
   ResponseStyleOption,
   ToolLoadStatus,
 } from "./types/app";
@@ -424,6 +437,10 @@ const allMessages = shallowRef<ChatMessage[]>([]);
 const visibleMessageBlockCount = ref(1);
 
 const status = ref("Ready.");
+const runtimeLogsDialogOpen = ref(false);
+const runtimeLogs = ref<RuntimeLogEntry[]>([]);
+const runtimeLogsLoading = ref(false);
+const runtimeLogsError = ref("");
 const configSaveErrorDialogOpen = ref(false);
 const configSaveErrorDialogTitle = ref("");
 const configSaveErrorDialogBody = ref("");
@@ -1724,6 +1741,41 @@ function closeSkillPlaceholderDialog() {
 
 function openConfigWindow() {
   void invokeTauri("show_main_window");
+}
+
+async function refreshRuntimeLogs() {
+  runtimeLogsLoading.value = true;
+  runtimeLogsError.value = "";
+  try {
+    const items = await invokeTauri<RuntimeLogEntry[]>("list_recent_runtime_logs");
+    runtimeLogs.value = items;
+  } catch (error) {
+    runtimeLogsError.value = `加载运行日志失败：${String(error)}`;
+  } finally {
+    runtimeLogsLoading.value = false;
+  }
+}
+
+function openRuntimeLogsDialog() {
+  runtimeLogsDialogOpen.value = true;
+  void refreshRuntimeLogs();
+}
+
+function closeRuntimeLogsDialog() {
+  runtimeLogsDialogOpen.value = false;
+}
+
+async function clearRuntimeLogs() {
+  runtimeLogsLoading.value = true;
+  runtimeLogsError.value = "";
+  try {
+    await invokeTauri("clear_recent_runtime_logs");
+    runtimeLogs.value = [];
+  } catch (error) {
+    runtimeLogsError.value = `清空运行日志失败：${String(error)}`;
+  } finally {
+    runtimeLogsLoading.value = false;
+  }
 }
 
 function summonChatWindowFromConfig() {
