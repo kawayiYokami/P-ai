@@ -398,8 +398,8 @@
               <Paperclip class="h-3.5 w-3.5" />
             </button>
           </div>
-          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-base-200 px-2 py-1.5 text-[11px]">
-            <div class="flex items-center gap-1">
+          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-base-200 px-2 py-1.5 text-[11px] overflow-hidden">
+            <div class="flex items-center gap-1 min-w-0">
               <button
                 class="btn btn-xs btn-primary shrink-0"
                 :class="{ 'btn-disabled': chatting || frozen || !unarchivedConversationItems[0]?.canCreateNew }"
@@ -411,7 +411,7 @@
               <button
                 v-for="item in unarchivedConversationItems"
                 :key="item.conversationId"
-                class="btn btn-xs basis-0 grow flex items-center gap-1.5 min-w-[150px] max-w-[260px] !px-1.5"
+                class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
                 :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'btn-secondary' : 'bg-base-100 border-base-300'"
                 :disabled="chatting || frozen"
                 @click="onConversationItemClick(item)"
@@ -429,7 +429,7 @@
                     'bg-error': item.color === 'error',
                   }"
                 ></span>
-                <span class="truncate text-left">{{ formatRelativeTime(item.updatedAt) }} · {{ item.workspaceLabel || '默认工作空间' }}</span>
+                <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ formatRelativeTime(item.updatedAt || '') }} · {{ item.workspaceLabel || '默认工作空间' }}</span>
               </button>
             </div>
           </div>
@@ -533,7 +533,15 @@ const props = defineProps<{
   currentWorkspaceName: string;
   workspaceLocked: boolean;
   activeConversationId: string;
-  unarchivedConversationItems: Array<{ conversationId: string; messageCount: number; workspaceLabel?: string; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
+  unarchivedConversationItems: Array<{
+    conversationId: string;
+    messageCount: number;
+    updatedAt?: string;
+    workspaceLabel?: string;
+    isActive?: boolean;
+    color?: string;
+    canCreateNew?: boolean;
+  }>;
 }>();
 
 const emit = defineEmits<{

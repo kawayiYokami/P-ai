@@ -59,7 +59,7 @@ where
 fn default_window_size(label: &str) -> (u32, u32) {
     match label {
         "main" => (900_u32, 900_u32),
-        "chat" => (618_u32, 1000_u32),
+        "chat" => (900_u32, 900_u32),
         "archives" => (900_u32, 900_u32),
         _ => (900_u32, 900_u32),
     }
@@ -68,7 +68,7 @@ fn default_window_size(label: &str) -> (u32, u32) {
 fn minimum_window_size(label: &str) -> (u32, u32) {
     match label {
         "main" => (900_u32, 900_u32),
-        "chat" => (560_u32, 760_u32),
+        "chat" => (600_u32, 600_u32),
         "archives" => (820_u32, 720_u32),
         _ => (820_u32, 720_u32),
     }
@@ -76,6 +76,16 @@ fn minimum_window_size(label: &str) -> (u32, u32) {
 
 fn is_fixed_window_size(label: &str) -> bool {
     matches!(label, "main")
+}
+
+fn monitor_logical_size(monitor: &tauri::Monitor) -> tauri::LogicalSize<f64> {
+    monitor
+        .size()
+        .to_logical::<f64>(monitor.scale_factor().max(0.1))
+}
+
+fn logical_to_physical_px(value: u32, scale_factor: f64) -> i32 {
+    ((value as f64) * scale_factor.max(0.1)).round() as i32
 }
 
 fn preferred_window_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
@@ -99,8 +109,9 @@ fn resolved_window_size_for_monitor(
 ) -> (u32, u32) {
     let (default_width, default_height) = default_window_size(label);
     let (min_width, min_height) = minimum_window_size(label);
-    let max_width = monitor.size().width.max(1);
-    let max_height = monitor.size().height.max(1);
+    let monitor_logical = monitor_logical_size(monitor);
+    let max_width = monitor_logical.width.max(1.0).round() as u32;
+    let max_height = monitor_logical.height.max(1.0).round() as u32;
     let target_width = if is_fixed_window_size(label) {
         default_width
     } else {
@@ -155,7 +166,8 @@ fn position_window_on_monitor(
         resolved_height as f64,
     )));
     let margin = 24_i32;
-    let x = monitor.position().x + monitor.size().width as i32 - resolved_width as i32 - margin;
+    let resolved_width_physical = logical_to_physical_px(resolved_width, monitor.scale_factor());
+    let x = monitor.position().x + monitor.size().width as i32 - resolved_width_physical - margin;
     let y = monitor.position().y + margin;
     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
 }
@@ -164,6 +176,11 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
+    let (min_width, min_height) = minimum_window_size(label);
+    let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(
+        min_width as f64,
+        min_height as f64,
+    ))));
     let state = app.state::<AppState>();
     let layouts = load_window_layouts(&state.data_path);
     let saved = layouts.windows.get(label);
@@ -171,8 +188,23 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
 
     if let Some(saved) = saved {
         if let Some(monitor) = fallback_monitor.as_ref() {
+            let use_default_size_on_startup = matches!(label, "chat" | "archives");
+            let preferred_width = if use_default_size_on_startup {
+                None
+            } else {
+                saved.width
+            };
+            let preferred_height = if use_default_size_on_startup {
+                None
+            } else {
+                saved.height
+            };
             let (resolved_width, resolved_height) =
-                resolved_window_size_for_monitor(label, monitor, saved.width, saved.height);
+                resolved_window_size_for_monitor(label, monitor, preferred_width, preferred_height);
+            let resolved_width_physical =
+                logical_to_physical_px(resolved_width, monitor.scale_factor()) as u32;
+            let resolved_height_physical =
+                logical_to_physical_px(resolved_height, monitor.scale_factor()) as u32;
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
                 resolved_width as f64,
                 resolved_height as f64,
@@ -184,8 +216,8 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                         &monitors,
                         x,
                         y,
-                        resolved_width,
-                        resolved_height,
+                        resolved_width_physical,
+                        resolved_height_physical,
                     )
                 {
                     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
@@ -216,7 +248,15 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                 );
             }
         } else {
-            if let (Some(width), Some(height)) = (saved.width, saved.height) {
+            if !matches!(label, "chat" | "archives") {
+                if let (Some(width), Some(height)) = (saved.width, saved.height) {
+                    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                        width as f64,
+                        height as f64,
+                    )));
+                }
+            } else {
+                let (width, height) = default_window_size(label);
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
                     width as f64,
                     height as f64,
@@ -245,6 +285,10 @@ fn persist_window_layout_snapshot(app: &AppHandle, label: &str) -> Result<(), St
     let outer_size = window
         .outer_size()
         .map_err(|err| format!("Read window outer size failed: {err}"))?;
+    let scale_factor = window
+        .scale_factor()
+        .map_err(|err| format!("Read window scale factor failed: {err}"))?;
+    let outer_size_logical = outer_size.to_logical::<f64>(scale_factor.max(0.1));
     let outer_pos = window
         .outer_position()
         .map_err(|err| format!("Read window outer position failed: {err}"))?;
@@ -253,8 +297,8 @@ fn persist_window_layout_snapshot(app: &AppHandle, label: &str) -> Result<(), St
         .map_err(|err| format!("Read window maximized state failed: {err}"))?;
 
     upsert_window_layout(app, label, |entry| {
-        entry.width = Some(outer_size.width);
-        entry.height = Some(outer_size.height);
+        entry.width = Some(outer_size_logical.width.round().max(1.0) as u32);
+        entry.height = Some(outer_size_logical.height.round().max(1.0) as u32);
         entry.x = Some(outer_pos.x);
         entry.y = Some(outer_pos.y);
         entry.maximized = maximized;
