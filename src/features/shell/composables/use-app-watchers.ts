@@ -15,6 +15,8 @@ type UseAppWatchersOptions = {
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
   selectedPdfReadMode: Ref<PdfReadMode>;
+  backgroundVoiceScreenshotKeywords: Ref<string>;
+  backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
   activeChatApiConfigId: ComputedRef<string>;
@@ -192,6 +194,8 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       userAlias: options.userAlias.value,
       responseStyleId: options.selectedResponseStyleId.value,
       pdfReadMode: options.selectedPdfReadMode.value,
+      backgroundVoiceScreenshotKeywords: options.backgroundVoiceScreenshotKeywords.value,
+      backgroundVoiceScreenshotMode: options.backgroundVoiceScreenshotMode.value,
     }),
     () => {
       void options.saveChatSettings();

@@ -382,6 +382,8 @@ export type ChatSettings = {
   userAlias: string;
   responseStyleId: string;
   pdfReadMode: PdfReadMode;
+  backgroundVoiceScreenshotKeywords: string;
+  backgroundVoiceScreenshotMode: "desktop" | "focused_window";
 };
 
 export type ToolLoadStatus = {

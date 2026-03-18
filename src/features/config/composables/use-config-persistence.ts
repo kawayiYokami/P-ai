@@ -33,6 +33,8 @@ type UseConfigPersistenceOptions = {
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
   selectedPdfReadMode: Ref<PdfReadMode>;
+  backgroundVoiceScreenshotKeywords: Ref<string>;
+  backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
   responseStyleIds: ComputedRef<string[]>;
   createApiConfig: (name?: string) => AppConfig["apiConfigs"][number];
   normalizeApiBindingsLocal: () => void;
@@ -370,6 +372,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         userAlias: string;
         responseStyleId: string;
         pdfReadMode?: string;
+        backgroundVoiceScreenshotKeywords?: string;
+        backgroundVoiceScreenshotMode?: string;
       }>(
         "load_chat_settings",
       );
@@ -386,6 +390,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         options.selectedResponseStyleId.value = "concise";
       }
       options.selectedPdfReadMode.value = settings.pdfReadMode === "text" ? "text" : "image";
+      options.backgroundVoiceScreenshotKeywords.value = String(settings.backgroundVoiceScreenshotKeywords || "").trim();
+      options.backgroundVoiceScreenshotMode.value =
+        settings.backgroundVoiceScreenshotMode === "focused_window" ? "focused_window" : "desktop";
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
@@ -425,12 +432,16 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const targetAgentId = options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)
         ? options.assistantDepartmentAgentId.value
         : options.assistantPersonas.value[0]?.id || "default-agent";
+      const normalizedScreenshotKeywords = String(options.backgroundVoiceScreenshotKeywords.value || "").replace(/，/g, ",");
+      options.backgroundVoiceScreenshotKeywords.value = normalizedScreenshotKeywords;
       await invokeTauri("save_chat_settings", {
         input: {
           assistantDepartmentAgentId: targetAgentId,
           userAlias: options.userAlias.value,
           responseStyleId: options.selectedResponseStyleId.value,
           pdfReadMode: options.selectedPdfReadMode.value,
+          backgroundVoiceScreenshotKeywords: normalizedScreenshotKeywords,
+          backgroundVoiceScreenshotMode: options.backgroundVoiceScreenshotMode.value,
         },
       });
       options.assistantDepartmentAgentId.value = targetAgentId;

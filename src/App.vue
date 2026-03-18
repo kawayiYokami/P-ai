@@ -48,6 +48,8 @@
       :response-style-options="responseStyleOptions"
       :selected-response-style-id="selectedResponseStyleId"
       :selected-pdf-read-mode="selectedPdfReadMode"
+      :background-voice-screenshot-keywords="backgroundVoiceScreenshotKeywords"
+      :background-voice-screenshot-mode="backgroundVoiceScreenshotMode"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
       :stt-capable-api-configs="sttCapableApiConfigs"
@@ -127,6 +129,8 @@
       :update-selected-persona-id="updateAssistantDepartmentAgentId"
       :update-selected-response-style-id="updateSelectedResponseStyleId"
       :update-selected-pdf-read-mode="updateSelectedPdfReadMode"
+      :update-background-voice-screenshot-keywords="updateBackgroundVoiceScreenshotKeywords"
+      :update-background-voice-screenshot-mode="updateBackgroundVoiceScreenshotMode"
       :save-chat-settings="saveChatSettingsNow"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
@@ -400,6 +404,8 @@ const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
 const selectedPdfReadMode = ref<"text" | "image">("image");
+const backgroundVoiceScreenshotKeywords = ref("");
+const backgroundVoiceScreenshotMode = ref<"desktop" | "focused_window">("focused_window");
 const chatInput = ref("");
 const currentChatConversationId = ref("");
 const latestUserText = ref("");
@@ -623,8 +629,27 @@ const {
   appendRecognizedText: (text) => {
     chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
   },
-  onTranscribed: ({ source }) => {
-    if (!isChatWindowActiveNow()) {
+  onTranscribed: async ({ source, text }) => {
+    const wasBackgroundWake = !isChatWindowActiveNow();
+    if (wasBackgroundWake) {
+      const startedAt = Date.now();
+      const keywords = parseBackgroundVoiceScreenshotKeywords(backgroundVoiceScreenshotKeywords.value);
+      const recognizedText = String(text || "").trim();
+      const matched = matchBackgroundVoiceScreenshotKeyword(recognizedText, keywords);
+      if (!matched) {
+        console.info(
+          "[后台语音截图] 跳过：未命中关键词，关键词数=%d，转写长度=%d",
+          keywords.length,
+          recognizedText.length,
+        );
+      } else {
+        await queueAutoScreenshotFromVoice({
+          source,
+          keyword: matched,
+          mode: backgroundVoiceScreenshotMode.value,
+          startedAt,
+        });
+      }
       void invokeTauri("show_chat_window").catch((error) => {
         console.warn("[AUDIO] show_chat_window failed:", error);
       });
@@ -850,7 +875,7 @@ const {
 } = useChatWorkspace({
   activeApiConfigId: assistantDepartmentApiConfigId,
   activeAgentId: activeAssistantAgentId,
-  activeConversationId: currentChatConversationId,
+  activeConversationId: computed(() => currentChatConversationId.value),
   setStatus,
   setStatusError,
 });
@@ -1039,6 +1064,136 @@ function updateSelectedResponseStyleId(value: string) {
 function updateSelectedPdfReadMode(value: "text" | "image") {
   selectedPdfReadMode.value = value;
 }
+
+function updateBackgroundVoiceScreenshotKeywords(value: string) {
+  backgroundVoiceScreenshotKeywords.value = String(value || "").replace(/，/g, ",");
+}
+
+function updateBackgroundVoiceScreenshotMode(value: "desktop" | "focused_window") {
+  backgroundVoiceScreenshotMode.value = value;
+}
+
+function parseBackgroundVoiceScreenshotKeywords(raw: string): string[] {
+  return Array.from(
+    new Set(
+      String(raw || "")
+        .split(/[,\n;，；]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function matchBackgroundVoiceScreenshotKeyword(text: string, keywords: string[]): string | null {
+  const normalize = (value: string) => String(value || "").replace(/\s+/g, "").toLocaleLowerCase();
+  const target = normalize(text);
+  if (!target || keywords.length === 0) return null;
+  for (const keyword of keywords) {
+    const normalized = normalize(keyword);
+    if (!normalized) continue;
+    if (target.includes(normalized)) {
+      return keyword;
+    }
+  }
+  return null;
+}
+
+async function queueAutoScreenshotFromVoice(input: {
+  source: "local" | "remote";
+  keyword: string;
+  mode: "desktop" | "focused_window";
+  startedAt: number;
+}) {
+  const apiConfig = assistantDepartmentApiConfig.value;
+  if (!apiConfig) {
+    console.warn("[后台语音截图] 跳过：当前无可用对话模型配置");
+    return;
+  }
+  const screenshotModeLabel = input.mode === "focused_window" ? "前台窗口" : "全屏";
+  try {
+    let imageMime = "";
+    let imageBase64 = "";
+    if (input.mode === "focused_window") {
+      const output = await invokeTauri<{ data?: { imageMime?: string; imageBase64?: string } }>("xcap", {
+        input: {
+          method: "capture_focused_window",
+          args: {},
+        },
+      });
+      imageMime = String(output?.data?.imageMime || "").trim();
+      imageBase64 = String(output?.data?.imageBase64 || "").trim();
+    } else {
+      const output = await invokeTauri<{ imageMime?: string; imageBase64?: string }>("desktop_screenshot", {
+        input: {
+          mode: "desktop",
+        },
+      });
+      imageMime = String(output?.imageMime || "").trim();
+      imageBase64 = String(output?.imageBase64 || "").trim();
+    }
+    if (!imageBase64) {
+      throw new Error("截图结果为空");
+    }
+    const queued = await invokeTauri<{
+      mime: string;
+      fileName: string;
+      savedPath: string;
+      attachAsMedia: boolean;
+      bytesBase64?: string | null;
+    }>("queue_inline_file_attachment", {
+      input: {
+        fileName: `voice-auto-${Date.now()}.webp`,
+        mime: imageMime || "image/webp",
+        bytesBase64: imageBase64,
+      },
+    });
+    const mime = String(queued.mime || "").trim().toLowerCase();
+    const imageSupported = !!apiConfig.enableImage || hasVisionFallback.value;
+    const canSendAsImage =
+      !!queued.attachAsMedia
+      && !!String(queued.bytesBase64 || "").trim()
+      && mime.startsWith("image/")
+      && imageSupported;
+    if (canSendAsImage) {
+      clipboardImages.value.push({
+        mime,
+        bytesBase64: String(queued.bytesBase64 || "").trim(),
+      });
+    } else {
+      const savedPath = String(queued.savedPath || "").trim();
+      const relativePath = savedPath.replace(/\\/g, "/").replace(/^.*\/downloads\//, "downloads/");
+      const fileName = String(queued.fileName || "").trim() || relativePath.split("/").pop() || "attachment";
+      const id = `${relativePath || fileName}::${mime}`;
+      if (!queuedAttachmentNotices.value.some((item) => item.id === id)) {
+        queuedAttachmentNotices.value.push({
+          id,
+          fileName,
+          relativePath: relativePath || savedPath || fileName,
+          mime,
+        });
+      }
+    }
+    const elapsedMs = Date.now() - input.startedAt;
+    console.info(
+      "[后台语音截图] 完成：命中关键词=%s，模式=%s，来源=%s，耗时=%dms",
+      input.keyword,
+      screenshotModeLabel,
+      input.source,
+      elapsedMs,
+    );
+  } catch (error) {
+    const elapsedMs = Date.now() - input.startedAt;
+    console.error(
+      "[后台语音截图] 失败：命中关键词=%s，模式=%s，来源=%s，耗时=%dms，原因=%s",
+      input.keyword,
+      screenshotModeLabel,
+      input.source,
+      elapsedMs,
+      String(error),
+    );
+    setStatus(`后台语音截图失败：${String(error)}`);
+  }
+}
 const {
   syncTrayIcon,
   saveAgentAvatar,
@@ -1088,6 +1243,8 @@ const configPersistence = useConfigPersistence({
   userAlias,
   selectedResponseStyleId,
   selectedPdfReadMode,
+  backgroundVoiceScreenshotKeywords,
+  backgroundVoiceScreenshotMode,
   responseStyleIds,
   createApiConfig,
   normalizeApiBindingsLocal,
@@ -1279,6 +1436,9 @@ const appBootstrap = useAppBootstrap({
       selectedResponseStyleId.value = nextStyleId;
     }
     selectedPdfReadMode.value = payload.pdfReadMode === "text" ? "text" : "image";
+    backgroundVoiceScreenshotKeywords.value = String(payload.backgroundVoiceScreenshotKeywords || "").trim();
+    backgroundVoiceScreenshotMode.value =
+      payload.backgroundVoiceScreenshotMode === "focused_window" ? "focused_window" : "desktop";
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
       resetVisibleMessageBlocksByCurrentMessages();
@@ -1898,6 +2058,8 @@ useAppWatchers({
   userAlias,
   selectedResponseStyleId,
   selectedPdfReadMode,
+  backgroundVoiceScreenshotKeywords,
+  backgroundVoiceScreenshotMode,
   selectedApiConfig,
   toolApiConfig,
   activeChatApiConfigId: assistantDepartmentApiConfigId,

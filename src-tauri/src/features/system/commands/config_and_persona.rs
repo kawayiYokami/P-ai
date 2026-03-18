@@ -788,6 +788,8 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         user_alias: user_persona_name(&runtime_data),
         response_style_id: data.response_style_id.clone(),
         pdf_read_mode: data.pdf_read_mode.clone(),
+        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
+        background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
     })
 }
 
@@ -820,6 +822,12 @@ fn save_chat_settings(
     data.user_alias = user_persona_name(&data);
     data.response_style_id = normalize_response_style_id(&input.response_style_id);
     data.pdf_read_mode = normalize_pdf_read_mode(&input.pdf_read_mode);
+    data.background_voice_screenshot_keywords = input
+        .background_voice_screenshot_keywords
+        .trim()
+        .to_string();
+    data.background_voice_screenshot_mode =
+        normalize_background_voice_screenshot_mode(&input.background_voice_screenshot_mode);
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
@@ -828,6 +836,8 @@ fn save_chat_settings(
         user_alias: data.user_alias,
         response_style_id: data.response_style_id,
         pdf_read_mode: data.pdf_read_mode,
+        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords,
+        background_voice_screenshot_mode: data.background_voice_screenshot_mode,
     };
 
     let _ = app.emit("easy-call:chat-settings-updated", &payload);
@@ -2025,4 +2035,3 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
-

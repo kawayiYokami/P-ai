@@ -59,6 +59,40 @@
     </div>
     <div class="mt-1 text-xs opacity-70">{{ t("config.chatSettings.pdfReadModeHint") }}</div>
   </div>
+  <div class="my-3 border-t border-base-300"></div>
+  <div class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.backgroundVoiceScreenshotKeywords") }}</span></div>
+    <div class="flex items-center gap-2">
+      <input
+        v-model="backgroundVoiceScreenshotKeywordsDraft"
+        type="text"
+        class="input input-bordered input-sm flex-1"
+        :placeholder="t('config.chatSettings.backgroundVoiceScreenshotKeywordsPlaceholder')"
+      />
+      <button class="btn btn-sm btn-primary shrink-0" :disabled="!backgroundVoiceScreenshotDirty" @click="saveBackgroundVoiceScreenshotSettings">保存</button>
+    </div>
+    <div class="mt-1 text-xs opacity-70">{{ t("config.chatSettings.backgroundVoiceScreenshotKeywordsHint") }}</div>
+  </div>
+  <div class="mb-3 flex w-full flex-col gap-1">
+    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.chatSettings.backgroundVoiceScreenshotMode") }}</span></div>
+    <div class="join w-full">
+      <button
+        class="btn btn-sm join-item flex-1"
+        :class="backgroundVoiceScreenshotMode === 'desktop' ? 'btn-primary' : 'bg-base-100'"
+        @click="onBackgroundVoiceScreenshotModeChange('desktop')"
+      >
+        {{ t("config.chatSettings.backgroundVoiceScreenshotModeDesktop") }}
+      </button>
+      <button
+        class="btn btn-sm join-item flex-1"
+        :class="backgroundVoiceScreenshotMode === 'focused_window' ? 'btn-primary' : 'bg-base-100'"
+        @click="onBackgroundVoiceScreenshotModeChange('focused_window')"
+      >
+        {{ t("config.chatSettings.backgroundVoiceScreenshotModeFocusedWindow") }}
+      </button>
+    </div>
+    <div class="mt-1 text-xs opacity-70">{{ t("config.chatSettings.backgroundVoiceScreenshotModeHint") }}</div>
+  </div>
   <div class="grid grid-cols-3 gap-2 mb-3">
     <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
     <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 whitespace-nowrap" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
@@ -81,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AppConfig, ApiConfigItem, ImageTextCacheStats, ResponseStyleOption } from "../../../../types/app";
 
@@ -91,6 +126,8 @@ const props = defineProps<{
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
   pdfReadMode: "text" | "image";
+  backgroundVoiceScreenshotKeywords: string;
+  backgroundVoiceScreenshotMode: "desktop" | "focused_window";
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
 }>();
@@ -99,6 +136,8 @@ const { t } = useI18n();
 const emit = defineEmits<{
   (e: "update:responseStyleId", value: string): void;
   (e: "update:pdfReadMode", value: "text" | "image"): void;
+  (e: "update:backgroundVoiceScreenshotKeywords", value: string): void;
+  (e: "update:backgroundVoiceScreenshotMode", value: "desktop" | "focused_window"): void;
   (e: "saveChatSettings"): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;
@@ -128,6 +167,29 @@ function onSttAutoSendChange(event: Event) {
     return;
   }
   props.config.sttAutoSend = (event.target as HTMLInputElement).checked;
+  emit("saveChatSettings");
+}
+
+const backgroundVoiceScreenshotKeywordsDraft = ref(String(props.backgroundVoiceScreenshotKeywords || ""));
+
+watch(
+  () => props.backgroundVoiceScreenshotKeywords,
+  (value) => {
+    backgroundVoiceScreenshotKeywordsDraft.value = String(value || "");
+  },
+);
+
+const backgroundVoiceScreenshotDirty = computed(
+  () => backgroundVoiceScreenshotKeywordsDraft.value !== String(props.backgroundVoiceScreenshotKeywords || ""),
+);
+
+function saveBackgroundVoiceScreenshotSettings() {
+  emit("update:backgroundVoiceScreenshotKeywords", backgroundVoiceScreenshotKeywordsDraft.value);
+  emit("saveChatSettings");
+}
+
+function onBackgroundVoiceScreenshotModeChange(value: "desktop" | "focused_window") {
+  emit("update:backgroundVoiceScreenshotMode", value);
   emit("saveChatSettings");
 }
 </script>
