@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 调整（wait-tool）：保留实现但永久禁用 wait 工具
+  - 运行时工具装配阶段不再挂载 `wait`
+  - 工具状态检查统一返回 `unavailable`，提示“wait 工具已永久禁用”
+
 - 文档（plan-archive）：归档 apply_patch 工具接入计划
   - 将 `plan/20260318_apply_patch工具接入计划.md` 按实际落地结果补全为归档报告
   - 归档迁移至 `plan/done/20260318_apply_patch工具接入归档.md`
