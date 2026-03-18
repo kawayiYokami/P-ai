@@ -249,6 +249,51 @@ fn build_archive_summary_from_last_three_rounds(source: &Conversation) -> String
     lines.join("\n")
 }
 
+fn emit_archive_history_flushed_event(
+    state: &AppState,
+    source_conversation_id: &str,
+    active_conversation_id: &str,
+    archive_id: &str,
+    archive_reason: &str,
+) {
+    let app_handle = match state
+        .app_handle
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+    {
+        Some(handle) => handle,
+        None => {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] history_flushed emit skipped: app_handle unavailable, source_conversation_id={}, active_conversation_id={}",
+                source_conversation_id, active_conversation_id
+            );
+            return;
+        }
+    };
+    let payload = serde_json::json!({
+        "conversationId": active_conversation_id,
+        "messageCount": 0,
+        "messages": [],
+        "activateAssistant": false,
+        "archiveApplied": true,
+        "archiveId": archive_id,
+        "archiveReason": archive_reason,
+        "sourceConversationId": source_conversation_id,
+    });
+    if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] history_flushed emit failed: source_conversation_id={}, active_conversation_id={}, archive_id={}, error={}",
+            source_conversation_id, active_conversation_id, archive_id, err
+        );
+    } else {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] history_flushed emitted: source_conversation_id={}, active_conversation_id={}, archive_id={}",
+            source_conversation_id, active_conversation_id, archive_id
+        );
+    }
+}
+
 #[tauri::command]
 async fn force_archive_current(
     input: SessionSelector,
@@ -498,6 +543,16 @@ async fn run_archive_pipeline_inner(
     // 清理PDF缓存
     if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
         eprintln!("[WARN] 清理PDF缓存失败: conversation={}, error={}", source.id, e);
+    }
+
+    if let Some(active_conversation_id_value) = active_conversation_id.as_deref() {
+        emit_archive_history_flushed_event(
+            state,
+            &source.id,
+            active_conversation_id_value,
+            &archive_id,
+            archive_reason,
+        );
     }
 
     drop(guard);
