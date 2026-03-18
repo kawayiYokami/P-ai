@@ -12,6 +12,7 @@ type ChatShellWorkspaceState = {
 type UseChatWorkspaceOptions = {
   activeApiConfigId: ComputedRef<string>;
   activeAgentId: ComputedRef<string>;
+  activeConversationId: ComputedRef<string>;
   setStatus: (text: string) => void;
   setStatusError: (key: string, error: unknown) => void;
 };
@@ -24,6 +25,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   async function refreshChatWorkspaceState() {
     const apiConfigId = String(options.activeApiConfigId.value || "").trim();
     const agentId = String(options.activeAgentId.value || "").trim();
+    const conversationId = String(options.activeConversationId.value || "").trim();
     if (!apiConfigId || !agentId) {
       chatWorkspaceName.value = "默认工作空间";
       chatWorkspaceLocked.value = false;
@@ -32,7 +34,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     }
     try {
       const state = await invokeTauri<ChatShellWorkspaceState>("get_chat_shell_workspace", {
-        input: { apiConfigId, agentId },
+        input: { apiConfigId, agentId, conversationId: conversationId || null },
       });
       chatWorkspaceName.value = String(state.workspaceName || "").trim() || "默认工作空间";
       chatWorkspaceLocked.value = !!state.locked;
@@ -45,6 +47,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   async function lockChatWorkspaceFromPicker() {
     const apiConfigId = String(options.activeApiConfigId.value || "").trim();
     const agentId = String(options.activeAgentId.value || "").trim();
+    const conversationId = String(options.activeConversationId.value || "").trim();
     if (!apiConfigId || !agentId) return;
     try {
       const picked = await open({
@@ -57,6 +60,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
         input: {
           apiConfigId,
           agentId,
+          conversationId: conversationId || null,
           workspacePath: String(picked),
         },
       });
@@ -72,12 +76,14 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   async function unlockChatWorkspace() {
     const apiConfigId = String(options.activeApiConfigId.value || "").trim();
     const agentId = String(options.activeAgentId.value || "").trim();
+    const conversationId = String(options.activeConversationId.value || "").trim();
     if (!apiConfigId || !agentId) return;
     try {
       const state = await invokeTauri<ChatShellWorkspaceState>("unlock_chat_shell_workspace", {
         input: {
           apiConfigId,
           agentId,
+          conversationId: conversationId || null,
         },
       });
       chatWorkspaceName.value = String(state.workspaceName || "").trim() || "默认工作空间";

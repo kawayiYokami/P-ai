@@ -135,7 +135,7 @@ fn check_tools_status(
             ),
             "remote_im_send" => (
                 "loaded".to_string(),
-                "远程IM联系人工具可用（支持 list/send）".to_string(),
+                "远程联系人通讯工具可用（支持 list/send）".to_string(),
             ),
             "exec" => {
                 #[cfg(target_os = "windows")]

@@ -3091,7 +3091,7 @@ impl Tool for BuiltinRemoteImSendTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "remote_im_send".to_string(),
-            description: "远程IM联系人工具。action=list 可列出当前可用联系人；action=send 可向指定联系人发送消息。".to_string(),
+            description: "远程联系人通讯工具。action=list 可列出当前可用联系人；action=send 可向指定联系人发送消息。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {

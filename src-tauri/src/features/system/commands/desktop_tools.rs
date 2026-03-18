@@ -284,6 +284,7 @@ struct ResolveTerminalApprovalInput {
 struct ChatShellWorkspaceInput {
     api_config_id: String,
     agent_id: String,
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -291,6 +292,7 @@ struct ChatShellWorkspaceInput {
 struct LockChatShellWorkspaceInput {
     api_config_id: String,
     agent_id: String,
+    conversation_id: Option<String>,
     workspace_path: String,
 }
 
@@ -299,6 +301,7 @@ struct LockChatShellWorkspaceInput {
 struct UnlockChatShellWorkspaceInput {
     api_config_id: String,
     agent_id: String,
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -314,6 +317,7 @@ fn resolve_chat_tool_session_id(
     state: &AppState,
     api_config_id: &str,
     agent_id: &str,
+    conversation_id: Option<&str>,
 ) -> Result<String, String> {
     let api_id = api_config_id.trim();
     let agent = agent_id.trim();
@@ -341,7 +345,7 @@ fn resolve_chat_tool_session_id(
     }
     drop(guard);
 
-    let session_id = inflight_chat_key(agent, None);
+    let session_id = inflight_chat_key(agent, conversation_id);
     Ok(normalize_terminal_tool_session_id(&session_id))
 }
 
@@ -440,7 +444,12 @@ fn get_chat_shell_workspace(
     state: State<'_, AppState>,
 ) -> Result<ChatShellWorkspaceOutput, String> {
     let session_id =
-        resolve_chat_tool_session_id(&state, &input.api_config_id, &input.agent_id)?;
+        resolve_chat_tool_session_id(
+            &state,
+            &input.api_config_id,
+            &input.agent_id,
+            input.conversation_id.as_deref(),
+        )?;
     let root = terminal_session_root_canonical(&state, &session_id)?;
     let default_root = terminal_default_session_root_canonical(&state)?;
     let locked = normalize_terminal_path_for_compare(&root)
@@ -459,7 +468,12 @@ fn lock_chat_shell_workspace(
     state: State<'_, AppState>,
 ) -> Result<ChatShellWorkspaceOutput, String> {
     let session_id =
-        resolve_chat_tool_session_id(&state, &input.api_config_id, &input.agent_id)?;
+        resolve_chat_tool_session_id(
+            &state,
+            &input.api_config_id,
+            &input.agent_id,
+            input.conversation_id.as_deref(),
+        )?;
     let target_text = input.workspace_path.trim();
     if target_text.is_empty() {
         return Err("workspacePath is required.".to_string());
@@ -479,7 +493,7 @@ fn lock_chat_shell_workspace(
     }
     Ok(ChatShellWorkspaceOutput {
         session_id,
-        workspace_name: workspace_name_from_path(&target),
+        workspace_name: resolve_workspace_display_name(&state, &target),
         root_path: target.to_string_lossy().to_string(),
         locked: true,
     })
@@ -491,7 +505,12 @@ fn unlock_chat_shell_workspace(
     state: State<'_, AppState>,
 ) -> Result<ChatShellWorkspaceOutput, String> {
     let session_id =
-        resolve_chat_tool_session_id(&state, &input.api_config_id, &input.agent_id)?;
+        resolve_chat_tool_session_id(
+            &state,
+            &input.api_config_id,
+            &input.agent_id,
+            input.conversation_id.as_deref(),
+        )?;
     {
         let mut roots = state
             .terminal_session_roots

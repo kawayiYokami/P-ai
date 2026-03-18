@@ -411,7 +411,7 @@
               <button
                 v-for="item in unarchivedConversationItems"
                 :key="item.conversationId"
-                class="btn btn-xs flex-1 flex items-center gap-1.5 min-w-0 max-w-[120px] !px-1"
+                class="btn btn-xs basis-0 grow flex items-center gap-1.5 min-w-[150px] max-w-[260px] !px-1.5"
                 :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'btn-secondary' : 'bg-base-100 border-base-300'"
                 :disabled="chatting || frozen"
                 @click="onConversationItemClick(item)"
@@ -429,7 +429,7 @@
                     'bg-error': item.color === 'error',
                   }"
                 ></span>
-                <span class="truncate">{{ item.messageCount }}条 · {{ formatRelativeTime(item.updatedAt) }}</span>
+                <span class="truncate text-left">{{ formatRelativeTime(item.updatedAt) }} · {{ item.workspaceLabel || '默认工作空间' }}</span>
               </button>
             </div>
           </div>
@@ -533,7 +533,7 @@ const props = defineProps<{
   currentWorkspaceName: string;
   workspaceLocked: boolean;
   activeConversationId: string;
-  unarchivedConversationItems: Array<{ conversationId: string; messageCount: number; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
+  unarchivedConversationItems: Array<{ conversationId: string; messageCount: number; workspaceLabel?: string; isActive?: boolean; color?: string; canCreateNew?: boolean }>;
 }>();
 
 const emit = defineEmits<{
@@ -1423,4 +1423,3 @@ watch(
 }
 
 </style>
-

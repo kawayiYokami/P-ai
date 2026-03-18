@@ -772,12 +772,50 @@ const CONVERSATION_COLORS = [
   'neutral',   // 7: 黑
 ] as const;
 
+const conversationWorkspaceLabelMap = ref<Record<string, string>>({});
+let refreshConversationWorkspaceToken = 0;
+
+async function refreshConversationWorkspaceLabels() {
+  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
+  if (!apiConfigId || !agentId) {
+    conversationWorkspaceLabelMap.value = {};
+    return;
+  }
+  const targetConversationIds = unarchivedConversations.value
+    .filter((item) => String(item.agentId || "").trim() === agentId)
+    .map((item) => String(item.conversationId || "").trim())
+    .filter((id) => !!id);
+  const token = ++refreshConversationWorkspaceToken;
+  const nextMap: Record<string, string> = {};
+  await Promise.all(
+    targetConversationIds.map(async (conversationId) => {
+      try {
+        const state = await invokeTauri<{ workspaceName?: string; rootPath?: string }>("get_chat_shell_workspace", {
+          input: {
+            apiConfigId,
+            agentId,
+            conversationId,
+          },
+        });
+        nextMap[conversationId] = String(state?.workspaceName || "").trim() || "默认工作空间";
+      } catch {
+        nextMap[conversationId] = "默认工作空间";
+      }
+    }),
+  );
+  if (token !== refreshConversationWorkspaceToken) return;
+  conversationWorkspaceLabelMap.value = nextMap;
+}
+
 const chatUnarchivedConversationItems = computed(() => {
   const items = unarchivedConversations.value
     .filter((item) => String(item.agentId || "").trim() === String(activeAssistantAgentId.value || "").trim())
     .map((item) => ({
       conversationId: item.conversationId,
       messageCount: Number(item.messageCount || 0),
+      workspaceLabel:
+        conversationWorkspaceLabelMap.value[String(item.conversationId || "").trim()] || "默认工作空间",
       isActive: !!item.isActive,
       updatedAt: item.lastMessageAt || item.updatedAt || "",
     }))
@@ -811,6 +849,7 @@ const {
 } = useChatWorkspace({
   activeApiConfigId: assistantDepartmentApiConfigId,
   activeAgentId: activeAssistantAgentId,
+  activeConversationId: currentChatConversationId,
   setStatus,
   setStatusError,
 });
@@ -1098,6 +1137,19 @@ const {
 
 async function refreshChatUnarchivedConversations() {
   await loadUnarchivedConversations();
+  const agentId = String(activeAssistantAgentId.value || "").trim();
+  if (!agentId) {
+    currentChatConversationId.value = "";
+    return;
+  }
+  const current = String(currentChatConversationId.value || "").trim();
+  const candidates = unarchivedConversations.value
+    .filter((item) => String(item.agentId || "").trim() === agentId);
+  if (candidates.some((item) => String(item.conversationId || "").trim() === current)) {
+    return;
+  }
+  const activeItem = candidates.find((item) => !!item.isActive) || candidates[0];
+  currentChatConversationId.value = String(activeItem?.conversationId || "").trim();
 }
 
 async function switchUnarchivedConversation(conversationId: string) {
@@ -1454,12 +1506,30 @@ watch(
     mode: viewMode.value,
     apiId: assistantDepartmentApiConfigId.value,
     agentId: activeAssistantAgentId.value,
+    conversationId: currentChatConversationId.value,
+    conversationIds: unarchivedConversations.value
+      .filter((item) => String(item.agentId || "").trim() === String(activeAssistantAgentId.value || "").trim())
+      .map((item) => String(item.conversationId || "").trim())
+      .join("|"),
   }),
   ({ mode }) => {
     if (mode !== "chat") return;
     void refreshChatWorkspaceState();
+    void refreshConversationWorkspaceLabels();
   },
   { immediate: true },
+);
+
+watch(
+  () => ({
+    mode: viewMode.value,
+    workspaceName: chatWorkspaceName.value,
+    workspaceLocked: chatWorkspaceLocked.value,
+  }),
+  ({ mode }) => {
+    if (mode !== "chat") return;
+    void refreshConversationWorkspaceLabels();
+  },
 );
 
 watch(
@@ -1847,5 +1917,6 @@ useAppWatchers({
   },
 });
 </script>
+
 
 

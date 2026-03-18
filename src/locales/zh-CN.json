@@ -241,6 +241,7 @@
       "descOrganizeContext": "只有当话题偏离很远、无关信息可能干扰最新话题时才使用；对话太短或上下文占用太低时不应压缩。",
       "descTask": "管理持久化任务面板，支持新建、更新、完成、查看任务。",
       "descDelegate": "向目标部门发起委托：仅主助理部门可用。mode=async 表示后台处理并稍后回报；mode=sync 表示当前线程等待结果再继续。",
+      "descRemoteImSend": "远程联系人通讯工具。",
       "descGeneric": "通用工具能力。",
       "shellWorkspace": "Shell 工作空间",
       "openDir": "打开目录",
@@ -819,3 +820,4 @@
     "repository": "Git 仓库"
   }
 }
+

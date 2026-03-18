@@ -101,6 +101,26 @@ struct TerminalWorkspaceResolved {
 
 fn ensure_default_shell_workspace_in_config(config: &mut AppConfig, state: &AppState) {
     let default_path = terminal_path_for_user(&state.llm_workspace_path);
+    let default_canonical = PathBuf::from(&default_path).canonicalize().ok();
+    for workspace in &mut config.shell_workspaces {
+        let candidate = PathBuf::from(workspace.path.trim());
+        let matches_default = if let (Some(default_dir), Ok(candidate_dir)) =
+            (default_canonical.as_ref(), candidate.canonicalize())
+        {
+            normalize_terminal_path_for_compare(default_dir)
+                == normalize_terminal_path_for_compare(&candidate_dir)
+        } else {
+            normalize_terminal_path_for_compare(&candidate)
+                == normalize_terminal_path_for_compare(&PathBuf::from(&default_path))
+        };
+        if matches_default {
+            workspace.built_in = true;
+            if workspace.name.trim().is_empty() {
+                workspace.name = "默认工作空间".to_string();
+            }
+            return;
+        }
+    }
     if config.shell_workspaces.iter().any(|w| w.built_in) {
         return;
     }

@@ -241,6 +241,7 @@
       "descOrganizeContext": "Use only when the topic has drifted far and unrelated context may interfere with the latest task; do not compress when the chat is still short or context usage is still low.",
       "descTask": "Manage the persistent task board: create, update, complete, and inspect tasks.",
       "descDelegate": "Delegate work to another department: only the main assistant department can use it. mode=async runs in the background; mode=sync waits for the child result before continuing.",
+      "descRemoteImSend": "Remote contact communication tool.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",
       "openDir": "Open Directory",
@@ -815,3 +816,4 @@
     "repository": "Git Repository"
   }
 }
+
