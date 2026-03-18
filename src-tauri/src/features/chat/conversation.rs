@@ -887,6 +887,27 @@ fn append_prompt_user_blocks_to_text(base_text: &str, blocks: &[String]) -> Stri
     out
 }
 
+fn context_compaction_message_text(message: &ChatMessage) -> String {
+    let base_text = render_prompt_user_text_only(message);
+    let extra_blocks = prompt_user_extra_blocks_for_message(message);
+    clean_text(append_prompt_user_blocks_to_text(&base_text, &extra_blocks).trim())
+}
+
+fn is_context_compaction_message(message: &ChatMessage, role: &str) -> bool {
+    if role != "user" {
+        return false;
+    }
+    let text = context_compaction_message_text(message).to_ascii_lowercase();
+    if text.is_empty() {
+        return false;
+    }
+    text.contains("[上下文压缩]")
+        || text.contains("上下文压缩")
+        || text.contains("压缩摘要")
+        || text.contains("context compression")
+        || text.contains("context compact")
+}
+
 fn resolve_media_from_parts(
     parts: &[MessagePart],
     data_path: Option<&PathBuf>,
@@ -1342,15 +1363,56 @@ fn build_prompt_with_mode(
 
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let mut seen_remote_contacts = std::collections::HashSet::<String>::new();
+    let compression_message_indexes = enriched_conversation
+        .messages
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, message)| {
+            let role = prompt_role_for_message(message, &agent.id)?;
+            if is_context_compaction_message(message, role.as_str()) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let last_compaction_index = compression_message_indexes.last().copied();
     let latest_user_index = enriched_conversation
         .messages
         .iter()
-        .rposition(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"));
+        .enumerate()
+        .rev()
+        .find_map(|(idx, message)| {
+            if let Some(boundary) = last_compaction_index {
+                if idx < boundary {
+                    return None;
+                }
+            }
+            let role = prompt_role_for_message(message, &agent.id)?;
+            if role != "user" {
+                return None;
+            }
+            if is_context_compaction_message(message, role.as_str()) {
+                return None;
+            }
+            Some(idx)
+        });
+    let compaction_texts = compression_message_indexes
+        .iter()
+        .filter_map(|idx| enriched_conversation.messages.get(*idx))
+        .map(context_compaction_message_text)
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>();
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
     for (idx, message) in enriched_conversation.messages.iter().enumerate() {
         let Some(role) = prompt_role_for_message(message, &agent.id) else {
             continue;
         };
+        if let Some(boundary) = last_compaction_index {
+            if idx < boundary && !is_context_compaction_message(message, role.as_str()) {
+                continue;
+            }
+        }
         let is_self_message = role == "assistant";
         if Some(idx) == latest_user_index {
             continue;
@@ -1626,12 +1688,8 @@ fn build_prompt_with_mode(
         preamble.push('\n');
     }
 
-    let latest_user = enriched_conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"))
-        .cloned();
+    let latest_user = latest_user_index
+        .and_then(|idx| enriched_conversation.messages.get(idx).cloned());
 
     let mut latest_user_text = String::new();
     let mut latest_user_meta_text = String::new();
@@ -1675,6 +1733,8 @@ fn build_prompt_with_mode(
         {
             latest_user_text = " ".to_string();
         }
+    } else if !compaction_texts.is_empty() {
+        latest_user_text = compaction_texts.join("\n\n");
     }
 
     PreparedPrompt {

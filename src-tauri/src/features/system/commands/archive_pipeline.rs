@@ -200,6 +200,49 @@ async fn summarize_archived_conversation_with_model_v2(
     })
 }
 
+async fn summarize_context_compaction_with_model_v1(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    user_alias: &str,
+    source_conversation: &Conversation,
+) -> Result<String, String> {
+    let mut prepared = build_prepared_prompt_for_mode(
+        PromptBuildMode::Archive,
+        source_conversation,
+        agent,
+        &[],
+        &[],
+        user_alias,
+        "",
+        "concise",
+        "zh-CN",
+        None,
+        None,
+        None,
+        None,
+        Some(state),
+        None,
+        None,
+    );
+    prepared.latest_user_text = build_compaction_instruction().to_string();
+    let timeout_secs = 360u64;
+    let reply = call_archive_summary_model_with_timeout(
+        state,
+        resolved_api,
+        selected_api,
+        prepared,
+        timeout_secs,
+    )
+    .await?;
+    let summary = clean_text(reply.assistant_text.trim());
+    if summary.is_empty() {
+        return Err("Compaction summary is empty".to_string());
+    }
+    Ok(summary)
+}
+
 fn archive_pipeline_message_plain_text(message: &ChatMessage) -> String {
     let mut blocks = Vec::<String>::new();
     for part in &message.parts {
@@ -356,6 +399,185 @@ fn emit_archive_history_flushed_event(
     }
 }
 
+fn emit_compaction_history_flushed_event(
+    state: &AppState,
+    conversation_id: &str,
+    compression_message: &ChatMessage,
+) {
+    let app_handle = match state
+        .app_handle
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+    {
+        Some(handle) => handle,
+        None => {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] 压缩 history_flushed 发送跳过: app_handle 不可用, conversation_id={}",
+                conversation_id
+            );
+            return;
+        }
+    };
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "messageCount": 1,
+        "messages": [compression_message],
+        "activateAssistant": false,
+        "compactionApplied": true,
+    });
+    if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 压缩 history_flushed 发送失败: conversation_id={}, error={}",
+            conversation_id, err
+        );
+    } else {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 压缩 history_flushed 已发送: conversation_id={}",
+            conversation_id
+        );
+    }
+}
+
+fn build_compaction_message(summary: &str, compaction_reason: &str) -> ChatMessage {
+    let now = now_iso();
+    let reason = compaction_reason.trim();
+    let reason_line = if reason.is_empty() {
+        String::new()
+    } else {
+        format!("触发原因：{}\n", reason)
+    };
+    let text = format!(
+        "[上下文压缩]\n{}压缩摘要：\n{}",
+        reason_line,
+        clean_text(summary.trim())
+    );
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now,
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: None,
+        tool_call: None,
+        mcp_call: None,
+    }
+}
+
+async fn summarize_archive_draft_with_fallback(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    host_agent: &AgentProfile,
+    user_alias: &str,
+    source: &Conversation,
+    memories: &[MemoryEntry],
+    trace_tag: &str,
+    trace_id: &str,
+) -> (ArchiveSummaryDraft, Option<String>) {
+    match summarize_archived_conversation_with_model_v2(
+        state,
+        resolved_api,
+        selected_api,
+        host_agent,
+        user_alias,
+        source,
+        memories,
+        &source.memory_recall_table,
+        trace_tag,
+        trace_id,
+    )
+    .await
+    {
+        Ok(parsed) => (parsed, None),
+        Err(err) => {
+            let fallback_summary = match build_archive_summary_from_compression_and_last_three_rounds(source) {
+                Ok(summary) => {
+                    eprintln!(
+                        "[ARCHIVE-PIPELINE] 归档模型失败，已降级到 压缩内容+最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}",
+                        trace_id, source.id, err
+                    );
+                    (
+                        summary,
+                        Some(format!("归档模型失败，已使用压缩内容+最后三轮正文对话降级摘要：{err}")),
+                    )
+                }
+                Err(compression_err) => {
+                    eprintln!(
+                        "[ARCHIVE-PIPELINE] 归档模型失败，压缩降级也失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}, compression_err={}",
+                        trace_id, source.id, err, compression_err
+                    );
+                    (
+                        build_archive_summary_from_last_three_rounds(source),
+                        Some(format!(
+                            "归档模型失败，压缩降级失败，已使用最后三轮正文对话降级摘要：{}（压缩降级原因：{}）",
+                            err, compression_err
+                        )),
+                    )
+                }
+            };
+            (
+                ArchiveSummaryDraft {
+                    summary: fallback_summary.0,
+                    useful_memory_ids: Vec::new(),
+                    new_memories: Vec::new(),
+                    merge_groups: Vec::new(),
+                },
+                fallback_summary.1,
+            )
+        }
+    }
+}
+
+async fn summarize_compaction_text_with_fallback(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    host_agent: &AgentProfile,
+    user_alias: &str,
+    source: &Conversation,
+    trace_id: &str,
+) -> (String, Option<String>) {
+    match summarize_context_compaction_with_model_v1(
+        state,
+        resolved_api,
+        selected_api,
+        host_agent,
+        user_alias,
+        source,
+    )
+    .await
+    {
+        Ok(summary) => (summary, None),
+        Err(err) => match build_archive_summary_from_compression_and_last_three_rounds(source) {
+            Ok(summary) => {
+                eprintln!(
+                    "[ARCHIVE-PIPELINE] 压缩模型失败，已降级到 压缩内容+最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}",
+                    trace_id, source.id, err
+                );
+                (
+                    summary,
+                    Some(format!("压缩模型失败，已使用压缩内容+最后三轮正文对话降级摘要：{err}")),
+                )
+            }
+            Err(compression_err) => {
+                eprintln!(
+                    "[ARCHIVE-PIPELINE] 压缩模型失败，压缩降级也失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}, compression_err={}",
+                    trace_id, source.id, err, compression_err
+                );
+                (
+                    build_archive_summary_from_last_three_rounds(source),
+                    Some(format!(
+                        "压缩模型失败，压缩降级失败，已使用最后三轮正文对话降级摘要：{}（压缩降级原因：{}）",
+                        err, compression_err
+                    )),
+                )
+            }
+        },
+    }
+}
+
 #[tauri::command]
 async fn force_archive_current(
     input: SessionSelector,
@@ -469,6 +691,175 @@ pub(crate) async fn run_archive_pipeline(
     result
 }
 
+pub(crate) async fn run_context_compaction_pipeline(
+    state: &AppState,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    source: &Conversation,
+    effective_agent_id: &str,
+    compaction_reason: &str,
+    trace_tag: &str,
+) -> Result<ForceArchiveResult, String> {
+    let started_at = std::time::Instant::now();
+    let trace_id = Uuid::new_v4().to_string();
+
+    set_main_session_state(state, MainSessionState::OrganizingContext)?;
+    eprintln!(
+        "[ARCHIVE-PIPELINE] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
+        trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
+    );
+
+    let result = run_context_compaction_pipeline_inner(
+        state,
+        selected_api,
+        resolved_api,
+        source,
+        effective_agent_id,
+        compaction_reason,
+        trace_tag,
+        started_at,
+        &trace_id,
+    )
+    .await;
+
+    let elapsed_ms = started_at.elapsed().as_millis();
+    if let Err(state_err) = set_main_session_state(state, MainSessionState::Idle) {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
+            trace_id, elapsed_ms, state_err
+        );
+    } else {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 完成: task=context_compaction, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
+            trace_id, effective_agent_id, selected_api.id, elapsed_ms
+        );
+    }
+
+    result
+}
+
+async fn run_context_compaction_pipeline_inner(
+    state: &AppState,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    source: &Conversation,
+    effective_agent_id: &str,
+    compaction_reason: &str,
+    trace_tag: &str,
+    started_at: std::time::Instant,
+    trace_id: &str,
+) -> Result<ForceArchiveResult, String> {
+    if source.messages.is_empty() {
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            active_conversation_id: Some(source.id.clone()),
+            summary: "当前对话为空，无需压缩。".to_string(),
+            merged_memories: 0,
+            warning: None,
+            reason_code: Some("empty_conversation".to_string()),
+            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            memory_feedback: None,
+            merge_groups: None,
+        });
+    }
+
+    let (host_agent, host_agent_id, user_alias) = {
+        let guard = state
+            .state_lock
+            .lock()
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        let mut data = state_read_app_data_cached(&state)?;
+        ensure_default_agent(&mut data);
+        let user_alias = data.user_alias.clone();
+        let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
+        let host_agent = data
+            .agents
+            .iter()
+            .find(|a| a.id == host_agent_id)
+            .cloned()
+            .ok_or_else(|| "Host agent not found.".to_string())?;
+        drop(guard);
+        (host_agent, host_agent_id, user_alias)
+    };
+
+    eprintln!(
+        "[{}] trace={} begin api={} model={} format={} conversation={} hostAgent={}",
+        trace_tag,
+        trace_id,
+        selected_api.id,
+        selected_api.model,
+        resolved_api.request_format,
+        source.id,
+        host_agent_id
+    );
+
+    let (summary, compaction_warning) = summarize_compaction_text_with_fallback(
+        state,
+        resolved_api,
+        selected_api,
+        &host_agent,
+        &user_alias,
+        source,
+        trace_id,
+    )
+    .await;
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    ensure_default_agent(&mut data);
+
+    let conversation_idx = data
+        .conversations
+        .iter()
+        .position(|item| item.id == source.id && item.summary.trim().is_empty())
+        .ok_or_else(|| "活动对话已变化，请重试压缩。".to_string())?;
+    let compression_message = build_compaction_message(&summary, compaction_reason);
+    {
+        let conversation = data
+            .conversations
+            .get_mut(conversation_idx)
+            .ok_or_else(|| "活动对话索引无效，请重试压缩。".to_string())?;
+        conversation.messages.push(compression_message.clone());
+        let now = now_iso();
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now);
+        conversation.last_context_usage_ratio =
+            compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+    }
+    let active_conversation_id = data
+        .conversations
+        .get(conversation_idx)
+        .map(|item| item.id.clone());
+    state_write_app_data_cached(&state, &data)?;
+
+    emit_compaction_history_flushed_event(state, &source.id, &compression_message);
+
+    drop(guard);
+
+    eprintln!(
+        "[{}] trace={} done compaction=true merged_memories=0 merged_groups=0",
+        trace_tag,
+        trace_id,
+    );
+
+    Ok(ForceArchiveResult {
+        archived: false,
+        archive_id: None,
+        active_conversation_id,
+        summary,
+        merged_memories: 0,
+        warning: compaction_warning,
+        reason_code: None,
+        elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+        memory_feedback: None,
+        merge_groups: Some(0),
+    })
+}
+
 async fn run_archive_pipeline_inner(
     state: &AppState,
     selected_api: &ApiConfig,
@@ -531,8 +922,7 @@ async fn run_archive_pipeline_inner(
         host_agent_id
     );
 
-    let mut archive_warning: Option<String> = None;
-    let parsed = match summarize_archived_conversation_with_model_v2(
+    let (parsed, archive_warning) = summarize_archive_draft_with_fallback(
         state,
         resolved_api,
         selected_api,
@@ -540,42 +930,10 @@ async fn run_archive_pipeline_inner(
         &user_alias,
         source,
         &memories,
-        &source.memory_recall_table,
         trace_tag,
         &trace_id,
     )
-    .await {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            let fallback_summary = match build_archive_summary_from_compression_and_last_three_rounds(source) {
-                Ok(summary) => {
-                    archive_warning = Some(format!("归档模型失败，已使用压缩内容+最后三轮正文对话降级摘要：{err}"));
-                    eprintln!(
-                        "[ARCHIVE-PIPELINE] 归档模型失败，已降级到 压缩内容+最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}",
-                        trace_id, source.id, err
-                    );
-                    summary
-                }
-                Err(compression_err) => {
-                    archive_warning = Some(format!(
-                        "归档模型失败，压缩降级失败，已使用最后三轮正文对话降级摘要：{}（压缩降级原因：{}）",
-                        err, compression_err
-                    ));
-                    eprintln!(
-                        "[ARCHIVE-PIPELINE] 归档模型失败，压缩降级也失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, err={}, compression_err={}",
-                        trace_id, source.id, err, compression_err
-                    );
-                    build_archive_summary_from_last_three_rounds(source)
-                }
-            };
-            ArchiveSummaryDraft {
-                summary: fallback_summary,
-                useful_memory_ids: Vec::new(),
-                new_memories: Vec::new(),
-                merge_groups: Vec::new(),
-            }
-        }
-    };
+    .await;
     let summary = parsed.summary;
     let useful_memory_ids = parsed.useful_memory_ids;
     let summary_memories = parsed.new_memories;

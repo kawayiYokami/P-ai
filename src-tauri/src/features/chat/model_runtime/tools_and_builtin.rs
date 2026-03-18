@@ -1395,7 +1395,7 @@ async fn builtin_organize_context(
         (selected_api, resolved_api, source, effective_agent_id)
     };
 
-    let result = run_archive_pipeline(
+    let result = run_context_compaction_pipeline(
         app_state,
         &selected_api,
         &resolved_api,
