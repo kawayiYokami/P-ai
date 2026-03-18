@@ -58,6 +58,7 @@ where
 
 fn default_window_size(label: &str) -> (u32, u32) {
     match label {
+        "main" => (900_u32, 900_u32),
         "chat" => (618_u32, 1000_u32),
         "archives" => (900_u32, 900_u32),
         _ => (900_u32, 900_u32),
@@ -66,10 +67,15 @@ fn default_window_size(label: &str) -> (u32, u32) {
 
 fn minimum_window_size(label: &str) -> (u32, u32) {
     match label {
+        "main" => (900_u32, 900_u32),
         "chat" => (560_u32, 760_u32),
         "archives" => (820_u32, 720_u32),
         _ => (820_u32, 720_u32),
     }
+}
+
+fn is_fixed_window_size(label: &str) -> bool {
+    matches!(label, "main")
 }
 
 fn preferred_window_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
@@ -95,13 +101,21 @@ fn resolved_window_size_for_monitor(
     let (min_width, min_height) = minimum_window_size(label);
     let max_width = monitor.size().width.max(1);
     let max_height = monitor.size().height.max(1);
+    let target_width = if is_fixed_window_size(label) {
+        default_width
+    } else {
+        width.unwrap_or(default_width)
+    };
+    let target_height = if is_fixed_window_size(label) {
+        default_height
+    } else {
+        height.unwrap_or(default_height)
+    };
     (
-        width
-            .unwrap_or(default_width)
+        target_width
             .max(min_width.min(max_width))
             .min(max_width),
-        height
-            .unwrap_or(default_height)
+        target_height
             .max(min_height.min(max_height))
             .min(max_height),
     )
@@ -136,9 +150,9 @@ fn position_window_on_monitor(
 ) {
     let (resolved_width, resolved_height) =
         resolved_window_size_for_monitor(label, monitor, width, height);
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-        resolved_width,
-        resolved_height,
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        resolved_width as f64,
+        resolved_height as f64,
     )));
     let margin = 24_i32;
     let x = monitor.position().x + monitor.size().width as i32 - resolved_width as i32 - margin;
@@ -159,9 +173,9 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
         if let Some(monitor) = fallback_monitor.as_ref() {
             let (resolved_width, resolved_height) =
                 resolved_window_size_for_monitor(label, monitor, saved.width, saved.height);
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-                resolved_width,
-                resolved_height,
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                resolved_width as f64,
+                resolved_height as f64,
             )));
             if let (Some(x), Some(y)) = (saved.x, saved.y) {
                 let monitors = window.available_monitors().unwrap_or_default();
@@ -203,8 +217,9 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
             }
         } else {
             if let (Some(width), Some(height)) = (saved.width, saved.height) {
-                let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-                    width, height,
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                    width as f64,
+                    height as f64,
                 )));
             }
             if let (Some(x), Some(y)) = (saved.x, saved.y) {
