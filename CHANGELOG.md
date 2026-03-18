@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 文档（plan-archive）：归档 apply_patch 工具接入计划
+  - 将 `plan/20260318_apply_patch工具接入计划.md` 按实际落地结果补全为归档报告
+  - 归档迁移至 `plan/done/20260318_apply_patch工具接入归档.md`
+
 - 新增（apply-patch）：接入内置 `apply_patch` 工具并默认启用
   - 新增结构化补丁编辑工具，支持 `Add/Delete/Update/Move` 与 `@@` hunk 语法
   - 增加路径越界防护（禁止绝对路径与 `../` 逃逸）
