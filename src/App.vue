@@ -127,6 +127,7 @@
       :update-selected-persona-id="updateAssistantDepartmentAgentId"
       :update-selected-response-style-id="updateSelectedResponseStyleId"
       :update-selected-pdf-read-mode="updateSelectedPdfReadMode"
+      :save-chat-settings="saveChatSettingsNow"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
@@ -1917,6 +1918,8 @@ useAppWatchers({
   },
 });
 </script>
+
+
 
 
 
