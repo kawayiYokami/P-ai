@@ -2,6 +2,20 @@
 
 ## 未发布
 
+- 重构（memory-store）：拆分记忆存储模块并清理 legacy 迁移路径
+  - `memory/store.rs` 改为聚合入口，拆分为 `types/db/crud/ownership/import_export/archive_feedback/provider_index/maintenance/tests` 子模块
+  - 移除 legacy memories 迁移能力（启动迁移调用、迁移函数、相关类型与测试）
+  - `archive_feedback`、`provider_index`、`upsert/delete` 补齐中文任务日志（开始/完成/失败/跳过）与关键诊断字段
+  - 修复 `health_check` 重复 rebuild 问题，改为单次 rebuild
+  - 强化 provider table 名称校验与向量写入事务，降低 SQL 注入与原子性风险
+  - 修复敏感内容日志泄露风险：敏感拦截仅记录 `judgment_len`，不记录原文
+
+- 修复（chat-flow）：回归流式状态机与历史刷新时序
+  - queued 阶段不再提前进入聊天中状态，`stopChat` 支持 queued 阶段中断
+  - `history_flushed` 可见窗口计数兼容 `messageCount`，避免轮次显示错位
+  - `stop` 成功路径补充历史刷新，修复测试期望不一致
+  - `useChatRuntime` 的 `hasMoreBackendHistory` 改为可选并统一空值保护
+
 - 重构（chat-runtime-tools）：拆分 `tools_and_builtin.rs` 并收敛审查问题
   - 将超大文件拆分为 `tools_and_builtin/` 目录下多个职责子文件（provider 调用、网络、记忆、task、delegate、remote_im、参数类型、Tool 实现）
   - `task/delegate/core_provider` 进一步分层为聚合入口 + 子模块，降低单文件复杂度并减少协作冲突

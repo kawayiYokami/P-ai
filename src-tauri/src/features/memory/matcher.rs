@@ -487,11 +487,11 @@ fn memory_has_embedding_binding(data_path: &PathBuf) -> bool {
     let Ok(conn) = memory_store_open(data_path) else {
         return false;
     };
-    let active = memory_store_get_runtime_state(&conn, "active_index_provider_id")
+    let active = memory_store_get_runtime_state(&conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID)
         .ok()
         .flatten()
         .unwrap_or_default();
-    let embedding_api = memory_store_get_runtime_state(&conn, "embedding_api_config_id")
+    let embedding_api = memory_store_get_runtime_state(&conn, KB_STATE_EMBEDDING_API_CONFIG_ID)
         .ok()
         .flatten()
         .unwrap_or_default();
@@ -502,7 +502,7 @@ fn memory_rerank_provider_from_binding(
     data_path: &PathBuf,
 ) -> Result<Option<Box<dyn MemoryRerankProvider>>, String> {
     let conn = memory_store_open(data_path)?;
-    let rerank_api_id = memory_store_get_runtime_state(&conn, "rerank_api_config_id")?
+    let rerank_api_id = memory_store_get_runtime_state(&conn, KB_STATE_RERANK_API_CONFIG_ID)?
         .unwrap_or_default();
     if rerank_api_id.trim().is_empty() {
         return Ok(None);
@@ -744,11 +744,11 @@ fn memory_mixed_ranked_items(
 }
 
 fn memory_store_active_embedding_provider_id(conn: &Connection) -> Result<Option<String>, String> {
-    memory_store_get_runtime_state(conn, "active_index_provider_id")
+    memory_store_get_runtime_state(conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID)
 }
 
 fn memory_store_embedding_binding_api_id(conn: &Connection) -> Result<Option<String>, String> {
-    memory_store_get_runtime_state(conn, "embedding_api_config_id")
+    memory_store_get_runtime_state(conn, KB_STATE_EMBEDDING_API_CONFIG_ID)
 }
 
 fn memory_store_embedding_provider_model_name(

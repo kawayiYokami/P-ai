@@ -493,7 +493,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
       firstMessageId: String(replayMessages[0]?.id || ""),
       lastMessageId: String(replayMessages[replayMessages.length - 1]?.id || ""),
     });
-    const batchVisibleCount = Math.max(1, replayMessages.length);
+    // 测试里 history_flushed 可能只给 messageCount，不给 messages 数组。
+    // 若只看 replayMessages.length，会把可见窗口错误压成 1，导致轮次显示异常。
+    const payloadMessageCount = Math.max(0, Math.round(Number(flushed?.messageCount || 0)));
+    const batchVisibleCount = Math.max(1, replayMessages.length, payloadMessageCount);
     activeHistoryMessageCount = batchVisibleCount;
     if (shouldActivate) {
       options.visibleMessageBlockCount.value = batchVisibleCount;
@@ -546,7 +549,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     // ── 插 draft / 进入 streaming ──
     const draftId = insertDraft(gen);
-    options.visibleMessageBlockCount.value = batchVisibleCount + 1;
+    // 流式进行中保持历史可见窗口稳定，待 round_completed 再按最终可见输出结算。
+    options.visibleMessageBlockCount.value = batchVisibleCount;
     round = { phase: "streaming", gen, draftId };
     options.chatting.value = true;
   }
@@ -851,8 +855,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
       resetDisplayState();
       if (round.phase === "streaming") removeDraft(round.draftId);
       round = { phase: "queued", gen };
-      // 发送后立即进入可停止态（即使流式尚未开始）。
-      options.chatting.value = true;
+      // 注意：queued 阶段不应提前置 chatting=true。
+      // 之前这里提前置 true，会让“未收到 history_flushed 前 UI 不应进入流式态”的测试失败。
     }
 
     const deltaChannel = new Channel<AssistantDeltaEvent>();
@@ -927,7 +931,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
 
   async function stopChat() {
-    if (!options.chatting.value) return;
+    // queued 也允许 stop：请求已发出但 UI 还没进入 streaming 时，仍需要可中断。
+    // 之前只看 chatting.value 会把 queued stop 直接短路。
+    if (!options.chatting.value && round.phase !== "queued") return;
     const stopSession = options.getSession();
     const cid = options.getConversationId ? options.getConversationId() : "";
     const partialAssistantText = options.latestAssistantText.value;
@@ -986,6 +992,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
             assistantMessage: stopResult?.assistantMessage,
           });
         }
+        // stop 成功后也要刷新一次历史，确保本地草稿态与后端持久化结果一致。
+        // 对应测试期望：history_flushed 一次 + stop 成功后二次 reload。
+        await options.onReloadMessages();
         return;
       } catch (error) {
         const et = error instanceof Error

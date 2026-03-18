@@ -336,24 +336,24 @@ fn memory_binding_provider_id(api_id: &str, request_format: &str, model: &str) -
 fn get_memory_provider_bindings(state: State<'_, AppState>) -> Result<MemoryProviderBindings, String> {
     let conn = memory_store_open(&state.data_path)?;
     Ok(MemoryProviderBindings {
-        embedding_api_config_id: memory_store_get_runtime_state(&conn, "embedding_api_config_id")?,
-        rerank_api_config_id: memory_store_get_runtime_state(&conn, "rerank_api_config_id")?,
+        embedding_api_config_id: memory_store_get_runtime_state(&conn, KB_STATE_EMBEDDING_API_CONFIG_ID)?,
+        rerank_api_config_id: memory_store_get_runtime_state(&conn, KB_STATE_RERANK_API_CONFIG_ID)?,
     })
 }
 
 #[tauri::command]
 fn get_memory_embedding_sync_progress(state: State<'_, AppState>) -> Result<MemoryEmbeddingSyncProgress, String> {
     let conn = memory_store_open(&state.data_path)?;
-    let status = memory_store_get_runtime_state(&conn, "rebuild_status")?
+    let status = memory_store_get_runtime_state(&conn, KB_STATE_REBUILD_STATUS)?
         .unwrap_or_else(|| "idle".to_string());
-    let done_batches = memory_store_get_runtime_state(&conn, "rebuild_done_batches")?
+    let done_batches = memory_store_get_runtime_state(&conn, KB_STATE_REBUILD_DONE_BATCHES)?
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
-    let total_batches = memory_store_get_runtime_state(&conn, "rebuild_total_batches")?
+    let total_batches = memory_store_get_runtime_state(&conn, KB_STATE_REBUILD_TOTAL_BATCHES)?
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
-    let trace_id = memory_store_get_runtime_state(&conn, "rebuild_trace_id")?;
-    let error = memory_store_get_runtime_state(&conn, "rebuild_error")?;
+    let trace_id = memory_store_get_runtime_state(&conn, KB_STATE_REBUILD_TRACE_ID)?;
+    let error = memory_store_get_runtime_state(&conn, KB_STATE_REBUILD_ERROR)?;
     Ok(MemoryEmbeddingSyncProgress {
         status,
         done_batches,
@@ -371,9 +371,9 @@ fn save_memory_embedding_binding(
     let api_id = input.api_config_id.trim();
     if api_id.is_empty() {
         let conn = memory_store_open(&state.data_path)?;
-        let old_provider_id = memory_store_get_runtime_state(&conn, "active_index_provider_id")?;
-        memory_store_set_runtime_state(&conn, "embedding_api_config_id", "")?;
-        memory_store_set_runtime_state(&conn, "active_index_provider_id", "")?;
+        let old_provider_id = memory_store_get_runtime_state(&conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID)?;
+        memory_store_set_runtime_state(&conn, KB_STATE_EMBEDDING_API_CONFIG_ID, "")?;
+        memory_store_set_runtime_state(&conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID, "")?;
         return Ok(MemoryStoreProviderSyncReport {
             status: "disabled".to_string(),
             old_provider_id,
@@ -428,7 +428,7 @@ fn save_memory_embedding_binding(
     )?;
 
     let conn = memory_store_open(&state.data_path)?;
-    memory_store_set_runtime_state(&conn, "embedding_api_config_id", &api.id)?;
+    memory_store_set_runtime_state(&conn, KB_STATE_EMBEDDING_API_CONFIG_ID, &api.id)?;
     Ok(report)
 }
 
@@ -440,7 +440,7 @@ fn save_memory_rerank_binding(
     let api_id = input.api_config_id.trim();
     if api_id.is_empty() {
         let conn = memory_store_open(&state.data_path)?;
-        memory_store_set_runtime_state(&conn, "rerank_api_config_id", "")?;
+        memory_store_set_runtime_state(&conn, KB_STATE_RERANK_API_CONFIG_ID, "")?;
         return Ok(SaveMemoryRerankBindingResult {
             status: "disabled".to_string(),
             rerank_api_config_id: None,
@@ -471,7 +471,7 @@ fn save_memory_rerank_binding(
     }
 
     let conn = memory_store_open(&state.data_path)?;
-    memory_store_set_runtime_state(&conn, "rerank_api_config_id", &api.id)?;
+    memory_store_set_runtime_state(&conn, KB_STATE_RERANK_API_CONFIG_ID, &api.id)?;
     Ok(SaveMemoryRerankBindingResult {
         status: "saved".to_string(),
         rerank_api_config_id: Some(api.id),

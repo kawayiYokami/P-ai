@@ -27,7 +27,9 @@ type UseChatRuntimeOptions = {
   forcingArchive: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
   visibleMessageBlockCount: Ref<number>;
-  hasMoreBackendHistory: Ref<boolean>;
+  // 可选：单测场景常只关心 forceArchive / loadAllMessages，不一定传该 ref。
+  // 保持可选可以避免测试构造参数缺失时出现 undefined.value 错误。
+  hasMoreBackendHistory?: Ref<boolean>;
   perfNow: () => number;
   perfLog: (label: string, startedAt: number) => void;
   perfDebug: boolean;
@@ -35,6 +37,11 @@ type UseChatRuntimeOptions = {
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
   const MESSAGE_BLOCK_LOAD_STEP = 5;
+
+  function setHasMoreBackendHistory(value: boolean) {
+    // 统一做空值保护，避免各处直接写 options.hasMoreBackendHistory.value。
+    if (options.hasMoreBackendHistory) options.hasMoreBackendHistory.value = value;
+  }
 
   type MessagesBeforeResult = {
     messages: ChatMessage[];
@@ -139,7 +146,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       if (options.perfDebug) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
       options.allMessages.value = msgs;
       options.visibleMessageBlockCount.value = initialVisibleCount(msgs.length);
-      options.hasMoreBackendHistory.value = false;
+      setHasMoreBackendHistory(false);
     } catch (e) {
       options.setStatusError("status.loadMessagesFailed", e);
     } finally {
@@ -171,9 +178,9 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
           const recent = Array.isArray(msgs) ? msgs.slice(-MESSAGE_BLOCK_LOAD_STEP) : [];
           options.allMessages.value = recent;
           options.visibleMessageBlockCount.value = initialVisibleCount(recent.length);
-          options.hasMoreBackendHistory.value = Array.isArray(msgs) && msgs.length > recent.length;
+          setHasMoreBackendHistory(Array.isArray(msgs) && msgs.length > recent.length);
         } catch (e) {
-          options.hasMoreBackendHistory.value = false;
+          setHasMoreBackendHistory(false);
           options.setStatusError("status.loadMessagesFailed", e);
         }
       })();
@@ -182,7 +189,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     const oldest = blocks[0];
     const beforeMessageId = String(oldest?.id || "").trim();
     if (!beforeMessageId || beforeMessageId.startsWith("__draft_assistant__:")) {
-      options.hasMoreBackendHistory.value = false;
+      setHasMoreBackendHistory(false);
       return;
     }
 
@@ -201,7 +208,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         });
         const older = Array.isArray(result?.messages) ? result.messages : [];
         if (older.length === 0) {
-          options.hasMoreBackendHistory.value = !!result?.hasMore;
+          setHasMoreBackendHistory(!!result?.hasMore);
           return;
         }
         const existingIds = new Set(options.allMessages.value.map((item) => String(item?.id || "").trim()).filter(Boolean));
@@ -212,9 +219,9 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         if (prepend.length > 0) {
           options.allMessages.value = [...prepend, ...options.allMessages.value];
         }
-        options.hasMoreBackendHistory.value = !!result?.hasMore;
+        setHasMoreBackendHistory(!!result?.hasMore);
       } catch (e) {
-        options.hasMoreBackendHistory.value = false;
+        setHasMoreBackendHistory(false);
         options.setStatusError("status.loadMessagesFailed", e);
       }
     })();
