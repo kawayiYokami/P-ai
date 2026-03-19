@@ -150,6 +150,7 @@
       :open-memory-viewer="openMemoryViewer"
       :refresh-image-cache-stats="refreshImageCacheStats"
       :clear-image-cache="clearImageCache"
+      :open-runtime-logs="openRuntimeLogsDialog"
       :start-hotkey-record-test="startHotkeyRecordTest"
       :stop-hotkey-record-test="stopHotkeyRecordTest"
       :play-hotkey-record-test="playHotkeyRecordTest"
@@ -862,7 +863,6 @@ async function refreshConversationWorkspaceLabels() {
     return;
   }
   const targetConversationIds = unarchivedConversations.value
-    .filter((item) => String(item.agentId || "").trim() === agentId)
     .map((item) => String(item.conversationId || "").trim())
     .filter((id) => !!id);
   const token = ++refreshConversationWorkspaceToken;
@@ -889,7 +889,6 @@ async function refreshConversationWorkspaceLabels() {
 
 const chatUnarchivedConversationItems = computed(() => {
   const items = unarchivedConversations.value
-    .filter((item) => String(item.agentId || "").trim() === String(activeAssistantAgentId.value || "").trim())
     .map((item) => ({
       conversationId: item.conversationId,
       messageCount: Number(item.messageCount || 0),
@@ -1343,14 +1342,8 @@ const {
 
 async function refreshChatUnarchivedConversations() {
   await loadUnarchivedConversations();
-  const agentId = String(activeAssistantAgentId.value || "").trim();
-  if (!agentId) {
-    currentChatConversationId.value = "";
-    return;
-  }
   const current = String(currentChatConversationId.value || "").trim();
-  const candidates = unarchivedConversations.value
-    .filter((item) => String(item.agentId || "").trim() === agentId);
+  const candidates = unarchivedConversations.value;
   if (candidates.some((item) => String(item.conversationId || "").trim() === current)) {
     return;
   }
@@ -1391,20 +1384,16 @@ async function switchUnarchivedConversation(conversationId: string) {
 
 async function createUnarchivedConversation() {
   const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
-  const agentId = String(activeAssistantAgentId.value || "").trim();
-  if (!apiConfigId || !agentId) return;
+  if (!apiConfigId) return;
   try {
     const result = await invokeTauri<{ conversationId: string }>("create_unarchived_conversation", {
       input: {
         apiConfigId,
-        agentId,
       },
     });
     const conversationId = String(result?.conversationId || "").trim();
     if (!conversationId) return;
-    currentChatConversationId.value = conversationId;
-    await loadAllMessages();
-    await refreshChatUnarchivedConversations();
+    await switchUnarchivedConversation(conversationId);
   } catch (error) {
     setStatusError("status.loadMessagesFailed", error);
   }
@@ -1734,7 +1723,6 @@ watch(
     agentId: activeAssistantAgentId.value,
     conversationId: currentChatConversationId.value,
     conversationIds: unarchivedConversations.value
-      .filter((item) => String(item.agentId || "").trim() === String(activeAssistantAgentId.value || "").trim())
       .map((item) => String(item.conversationId || "").trim())
       .join("|"),
   }),

@@ -3,6 +3,9 @@
     <div class="flex items-center justify-between">
       <div class="text-sm font-medium">调用日志（内存）</div>
       <div class="join">
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" @click="props.openRuntimeLogs">
+          后台日志
+        </button>
         <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading" @click="reload">刷新</button>
         <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading || logs.length === 0" @click="clearAll">清空</button>
       </div>
@@ -91,6 +94,10 @@ import { onMounted, ref } from "vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { LlmRoundLogEntry } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
+
+const props = defineProps<{
+  openRuntimeLogs: () => void;
+}>();
 
 const loading = ref(false);
 const logs = ref<LlmRoundLogEntry[]>([]);

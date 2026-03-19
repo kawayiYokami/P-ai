@@ -1,9 +1,8 @@
 fn latest_active_conversation_index(
     data: &AppData,
     _api_config_id: &str,
-    agent_id: &str,
+    _agent_id: &str,
 ) -> Option<usize> {
-    let trimmed_agent_id = agent_id.trim();
     data.conversations
         .iter()
         .enumerate()
@@ -11,7 +10,6 @@ fn latest_active_conversation_index(
             c.status == "active"
                 && c.summary.trim().is_empty()
                 && !conversation_is_delegate(c)
-                && (trimmed_agent_id.is_empty() || c.agent_id.trim() == trimmed_agent_id)
         })
         .max_by(|(idx_a, a), (idx_b, b)| {
             let a_updated = a.updated_at.trim();
@@ -26,15 +24,13 @@ fn latest_active_conversation_index(
         .map(|(idx, _)| idx)
 }
 
-fn latest_main_conversation_index(data: &AppData, agent_id: &str) -> Option<usize> {
-    let trimmed_agent_id = agent_id.trim();
+fn latest_main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
     data.conversations
         .iter()
         .enumerate()
         .filter(|(_, c)| {
             c.summary.trim().is_empty()
                 && !conversation_is_delegate(c)
-                && (trimmed_agent_id.is_empty() || c.agent_id.trim() == trimmed_agent_id)
         })
         .max_by(|(idx_a, a), (idx_b, b)| {
             let a_updated = a.updated_at.trim();
@@ -184,7 +180,7 @@ fn ensure_active_conversation_index(
 
     let conversation = build_conversation_record(
         api_config_id,
-        agent_id,
+        "",
         "",
         CONVERSATION_KIND_CHAT,
         None,

@@ -33,16 +33,6 @@
                   </div>
                 </div>
               </div>
-              <button
-                v-if="showStreamingUi(block)"
-                type="button"
-                class="btn btn-error btn-circle relative h-6 min-h-0 w-6 p-0"
-                :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
-                :disabled="!chatting"
-                @click="$emit('stopChat')"
-              >
-                <Square class="h-4 w-4 fill-current" />
-              </button>
             </div>
           </div>
           <div class="chat-header mb-1 flex items-center gap-2">
@@ -395,23 +385,13 @@
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
           @input="scheduleResizeChatInput"
-          @keydown.enter.exact.prevent="!frozen && $emit('sendChat')"
+          @keydown="handleChatInputKeydown"
         ></textarea>
-        <div class="flex items-end justify-between gap-2">
-          <div class="flex items-end gap-2">
-            <button
-              class="btn btn-sm btn-circle bg-base-100 shrink-0"
-              :disabled="chatting || frozen"
-              :title="t('chat.attach')"
-              @click="$emit('pickAttachments')"
-            >
-              <Paperclip class="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-base-200 px-2 py-1.5 text-[11px] overflow-hidden">
-            <div class="flex items-center gap-1 min-w-0">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-gradient-to-r from-base-300 via-base-300 to-base-200 px-2 py-1.5 text-[11px] overflow-hidden">
+            <div class="flex items-center gap-1 min-w-0 overflow-x-auto conversation-tray-scroll-hidden">
               <button
-                class="btn btn-xs btn-primary shrink-0"
+                class="btn btn-xs btn-circle bg-base-100 border-base-300 shrink-0"
                 :class="{ 'btn-disabled': chatting || frozen || !unarchivedConversationItems[0]?.canCreateNew }"
                 :title="unarchivedConversationItems[0]?.canCreateNew ? t('chat.newConversation') : t('chat.maxConversations')"
                 @click="$emit('createConversation')"
@@ -422,7 +402,7 @@
                 v-for="item in unarchivedConversationItems"
                 :key="item.conversationId"
                 class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
-                :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'btn-secondary' : 'bg-base-100 border-base-300'"
+                :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300'"
                 :disabled="chatting || frozen"
                 @click="onConversationItemClick(item)"
               >
@@ -443,7 +423,16 @@
               </button>
             </div>
           </div>
-          <div class="flex items-end gap-2">
+          <div class="flex items-center gap-2">
+            <div class="h-5 w-px shrink-0 bg-base-300"></div>
+            <button
+              class="btn btn-sm btn-circle bg-base-100 shrink-0"
+              :disabled="chatting || frozen"
+              :title="t('chat.attach')"
+              @click="$emit('pickAttachments')"
+            >
+              <Paperclip class="h-3.5 w-3.5" />
+            </button>
             <button
               class="btn btn-sm btn-circle shrink-0"
               :class="recording ? 'btn-error' : 'bg-base-100'"
@@ -461,7 +450,7 @@
               class="btn btn-sm btn-circle btn-primary shrink-0"
               :disabled="frozen"
               :title="chatting ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
-              @click="chatting ? $emit('stopChat') : $emit('sendChat')"
+              @click="chatting ? $emit('stopChat') : handleSendChat()"
             >
               <Square v-if="chatting" class="h-3.5 w-3.5 fill-current" />
               <Send v-else class="h-3.5 w-3.5" />
@@ -611,6 +600,133 @@ const localChatInput = computed({
   get: () => props.chatInput,
   set: (value: string) => emit("update:chatInput", value),
 });
+const CHAT_INPUT_HISTORY_STORAGE_KEY = "easy_call.chat_input_history.v1";
+const CHAT_INPUT_HISTORY_LIMIT = 100;
+const chatInputHistory = ref<string[]>([]);
+const chatInputHistoryCursor = ref(-1);
+const chatInputHistoryDraft = ref("");
+let chatInputHistoryApplying = false;
+
+function loadChatInputHistory() {
+  try {
+    const raw = window.localStorage.getItem(CHAT_INPUT_HISTORY_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+    for (const item of parsed) {
+      const text = String(item || "").trim();
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      normalized.push(text);
+      if (normalized.length >= CHAT_INPUT_HISTORY_LIMIT) break;
+    }
+    chatInputHistory.value = normalized;
+  } catch {
+    chatInputHistory.value = [];
+  }
+}
+
+function saveChatInputHistory() {
+  try {
+    window.localStorage.setItem(CHAT_INPUT_HISTORY_STORAGE_KEY, JSON.stringify(chatInputHistory.value));
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+function pushChatInputHistory(rawText: string) {
+  const text = String(rawText || "").trim();
+  if (!text) return;
+  chatInputHistory.value = [text, ...chatInputHistory.value.filter((item) => item !== text)].slice(0, CHAT_INPUT_HISTORY_LIMIT);
+  saveChatInputHistory();
+  chatInputHistoryCursor.value = -1;
+  chatInputHistoryDraft.value = "";
+}
+
+function applyChatInputHistoryValue(value: string) {
+  chatInputHistoryApplying = true;
+  localChatInput.value = value;
+  nextTick(() => {
+    chatInputHistoryApplying = false;
+    scheduleResizeChatInput();
+    const el = chatInputRef.value;
+    if (!el) return;
+    const cursor = value.length;
+    el.setSelectionRange(cursor, cursor);
+  });
+}
+
+function canNavigateHistory(el: HTMLTextAreaElement, direction: "up" | "down"): boolean {
+  if (el.selectionStart !== el.selectionEnd) return false;
+  if (direction === "up") return el.selectionStart === 0;
+  return el.selectionStart === el.value.length;
+}
+
+function navigateChatInputHistory(direction: "up" | "down"): boolean {
+  const list = chatInputHistory.value;
+  if (list.length === 0) return false;
+  if (direction === "up") {
+    if (chatInputHistoryCursor.value === -1) {
+      chatInputHistoryDraft.value = localChatInput.value;
+      chatInputHistoryCursor.value = 0;
+      applyChatInputHistoryValue(list[0]);
+      return true;
+    }
+    if (chatInputHistoryCursor.value < list.length - 1) {
+      chatInputHistoryCursor.value += 1;
+      applyChatInputHistoryValue(list[chatInputHistoryCursor.value]);
+      return true;
+    }
+    return false;
+  }
+  if (chatInputHistoryCursor.value === -1) return false;
+  if (chatInputHistoryCursor.value === 0) {
+    chatInputHistoryCursor.value = -1;
+    const draft = chatInputHistoryDraft.value;
+    chatInputHistoryDraft.value = "";
+    applyChatInputHistoryValue(draft);
+    return true;
+  }
+  chatInputHistoryCursor.value -= 1;
+  applyChatInputHistoryValue(list[chatInputHistoryCursor.value]);
+  return true;
+}
+
+function recordSentTextIfNeeded(rawText: string) {
+  const text = String(rawText || "").trim();
+  if (!text) return;
+  setTimeout(() => {
+    if (String(props.chatInput || "").trim()) return;
+    pushChatInputHistory(text);
+  }, 0);
+}
+
+function handleSendChat() {
+  const plainText = String(localChatInput.value || "").trim();
+  emit("sendChat");
+  recordSentTextIfNeeded(plainText);
+}
+
+function handleChatInputKeydown(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+    if (props.frozen) return;
+    event.preventDefault();
+    handleSendChat();
+    return;
+  }
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+  const el = chatInputRef.value;
+  if (!el) return;
+  const direction = event.key === "ArrowUp" ? "up" : "down";
+  if (!canNavigateHistory(el, direction)) return;
+  if (navigateChatInputHistory(direction)) {
+    event.preventDefault();
+  }
+}
 
 const scrollContainer = ref<HTMLElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
@@ -1270,6 +1386,7 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 }
 
 onMounted(() => {
+  loadChatInputHistory();
   nextTick(() => {
     scrollToBottom();
     autoFollowOutput.value = true;
@@ -1307,7 +1424,11 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.chatInput,
-  () => {
+  (nextValue, prevValue) => {
+    if (!chatInputHistoryApplying && nextValue !== prevValue && chatInputHistoryCursor.value !== -1) {
+      chatInputHistoryCursor.value = -1;
+      chatInputHistoryDraft.value = "";
+    }
     nextTick(() => scheduleResizeChatInput());
   },
 );
@@ -1421,6 +1542,15 @@ watch(
 <style scoped>
 .scrollbar-gutter-stable {
   scrollbar-gutter: stable;
+}
+
+.conversation-tray-scroll-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.conversation-tray-scroll-hidden::-webkit-scrollbar {
+  display: none;
 }
 
 .ecall-chat-avatar-col {

@@ -128,6 +128,10 @@ fn runtime_log_error(message: String) {
     runtime_log_push("error", message);
 }
 
+fn runtime_log_debug(message: String) {
+    runtime_log_push("debug", message);
+}
+
 fn mask_secret_keep_edges(value: &str) -> String {
     let trimmed = value.trim();
     let chars = trimmed.chars().collect::<Vec<_>>();
