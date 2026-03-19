@@ -1,9 +1,19 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { resolve } from "node:path";
 
 export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      input: {
+        config: resolve(__dirname, "index.html"),
+        chat: resolve(__dirname, "chat.html"),
+        archives: resolve(__dirname, "archives.html"),
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

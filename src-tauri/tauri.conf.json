@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "url": "index.html",
         "title": "π师傅 - 配置窗口",
         "width": 900,
         "height": 900,
@@ -25,6 +26,7 @@
       },
       {
         "label": "chat",
+        "url": "chat.html",
         "title": "π师傅 - 对话窗口",
         "width": 618,
         "height": 1000,
@@ -37,6 +39,7 @@
       },
       {
         "label": "archives",
+        "url": "archives.html",
         "title": "π师傅 - 归档窗口",
         "width": 900,
         "height": 900,
