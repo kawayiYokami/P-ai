@@ -15,7 +15,11 @@ fn show_archives_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn set_chat_window_active(active: bool) {
-    eprintln!("[系统] 聊天窗口激活状态变更，active={active}");
+    static CHAT_WINDOW_INACTIVE_LOGGED_ONCE: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if !active && !CHAT_WINDOW_INACTIVE_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("[系统] 聊天窗口激活状态变更，active=false");
+    }
     set_record_hotkey_probe_chat_window_active(active);
 }
 
@@ -1720,14 +1724,14 @@ fn get_active_conversation_messages(
             latest_active_conversation_index(&data, "", &effective_agent_id)
         {
             eprintln!(
-                "[INFO][会话] 指定会话消息读取回退到当前未归档主会话: requested_conversation_id={}, reason=not_found_or_delegate, agent_id={}",
+                "[会话] 指定会话消息读取回退到当前未归档主会话: requested_conversation_id={}, reason=not_found_or_delegate, agent_id={}",
                 conversation_id,
                 effective_agent_id
             );
             existing_idx
         } else {
             eprintln!(
-                "[INFO][会话] 指定会话消息读取未命中，创建新的未归档主会话: requested_conversation_id={}, reason=not_found_and_no_active_main_conversation, agent_id={}",
+                "[会话] 指定会话消息读取未命中，创建新的未归档主会话: requested_conversation_id={}, reason=not_found_and_no_active_main_conversation, agent_id={}",
                 conversation_id,
                 effective_agent_id
             );

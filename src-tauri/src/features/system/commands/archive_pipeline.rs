@@ -977,7 +977,7 @@ async fn run_archive_pipeline_inner(
 
     // 清理PDF缓存
     if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
-        eprintln!("[WARN] 清理PDF缓存失败: conversation={}, error={}", source.id, e);
+        eprintln!("[归档] 清理 PDF 缓存失败: conversation={}, error={}", source.id, e);
     }
 
     if let Some(active_conversation_id_value) = active_conversation_id.as_deref() {

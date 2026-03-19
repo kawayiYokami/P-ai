@@ -1545,7 +1545,7 @@ impl AppState {
         };
         let migrated_to_new = using_new && legacy_config_dir.exists() && next_config_dir.exists();
         eprintln!(
-            "[INFO][配置路径] 选择配置目录: selected={}, using_new={}, fallback_legacy={}, migrated_legacy_to_new={}",
+            "[配置路径] 选择配置目录: selected={}, using_new={}, fallback_legacy={}, migrated_legacy_to_new={}",
             config_dir.display(),
             using_new,
             using_legacy,

@@ -130,7 +130,7 @@ fn build_reject_response(
         .status(status)
         .body(None)
         .unwrap_or_else(|e| {
-            eprintln!("[NapCat WS] 构建拒绝响应失败: {}", e);
+            eprintln!("[远程IM][NapCat WS] 构建拒绝响应失败: {}", e);
             tokio_tungstenite::tungstenite::http::Response::builder()
                 .status(tokio_tungstenite::tungstenite::http::StatusCode::INTERNAL_SERVER_ERROR)
                 .body(None)
@@ -238,7 +238,7 @@ async fn run_message_loop(
                     }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        eprintln!("[NapCat WS] 接收错误: {}", e);
+                        eprintln!("[远程IM][NapCat WS] 接收错误: {}", e);
                         disconnect_level = "error".to_string();
                         disconnect_message = format!("接收错误: {}", e);
                         break;
@@ -248,7 +248,7 @@ async fn run_message_loop(
         }
     }
 
-    eprintln!("[NapCat WS] 渠道 {} 客户端断开: {}", channel_id, peer_addr_str);
+    eprintln!("[远程IM][NapCat WS] 渠道 {} 客户端断开: {}", channel_id, peer_addr_str);
     append_channel_log(&channel_logs, &channel_id, &disconnect_level, disconnect_message).await;
     connections.write().await.remove(&channel_id);
 }
@@ -368,7 +368,7 @@ impl NapcatWsManager {
             .map_err(|e| format!("绑定端口失败: {}", e))?;
 
         let listen_addr = addr.to_string();
-        eprintln!("[NapCat WS] 渠道 {} 监听 {}", channel_id, listen_addr);
+        eprintln!("[远程IM][NapCat WS] 渠道 {} 开始监听 {}", channel_id, listen_addr);
 
         // 记录监听地址
         self.listen_addrs.write().await.insert(channel_id.clone(), listen_addr.clone());
@@ -392,7 +392,7 @@ impl NapcatWsManager {
             loop {
                 tokio::select! {
                     _ = shutdown_rx.recv() => {
-                        eprintln!("[NapCat WS] 渠道 {} 收到关闭信号", channel_id);
+                        eprintln!("[远程IM][NapCat WS] 渠道 {} 收到关闭信号", channel_id);
                         let mut logs = channel_logs.write().await;
                         if let Some(l) = logs.get_mut(&channel_id) {
                             l.push(ChannelLogEntry {
@@ -429,7 +429,7 @@ impl NapcatWsManager {
                                 });
                             }
                             Err(e) => {
-                                eprintln!("[NapCat WS] 接受连接失败: {}", e);
+                                eprintln!("[远程IM][NapCat WS] 接受连接失败: {}", e);
                                 let mut logs = channel_logs.write().await;
                                 if let Some(l) = logs.get_mut(&channel_id) {
                                     l.push(ChannelLogEntry {
@@ -474,7 +474,7 @@ impl NapcatWsManager {
         let ws_stream = match ws_result {
             Ok(ws) => ws,
             Err(e) => {
-                eprintln!("[NapCat WS] WebSocket 握手失败 {}: {}", peer_addr, e);
+                eprintln!("[远程IM][NapCat WS] WebSocket 握手失败 {}: {}", peer_addr, e);
                 append_channel_log(
                     &channel_logs,
                     &channel_id,
@@ -487,7 +487,7 @@ impl NapcatWsManager {
         };
 
         let peer_addr_str = peer_addr.to_string();
-        eprintln!("[NapCat WS] 渠道 {} 客户端已连接: {}", channel_id, peer_addr_str);
+        eprintln!("[远程IM][NapCat WS] 渠道 {} 客户端已连接: {}", channel_id, peer_addr_str);
 
         append_channel_log(
             &channel_logs,
@@ -641,7 +641,7 @@ pub(crate) fn napcat_ws_server_start(
     tauri::async_runtime::spawn(async move {
         let result = manager.start(channel_id, credentials).await;
         if tx.send(result).is_err() {
-            eprintln!("[NapCat WS] 启动结果回传失败：接收端已关闭");
+            eprintln!("[远程IM][NapCat WS] 启动结果回传失败：接收端已关闭");
         }
     });
 
@@ -757,12 +757,12 @@ fn extract_message_content(event: &Value) -> (String, Vec<String>) {
     }
     if let Some(msg_str) = message_field.and_then(|v| v.as_str()) {
         let parsed = parse_onebot_cq_string(msg_str);
-        eprintln!("[NapCat Event] 解析字符串格式 message: text=\"{}\"", parsed);
+        eprintln!("[远程IM][NapCat 事件] 解析字符串格式消息: 文本=\"{}\"", parsed);
         return (parsed, Vec::new());
     }
     if let Some(raw) = event.get("raw_message").and_then(|v| v.as_str()) {
         let parsed = parse_onebot_cq_string(raw);
-        eprintln!("[NapCat Event] 解析 raw_message: text=\"{}\"", parsed);
+        eprintln!("[远程IM][NapCat 事件] 解析原始消息 raw_message: 文本=\"{}\"", parsed);
         return (parsed, Vec::new());
     }
     eprintln!(
@@ -983,7 +983,7 @@ pub(crate) async fn napcat_start_event_consumer(
             tokio::time::sleep(Duration::from_secs(NAPCAT_RECONNECT_INTERVAL_SECS)).await;
         };
 
-        eprintln!("[NapCat Event] 渠道 {} 开始消费事件", channel_id);
+        eprintln!("[远程IM][NapCat 事件] 渠道 {} 开始消费事件", channel_id);
         manager.add_log(&channel_id, "info", "事件消费器已启动").await;
 
         loop {
@@ -998,29 +998,29 @@ pub(crate) async fn napcat_start_event_consumer(
 
                             match parse_and_enqueue_onebot_event(&channel_id, &event, &state, &manager).await {
                                 Ok(result) => {
-                                    eprintln!("[NapCat Event] 渠道 {} 入队成功: event_id={}", channel_id, result.event_id);
+                                    eprintln!("[远程IM][NapCat 事件] 渠道 {} 入队成功: 事件ID={}", channel_id, result.event_id);
                                 }
                                 Err(err) if err.contains("跳过") => {
                                     // 正常跳过（联系人未开启、内容为空等），仅输出调试日志，不写渠道日志
-                                    eprintln!("[NapCat Event] 渠道 {} {}", channel_id, err);
+                                    eprintln!("[远程IM][NapCat 事件] 渠道 {} {}", channel_id, err);
                                 }
                                 Err(err) => {
-                                    eprintln!("[NapCat Event] 渠道 {} 入队失败: {}", channel_id, err);
+                                    eprintln!("[远程IM][NapCat 事件] 渠道 {} 入队失败: {}", channel_id, err);
                                     manager.add_log(&channel_id, "warn", &format!("消息入队失败: {}", err)).await;
                                 }
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            eprintln!("[NapCat Event] 渠道 {} 落后 {} 条事件", channel_id, n);
+                            eprintln!("[远程IM][NapCat 事件] 渠道 {} 落后 {} 条事件", channel_id, n);
                         }
                         Err(broadcast::error::RecvError::Closed) => {
-                            eprintln!("[NapCat Event] 渠道 {} 事件通道关闭", channel_id);
+                            eprintln!("[远程IM][NapCat 事件] 渠道 {} 事件通道关闭", channel_id);
                             break;
                         }
                     }
                 }
                 _ = shutdown_rx.recv() => {
-                    eprintln!("[NapCat Event] 渠道 {} 收到关闭信号，停止事件消费", channel_id);
+                    eprintln!("[远程IM][NapCat 事件] 渠道 {} 收到关闭信号，停止事件消费", channel_id);
                     manager.add_log(&channel_id, "info", "事件消费器已停止").await;
                     return; // 渠道已停止，完全退出消费循环
                 }
@@ -1028,7 +1028,7 @@ pub(crate) async fn napcat_start_event_consumer(
         }
 
         // 事件通道关闭（客户端断开），按节流间隔等待重连
-        eprintln!("[NapCat Event] 渠道 {} 等待重新连接...", channel_id);
+        eprintln!("[远程IM][NapCat 事件] 渠道 {} 等待重新连接...", channel_id);
         tokio::time::sleep(Duration::from_secs(NAPCAT_RECONNECT_INTERVAL_SECS)).await;
     }
 }

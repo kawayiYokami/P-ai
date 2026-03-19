@@ -95,7 +95,7 @@ async fn send_chat_message(
                     })
                     .unwrap_or("not_found");
                 eprintln!(
-                    "[INFO][CHAT] session conversation id rejected and fallback selected: requested_cid={}, reject_reason={}, fallback_cid={}, department_id={}, agent_id={}",
+                    "[聊天] 会话 conversation_id 被拒绝，已选择回退会话: requested_cid={}, reject_reason={}, fallback_cid={}, department_id={}, agent_id={}",
                     cid,
                     reject_reason,
                     fallback_id,
@@ -244,11 +244,10 @@ async fn bind_active_chat_view_stream(
             Some(conversation_id),
             on_delta,
         )?;
-        eprintln!(
-            "[INFO][CHAT] active chat stream bound: window={}, conversation_id={}",
-            window_label,
-            conversation_id
-        );
+        runtime_log_info(format!(
+            "[聊天] 已绑定活动聊天流: window={}, conversation_id={}",
+            window_label, conversation_id
+        ));
     } else {
         // 空会话视图仍保留绑定，作为单窗口通配接收端，避免远程消息落地后前端无推送。
         set_active_chat_view_stream_binding(
@@ -257,10 +256,10 @@ async fn bind_active_chat_view_stream(
             Some("*"),
             on_delta,
         )?;
-        eprintln!(
+        runtime_log_info(format!(
             "[聊天调度] 活动聊天流已通配绑定：window={}",
             window_label,
-        );
+        ));
     }
     Ok(())
 }
@@ -311,7 +310,7 @@ async fn stop_chat_message(
     let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
     if aborted_delegate_children > 0 {
         eprintln!(
-            "[INFO][CHAT] stop request cascaded to sync delegate children: session={}, child_count={}",
+            "[聊天] 停止请求已级联到同步委托子会话: session={}, child_count={}",
             chat_key,
             aborted_delegate_children
         );

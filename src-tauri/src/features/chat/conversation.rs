@@ -74,7 +74,7 @@ fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
             .map(|item| item.id.clone())
             .unwrap_or_default();
         eprintln!(
-            "[INFO][会话] 归一化未归档主会话激活标记: active_conversation_id={}",
+            "[会话] 归一化未归档主会话激活标记: active_conversation_id={}",
             keep_id
         );
     }

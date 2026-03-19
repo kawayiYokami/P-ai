@@ -26,7 +26,7 @@ fn delegate_tool_runtime_disabled_reason(
         Ok(None) => None,
         Err(err) => {
             eprintln!(
-                "[INFO][TOOL] delegate disabled because delegate runtime lookup failed: session_id={}, conversation_id={}, error={}",
+                "[工具] delegate 已禁用：委托运行时查询失败: session_id={}, conversation_id={}, error={}",
                 tool_session_id,
                 conversation_id,
                 err
@@ -66,7 +66,7 @@ async fn assemble_runtime_tools(
     if has_delegate_base {
         if let Some(reason) = delegate_runtime_reason.as_deref() {
             eprintln!(
-                "[INFO][TOOL] delegate removed from runtime toolset: session_id={}, reason={}",
+                "[工具] delegate 已从运行时工具集中移除: session_id={}, reason={}",
                 tool_session_id,
                 reason
             );

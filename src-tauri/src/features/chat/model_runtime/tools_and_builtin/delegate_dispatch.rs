@@ -336,7 +336,7 @@ async fn builtin_delegate(
 
     if preflight.current_thread.is_some() {
         eprintln!(
-            "[INFO][TOOL][委托] 委托线程内禁止再次调用 delegate：mode=async, session_id={}",
+            "[工具][委托] 委托线程内禁止再次调用 delegate：mode=async, session_id={}",
             session_id
         );
         return Ok(delegate_failed_result("委托线程中禁止再次调用 delegate"));
@@ -420,7 +420,7 @@ async fn delegate_execute_sync(
 
     if preflight.current_thread.is_some() {
         eprintln!(
-            "[INFO][TOOL][委托] 委托线程内禁止再次调用 delegate：mode=sync, session_id={}",
+            "[工具][委托] 委托线程内禁止再次调用 delegate：mode=sync, session_id={}",
             session_id
         );
         return Ok(delegate_failed_result("委托线程中禁止再次调用 delegate"));
