@@ -1372,6 +1372,24 @@ struct SetActiveUnarchivedConversationOutput {
     conversation_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchActiveConversationSnapshotInput {
+    conversation_id: String,
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchActiveConversationSnapshotOutput {
+    conversation_id: String,
+    messages: Vec<ChatMessage>,
+    has_more_history: bool,
+    unarchived_conversations: Vec<UnarchivedConversationSummary>,
+    workspace_labels: std::collections::HashMap<String, String>,
+}
+
 #[tauri::command]
 fn set_active_unarchived_conversation(
     input: SetActiveUnarchivedConversationInput,
@@ -1463,6 +1481,133 @@ fn set_active_unarchived_conversation(
     }
     drop(guard);
     Ok(SetActiveUnarchivedConversationOutput { conversation_id })
+}
+
+#[tauri::command]
+fn switch_active_conversation_snapshot(
+    input: SwitchActiveConversationSnapshotInput,
+    state: State<'_, AppState>,
+) -> Result<SwitchActiveConversationSnapshotOutput, String> {
+    const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 5;
+    let target_conversation_id = input.conversation_id.trim();
+    if target_conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let mut data = state_read_app_data_cached(&state)?;
+    let defaults_changed = ensure_default_agent(&mut data);
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
+
+    let requested_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
+    let target_idx = data
+        .conversations
+        .iter()
+        .position(|item| {
+            item.id == target_conversation_id
+                && item.summary.trim().is_empty()
+                && !conversation_is_delegate(item)
+                && item.agent_id.trim() == requested_agent_id
+        })
+        .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
+
+    let mut changed = defaults_changed || normalized_changed;
+    for (idx, conversation) in data.conversations.iter_mut().enumerate() {
+        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            continue;
+        }
+        let target_status = if idx == target_idx { "active" } else { "inactive" };
+        if conversation.status.trim() != target_status {
+            conversation.status = target_status.to_string();
+            changed = true;
+        }
+    }
+
+    let conversation_id = data
+        .conversations
+        .get(target_idx)
+        .map(|item| item.id.clone())
+        .ok_or_else(|| "Unarchived conversation index out of bounds.".to_string())?;
+    let all_messages = data
+        .conversations
+        .get(target_idx)
+        .map(|item| item.messages.clone())
+        .ok_or_else(|| "Unarchived conversation messages not found.".to_string())?;
+    let total_messages = all_messages.len();
+    let start = total_messages.saturating_sub(SWITCH_SNAPSHOT_RECENT_LIMIT);
+    let mut messages = all_messages[start..].to_vec();
+    let has_more_history = start > 0;
+
+    let mut unarchived_conversations = data
+        .conversations
+        .iter()
+        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
+        .map(|c| {
+            let last_message_at = c.messages.last().map(|m| m.created_at.clone());
+            UnarchivedConversationSummary {
+                conversation_id: c.id.clone(),
+                title: if c.title.trim().is_empty() {
+                    conversation_preview_title(c)
+                } else {
+                    c.title.clone()
+                },
+                updated_at: c.updated_at.clone(),
+                last_message_at,
+                message_count: c.messages.len(),
+                agent_id: c.agent_id.clone(),
+                is_active: c.status.trim() == "active",
+            }
+        })
+        .collect::<Vec<_>>();
+    unarchived_conversations.sort_by(|a, b| {
+        let bk = b
+            .last_message_at
+            .as_deref()
+            .unwrap_or(b.updated_at.as_str());
+        let ak = a
+            .last_message_at
+            .as_deref()
+            .unwrap_or(a.updated_at.as_str());
+        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+
+    if changed {
+        state_write_app_data_cached(&state, &data)?;
+    }
+    drop(guard);
+
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+
+    let mut workspace_labels = std::collections::HashMap::<String, String>::new();
+    for item in unarchived_conversations.iter().filter(|item| item.agent_id.trim() == requested_agent_id) {
+        let cid = item.conversation_id.trim();
+        if cid.is_empty() {
+            continue;
+        }
+        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(&requested_agent_id, Some(cid)));
+        let workspace_name = match terminal_session_root_canonical(state.inner(), &session_id) {
+            Ok(path) => resolve_workspace_display_name(state.inner(), &path),
+            Err(_) => "默认工作空间".to_string(),
+        };
+        workspace_labels.insert(item.conversation_id.clone(), workspace_name);
+    }
+
+    Ok(SwitchActiveConversationSnapshotOutput {
+        conversation_id,
+        messages,
+        has_more_history,
+        unarchived_conversations,
+        workspace_labels,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
