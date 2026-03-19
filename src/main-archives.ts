@@ -1,12 +1,11 @@
 import { createApp } from "vue";
-import ConfigApp from "./apps/config/ConfigApp.vue";
+import ArchivesApp from "./apps/archives/ArchivesApp.vue";
 import "./style.css";
 import "cropperjs/dist/cropper.css";
 import "katex/dist/katex.min.css";
 import "@mdit/plugin-alert/style";
 import { i18n } from "./i18n";
 
-// 监听全局错误事件
 window.addEventListener("error", (event) => {
   const error = event.error || event;
   const message = error?.message || event.message || "未知错误";
@@ -14,7 +13,6 @@ window.addEventListener("error", (event) => {
   console.error(`[全局错误] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-// 监听未处理的 Promise 拒绝
 window.addEventListener("unhandledrejection", (event) => {
   let message: string;
   let stack: string;
@@ -28,4 +26,4 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error(`[未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-createApp(ConfigApp).use(i18n).mount("#app");
+createApp(ArchivesApp).use(i18n).mount("#app");

@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 重构（frontend-entry）：改造三窗口多入口并精简 `App.vue`
+  - 前端新增 `config/chat/archives` 三套独立入口脚本与 HTML 页面
+  - `vite` 改为多页面构建输入，产物包含 `index/chat/archives` 三页面
+  - Tauri 窗口配置改为按窗口加载独立页面 URL（`index.html/chat.html/archives.html`）
+  - 原超大入口迁移为 `UnifiedWindowApp.vue`，`src/App.vue` 精简为轻量代理
+  - 清理聊天输入 placeholder 遗留 `hints` 逻辑，统一返回 `chat.placeholder`
+
 - 修复（chat-switch）：会话切换改为单次快照并遵循“最近 5 条”设计
   - 新增 `switch_active_conversation_snapshot` 聚合命令，一次返回会话切换所需数据
   - 切换时只返回最近 5 条消息，并返回 `hasMoreHistory` 供前端“加载更多”使用
