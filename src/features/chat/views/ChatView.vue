@@ -949,7 +949,7 @@ function firstLinePreview(raw: string): string {
 
 function reasoningSummaryLabel(block: ChatMessageBlock): string {
   if (block.isStreaming) return "正在思考中";
-  const elapsedMs = Number(block.reasoningElapsedMs ?? 0);
+  const elapsedMs = Number((block as ChatMessageBlock & { reasoningElapsedMs?: number }).reasoningElapsedMs ?? 0);
   if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return "思考完成";
   const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
   return `思考了${elapsedSeconds}秒`;

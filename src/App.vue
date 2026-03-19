@@ -389,6 +389,7 @@ import type {
   RuntimeLogEntry,
   ResponseStyleOption,
   ToolLoadStatus,
+  UnarchivedConversationSummary,
 } from "./types/app";
 import responseStylesJson from "./constants/response-styles.json";
 import { normalizeLocale } from "./i18n";
@@ -844,8 +845,12 @@ const CONVERSATION_COLORS = [
 
 const conversationWorkspaceLabelMap = ref<Record<string, string>>({});
 let refreshConversationWorkspaceToken = 0;
+let workspaceLabelsFreshUntil = 0;
 
 async function refreshConversationWorkspaceLabels() {
+  if (Date.now() < workspaceLabelsFreshUntil) {
+    return;
+  }
   const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
   const agentId = String(activeAssistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) {
@@ -1359,7 +1364,13 @@ async function switchUnarchivedConversation(conversationId: string) {
   if (!cid) return;
   const agentId = String(activeAssistantAgentId.value || "").trim();
   try {
-    const result = await invokeTauri<{ conversationId: string }>("set_active_unarchived_conversation", {
+    const result = await invokeTauri<{
+      conversationId: string;
+      messages: ChatMessage[];
+      hasMoreHistory: boolean;
+      unarchivedConversations: UnarchivedConversationSummary[];
+      workspaceLabels: Record<string, string>;
+    }>("switch_active_conversation_snapshot", {
       input: {
         conversationId: cid,
         agentId: agentId || null,
@@ -1368,8 +1379,12 @@ async function switchUnarchivedConversation(conversationId: string) {
     const nextConversationId = String(result?.conversationId || cid).trim();
     if (!nextConversationId) return;
     currentChatConversationId.value = nextConversationId;
-    await loadAllMessages();
-    await refreshChatUnarchivedConversations();
+    allMessages.value = Array.isArray(result?.messages) ? result.messages : [];
+    hasMoreBackendHistory.value = !!result?.hasMoreHistory;
+    visibleMessageBlockCount.value = Math.max(1, allMessages.value.length);
+    unarchivedConversations.value = Array.isArray(result?.unarchivedConversations) ? result.unarchivedConversations : [];
+    conversationWorkspaceLabelMap.value = result?.workspaceLabels || {};
+    workspaceLabelsFreshUntil = Date.now() + 1600;
   } catch (error) {
     setStatusError("status.loadMessagesFailed", error);
   }
