@@ -226,6 +226,29 @@
       @refresh="refreshRuntimeLogs"
       @clear="clearRuntimeLogs"
     />
+    <dialog class="modal" :class="{ 'modal-open': rewindConfirmDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">撤回选项</h3>
+        <div class="mt-2 text-sm opacity-80">请选择本次撤回要执行的范围：</div>
+        <div class="mt-4 flex flex-col items-center gap-2">
+          <button
+            v-if="rewindConfirmCanUndoPatch"
+            class="btn btn-sm w-full"
+            :class="rewindConfirmCanUndoPatch ? 'btn-error' : ''"
+            @click="confirmRewindWithPatch"
+          >
+            撤回消息并撤回修改
+          </button>
+          <button class="btn btn-sm w-full" @click="confirmRewindMessageOnly">
+            仅撤回消息
+          </button>
+          <button class="btn btn-sm btn-primary w-full" @click="cancelRewindConfirm">取消</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="cancelRewindConfirm">close</button>
+      </form>
+    </dialog>
     <dialog class="modal" :class="{ 'modal-open': configSaveErrorDialogOpen }">
       <div class="modal-box max-w-md">
         <h3 class="font-semibold text-base">
@@ -448,6 +471,10 @@ const configSaveErrorDialogKind = ref<"warning" | "error">("error");
 const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
 const terminalApprovalResolving = ref(false);
 const skillPlaceholderDialogOpen = ref(false);
+const rewindConfirmDialogOpen = ref(false);
+const rewindConfirmCanUndoPatch = ref(false);
+const rewindConfirmUndoHint = ref("");
+let rewindConfirmResolver: ((mode: "with_patch" | "message_only" | "cancel") => void) | null = null;
 const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
@@ -1649,6 +1676,12 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener("focus", handleWindowFocusForMicPrewarm);
   document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
+  if (rewindConfirmResolver) {
+    const resolver = rewindConfirmResolver;
+    rewindConfirmResolver = null;
+    resolver("cancel");
+  }
+  rewindConfirmDialogOpen.value = false;
 });
 
 watch(
@@ -1737,6 +1770,140 @@ function openSkillPlaceholderDialog() {
 
 function closeSkillPlaceholderDialog() {
   skillPlaceholderDialogOpen.value = false;
+}
+
+function isApplyPatchArgsUndoable(rawArgs: string): boolean {
+  const text = String(rawArgs || "").trim();
+  if (!text) return false;
+  if (text.startsWith("*** Begin Patch")) return true;
+  if (!text.startsWith("{")) return false;
+  try {
+    const parsed = JSON.parse(text) as { input?: unknown };
+    return typeof parsed.input === "string" && parsed.input.trim().startsWith("*** Begin Patch");
+  } catch {
+    return false;
+  }
+}
+
+function isToolResultSuccess(rawContent: unknown): boolean {
+  const text = String(rawContent || "").trim();
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text) as { ok?: unknown; approved?: unknown };
+    return parsed.ok === true && parsed.approved !== false;
+  } catch {
+    return false;
+  }
+}
+
+function getUndoAvailabilityForTurn(turnId: string): { canUndo: boolean; hint: string } {
+  const targetId = String(turnId || "").trim();
+  if (!targetId) {
+    return { canUndo: false, hint: "未找到有效消息 ID。" };
+  }
+  const messages = allMessages.value || [];
+  const directIndex = messages.findIndex((item) => String(item.id || "").trim() === targetId);
+  if (directIndex < 0) {
+    return { canUndo: false, hint: "未找到目标消息。" };
+  }
+  let removeFrom = directIndex;
+  if (String(messages[directIndex]?.role || "").trim() !== "user") {
+    removeFrom = -1;
+    for (let i = directIndex - 1; i >= 0; i -= 1) {
+      if (String(messages[i]?.role || "").trim() === "user") {
+        removeFrom = i;
+        break;
+      }
+    }
+    if (removeFrom < 0) {
+      return { canUndo: false, hint: "未找到可撤回的用户消息。" };
+    }
+  }
+  const removedMessages = messages.slice(removeFrom);
+  const pendingApplyPatchCalls = new Set<string>();
+  let sawApplyPatchCall = false;
+  let sawUndoableApplyPatchCall = false;
+  for (const message of removedMessages) {
+    const events = Array.isArray(message.toolCall) ? message.toolCall : [];
+    for (const event of events as Array<Record<string, unknown>>) {
+      const role = String(event?.role || "").trim();
+      if (role === "assistant") {
+        const calls = Array.isArray(event?.tool_calls) ? event.tool_calls : [];
+        for (const call of calls as Array<Record<string, unknown>>) {
+          const functionObj = (call?.function || {}) as Record<string, unknown>;
+          const name = String(functionObj?.name || "").trim();
+          const callId = String(call?.id || "").trim();
+          const argumentsRaw = String(functionObj?.arguments || "");
+          if (name === "apply_patch") {
+            sawApplyPatchCall = true;
+          }
+          if (name === "apply_patch" && callId && isApplyPatchArgsUndoable(argumentsRaw)) {
+            sawUndoableApplyPatchCall = true;
+            pendingApplyPatchCalls.add(callId);
+          }
+        }
+      } else if (role === "tool") {
+        const toolCallId = String(event?.tool_call_id || "").trim();
+        if (!toolCallId || !pendingApplyPatchCalls.has(toolCallId)) continue;
+        if (isToolResultSuccess(event?.content)) {
+          return { canUndo: true, hint: "" };
+        }
+        pendingApplyPatchCalls.delete(toolCallId);
+      }
+    }
+  }
+  if (!sawApplyPatchCall) {
+    return { canUndo: false, hint: "该范围内没有检测到可撤回的工具修改。" };
+  }
+  if (!sawUndoableApplyPatchCall) {
+    return { canUndo: false, hint: "检测到工具调用，但参数不完整，无法安全撤回修改。" };
+  }
+  return { canUndo: false, hint: "检测到 apply_patch，但执行未成功或结果不可逆，无法撤回修改。" };
+}
+
+function requestRecallMode(payload: { turnId: string }): Promise<"with_patch" | "message_only" | "cancel"> {
+  const availability = getUndoAvailabilityForTurn(payload.turnId);
+  console.info("[会话撤回] 打开撤回弹窗", {
+    turnId: payload.turnId,
+    canUndoPatch: availability.canUndo,
+    hint: availability.hint || "",
+  });
+  rewindConfirmCanUndoPatch.value = availability.canUndo;
+  rewindConfirmUndoHint.value = availability.hint;
+  rewindConfirmDialogOpen.value = true;
+  return new Promise((resolve) => {
+    rewindConfirmResolver = resolve;
+  });
+}
+
+function resolveRewindConfirm(mode: "with_patch" | "message_only" | "cancel") {
+  console.info("[会话撤回] 弹窗确认", {
+    mode,
+    canUndoPatch: rewindConfirmCanUndoPatch.value,
+    dialogOpen: rewindConfirmDialogOpen.value,
+  });
+  const resolver = rewindConfirmResolver;
+  rewindConfirmResolver = null;
+  rewindConfirmDialogOpen.value = false;
+  rewindConfirmUndoHint.value = "";
+  if (resolver) {
+    resolver(mode);
+  }
+}
+
+function confirmRewindWithPatch() {
+  console.info("[会话撤回] 点击：撤回消息并撤回修改");
+  resolveRewindConfirm("with_patch");
+}
+
+function confirmRewindMessageOnly() {
+  console.info("[会话撤回] 点击：仅撤回消息");
+  resolveRewindConfirm("message_only");
+}
+
+function cancelRewindConfirm() {
+  console.info("[会话撤回] 点击：取消撤回");
+  resolveRewindConfirm("cancel");
 }
 
 function openConfigWindow() {
@@ -2050,9 +2217,13 @@ const {
   deleteUnarchivedConversationFromArchives,
   sendChat: chatFlow.sendChat,
   setStatusError,
+  setChatErrorText: (text: string) => {
+    chatErrorText.value = text;
+  },
   removeBinaryPlaceholders,
   messageText,
   extractMessageImages,
+  requestRecallMode,
 });
 
 function handleToolsChanged() {
@@ -2141,8 +2312,3 @@ useAppWatchers({
   },
 });
 </script>
-
-
-
-
-

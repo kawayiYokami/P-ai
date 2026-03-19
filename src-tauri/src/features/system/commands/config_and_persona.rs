@@ -1909,6 +1909,8 @@ fn get_active_conversation_messages_before(
 struct RewindConversationInput {
     session: SessionSelector,
     message_id: String,
+    #[serde(default)]
+    undo_apply_patch: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1925,8 +1927,18 @@ fn rewind_conversation_from_message(
     input: RewindConversationInput,
     state: State<'_, AppState>,
 ) -> Result<RewindConversationResult, String> {
+    let started_at = std::time::Instant::now();
     let message_id = input.message_id.trim();
+    runtime_log_info(format!(
+        "[会话撤回] 开始，任务=rewind_conversation_from_message，message_id={}，undo_apply_patch={}",
+        message_id, input.undo_apply_patch
+    ));
     if message_id.is_empty() {
+        let elapsed_ms = started_at.elapsed().as_millis();
+        runtime_log_error(format!(
+            "[会话撤回] 失败，任务=rewind_conversation_from_message，reason=message_id_empty，duration_ms={}",
+            elapsed_ms
+        ));
         return Err("messageId is required.".to_string());
     }
 
@@ -1946,6 +1958,11 @@ fn rewind_conversation_from_message(
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.session.agent_id.trim();
     if requested_agent_id.is_empty() {
+        let elapsed_ms = started_at.elapsed().as_millis();
+        runtime_log_error(format!(
+            "[会话撤回] 失败，任务=rewind_conversation_from_message，reason=agent_id_empty，duration_ms={}",
+            elapsed_ms
+        ));
         return Err("agentId is required.".to_string());
     }
     if !runtime_data
@@ -1953,6 +1970,11 @@ fn rewind_conversation_from_message(
         .iter()
         .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
     {
+        let elapsed_ms = started_at.elapsed().as_millis();
+        runtime_log_error(format!(
+            "[会话撤回] 失败，任务=rewind_conversation_from_message，reason=agent_not_found，agent_id={}，duration_ms={}",
+            requested_agent_id, elapsed_ms
+        ));
         return Err(format!("Selected agent '{requested_agent_id}' not found."));
     }
 
@@ -1989,9 +2011,45 @@ fn rewind_conversation_from_message(
         .iter()
         .position(|m| m.id == message_id && m.role == "user")
         .ok_or_else(|| "Target user message not found in active conversation.".to_string())?;
+    runtime_log_info(format!(
+        "[会话撤回] 命中目标，任务=rewind_conversation_from_message，conversation_id={}，remove_from={}，messages_total={}",
+        conversation.id,
+        remove_from,
+        conversation.messages.len()
+    ));
 
     let mut recalled_user_message = conversation.messages.get(remove_from).cloned();
     let removed_count = conversation.messages.len().saturating_sub(remove_from);
+    let removed_messages = conversation.messages[remove_from..].to_vec();
+    if input.undo_apply_patch {
+        runtime_log_info(format!(
+            "[会话撤回] 开始工具逆向，任务=rewind_conversation_from_message，removed_messages={}，message_id={}",
+            removed_messages.len(),
+            message_id
+        ));
+        let undone_patch_count = match try_undo_apply_patch_from_removed_messages(state.inner(), &removed_messages) {
+            Ok(value) => value,
+            Err(err) => {
+                let elapsed_ms = started_at.elapsed().as_millis();
+                runtime_log_error(format!(
+                    "[会话撤回] 失败，任务=rewind_conversation_from_message，stage=undo_apply_patch，message_id={}，duration_ms={}，error={}",
+                    message_id, elapsed_ms, err
+                ));
+                return Err(err);
+            }
+        };
+        runtime_log_info(format!(
+            "[会话撤回] 工具逆向处理，任务=rewind_conversation_from_message，patches={}，message_id={}",
+            undone_patch_count, message_id
+        ));
+        if undone_patch_count > 0 {
+            eprintln!(
+                "[会话撤回] 已执行 apply_patch 反向撤回: patches={}, message_id={}",
+                undone_patch_count,
+                message_id
+            );
+        }
+    }
     conversation.messages.truncate(remove_from);
     conversation.updated_at = now_iso();
     conversation.last_user_at = conversation
@@ -2032,6 +2090,11 @@ fn rewind_conversation_from_message(
     if let Some(message) = recalled_user_message.as_mut() {
         materialize_message_parts_from_media_refs(&mut message.parts, &state.data_path);
     }
+    let elapsed_ms = started_at.elapsed().as_millis();
+    runtime_log_info(format!(
+        "[会话撤回] 完成，任务=rewind_conversation_from_message，removed_count={}，remaining_count={}，duration_ms={}",
+        removed_count, remove_from, elapsed_ms
+    ));
 
     Ok(RewindConversationResult {
         removed_count,
