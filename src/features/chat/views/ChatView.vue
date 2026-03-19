@@ -121,27 +121,33 @@
             </div>
             <details
               v-if="!isOwnMessage(block) && block.reasoningStandard"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none min-w-55"
             >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-sm italic flex items-center gap-1 text-base-content/80">
-                <span class="block min-w-0 flex-1 truncate">
-                  {{ firstLinePreview(block.reasoningStandard) || "..." }}
+              <summary class="collapse-title py-0 px-0 min-h-0 text-xs flex items-center gap-1 text-base-content/80">
+                <span
+                  :class="['block min-w-0 flex-1 truncate ecall-shimmer-text', reasoningSummaryClass(block)]"
+                  :data-shimmer-text="block.isStreaming ? '正在思考中' : ''"
+                >
+                  {{ reasoningSummaryLabel(block) }}
                 </span>
               </summary>
-              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70 italic">
+              <div class="collapse-content px-0 py-2 whitespace-pre-wrap text-[11px] leading-relaxed text-base-content/70">
                 {{ block.reasoningStandard }}
               </div>
             </details>
             <details
               v-if="!isOwnMessage(block) && resolvedInlineReasoning(block)"
-              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none"
+              class="collapse mb-2 border-l-2 border-base-content/20 pl-3 rounded-none min-w-55"
             >
-              <summary class="collapse-title py-0 px-0 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
-                <span class="block min-w-0 flex-1 truncate">
-                  {{ firstLinePreview(resolvedInlineReasoning(block)) || "..." }}
+              <summary class="collapse-title py-0 px-0 min-h-0 text-[10px] flex items-center gap-1 text-base-content/60 cursor-pointer">
+                <span
+                  :class="['block min-w-0 flex-1 truncate ecall-shimmer-text', reasoningSummaryClass(block)]"
+                  :data-shimmer-text="block.isStreaming ? '正在思考中' : ''"
+                >
+                  {{ reasoningSummaryLabel(block) }}
                 </span>
               </summary>
-              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-base-content/60 italic" style="overflow-wrap: anywhere;">
+              <div class="collapse-content max-w-full px-0 py-2 whitespace-pre-wrap wrap-break-word text-[10px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
                 {{ resolvedInlineReasoning(block) }}
               </div>
             </details>
@@ -149,7 +155,11 @@
               <details class="collapse bg-base-200 border-base-300 border">
                 <summary class="collapse-title py-2 px-3 min-h-0 text-[11px] font-semibold flex items-center gap-1.5">
                   <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
-                  <span>{{ mergedToolSummaryLabel(block) }}</span>
+                  <span
+                    :class="['ecall-shimmer-text font-medium', toolSummaryClass(block)]"
+                    :data-shimmer-text="showStreamingUi(block) ? '工具执行中' : ''"
+                  >{{ toolStatusLabel(block) }}</span>
+                  <span v-if="toolNamesLabel(block)" class="truncate">{{ ` · ${toolNamesLabel(block)}` }}</span>
                 </summary>
                 <div class="collapse-content px-3 pb-2 pt-0 text-[10px] text-base-content/70">
                   <div
@@ -800,8 +810,19 @@ function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsT
 }
 
 function mergedToolSummaryLabel(block: ChatMessageBlock): string {
+  const statusLabel = showStreamingUi(block) ? "工具执行中" : "工具执行毕";
+  const names = toolNamesLabel(block);
+  if (!names) return statusLabel;
+  return `${statusLabel} · ${names}`;
+}
+
+function toolStatusLabel(block: ChatMessageBlock): string {
+  return showStreamingUi(block) ? "工具执行中" : "工具执行毕";
+}
+
+function toolNamesLabel(block: ChatMessageBlock): string {
   const calls = toolCallsForBlock(block);
-  if (calls.length === 0) return "工具调用";
+  if (calls.length === 0) return "";
   const counts = new Map<string, number>();
   const order: string[] = [];
   for (const call of calls) {
@@ -924,6 +945,22 @@ function firstLinePreview(raw: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   return lines.length ? lines[lines.length - 1] : raw.trim();
+}
+
+function reasoningSummaryLabel(block: ChatMessageBlock): string {
+  if (block.isStreaming) return "正在思考中";
+  const elapsedMs = Number(block.reasoningElapsedMs ?? 0);
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return "思考完成";
+  const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
+  return `思考了${elapsedSeconds}秒`;
+}
+
+function reasoningSummaryClass(block: ChatMessageBlock): string {
+  return block.isStreaming ? "ecall-reasoning-shimmer" : "";
+}
+
+function toolSummaryClass(block: ChatMessageBlock): string {
+  return showStreamingUi(block) ? "ecall-reasoning-shimmer" : "";
 }
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
@@ -1429,6 +1466,34 @@ watch(
   animation: ecall-message-enter-up 0.3s ease-out both;
 }
 
+.ecall-shimmer-text {
+  position: relative;
+  display: inline-block;
+  color: currentColor;
+}
+
+.ecall-reasoning-shimmer::after {
+  content: attr(data-shimmer-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 44%,
+    rgb(255 255 255 / 0.92) 50%,
+    transparent 56%,
+    transparent 100%
+  );
+  background-size: 280px 100%;
+  background-position: 280px 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ecall-reasoning-shimmer 2.5s linear infinite;
+}
+
 .assistant-markdown :deep(.ecall-markdown-content.ecall-stream-content) * {
   animation: inherit;
 }
@@ -1461,6 +1526,15 @@ watch(
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes ecall-reasoning-shimmer {
+  from {
+    background-position: 280px 0;
+  }
+  to {
+    background-position: -280px 0;
   }
 }
 
