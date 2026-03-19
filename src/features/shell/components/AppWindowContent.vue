@@ -78,6 +78,7 @@
       @open-memory-viewer="openMemoryViewer"
       @refresh-image-cache-stats="refreshImageCacheStats"
       @clear-image-cache="clearImageCache"
+      @open-runtime-logs="openRuntimeLogs"
       @start-hotkey-record-test="startHotkeyRecordTest"
       @stop-hotkey-record-test="stopHotkeyRecordTest"
       @play-hotkey-record-test="playHotkeyRecordTest"
@@ -384,6 +385,7 @@ const props = defineProps<{
   openMemoryViewer: () => void;
   refreshImageCacheStats: () => void;
   clearImageCache: () => void;
+  openRuntimeLogs: () => void;
   startHotkeyRecordTest: () => void;
   stopHotkeyRecordTest: () => void;
   playHotkeyRecordTest: () => void;

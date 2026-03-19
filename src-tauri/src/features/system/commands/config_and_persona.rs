@@ -1404,13 +1404,6 @@ fn set_active_unarchived_conversation(
     let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
-    let requested_agent_id = input
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
     let requested_conversation_id = input
         .conversation_id
         .as_deref()
@@ -1422,11 +1415,10 @@ fn set_active_unarchived_conversation(
             item.id == conversation_id
                 && item.summary.trim().is_empty()
                 && !conversation_is_delegate(item)
-                && item.agent_id.trim() == requested_agent_id
         })
     });
     if target_idx.is_none() {
-        target_idx = latest_active_conversation_index(&data, "", &requested_agent_id)
+        target_idx = latest_active_conversation_index(&data, "", "")
             .or_else(|| {
                 data.conversations
                     .iter()
@@ -1434,7 +1426,6 @@ fn set_active_unarchived_conversation(
                     .filter(|(_, item)| {
                         item.summary.trim().is_empty()
                             && !conversation_is_delegate(item)
-                            && item.agent_id.trim() == requested_agent_id
                     })
                     .max_by(|(idx_a, a), (idx_b, b)| {
                         let a_updated = a.updated_at.trim();
@@ -1452,11 +1443,7 @@ fn set_active_unarchived_conversation(
     if target_idx.is_none() {
         let api_config = resolve_selected_api_config(&app_config, None)
             .ok_or_else(|| "No API config available".to_string())?;
-        target_idx = Some(ensure_active_conversation_index(
-            &mut data,
-            &api_config.id,
-            &requested_agent_id,
-        ));
+        target_idx = Some(ensure_active_conversation_index(&mut data, &api_config.id, ""));
     }
     let target_idx = target_idx.ok_or_else(|| "Unarchived conversation not found.".to_string())?;
 
@@ -1502,13 +1489,6 @@ fn switch_active_conversation_snapshot(
     let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
 
-    let requested_agent_id = input
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
     let target_idx = data
         .conversations
         .iter()
@@ -1516,7 +1496,6 @@ fn switch_active_conversation_snapshot(
             item.id == target_conversation_id
                 && item.summary.trim().is_empty()
                 && !conversation_is_delegate(item)
-                && item.agent_id.trim() == requested_agent_id
         })
         .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
 
@@ -1588,12 +1567,19 @@ fn switch_active_conversation_snapshot(
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
 
     let mut workspace_labels = std::collections::HashMap::<String, String>::new();
-    for item in unarchived_conversations.iter().filter(|item| item.agent_id.trim() == requested_agent_id) {
+    let workspace_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
+    for item in &unarchived_conversations {
         let cid = item.conversation_id.trim();
         if cid.is_empty() {
             continue;
         }
-        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(&requested_agent_id, Some(cid)));
+        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(&workspace_agent_id, Some(cid)));
         let workspace_name = match terminal_session_root_canonical(state.inner(), &session_id) {
             Ok(path) => resolve_workspace_display_name(state.inner(), &path),
             Err(_) => "默认工作空间".to_string(),
@@ -1638,13 +1624,6 @@ fn create_unarchived_conversation(
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
-    let agent_id = input
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
 
     let api_config_id = input
         .api_config_id
@@ -1663,7 +1642,7 @@ fn create_unarchived_conversation(
     }
     let conversation = build_conversation_record(
         &api_config_id,
-        &agent_id,
+        "",
         "",
         CONVERSATION_KIND_CHAT,
         None,

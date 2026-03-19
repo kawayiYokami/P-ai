@@ -603,7 +603,7 @@ async fn send_chat_message_inner(
             data.conversations
                 .iter()
                 .rev()
-                .find(|c| c.agent_id == effective_agent_id && !c.summary.trim().is_empty())
+                .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
                 .map(|c| c.summary.clone())
         };
         let conversation = if trigger_only {

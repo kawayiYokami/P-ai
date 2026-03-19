@@ -104,6 +104,21 @@ struct ForceArchiveResult {
     merge_groups: Option<usize>,
 }
 
+const SHORT_CONVERSATION_DELETE_THRESHOLD: usize = 3;
+
+fn archive_pipeline_message_count_for_delete(source: &Conversation) -> usize {
+    source
+        .messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            )
+        })
+        .count()
+}
+
 async fn summarize_archived_conversation_with_model_v2(
     state: &AppState,
     resolved_api: &ResolvedApiConfig,
@@ -437,6 +452,93 @@ fn emit_compaction_history_flushed_event(
             conversation_id
         );
     }
+}
+
+fn emit_deleted_history_flushed_event(
+    state: &AppState,
+    deleted_conversation_id: &str,
+    active_conversation_id: &str,
+    delete_reason: &str,
+) {
+    let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
+        Some(handle) => handle,
+        None => {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] 删除 history_flushed 发送跳过: app_handle 不可用, deleted_conversation_id={}, active_conversation_id={}",
+                deleted_conversation_id, active_conversation_id
+            );
+            return;
+        }
+    };
+    let payload = serde_json::json!({
+        "conversationId": active_conversation_id,
+        "messageCount": 0,
+        "messages": [],
+        "activateAssistant": false,
+        "archiveApplied": false,
+        "deletedConversationId": deleted_conversation_id,
+        "deleteReason": delete_reason,
+    });
+    if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 删除 history_flushed 发送失败: deleted_conversation_id={}, active_conversation_id={}, error={}",
+            deleted_conversation_id, active_conversation_id, err
+        );
+    } else {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 删除 history_flushed 已发送: deleted_conversation_id={}, active_conversation_id={}",
+            deleted_conversation_id, active_conversation_id
+        );
+    }
+}
+
+fn delete_main_conversation_and_activate_latest(
+    state: &AppState,
+    selected_api: &ApiConfig,
+    source: &Conversation,
+) -> Result<String, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut data = state_read_app_data_cached(state)?;
+    ensure_default_agent(&mut data);
+
+    let before = data.conversations.len();
+    data.conversations.retain(|conversation| {
+        !(conversation.id == source.id
+            && conversation.summary.trim().is_empty()
+            && !conversation_is_delegate(conversation))
+    });
+    if data.conversations.len() == before {
+        return Err("活动对话已变化，请重试归档。".to_string());
+    }
+
+    let active_idx = if let Some(existing_idx) = latest_main_conversation_index(&data, "") {
+        for (idx, conversation) in data.conversations.iter_mut().enumerate() {
+            if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+                continue;
+            }
+            conversation.status = if idx == existing_idx {
+                "active".to_string()
+            } else {
+                "inactive".to_string()
+            };
+        }
+        existing_idx
+    } else {
+        ensure_active_conversation_index(&mut data, &selected_api.id, "")
+    };
+    let active_conversation_id = data
+        .conversations
+        .get(active_idx)
+        .map(|item| item.id.clone())
+        .ok_or_else(|| "Failed to ensure active conversation after delete.".to_string())?;
+    state_write_app_data_cached(state, &data)?;
+    drop(guard);
+
+    cleanup_pdf_session_memory_cache_for_conversation(&source.id);
+    Ok(active_conversation_id)
 }
 
 fn build_compaction_message(summary: &str, compaction_reason: &str) -> ChatMessage {
@@ -872,14 +974,51 @@ async fn run_archive_pipeline_inner(
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
     if source.messages.is_empty() {
+        let active_conversation_id =
+            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
+        emit_deleted_history_flushed_event(
+            state,
+            &source.id,
+            &active_conversation_id,
+            "empty_conversation_deleted",
+        );
         return Ok(ForceArchiveResult {
             archived: false,
             archive_id: None,
-            active_conversation_id: Some(source.id.clone()),
-            summary: "当前对话为空，无需归档。".to_string(),
+            active_conversation_id: Some(active_conversation_id),
+            summary: String::new(),
             merged_memories: 0,
             warning: None,
-            reason_code: Some("empty_conversation".to_string()),
+            reason_code: Some("empty_conversation_deleted".to_string()),
+            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            memory_feedback: None,
+            merge_groups: None,
+        });
+    }
+
+    let message_count = archive_pipeline_message_count_for_delete(source);
+    if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
+        let active_conversation_id =
+            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
+        emit_deleted_history_flushed_event(
+            state,
+            &source.id,
+            &active_conversation_id,
+            "short_conversation_deleted",
+        );
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 短对话直接删除: conversation_id={}, message_count={}, next_conversation_id={}",
+            source.id, message_count, active_conversation_id
+        );
+
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            active_conversation_id: Some(active_conversation_id),
+            summary: String::new(),
+            merged_memories: 0,
+            warning: None,
+            reason_code: Some("short_conversation_deleted".to_string()),
             elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
             memory_feedback: None,
             merge_groups: None,
@@ -947,7 +1086,7 @@ async fn run_archive_pipeline_inner(
     ensure_default_agent(&mut data);
     let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary)
         .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
-    let active_idx = ensure_active_conversation_index(&mut data, &selected_api.id, &source.agent_id);
+    let active_idx = ensure_active_conversation_index(&mut data, &selected_api.id, "");
     let active_conversation_id = data
         .conversations
         .get(active_idx)

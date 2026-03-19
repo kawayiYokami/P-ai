@@ -189,6 +189,7 @@
 
         <LogTab
           v-else-if="props.configTab === 'logs'"
+          :open-runtime-logs="() => $emit('openRuntimeLogs')"
         />
 
         <AppearanceTab
@@ -363,6 +364,7 @@ const emit = defineEmits<{
   (e: "openSystemPromptPreview"): void;
   (e: "refreshImageCacheStats"): void;
   (e: "clearImageCache"): void;
+  (e: "openRuntimeLogs"): void;
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;

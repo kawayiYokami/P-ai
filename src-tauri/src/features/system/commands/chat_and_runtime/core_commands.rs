@@ -67,7 +67,6 @@ async fn send_chat_message(
                     && conv.status == "active"
                     && conv.summary.trim().is_empty()
                     && !conversation_is_delegate(conv)
-                    && conv.agent_id == agent_id
             }) {
                 cid.to_string()
             } else {
@@ -81,9 +80,7 @@ async fn send_chat_message(
                     .iter()
                     .find(|conv| conv.id == cid)
                     .map(|conv| {
-                        if conv.agent_id != agent_id {
-                            "mismatched_agent"
-                        } else if conv.status != "active" {
+                        if conv.status != "active" {
                             "inactive"
                         } else if !conv.summary.trim().is_empty() {
                             "summary_present"
@@ -244,7 +241,7 @@ async fn bind_active_chat_view_stream(
             Some(conversation_id),
             on_delta,
         )?;
-        runtime_log_info(format!(
+        runtime_log_debug(format!(
             "[聊天] 已绑定活动聊天流: window={}, conversation_id={}",
             window_label, conversation_id
         ));

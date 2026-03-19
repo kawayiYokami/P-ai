@@ -65,7 +65,7 @@ fn get_prompt_preview(
         .conversations
         .iter()
         .rev()
-        .find(|c| c.agent_id == effective_agent_id && !c.summary.trim().is_empty())
+        .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
         .map(|c| c.summary.clone());
     let prepared = build_prepared_prompt_for_mode(
         PromptBuildMode::Chat,

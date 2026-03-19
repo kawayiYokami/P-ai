@@ -81,7 +81,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       return;
     }
 
-    options.setStatus(options.t("status.forceArchiveRunning"));
+    options.setStatus("");
     options.setChatError("");
     options.forcingArchive.value = true;
     try {
@@ -112,8 +112,8 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setStatus(options.t("status.forceArchiveDone", { count: result.mergedMemories }));
         options.setChatError("");
       } else {
-        options.setStatus(result.summary);
-        options.setChatError(result.summary);
+        options.setStatus("");
+        options.setChatError("");
       }
       await loadAllMessages();
       options.visibleMessageBlockCount.value = initialVisibleCount(options.allMessages.value.length);
