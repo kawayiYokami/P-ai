@@ -421,6 +421,7 @@ fn main() {
             get_chat_snapshot,
             list_unarchived_conversations,
             set_active_unarchived_conversation,
+            switch_active_conversation_snapshot,
             create_unarchived_conversation,
             get_unarchived_conversation_messages,
             list_delegate_conversations,
