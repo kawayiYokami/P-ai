@@ -1164,7 +1164,7 @@ async fn send_chat_message_inner(
     }
     if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
         eprintln!(
-            "[WARN][CHAT] clear inflight tool abort handle failed (session={}): {}",
+            "[聊天] 清理进行中工具中断句柄失败 (session={}): {}",
             chat_key, err
         );
     }
@@ -1172,7 +1172,7 @@ async fn send_chat_message_inner(
         Ok(inner) => inner,
         Err(_) => {
             eprintln!(
-                "[INFO][CHAT] chat request aborted by user (session={})",
+                "[聊天] 用户中止聊天请求 (session={})",
                 chat_key
             );
             Err(CHAT_ABORTED_BY_USER_ERROR.to_string())

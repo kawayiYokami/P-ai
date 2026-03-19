@@ -38,6 +38,12 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
+macro_rules! eprintln {
+    ($($arg:tt)*) => {{
+        runtime_log_info(format!($($arg)*));
+    }};
+}
+
 // ==================== 核心领域模型 ====================
 include!("features/core/domain.rs");
 
@@ -181,7 +187,7 @@ fn main() {
     let state = match AppState::new() {
         Ok(state) => state,
         Err(err) => {
-            eprintln!("Failed to initialize application state: {err}");
+            eprintln!("[启动] 初始化应用状态失败: {err}");
             return;
         }
     };
@@ -234,21 +240,21 @@ fn main() {
                 Ok(mut handle_slot) => {
                     *handle_slot = Some(app_handle.clone());
                 }
-                Err(_) => {
-                    eprintln!("[BOOT] failed to lock app_handle slot");
+                Err(e) => {
+                    eprintln!("[启动] 写入应用句柄槽位失败: {e}");
                 }
             }
             if let Err(err) = register_default_hotkey(&app_handle) {
-                eprintln!("[BOOT] register_default_hotkey failed: {err}");
+                eprintln!("[启动] 注册默认快捷键失败: {err}");
             }
             if let Err(err) = start_record_hotkey_probe(
                 app_handle.clone(),
                 app_handle.state::<AppState>().config_path.clone(),
             ) {
-                eprintln!("[BOOT] start_record_hotkey_probe failed: {err}");
+                eprintln!("[启动] 启动录音热键探针失败: {err}");
             }
             if let Err(err) = build_tray(&app_handle) {
-                eprintln!("[BOOT] build_tray failed: {err}");
+                eprintln!("[启动] 构建托盘失败: {err}");
             }
             let app_state = app_handle.state::<AppState>();
             let guard = app_state
@@ -258,7 +264,7 @@ fn main() {
             let mut data = match state_read_app_data_cached(&app_state) {
                 Ok(data) => data,
                 Err(err) => {
-                    eprintln!("[启动] 读取应用数据失败(main::setup): {err}");
+                    eprintln!("[启动] 读取应用数据失败（main::setup）: {err}");
                     AppData::default()
                 }
             };
@@ -272,10 +278,10 @@ fn main() {
                 }
             }
             if let Err(err) = memory_store_open(&app_state.data_path) {
-                eprintln!("[BOOT] initialize memory store failed: {err}");
+                eprintln!("[启动] 初始化记忆存储失败: {err}");
             }
             if let Err(err) = task_store_open(&app_state.data_path) {
-                eprintln!("[BOOT] initialize task store failed: {err}");
+                eprintln!("[启动] 初始化任务存储失败: {err}");
             }
             if let Err(err) = delegate_store_open(&app_state.data_path) {
                 eprintln!("[启动] 初始化委托存储失败：{err}");
@@ -290,7 +296,7 @@ fn main() {
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
             if let Err(err) = show_window(&app_handle, "main") {
-                eprintln!("[BOOT] show_window(main) failed: {err}");
+                eprintln!("[启动] 显示主窗口失败: {err}");
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.unminimize();
                     let _ = window.show();
@@ -318,7 +324,7 @@ fn main() {
                 let config = match state_read_config_cached(&app_handle.state::<AppState>()) {
                     Ok(config) => config,
                     Err(err) => {
-                        eprintln!("[启动] 读取 AppState 配置失败，使用默认配置: {:?}", err);
+                        eprintln!("[启动] 读取应用状态配置失败，使用默认配置: {:?}", err);
                         AppConfig::default()
                     }
                 };
@@ -329,7 +335,7 @@ fn main() {
                     .collect();
                 for channel in &napcat_channels {
                     if let Err(err) = napcat_ws_server_start((*channel).clone(), app_handle.clone()) {
-                        eprintln!("[启动] 启动 NapCat WS 服务失败, 渠道 {}: {}", channel.id, err);
+                        eprintln!("[启动] 启动 NapCat WS 服务失败，渠道 {}: {}", channel.id, err);
                     }
                 }
 
@@ -369,19 +375,19 @@ fn main() {
                 match mcp_redeploy_all_from_policy(&startup_state).await {
                     Ok(errors) => {
                         if errors.is_empty() {
-                            eprintln!("[BOOT] MCP auto redeploy completed");
+                            eprintln!("[启动] MCP 自动重部署完成");
                         } else {
                             eprintln!(
-                                "[BOOT] MCP auto redeploy completed with {} error(s)",
+                                "[启动] MCP 自动重部署完成，发生 {} 个错误",
                                 errors.len()
                             );
                             for item in errors {
-                                eprintln!("[BOOT] MCP auto redeploy error: {} | {}", item.item, item.error);
+                                eprintln!("[启动] MCP 自动重部署异常: {} | {}", item.item, item.error);
                             }
                         }
                     }
                     Err(err) => {
-                        eprintln!("[BOOT] MCP auto redeploy failed: {err}");
+                        eprintln!("[启动] MCP 自动重部署失败: {err}");
                     }
                 }
             });
@@ -470,6 +476,7 @@ fn main() {
             clear_recent_llm_round_logs,
             list_recent_runtime_logs,
             clear_recent_runtime_logs,
+            append_runtime_log_probe,
             remote_im_list_channels,
             remote_im_list_contacts,
             remote_im_update_contact_allow_send,
@@ -516,7 +523,7 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
-            eprintln!("error while running tauri application: {err}");
+            eprintln!("[启动] 运行 Tauri 应用失败: {err}");
         });
 }
 

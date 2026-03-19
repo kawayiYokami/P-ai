@@ -46,6 +46,7 @@ struct RuntimeLogEntry {
     created_at: String,
     level: String,
     message: String,
+    repeat: usize,
 }
 
 #[derive(Debug, Default)]
@@ -59,16 +60,53 @@ fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
     RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
 }
 
+fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
+    let mut current_level = level.to_string();
+    let mut text = message.trim().to_string();
+    let mappings = [
+        ("[ERROR]", "error"),
+        ("[WARN]", "warn"),
+        ("[WARNING]", "warn"),
+        ("[INFO]", "info"),
+        ("[DEBUG]", "debug"),
+        ("[TRACE]", "trace"),
+    ];
+    loop {
+        let mut matched = false;
+        for (prefix, mapped_level) in mappings {
+            if let Some(rest) = text.strip_prefix(prefix) {
+                current_level = mapped_level.to_string();
+                text = rest.trim_start().to_string();
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            break;
+        }
+    }
+    (current_level, text)
+}
+
 fn runtime_log_push(level: &str, message: String) {
-    eprintln!("{message}");
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
+    let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
     let Ok(mut buf) = runtime_log_buffer().lock() else {
         return;
     };
+    if let Some(last) = buf.entries.back_mut() {
+        if last.level == normalized_level && last.message == normalized_message {
+            last.repeat = last.repeat.saturating_add(1);
+            last.created_at = now_iso();
+            return;
+        }
+    }
     let entry = RuntimeLogEntry {
         id: Uuid::new_v4().to_string(),
         created_at: now_iso(),
-        level: level.to_string(),
-        message,
+        level: normalized_level,
+        message: normalized_message,
+        repeat: 1,
     };
     let entry_bytes = entry.created_at.len() + entry.level.len() + entry.message.len();
     buf.total_bytes = buf.total_bytes.saturating_add(entry_bytes);
@@ -433,5 +471,16 @@ fn clear_recent_runtime_logs() -> Result<bool, String> {
         .map_err(|_| "Failed to lock runtime logs".to_string())?;
     logs.entries.clear();
     logs.total_bytes = 0;
+    Ok(true)
+}
+
+#[tauri::command]
+fn append_runtime_log_probe(message: Option<String>) -> Result<bool, String> {
+    let msg = message
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("运行日志窗口已打开");
+    runtime_log_info(format!("[运行日志] {}", msg));
     Ok(true)
 }
