@@ -225,6 +225,7 @@ export type RuntimeLogEntry = {
   createdAt: string;
   level: string;
   message: string;
+  repeat: number;
 };
 
 export type PersonaProfile = {

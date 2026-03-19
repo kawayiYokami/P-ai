@@ -35,7 +35,7 @@ impl Tool for BuiltinFetchTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=fetch result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=fetch err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 fetch 执行失败: 错误={err}"),
         }
         result
     }
@@ -78,7 +78,7 @@ impl Tool for BuiltinBingSearchTool {
                 debug_value_snippet(v, 240)
             ),
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=websearch err={err}")
+                eprintln!("[工具执行] 内置工具 websearch 执行失败: 错误={err}")
             }
         }
         result
@@ -136,7 +136,7 @@ impl Tool for BuiltinRememberTool {
                 debug_value_snippet(v, 240)
             ),
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=remember err={err}")
+                eprintln!("[工具执行] 内置工具 remember 执行失败: 错误={err}")
             }
         }
         result
@@ -181,7 +181,7 @@ impl Tool for BuiltinRecallTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=recall result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=recall err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 recall 执行失败: 错误={err}"),
         }
         result
     }
@@ -221,7 +221,7 @@ impl Tool for BuiltinDesktopWaitTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=wait result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=wait err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 wait 执行失败: 错误={err}"),
         }
         result
     }
@@ -252,7 +252,7 @@ impl Tool for BuiltinRefreshMcpAndSkillsTool {
     }
 
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!("[TOOL-DEBUG] execute_builtin_tool.start name=reload");
+        eprintln!("[工具执行] 内置工具 reload 开始执行");
         let result = builtin_reload(&self.app_state)
             .await
             .map_err(ToolInvokeError::from);
@@ -295,7 +295,7 @@ impl Tool for BuiltinOrganizeContextTool {
     }
 
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!("[TOOL-DEBUG] execute_builtin_tool.start name=organize_context");
+        eprintln!("[工具执行] 内置工具 organize_context 开始执行");
         let result = builtin_organize_context(&self.app_state, &self.api_config_id, &self.agent_id)
             .await
             .map_err(ToolInvokeError::from);
@@ -386,7 +386,7 @@ impl Tool for BuiltinTerminalExecTool {
                 );
             }
             Err(err) => {
-                eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=exec err={err}")
+                eprintln!("[工具执行] 内置工具 exec 执行失败: 错误={err}")
             }
         }
         result
@@ -444,7 +444,7 @@ impl Tool for BuiltinApplyPatchTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=apply_patch result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=apply_patch err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 apply_patch 执行失败: 错误={err}"),
         }
         result
     }
@@ -510,7 +510,7 @@ impl Tool for BuiltinTaskTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=task result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=task err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 task 执行失败: 错误={err}"),
         }
         result
     }
@@ -562,7 +562,7 @@ impl Tool for BuiltinDelegateTool {
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=delegate result={}",
                 debug_value_snippet(v, 240)
             ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=delegate err={err}"),
+            Err(err) => eprintln!("[工具执行] 内置工具 delegate 执行失败: 错误={err}"),
         }
         result
     }

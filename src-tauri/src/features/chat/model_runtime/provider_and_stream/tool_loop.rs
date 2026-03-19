@@ -124,7 +124,7 @@ where
         let result = futures_util::future::Abortable::new(future, abort_registration).await;
         if let Err(err) = clear_inflight_tool_abort_handle(state, chat_session_key) {
             eprintln!(
-                "[WARN][CHAT] clear inflight tool abort handle failed (session={}): {}",
+                "[聊天] 清理进行中工具中断句柄失败 (session={}): {}",
                 chat_session_key, err
             );
         }
@@ -132,7 +132,7 @@ where
             Ok(inner) => inner.map_err(|err| err.to_string()),
             Err(_) => {
                 eprintln!(
-                    "[INFO][CHAT] tool call aborted by user (session={})",
+                    "[聊天] 用户中止工具调用 (session={})",
                     chat_session_key
                 );
                 Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
@@ -232,7 +232,7 @@ where
                         Err(err) => {
                             if err == CHAT_ABORTED_BY_USER_ERROR {
                                 eprintln!(
-                                    "[INFO][CHAT] stop requested; exiting tool loop immediately (session={})",
+                                    "[聊天] 收到停止请求，立即退出工具循环 (session={})",
                                     chat_session_key
                                 );
                                 return Err(err);
@@ -373,7 +373,7 @@ where
             }
             if should_stop_after_remote_im_send(&tool_name, &tool_result) {
                 eprintln!(
-                    "[INFO][CHAT] remote_im_send done=true; stop tool loop immediately (session={})",
+                    "[聊天] remote_im_send done=true，立即退出工具循环 (session={})",
                     chat_session_key
                 );
                 let final_text = if full_assistant_text.trim().is_empty() {

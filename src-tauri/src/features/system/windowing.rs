@@ -3,6 +3,9 @@ use std::str::FromStr;
 const MAIN_TRAY_ID: &str = "easy-call-tray";
 const WINDOW_LAYOUTS_FILE_NAME: &str = "window_layouts.json";
 
+static OFFSCREEN_LAYOUT_LOGGED_ONCE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PersistedWindowLayouts {
@@ -222,14 +225,16 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                 {
                     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                 } else {
-                    eprintln!(
-                        "[INFO][窗口] 检测到离屏窗口布局，已重置到可见区域: label={}, saved_x={}, saved_y={}, width={}, height={}",
-                        label.trim(),
-                        x,
-                        y,
-                        resolved_width,
-                        resolved_height
-                    );
+                    if !OFFSCREEN_LAYOUT_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        eprintln!(
+                            "[窗口] 检测到离屏窗口布局，已重置到可见区域: label={}, saved_x={}, saved_y={}, width={}, height={}",
+                            label.trim(),
+                            x,
+                            y,
+                            resolved_width,
+                            resolved_height
+                        );
+                    }
                     position_window_on_monitor(
                         &window,
                         label,

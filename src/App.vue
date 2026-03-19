@@ -668,7 +668,7 @@ const {
         });
       }
       void invokeTauri("show_chat_window").catch((error) => {
-        console.warn("[AUDIO] show_chat_window failed:", error);
+        console.warn("[音频] 打开聊天窗口失败:", error);
       });
     }
     if (source !== "remote") return;
@@ -712,7 +712,7 @@ function syncChatWindowActiveState() {
   }
   clearRecordHotkeyProbeState();
   void invokeTauri("set_chat_window_active", { active }).catch((error) => {
-    console.warn("[HOTKEY] set_chat_window_active failed:", error);
+    console.warn("[热键] 设置聊天窗口激活状态失败:", error);
   });
 }
 
@@ -1547,13 +1547,13 @@ onMounted(() => {
     tauriWindowLabel.value = "unknown";
     isChatTauriWindow.value = false;
   }
-  console.warn("[CHAT_TRACE][window] init", {
+  console.warn("[聊天追踪][窗口] 初始化", {
     label: tauriWindowLabel.value,
     isChatWindow: isChatTauriWindow.value,
   });
   if (isChatTauriWindow.value) {
     void listen<unknown>("easy-call:history-flushed", (event) => {
-      console.warn("[CHAT_TRACE][emit_history_flushed] received", {
+      console.warn("[聊天追踪][历史刷写] 收到事件", {
         windowLabel: tauriWindowLabel.value,
         hasPayload: event.payload !== undefined,
       });
@@ -1561,12 +1561,12 @@ onMounted(() => {
     })
       .then((unlisten) => {
         chatHistoryFlushedUnlisten = unlisten;
-        console.warn("[CHAT_TRACE][emit_history_flushed] listener_ready", {
+        console.warn("[聊天追踪][历史刷写] 监听器已就绪", {
           windowLabel: tauriWindowLabel.value,
         });
       })
       .catch((error) => {
-        console.error("[CHAT_TRACE][emit_history_flushed] listener_failed", error);
+        console.error("[聊天追踪][历史刷写] 监听器注册失败", error);
       });
     void listen<unknown>("easy-call:round-completed", (event) => {
       void chatFlow.handleExternalRoundCompleted(event.payload);
@@ -1575,7 +1575,7 @@ onMounted(() => {
         chatRoundCompletedUnlisten = unlisten;
       })
       .catch((error) => {
-        console.error("[CHAT_TRACE][emit_round_completed] listener_failed", error);
+        console.error("[聊天追踪][轮次完成] 监听器注册失败", error);
       });
     void listen<unknown>("easy-call:round-failed", (event) => {
       void chatFlow.handleExternalRoundFailed(event.payload);
@@ -1584,7 +1584,7 @@ onMounted(() => {
         chatRoundFailedUnlisten = unlisten;
       })
       .catch((error) => {
-        console.error("[CHAT_TRACE][emit_round_failed] listener_failed", error);
+        console.error("[聊天追踪][轮次失败] 监听器注册失败", error);
       });
     void listen<unknown>("easy-call:assistant-delta", (event) => {
       void chatFlow.handleExternalAssistantDelta(event.payload);
@@ -1593,13 +1593,13 @@ onMounted(() => {
         chatAssistantDeltaUnlisten = unlisten;
       })
       .catch((error) => {
-        console.error("[CHAT_TRACE][emit_assistant_delta] listener_failed", error);
+        console.error("[聊天追踪][助手增量] 监听器注册失败", error);
       });
 
     chatStreamBindHeartbeatTimer = setInterval(() => {
       if (!isChatWindowActiveNow()) return;
       const conversationId = String(currentChatConversationId.value || "").trim();
-      console.warn("[CHAT_TRACE][bind_heartbeat] force_rebind", {
+      console.warn("[聊天追踪][心跳重绑] 强制重绑流", {
         windowLabel: tauriWindowLabel.value,
         conversationId,
       });
@@ -1758,7 +1758,16 @@ async function refreshRuntimeLogs() {
 
 function openRuntimeLogsDialog() {
   runtimeLogsDialogOpen.value = true;
-  void refreshRuntimeLogs();
+  void (async () => {
+    try {
+      await invokeTauri("append_runtime_log_probe", {
+        message: `日志窗口打开，window=${tauriWindowLabel.value}`,
+      });
+    } catch {
+      // ignore probe write failure, do not block log list refresh
+    }
+    await refreshRuntimeLogs();
+  })();
 }
 
 function closeRuntimeLogsDialog() {
@@ -1787,7 +1796,7 @@ async function openGithubRepository() {
     const url = await invokeTauri<string>("get_project_repository_url");
     void invokeTauri("open_external_url", { url });
   } catch (error) {
-    console.warn("[ABOUT] resolve project repository failed:", error);
+    console.warn("[关于] 获取项目仓库地址失败:", error);
   }
 }
 
@@ -1914,7 +1923,7 @@ const chatFlow = useChatFlow({
   onReloadMessages: () => loadAllMessages(),
   onHistoryFlushed: async ({ conversationId, pendingMessages, activateAssistant }) => {
     const flushedConversationId = String(conversationId || "").trim();
-    console.warn("[CHAT_TRACE][onHistoryFlushed] start", {
+    console.warn("[聊天追踪][历史刷写处理] 开始", {
       windowLabel: tauriWindowLabel.value,
       flushedConversationId,
       activateAssistant,
@@ -1932,7 +1941,7 @@ const chatFlow = useChatFlow({
       await nextTick();
       allMessages.value = [...queueMessages];
       hasMoreBackendHistory.value = queueMessages.length > 0;
-      console.warn("[CHAT_TRACE][onHistoryFlushed] activate_replace_done", {
+      console.warn("[聊天追踪][历史刷写处理] 激活替换完成", {
         windowLabel: tauriWindowLabel.value,
         replacedCount: queueMessages.length,
         finalMessageCount: allMessages.value.length,
@@ -1950,7 +1959,7 @@ const chatFlow = useChatFlow({
       });
       allMessages.value = [...existing, ...appended];
       hasMoreBackendHistory.value = existing.length > 0 || appended.length > 0;
-      console.warn("[CHAT_TRACE][onHistoryFlushed] append_done", {
+      console.warn("[聊天追踪][历史刷写处理] 追加完成", {
         windowLabel: tauriWindowLabel.value,
         beforeDedupCount,
         appendedCount: appended.length,
@@ -1961,14 +1970,14 @@ const chatFlow = useChatFlow({
         lastAppendedId: String(appended[appended.length - 1]?.id || ""),
       });
     } else {
-      console.warn("[CHAT_TRACE][onHistoryFlushed] no_pending_messages", {
+      console.warn("[聊天追踪][历史刷写处理] 无待写入消息", {
         windowLabel: tauriWindowLabel.value,
         activateAssistant,
         finalMessageCount: allMessages.value.length,
       });
     }
     await loadUnarchivedConversations();
-    console.warn("[CHAT_TRACE][onHistoryFlushed] done", {
+    console.warn("[聊天追踪][历史刷写处理] 完成", {
       windowLabel: tauriWindowLabel.value,
       flushedConversationId: String(currentChatConversationId.value || "").trim(),
       finalMessageCount: allMessages.value.length,

@@ -505,7 +505,7 @@ async fn call_model_deepseek_with_tools(
                     Err(err) => {
                         if err == CHAT_ABORTED_BY_USER_ERROR {
                             eprintln!(
-                                "[INFO][CHAT] stop requested during deepseek tool call; aborting turn (session={})",
+                                "[聊天] DeepSeek 工具调用期间收到停止请求，终止本轮 (session={})",
                                 chat_session_key
                             );
                             return Err(err);

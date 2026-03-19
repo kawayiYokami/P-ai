@@ -127,7 +127,7 @@ fn delegate_enqueue_result_message(
         ),
     };
     eprintln!(
-        "[INFO][CHAT] 任务=chat_ingress 操作=delegate_publish 状态=完成 路由={} 模式={} 关键计数={} 耗时毫秒={}",
+        "[聊天] 任务=chat_ingress 操作=delegate_publish 状态=完成 路由={} 模式={} 关键计数={} 耗时毫秒={}",
         ingress_route,
         ingress_mode,
         ingress_key_count,
