@@ -370,7 +370,11 @@ fn mcp_connect_stdio_command(parsed: &ParsedMcpServerDefinition) -> Result<tokio
             c
         } else {
             let mut c = tokio::process::Command::new("cmd");
-            c.arg("/C").arg(trimmed).args(&parsed.args);
+            c.arg("/D")
+                .arg("/S")
+                .arg("/C")
+                .arg(format!("chcp 65001 >nul 2>&1 & {trimmed}"))
+                .args(&parsed.args);
             c
         }
     };
@@ -437,9 +441,8 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
                     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
                     let stderr_text = {
                         let guard = stderr_cache.lock().await;
-                        String::from_utf8_lossy(&guard)
-                            .trim()
-                            .replace('\r', "")
+                        let text = String::from_utf8_lossy(&guard).into_owned();
+                        text.trim().replace('\r', "")
                     };
                     if stderr_text.is_empty() {
                         Err(format!("Connect MCP stdio server failed: {err}"))

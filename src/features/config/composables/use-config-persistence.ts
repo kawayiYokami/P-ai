@@ -474,6 +474,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
+      options.normalizeApiBindingsLocal();
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
       console.info("[CONFIG] save_conversation_api_settings success");
     } catch (e) {
