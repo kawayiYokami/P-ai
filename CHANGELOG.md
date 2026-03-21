@@ -2,6 +2,14 @@
 
 ## 未发布
 
+- 新增（apply-patch-rewind）：为 `apply_patch` 补齐新增/删除/修改/移动的可恢复备份链路
+  - `apply_patch` 成功执行后会在应用数据目录下写入 `temp/apply_patch/records` 与 `temp/apply_patch/blobs`，记录恢复索引与原始文件快照
+  - `Delete File` 执行前改为先备份原文件内容，撤回时可直接恢复已删除文件
+  - `Update File` 与 `Move + Update` 执行前都会保存原文快照，撤回时优先按 temp 记录恢复，不再只依赖反向 hunk
+  - 会话撤回路径新增 temp 记录匹配与清理逻辑，恢复成功后自动删除对应记录与备份 blob
+  - 上下文整理成功后会清空 `temp/apply_patch`，避免旧撤回缓存无限堆积
+  - 新增并通过 `apply_patch_tool_tests`、`rewind_apply_patch_tests`，并完成 `cargo test -- --nocapture` 与 `cargo check`
+
 - 重构（context-organization-memory-archive）：统一上下文整理、记忆整理、归档链路并改为自动后台记忆生成
   - 自动上下文整理与 `organize_context` 工具统一改为“写入当前会话的上下文整理消息”，并在消息落盘校验通过后才发送前端刷新事件，避免 UI 与后端状态不一致
   - 自动整理路径与归档前预整理路径都会在成功后异步触发记忆整理，不再阻塞聊天或归档主流程

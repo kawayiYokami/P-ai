@@ -1194,6 +1194,20 @@ async fn run_context_compaction_pipeline_inner(
         source.id,
         compression_message_id
     );
+    match clear_apply_patch_temp(&state.data_path) {
+        Ok((record_count, blob_count)) => {
+            eprintln!(
+                "[apply_patch缓存] 完成，任务=clear_temp_on_compaction，conversation_id={}，记录条数={}，备份条数={}",
+                source.id, record_count, blob_count
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "[apply_patch缓存] 失败，任务=clear_temp_on_compaction，conversation_id={}，error={}",
+                source.id, err
+            );
+        }
+    }
     emit_compaction_history_flushed_event(state, &source.id, &compression_message);
 
     let all_compaction_context = archive_pipeline_all_compaction_context(&conversation_for_memory);
