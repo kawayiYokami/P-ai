@@ -54,6 +54,7 @@ fn build_prepared_prompt_for_mode(
                 mcp_servers: Vec::new(),
                 remote_im_channels: Vec::new(),
                 departments: departments.to_vec(),
+                provider_non_stream_base_urls: Vec::new(),
                 api_configs: Vec::new(),
             };
             let include_archive_recap = department_for_agent_id(&temp_config, &agent.id)

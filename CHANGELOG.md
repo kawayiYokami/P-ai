@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 修复（stream-fallback）：全渠道流式失败后永久降级非流式，并统一运行日志规范
+  - 新增 `provider_non_stream_base_urls` 配置项：按 `base_url` 持久化“禁用流式”状态，重启后仍生效
+  - 主聊天、归档总结、视觉图片转文本三条链路统一接入流式失败自动重试非流式逻辑
+  - OpenAI / DeepSeekKimi 请求在流式失败后会立即写入持久化黑名单并当次非流式重试，避免重复报错不可用
+  - 相关日志改为运行日志通道（`runtime_log_info` / `runtime_log_warn`），不再直写 `stderr`
+  - 新增日志文案统一中文前缀（`[聊天]` / `[视觉]` / `[推理]`），并移除新增路径中的 `[CHAT]` 英文前缀
+
 - 新增（assistant-interaction-guide）：补充用户协作引导类 preset skill，并统一内置 skill 触发文案
   - 新增 `assistant-interaction-guide`，用于引导用户如何与助理协作、如何提出任务，以及如何直接请求安装 Git、安装 Node.js、安装 skill、安装 MCP、安排部门与工作流
   - 为多个内置 preset skill 的 `description` 统一改成“当……时，必须立刻阅读我”的强触发风格

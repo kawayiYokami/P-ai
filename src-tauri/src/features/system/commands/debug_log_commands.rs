@@ -124,6 +124,10 @@ fn runtime_log_info(message: String) {
     runtime_log_push("info", message);
 }
 
+fn runtime_log_warn(message: String) {
+    runtime_log_push("warn", message);
+}
+
 fn runtime_log_error(message: String) {
     runtime_log_push("error", message);
 }

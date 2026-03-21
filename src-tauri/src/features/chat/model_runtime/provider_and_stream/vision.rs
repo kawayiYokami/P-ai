@@ -1,4 +1,5 @@
 async fn describe_image_with_vision_api(
+    state: &AppState,
     vision_resolved: &ResolvedApiConfig,
     vision_api: &ApiConfig,
     image: &BinaryPart,
@@ -21,9 +22,40 @@ async fn describe_image_with_vision_api(
         latest_audios: Vec::new(),
     };
 
+    let supports_non_stream_fallback =
+        request_format_supports_non_stream_fallback(vision_resolved.request_format);
+    let prefer_non_stream = supports_non_stream_fallback
+        && provider_streaming_disabled(Some(state), &vision_resolved.base_url);
     let reply = match vision_resolved.request_format {
         RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
-            call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?
+            if prefer_non_stream {
+                call_model_openai_non_stream_rig_style(vision_resolved, &vision_api.model, prepared).await?
+            } else {
+                match call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared.clone()).await {
+                    Ok(reply) => reply,
+                    Err(err) if supports_non_stream_fallback => {
+                        if let Err(mark_err) =
+                            provider_mark_streaming_disabled(Some(state), &vision_resolved.base_url)
+                        {
+                            runtime_log_warn(format!(
+                                "[视觉] 持久化非流式 base_url 失败: base_url={}, err={}",
+                                vision_resolved.base_url, mark_err
+                            ));
+                        }
+                        runtime_log_info(format!(
+                            "[视觉] 流式失败，切换非流式重试: base_url={}, model={}, err={}",
+                            vision_resolved.base_url, vision_api.model, err
+                        ));
+                        call_model_openai_non_stream_rig_style(
+                            vision_resolved,
+                            &vision_api.model,
+                            prepared,
+                        )
+                        .await?
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
         }
         RequestFormat::OpenAIResponses => {
             call_model_openai_responses_rig_style(

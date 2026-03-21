@@ -297,7 +297,7 @@ async fn send_chat_message_inner(
                     }
 
                     let converted =
-                        describe_image_with_vision_api(&vision_resolved, &vision_api, image)
+                        describe_image_with_vision_api(&state, &vision_resolved, &vision_api, image)
                             .await?;
                     let converted = converted.trim().to_string();
                     if converted.is_empty() {

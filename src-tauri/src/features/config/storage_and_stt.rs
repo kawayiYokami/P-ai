@@ -342,6 +342,24 @@ fn normalize_remote_im_channels(config: &mut AppConfig) {
     config.remote_im_channels = out;
 }
 
+fn normalize_provider_non_stream_base_urls(config: &mut AppConfig) {
+    let mut out = Vec::<String>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    for raw in &config.provider_non_stream_base_urls {
+        let value = raw.trim().trim_end_matches('/').to_string();
+        if value.is_empty() {
+            continue;
+        }
+        let key = value.to_ascii_lowercase();
+        if !seen.insert(key) {
+            continue;
+        }
+        out.push(value);
+    }
+    out.sort_by_key(|item| item.to_ascii_lowercase());
+    config.provider_non_stream_base_urls = out;
+}
+
 fn is_text_chat_api(api: &ApiConfig) -> bool {
     api.enable_text && api.request_format.is_chat_text()
 }
@@ -566,6 +584,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     normalize_shell_workspaces(config);
     normalize_mcp_servers(config);
     normalize_remote_im_channels(config);
+    normalize_provider_non_stream_base_urls(config);
     normalize_departments(config);
 }
 
@@ -996,7 +1015,6 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
     request_format.is_openai_style()
 }
-
 
 
 

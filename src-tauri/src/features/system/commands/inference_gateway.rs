@@ -16,30 +16,64 @@ impl CallPolicy {
 
 }
 
-fn provider_streaming_cache_key(resolved_api: &ResolvedApiConfig, model_name: &str) -> String {
-    format!("{}:{}", resolved_api.base_url, model_name)
+fn provider_streaming_cache_key(base_url: &str) -> String {
+    base_url.trim().trim_end_matches('/').to_string()
 }
 
-fn provider_streaming_disabled_cached(state: Option<&AppState>, key: &str) -> bool {
+fn provider_streaming_disabled_cached(state: Option<&AppState>, base_url: &str) -> bool {
     let Some(app_state) = state else {
         return false;
     };
+    let key = provider_streaming_cache_key(base_url);
     let Ok(cache) = app_state.provider_streaming_disabled_keys.lock() else {
         return false;
     };
-    cache.contains(key)
+    cache.contains(&key)
 }
 
-fn provider_mark_streaming_disabled(state: Option<&AppState>, key: &str) {
+fn provider_streaming_disabled_persisted(state: Option<&AppState>, base_url: &str) -> bool {
     let Some(app_state) = state else {
-        return;
+        return false;
     };
-    let Ok(mut cache) = app_state.provider_streaming_disabled_keys.lock() else {
-        return;
+    let key = provider_streaming_cache_key(base_url);
+    let Ok(config) = state_read_config_cached(app_state) else {
+        return false;
     };
-    cache.insert(key.to_string());
+    config.provider_non_stream_base_urls.iter().any(|item| {
+        provider_streaming_cache_key(item) == key
+    })
 }
 
+fn provider_streaming_disabled(state: Option<&AppState>, base_url: &str) -> bool {
+    provider_streaming_disabled_cached(state, base_url)
+        || provider_streaming_disabled_persisted(state, base_url)
+}
+
+fn provider_mark_streaming_disabled(state: Option<&AppState>, base_url: &str) -> Result<(), String> {
+    let Some(app_state) = state else {
+        return Ok(());
+    };
+    let key = provider_streaming_cache_key(base_url);
+    let Ok(mut cache) = app_state.provider_streaming_disabled_keys.lock() else {
+        return Err("Failed to lock provider streaming disabled cache".to_string());
+    };
+    cache.insert(key.clone());
+    drop(cache);
+
+    let mut config = state_read_config_cached(app_state)?;
+    if config
+        .provider_non_stream_base_urls
+        .iter()
+        .any(|item| provider_streaming_cache_key(item) == key)
+    {
+        return Ok(());
+    }
+    config.provider_non_stream_base_urls.push(key);
+    normalize_app_config(&mut config);
+    state_write_config_cached(app_state, &config)
+}
+
+#[cfg(test)]
 fn is_streaming_format_error(err: &str) -> bool {
     err.contains("missing field `role`")
         || err.contains("message_start")
@@ -153,8 +187,8 @@ async fn invoke_model_with_policy(
     if policy.json_only {
         // json_only is enforced by prompt contract + caller-side JSON parse.
     }
-    let stream_cache_key = provider_streaming_cache_key(resolved_api, model_name);
-    let prefer_non_stream = provider_streaming_disabled_cached(app_state, &stream_cache_key);
+    let stream_cache_key = provider_streaming_cache_key(&resolved_api.base_url);
+    let prefer_non_stream = provider_streaming_disabled(app_state, &resolved_api.base_url);
     let first_result = if prefer_non_stream {
         if let Some(timeout_secs) = policy.timeout_secs {
             invoke_model_non_stream_by_format_with_timeout(
@@ -186,14 +220,18 @@ async fn invoke_model_with_policy(
         Ok(reply) => Ok(reply),
         Err(err)
             if !prefer_non_stream
-                && request_format_supports_non_stream_fallback(resolved_api.request_format)
-                && is_streaming_format_error(&err) =>
+                && request_format_supports_non_stream_fallback(resolved_api.request_format) =>
         {
-            provider_mark_streaming_disabled(app_state, &stream_cache_key);
-            eprintln!(
-                "[INFERENCE] stream->non-stream fallback key={} scene={} err={}",
+            if let Err(mark_err) = provider_mark_streaming_disabled(app_state, &resolved_api.base_url) {
+                runtime_log_warn(format!(
+                    "[推理] 持久化非流式 base_url 失败: key={}, scene={}, err={}",
+                    stream_cache_key, policy.scene, mark_err
+                ));
+            }
+            runtime_log_info(format!(
+                "[推理] 流式失败并切换非流式: key={}, scene={}, err={}",
                 stream_cache_key, policy.scene, err
-            );
+            ));
             if let Some(timeout_secs) = policy.timeout_secs {
                 invoke_model_non_stream_by_format_with_timeout(
                     resolved_api,
@@ -285,15 +323,7 @@ mod inference_gateway_tests {
 
     #[test]
     fn provider_cache_key_should_keep_raw_base_url() {
-        let resolved = ResolvedApiConfig {
-            request_format: RequestFormat::DeepSeekKimi,
-            base_url: "https://api.moonshot.cn/v1/".to_string(),
-            api_key: "k".to_string(),
-            model: "m".to_string(),
-            temperature: 0.1,
-            max_output_tokens: 128,
-        };
-        let key = provider_streaming_cache_key(&resolved, "kimi-k2.5");
-        assert_eq!(key, "https://api.moonshot.cn/v1/:kimi-k2.5");
+        let key = provider_streaming_cache_key("https://api.moonshot.cn/v1/");
+        assert_eq!(key, "https://api.moonshot.cn/v1");
     }
 }

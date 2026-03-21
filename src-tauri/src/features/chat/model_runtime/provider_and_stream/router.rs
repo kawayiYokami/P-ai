@@ -94,6 +94,23 @@ async fn dispatch_openai_style_call(
     }
 }
 
+async fn call_openai_style_non_stream_fallback(
+    api_config: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    match selected_api.request_format {
+        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
+            call_model_openai_non_stream_rig_style(api_config, model_name, prepared).await
+        }
+        _ => Err(format!(
+            "Request format '{}' does not support non-stream fallback.",
+            selected_api.request_format
+        )),
+    }
+}
+
 async fn call_model_openai_style(
     api_config: &ResolvedApiConfig,
     app_config: &AppConfig,
@@ -120,6 +137,10 @@ async fn call_model_openai_style(
     );
     let headers = masked_auth_headers(&api_config.api_key);
     let mut tool_manifest_for_log: Option<Value> = None;
+    let supports_non_stream_fallback =
+        request_format_supports_non_stream_fallback(selected_api.request_format);
+    let prefer_non_stream = supports_non_stream_fallback
+        && provider_streaming_disabled(app_state, &api_config.base_url);
     let result = if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
@@ -176,89 +197,161 @@ async fn call_model_openai_style(
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
-        if selected_api.enable_tools {
-            let tool_assembly =
-                assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
-            tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
-            dispatch_openai_style_call(
-                api_config,
-                selected_api,
-                model_name,
-                prepared,
-                tool_assembly,
-                on_delta,
-                max_tool_iterations,
-                app_state,
-                chat_session_key,
-            )
-            .await
-        } else if selected_api.request_format.is_deepseek_kimi() {
-            call_model_deepseek_rig_style(api_config, model_name, prepared, Some(on_delta)).await
-        } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
-            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
-                .await
+        if prefer_non_stream {
+            if selected_api.enable_tools {
+                runtime_log_info(format!(
+                    "[聊天] base_url={} 已永久禁用流式，当前回合跳过工具流式循环并改用非流式请求",
+                    api_config.base_url
+                ));
+            }
+            call_openai_style_non_stream_fallback(api_config, selected_api, model_name, prepared).await
         } else {
-            call_model_openai_rig_style(api_config, model_name, prepared).await
+            let stream_result = if selected_api.enable_tools {
+                let tool_assembly =
+                    assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
+                tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+                dispatch_openai_style_call(
+                    api_config,
+                    selected_api,
+                    model_name,
+                    prepared.clone(),
+                    tool_assembly,
+                    on_delta,
+                    max_tool_iterations,
+                    app_state,
+                    chat_session_key,
+                )
+                .await
+            } else if selected_api.request_format.is_deepseek_kimi() {
+                call_model_deepseek_rig_style(api_config, model_name, prepared.clone(), Some(on_delta)).await
+            } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                call_model_openai_responses_rig_style(
+                    api_config,
+                    model_name,
+                    prepared.clone(),
+                    Some(on_delta),
+                )
+                .await
+            } else {
+                call_model_openai_rig_style(api_config, model_name, prepared.clone()).await
+            };
+            match stream_result {
+                Ok(reply) => Ok(reply),
+                Err(err) if supports_non_stream_fallback => {
+                    if let Err(mark_err) =
+                        provider_mark_streaming_disabled(app_state, &api_config.base_url)
+                    {
+                        runtime_log_warn(format!(
+                            "[聊天] 持久化非流式 base_url 失败: base_url={}, err={}",
+                            api_config.base_url, mark_err
+                        ));
+                    }
+                    runtime_log_info(format!(
+                        "[聊天] 流式失败，切换非流式重试: base_url={}, model={}, err={}",
+                        api_config.base_url, model_name, err
+                    ));
+                    if selected_api.enable_tools {
+                        runtime_log_info(format!(
+                            "[聊天] 当前 API 已启用工具，但非流式兜底不执行工具循环: base_url={}",
+                            api_config.base_url
+                        ));
+                    }
+                    call_openai_style_non_stream_fallback(api_config, selected_api, model_name, prepared)
+                        .await
+                }
+                Err(err) => Err(err),
+            }
         }
     } else {
         let original = prepared.clone();
-        let rig_result = if selected_api.request_format.is_deepseek_kimi() {
-            call_model_deepseek_rig_style(api_config, model_name, prepared, Some(on_delta)).await
-        } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
-            call_model_openai_responses_rig_style(api_config, model_name, prepared, Some(on_delta))
-                .await
+        if prefer_non_stream {
+            call_openai_style_non_stream_fallback(api_config, selected_api, model_name, prepared).await
         } else {
-            call_model_openai_rig_style(api_config, model_name, prepared).await
-        };
-        match rig_result {
-            Ok(reply) => Ok(reply),
-            Err(err)
-                if ( !original.latest_images.is_empty() || prepared_has_any_history_image(&original))
-                    && is_image_unsupported_error(&err) =>
-            {
-                eprintln!(
-                    "[CHAT] Model rejected image input, fallback to text-only request. error={}",
-                    err
-                );
-                let mut fallback = original;
-                let _ = replace_disabled_multimodal_with_text(&mut fallback, false, true);
-                request_log = prepared_prompt_to_equivalent_request_json(
-                    &fallback,
+            let rig_result = if selected_api.request_format.is_deepseek_kimi() {
+                call_model_deepseek_rig_style(api_config, model_name, prepared.clone(), Some(on_delta)).await
+            } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                call_model_openai_responses_rig_style(
+                    api_config,
                     model_name,
-                    api_config.temperature,
-                );
-                if selected_api.enable_tools {
-                    let tool_assembly =
-                        assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
-                    tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
-                    dispatch_openai_style_call(
-                        api_config,
-                        selected_api,
+                    prepared.clone(),
+                    Some(on_delta),
+                )
+                .await
+            } else {
+                call_model_openai_rig_style(api_config, model_name, prepared.clone()).await
+            };
+            match rig_result {
+                Ok(reply) => Ok(reply),
+                Err(err)
+                    if (!original.latest_images.is_empty() || prepared_has_any_history_image(&original))
+                        && is_image_unsupported_error(&err) =>
+                {
+                    runtime_log_info(format!(
+                        "[聊天] 模型不支持图片输入，回退到纯文本请求: err={}",
+                        err
+                    ));
+                    let mut fallback = original;
+                    let _ = replace_disabled_multimodal_with_text(&mut fallback, false, true);
+                    request_log = prepared_prompt_to_equivalent_request_json(
+                        &fallback,
                         model_name,
-                        fallback,
-                        tool_assembly,
-                        on_delta,
-                        max_tool_iterations,
-                        app_state,
-                        chat_session_key,
-                    )
-                    .await
-                } else if selected_api.request_format.is_deepseek_kimi() {
-                    call_model_deepseek_rig_style(api_config, model_name, fallback, Some(on_delta))
+                        api_config.temperature,
+                    );
+                    if selected_api.enable_tools {
+                        let tool_assembly = assemble_runtime_tools(
+                            app_config,
+                            selected_api,
+                            agent,
+                            app_state,
+                            chat_session_key,
+                        )
+                        .await?;
+                        tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+                        dispatch_openai_style_call(
+                            api_config,
+                            selected_api,
+                            model_name,
+                            fallback,
+                            tool_assembly,
+                            on_delta,
+                            max_tool_iterations,
+                            app_state,
+                            chat_session_key,
+                        )
                         .await
-                } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
-                    call_model_openai_responses_rig_style(
-                        api_config,
-                        model_name,
-                        fallback,
-                        Some(on_delta),
-                    )
-                    .await
-                } else {
-                    call_model_openai_rig_style(api_config, model_name, fallback).await
+                    } else if selected_api.request_format.is_deepseek_kimi() {
+                        call_model_deepseek_rig_style(api_config, model_name, fallback, Some(on_delta))
+                            .await
+                    } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+                        call_model_openai_responses_rig_style(
+                            api_config,
+                            model_name,
+                            fallback,
+                            Some(on_delta),
+                        )
+                        .await
+                    } else {
+                        call_model_openai_rig_style(api_config, model_name, fallback).await
+                    }
                 }
+                Err(err) if supports_non_stream_fallback && !is_image_unsupported_error(&err) => {
+                    if let Err(mark_err) =
+                        provider_mark_streaming_disabled(app_state, &api_config.base_url)
+                    {
+                        runtime_log_warn(format!(
+                            "[聊天] 持久化非流式 base_url 失败: base_url={}, err={}",
+                            api_config.base_url, mark_err
+                        ));
+                    }
+                    runtime_log_info(format!(
+                        "[聊天] 流式失败，切换非流式重试: base_url={}, model={}, err={}",
+                        api_config.base_url, model_name, err
+                    ));
+                    call_openai_style_non_stream_fallback(api_config, selected_api, model_name, prepared)
+                        .await
+                }
+                Err(err) => Err(err),
             }
-            Err(err) => Err(err),
         }
     };
     let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;

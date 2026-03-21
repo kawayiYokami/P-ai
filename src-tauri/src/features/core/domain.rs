@@ -579,6 +579,10 @@ fn default_failure_retry_count() -> u32 {
     0
 }
 
+fn default_provider_non_stream_base_urls() -> Vec<String> {
+    Vec::new()
+}
+
 fn default_record_background_wake_enabled() -> bool {
     true
 }
@@ -709,6 +713,8 @@ struct AppConfig {
     remote_im_channels: Vec<RemoteImChannelConfig>,
     #[serde(default)]
     departments: Vec<DepartmentConfig>,
+    #[serde(default = "default_provider_non_stream_base_urls")]
+    provider_non_stream_base_urls: Vec<String>,
     api_configs: Vec<ApiConfig>,
 }
 
@@ -734,6 +740,7 @@ impl Default for AppConfig {
             mcp_servers: default_mcp_servers(),
             remote_im_channels: default_remote_im_channels(),
             departments: default_departments(&api_config.id),
+            provider_non_stream_base_urls: default_provider_non_stream_base_urls(),
             api_configs: vec![api_config],
         }
     }
