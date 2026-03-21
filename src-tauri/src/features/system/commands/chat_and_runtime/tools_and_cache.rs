@@ -158,7 +158,7 @@ fn check_tools_status(
                     if runtime_shell.kind == "missing-terminal-shell" {
                         (
                             "unavailable".to_string(),
-                            "未检测到可用终端。请安装 PowerShell 7（推荐）/ Windows PowerShell 5.1 / Git Bash。"
+                            "未检测到可用终端。请先安装 Git 并使用 Git Bash： https://git-scm.com/downloads"
                                 .to_string(),
                         )
                     } else {

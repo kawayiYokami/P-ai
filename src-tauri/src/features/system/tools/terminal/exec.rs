@@ -165,7 +165,7 @@ async fn builtin_shell_exec(
             "ok": false,
             "approved": false,
             "blockedReason": "missing_terminal_shell",
-            "message": "No supported shell was detected on Windows. Install PowerShell 7 (recommended), Windows PowerShell 5.1, or Git Bash.",
+            "message": "No supported shell was detected on Windows. Install Git and use Git Bash: https://git-scm.com/downloads",
             "sessionId": normalize_terminal_tool_session_id(session_id),
             "command": cmd
         }));

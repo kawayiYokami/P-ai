@@ -121,6 +121,22 @@
         "optionalMissing": "missing"
       },
       "cards": {
+        "git": {
+          "title": "Git",
+          "summary": "Git is required. Terminal workflows, Git Bash, and a lot of later development collaboration depend on it.",
+          "currentOk": "Git was detected.",
+          "currentMissing": "Git was not detected yet. Official download: https://git-scm.com/downloads",
+          "action": "Open Tools",
+          "install": "Install Git"
+        },
+        "node": {
+          "title": "Node.js",
+          "summary": "Node.js is required. Frontend development, many script tools, and later MCP / skill installation depend on it.",
+          "currentOk": "Node.js was detected.",
+          "currentMissing": "Node.js was not detected yet. Official download: https://nodejs.org/en/download",
+          "action": "Open Tools",
+          "install": "Install Node.js"
+        },
         "textModel": {
           "title": "Available Text Model",
           "summary": "The app needs at least one working text model. A multimodal one is recommended.",
@@ -210,12 +226,10 @@
       "terminalProjectRootsHint": "Terminal root switching is only allowed inside these directories and their subdirectories.",
       "terminalProjectRootsHelp": "Common formats are auto-detected: Windows supports E:\\repo, E:/repo, /e/repo; macOS/Linux supports ~/repo. Click \"Save\" to persist changes.",
       "normalizeAndSaveRoots": "Save",
-      "gitRequiredHint": "Git Bash is not detected.",
+      "gitRequiredHint": "No supported shell was detected. Install Git first and use Git Bash.",
       "installGit": "Install Git (Git Bash)",
-      "powershell7RecommendedHint": "On Windows, PowerShell 7 is recommended (preferred runtime; falls back to Windows PowerShell 5.1 or Git Bash if unavailable).",
-      "installPowerShell7": "Install PowerShell 7",
       "terminalRuntime": "Terminal Runtime",
-      "terminalRuntimeHint": "On Windows, you can choose which shell exec uses. PowerShell 7 is recommended.",
+      "terminalRuntimeHint": "On Windows, you can choose which shell exec uses. If no supported shell is available, install Git first: https://git-scm.com/downloads",
       "disabledHint": "Tools are disabled for current chat LLM provider.",
       "toolEnabled": "Enabled",
       "imageCapabilityRequired": "Image capability is required to enable screenshot/wait.",

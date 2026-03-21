@@ -39,6 +39,12 @@
             <div class="text-[11px] opacity-70">
               {{ t("config.tools.terminalRuntimeHint") }}
             </div>
+            <div v-if="showGitInstallHintInWorkspace" class="text-[11px] bg-warning/10 text-base-content rounded px-2 py-1 flex items-center gap-2">
+              <span>{{ t("config.tools.gitRequiredHint") }}</span>
+              <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
+                {{ t("config.tools.installGit") }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="mt-3 px-4 pb-4 text-[11px] opacity-70">
@@ -128,11 +134,6 @@
               <div v-if="isImageBoundTool(item.id) && !toolApiConfig?.enableImage" class="text-[11px] bg-warning/10 text-base-content mt-1 rounded px-2 py-1">
                         {{ t("config.tools.imageCapabilityRequired") }}
                       </div>
-                      <div v-if="showGitInstallLink(item.id)" class="text-[11px] bg-warning/10 text-base-content mt-1 rounded px-2 py-1 flex items-center gap-2">
-                        <span>{{ t("config.tools.gitRequiredHint") }}</span>                <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
-                  {{ t("config.tools.installGit") }}
-                </button>
-              </div>
               <!-- 调试操作 -->
               <div v-if="item.id === 'screenshot'" class="mt-2">
                 <div class="flex items-center justify-between gap-2">
@@ -156,12 +157,6 @@
                 <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
               </div>
               <div v-if="item.id === 'exec'" class="mt-2">
-                <div v-if="isWindowsHost" class="text-[11px] bg-warning/10 text-base-content mb-2 rounded px-2 py-1 flex items-center gap-2">
-                  <span>{{ t("config.tools.powershell7RecommendedHint") }}</span>
-                  <button class="btn btn-sm bg-base-100" @click="openPowerShell7Link">
-                    {{ t("config.tools.installPowerShell7") }}
-                  </button>
-                </div>
                 <div class="flex items-center justify-between gap-2">
                   <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
                   <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning || toolSwitchDisabled(item.id)" @click="runTerminalSelfCheck">
@@ -274,7 +269,6 @@ const shellWorkspaceStatusError = ref(false);
 const terminalShellOptionsLoading = ref(false);
 const terminalShellOptions = ref<TerminalShellCandidate[]>([]);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
-const POWERSHELL7_DOWNLOAD_URL = "https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows";
 const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 const terminalShellKindValue = computed(() => String(props.config.terminalShellKind || "auto"));
 
@@ -400,6 +394,9 @@ const currentDepartment = computed(() =>
 const selectedPersonaIsPrivateWorkspace = computed(
   () => props.selectedPersona?.source === "private_workspace",
 );
+const showGitInstallHintInWorkspace = computed(
+  () => isWindowsHost && toolStatusById("exec")?.status === "unavailable",
+);
 
 function statusText(id: string): string {
   return toolStatusById(id)?.status ?? t("config.tools.statusUnknown");
@@ -482,18 +479,8 @@ function onToggle(event: Event, id: string) {
   emit("toolSwitchChanged");
 }
 
-function showGitInstallLink(id: string): boolean {
-  if (id !== "exec") return false;
-  const status = toolStatusById(id);
-  return status?.status === "unavailable";
-}
-
 function openGitDownloadLink() {
   void invokeTauri("open_external_url", { url: GIT_DOWNLOAD_URL });
-}
-
-function openPowerShell7Link() {
-  void invokeTauri("open_external_url", { url: POWERSHELL7_DOWNLOAD_URL });
 }
 
 function normalizeOutputText(value: unknown): string {

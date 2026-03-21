@@ -121,6 +121,22 @@
         "optionalMissing": "项缺失"
       },
       "cards": {
+        "git": {
+          "title": "Git",
+          "summary": "必须安装 Git。终端工作流、Git Bash 与很多后续开发协作都会直接依赖它。",
+          "currentOk": "已检测到 Git。",
+          "currentMissing": "还没有检测到 Git。官方安装地址：https://git-scm.com/downloads",
+          "action": "去看工具",
+          "install": "安装 Git"
+        },
+        "node": {
+          "title": "Node.js",
+          "summary": "必须安装 Node.js。前端开发、很多脚本工具以及后续安装 MCP / skill 都会用到它。",
+          "currentOk": "已检测到 Node.js。",
+          "currentMissing": "还没有检测到 Node.js。官方安装地址：https://nodejs.org/en/download",
+          "action": "去看工具",
+          "install": "安装 Node.js"
+        },
         "textModel": {
           "title": "可用文本模型",
           "summary": "系统至少需要一个可用的文本模型，建议优先准备一个同时支持图片的多模态模型。",
@@ -210,12 +226,10 @@
       "terminalProjectRootsHint": "仅允许在这些目录（及其子目录）内切换终端根目录。",
       "terminalProjectRootsHelp": "支持常见写法自动识别：Windows 可用 E:\\\\repo、E:/repo、/e/repo；macOS/Linux 可用 ~/repo。编辑后请点击「保存」持久化。",
       "normalizeAndSaveRoots": "保存",
-      "gitRequiredHint": "检测到未安装 Git Bash。",
+      "gitRequiredHint": "检测到未安装可用终端。请先安装 Git，并使用 Git Bash。",
       "installGit": "安装 Git（Git Bash）",
-      "powershell7RecommendedHint": "Windows 建议安装 PowerShell 7（优先使用；未安装时会自动回退到 Windows PowerShell 5.1 或 Git Bash）。",
-      "installPowerShell7": "安装 PowerShell 7",
       "terminalRuntime": "终端运行环境",
-      "terminalRuntimeHint": "Windows 可手动选择 exec 工具使用的终端；建议优先 PowerShell 7。",
+      "terminalRuntimeHint": "Windows 可手动选择 exec 工具使用的终端；如果当前没有可用终端，请先安装 Git： https://git-scm.com/downloads",
       "disabledHint": "当前对话LLM供应商未启用工具调用。",
       "toolEnabled": "启用",
       "imageCapabilityRequired": "当前模型未开启图片能力，截图/等待不可启用。",

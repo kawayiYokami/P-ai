@@ -323,6 +323,23 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
         }
 
         let mut out = Vec::<TerminalShellProfile>::new();
+        let mut git_bash_candidates = vec![
+            r"C:\Program Files\Git\bin\bash.exe".to_string(),
+            r"C:\Program Files\Git\usr\bin\bash.exe".to_string(),
+            r"C:\Program Files (x86)\Git\bin\bash.exe".to_string(),
+            r"C:\Program Files (x86)\Git\usr\bin\bash.exe".to_string(),
+        ];
+        if let Some(git_path) = path_lookup_first("git") {
+            git_bash_candidates.extend(derive_bash_candidates_from_git(&git_path));
+        }
+        if let Some(path) = path_lookup_first("bash") {
+            git_bash_candidates.push(path);
+        }
+
+        if let Some(path) = first_existing_path(&git_bash_candidates) {
+            out.push(with_args("git-bash", path, &["-lc"]));
+        }
+
         let mut pwsh7_candidates = vec![
             r"C:\Program Files\PowerShell\7\pwsh.exe".to_string(),
             r"C:\Program Files\PowerShell\7-preview\pwsh.exe".to_string(),
@@ -351,23 +368,6 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
         }
         if let Some(path) = first_existing_path(&powershell5_candidates) {
             out.push(with_args("powershell5", path, &["-NoProfile", "-Command"]));
-        }
-
-        let mut git_bash_candidates = vec![
-            r"C:\Program Files\Git\bin\bash.exe".to_string(),
-            r"C:\Program Files\Git\usr\bin\bash.exe".to_string(),
-            r"C:\Program Files (x86)\Git\bin\bash.exe".to_string(),
-            r"C:\Program Files (x86)\Git\usr\bin\bash.exe".to_string(),
-        ];
-        if let Some(git_path) = path_lookup_first("git") {
-            git_bash_candidates.extend(derive_bash_candidates_from_git(&git_path));
-        }
-        if let Some(path) = path_lookup_first("bash") {
-            git_bash_candidates.push(path);
-        }
-
-        if let Some(path) = first_existing_path(&git_bash_candidates) {
-            out.push(with_args("git-bash", path, &["-lc"]));
         }
         return out;
     }

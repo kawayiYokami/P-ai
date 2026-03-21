@@ -11,6 +11,22 @@ fn sandbox_windows_process_compatible_path(path: &std::path::Path) -> std::path:
 }
 
 #[cfg(target_os = "windows")]
+fn sandbox_windows_wrap_command_for_shell(
+    shell: &TerminalShellProfile,
+    command: &str,
+) -> String {
+    if matches!(shell.kind.as_str(), "powershell7" | "powershell5") {
+        return format!(
+            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; exit $(if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }})"
+        );
+    }
+    if shell.kind == "git-bash" {
+        return format!("chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; export LC_ALL=en_US.UTF-8; {command}");
+    }
+    command.to_string()
+}
+
+#[cfg(target_os = "windows")]
 fn sandbox_run_with_windows_job_backend_blocking(
     shell: &TerminalShellProfile,
     request: &SandboxRequest,
@@ -40,6 +56,7 @@ fn sandbox_run_with_windows_job_backend_blocking(
 
     let mut command_builder = std::process::Command::new(&shell.path);
     let cwd = sandbox_windows_process_compatible_path(&request.cwd);
+    let wrapped_command = sandbox_windows_wrap_command_for_shell(shell, &request.command);
     command_builder.current_dir(&cwd);
     command_builder.stdout(std::process::Stdio::piped());
     command_builder.stderr(std::process::Stdio::piped());
@@ -48,11 +65,11 @@ fn sandbox_run_with_windows_job_backend_blocking(
     for arg in &shell.args_prefix {
         command_builder.arg(arg);
     }
-    command_builder.arg(&request.command);
+    command_builder.arg(&wrapped_command);
 
     let mut child = command_builder
         .spawn()
-        .map_err(|err| format!("terminal_exec spawn failed: {err}"))?;
+        .map_err(|err| format!("terminal_exec windows command backend spawn failed: {err}"))?;
 
     let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
     if job.is_null() {
@@ -157,5 +174,38 @@ async fn sandbox_run_with_windows_job_backend(
         sandbox_run_with_windows_job_backend_blocking(&shell, &request)
     })
     .await
-    .map_err(|err| format!("Join windows sandbox worker failed: {err}"))?
+    .map_err(|err| format!("Join windows command backend worker failed: {err}"))?
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod sandbox_windows_backend_tests {
+    use super::*;
+
+    #[test]
+    fn powershell_wrapper_should_enable_utf8_before_user_command() {
+        let shell = TerminalShellProfile {
+            kind: "powershell7".to_string(),
+            path: "pwsh.exe".to_string(),
+            args_prefix: vec!["-NoProfile".to_string(), "-Command".to_string()],
+        };
+        let wrapped = sandbox_windows_wrap_command_for_shell(&shell, "Write-Output 'hi'");
+        assert!(wrapped.contains("InputEncoding"));
+        assert!(wrapped.contains("OutputEncoding"));
+        assert!(wrapped.contains("chcp.com 65001"));
+        assert!(wrapped.contains("Write-Output 'hi'"));
+    }
+
+    #[test]
+    fn git_bash_wrapper_should_export_utf8_locale() {
+        let shell = TerminalShellProfile {
+            kind: "git-bash".to_string(),
+            path: "bash.exe".to_string(),
+            args_prefix: vec!["-lc".to_string()],
+        };
+        let wrapped = sandbox_windows_wrap_command_for_shell(&shell, "echo hi");
+        assert!(wrapped.contains("chcp.com 65001"));
+        assert!(wrapped.contains("LANG=en_US.UTF-8"));
+        assert!(wrapped.contains("LC_ALL=en_US.UTF-8"));
+        assert!(wrapped.ends_with("echo hi"));
+    }
 }

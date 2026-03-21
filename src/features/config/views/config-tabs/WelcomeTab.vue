@@ -96,6 +96,14 @@
 
           <!-- 操作按钮 -->
           <div class="card-actions justify-end">
+            <button
+              v-if="card.externalUrl && card.externalLabel"
+              class="btn btn-sm"
+              type="button"
+              @click="openExternalUrl(card.externalUrl)"
+            >
+              {{ card.externalLabel }}
+            </button>
             <button class="btn btn-sm btn-primary" @click="$emit('jump', card.targetTab)">
               {{ card.action }}
             </button>
@@ -121,6 +129,22 @@ type MemoryProviderBindings = {
 type SkillListResult = {
   skills?: Array<{ path: string }>;
 };
+type HostRuntimePrerequisites = {
+  gitInstalled?: boolean;
+  nodeInstalled?: boolean;
+};
+type WelcomeCard = {
+  id: string;
+  title: string;
+  level: WelcomeCardLevel;
+  ok: boolean;
+  summary: string;
+  current: string;
+  action: string;
+  targetTab: ConfigTab;
+  externalUrl?: string;
+  externalLabel?: string;
+};
 
 const props = defineProps<{
   config: AppConfig;
@@ -132,6 +156,8 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
+const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
+const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
 
 function firstTextModel(apiConfigs: ApiConfigItem[]) {
   return apiConfigs.find((item) => item.enableText);
@@ -155,6 +181,7 @@ function firstRerankModel(apiConfigs: ApiConfigItem[]) {
 
 const memoryBindings = ref<MemoryProviderBindings>({});
 const skillCount = ref(0);
+const hostRuntimePrerequisites = ref<HostRuntimePrerequisites>({});
 
 async function loadWelcomeRuntimeState() {
   try {
@@ -167,6 +194,11 @@ async function loadWelcomeRuntimeState() {
     skillCount.value = Array.isArray(result?.skills) ? result.skills.length : 0;
   } catch {
     skillCount.value = 0;
+  }
+  try {
+    hostRuntimePrerequisites.value = await invokeTauri<HostRuntimePrerequisites>("get_host_runtime_prerequisites");
+  } catch {
+    hostRuntimePrerequisites.value = {};
   }
 }
 
@@ -198,7 +230,38 @@ const cards = computed(() => {
   const embeddingBound = !!String(memoryBindings.value.embeddingApiConfigId || "").trim();
   const rerankBound = !!String(memoryBindings.value.rerankApiConfigId || "").trim();
 
+  const gitInstalled = !!hostRuntimePrerequisites.value.gitInstalled;
+  const nodeInstalled = !!hostRuntimePrerequisites.value.nodeInstalled;
+
   return [
+    {
+      id: "git-runtime",
+      title: t("config.welcome.cards.git.title"),
+      level: "required" as WelcomeCardLevel,
+      ok: gitInstalled,
+      summary: t("config.welcome.cards.git.summary"),
+      current: gitInstalled
+        ? t("config.welcome.cards.git.currentOk")
+        : t("config.welcome.cards.git.currentMissing"),
+      action: t("config.welcome.cards.git.action"),
+      targetTab: "tools" as ConfigTab,
+      externalUrl: GIT_DOWNLOAD_URL,
+      externalLabel: t("config.welcome.cards.git.install"),
+    },
+    {
+      id: "node-runtime",
+      title: t("config.welcome.cards.node.title"),
+      level: "required" as WelcomeCardLevel,
+      ok: nodeInstalled,
+      summary: t("config.welcome.cards.node.summary"),
+      current: nodeInstalled
+        ? t("config.welcome.cards.node.currentOk")
+        : t("config.welcome.cards.node.currentMissing"),
+      action: t("config.welcome.cards.node.action"),
+      targetTab: "tools" as ConfigTab,
+      externalUrl: NODE_DOWNLOAD_URL,
+      externalLabel: t("config.welcome.cards.node.install"),
+    },
     {
       id: "text-model",
       title: t("config.welcome.cards.textModel.title"),
@@ -323,7 +386,7 @@ const cards = computed(() => {
       action: t("config.welcome.cards.mcp.action"),
       targetTab: "mcp" as ConfigTab,
     },
-  ];
+  ] as WelcomeCard[];
 });
 
 function badgeText(level: WelcomeCardLevel) {
@@ -344,4 +407,8 @@ const completionRate = computed(() => {
   const completed = cards.value.filter(card => card.ok).length;
   return Math.round((completed / total) * 100);
 });
+
+function openExternalUrl(url: string) {
+  void invokeTauri("open_external_url", { url });
+}
 </script>

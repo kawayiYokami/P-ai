@@ -50,6 +50,8 @@ impl SandboxManager {
         request: SandboxRequest,
     ) -> Result<SandboxExecutionResult, String> {
         // Defense in depth: backend entrance re-checks cwd policy.
+        // On Windows this backend is mainly a controlled process runner with
+        // process-tree cleanup, not a true OS-level sandbox.
         sandbox_assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
         let runtime_shell = terminal_shell_for_state(state);
         match self.backend {

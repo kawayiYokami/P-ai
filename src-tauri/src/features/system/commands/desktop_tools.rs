@@ -177,6 +177,61 @@ struct TerminalSelfCheckStepResult {
     duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostRuntimePrerequisites {
+    git_installed: bool,
+    node_installed: bool,
+}
+
+fn command_exists_in_path(name: &str) -> bool {
+    let raw = name.trim();
+    if raw.is_empty() {
+        return false;
+    }
+    let path_value = match std::env::var_os("PATH") {
+        Some(value) => value,
+        None => return false,
+    };
+    let name_path = Path::new(raw);
+    let mut candidates = Vec::<String>::new();
+    if name_path.extension().is_some() {
+        candidates.push(raw.to_string());
+    } else {
+        candidates.push(raw.to_string());
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(pathext) = std::env::var_os("PATHEXT") {
+                for ext in pathext.to_string_lossy().split(';') {
+                    let trimmed = ext.trim();
+                    if !trimmed.is_empty() {
+                        candidates.push(format!("{raw}{trimmed}"));
+                    }
+                }
+            } else {
+                candidates.push(format!("{raw}.exe"));
+            }
+        }
+    }
+
+    for dir in std::env::split_paths(&path_value) {
+        for candidate in &candidates {
+            if dir.join(candidate).is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[tauri::command]
+fn get_host_runtime_prerequisites() -> HostRuntimePrerequisites {
+    HostRuntimePrerequisites {
+        git_installed: command_exists_in_path("git"),
+        node_installed: command_exists_in_path("node"),
+    }
+}
+
 #[tauri::command]
 async fn terminal_self_check(state: State<'_, AppState>) -> Result<Value, String> {
     let session_id = normalize_terminal_tool_session_id("ui-terminal-self-check");
@@ -186,7 +241,7 @@ async fn terminal_self_check(state: State<'_, AppState>) -> Result<Value, String
         return Ok(serde_json::json!({
             "ok": false,
             "blockedReason": "missing_terminal_shell",
-            "message": "No supported shell was detected on Windows. Install PowerShell 7 (recommended), Windows PowerShell 5.1, or Git Bash.",
+            "message": "No supported shell was detected on Windows. Install Git and use Git Bash: https://git-scm.com/downloads",
             "sessionId": session_id,
             "shellKind": runtime_shell.kind,
             "shellPath": runtime_shell.path,

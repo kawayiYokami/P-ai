@@ -7,6 +7,14 @@
   - 为多个内置 preset skill 的 `description` 统一改成“当……时，必须立刻阅读我”的强触发风格
   - `skill-setup` 中的最小示例描述同步改为同一触发口径，避免模板与实际技能风格不一致
 
+- 调整（terminal-windows-copy）：Windows 终端引导改为 Git 优先
+  - 删除工具页中对 PowerShell 7 的推荐安装文案与按钮，避免把支持能力误写成首选要求
+  - Windows 缺少终端时的前后端提示统一改为“请先安装 Git，并使用 Git Bash”，并直接附上 Git 官网下载链接
+  - 保留运行时对 PowerShell / Git Bash 的兼容支持，但用户可见引导统一改为 Git-first
+  - Windows 下 `AUTO` 终端优先级改为 `Git Bash -> PowerShell 7 -> Windows PowerShell 5.1`
+  - Git 安装提示从工具说明区移动到 Shell 工作空间区域，避免和具体工具说明混在一起
+  - 欢迎页新增 Git / Node.js 必装检查卡片，并提供官网安装入口
+
 - 调整（instruction-copy）：收敛最高指令常量中的风险与澄清措辞
   - 将“拒绝绕过”改写为更通用的“遵循约束”，强调优先查明限制原因且不跳过既有校验
   - 将“安全优先”改写为“稳妥优先”，聚焦输入处理、权限控制、数据暴露与脚本执行风险
