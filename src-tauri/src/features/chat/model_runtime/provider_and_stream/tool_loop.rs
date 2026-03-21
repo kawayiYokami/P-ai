@@ -2,6 +2,7 @@ fn latest_assistant_reasoning_since_last_user(chat_history: &[RigMessage]) -> Op
     for msg in chat_history.iter().rev() {
         match msg {
             RigMessage::User { .. } => break,
+            RigMessage::System { .. } => continue,
             RigMessage::Assistant { content, .. } => {
                 let mut merged = String::new();
                 for item in content.iter() {

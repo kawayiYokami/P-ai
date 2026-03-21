@@ -228,6 +228,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         message: rmcp::model::ClientJsonRpcMessage,
         session_id: Option<std::sync::Arc<str>>,
         auth_header: Option<String>,
+        _headers: std::collections::HashMap<tauri::http::HeaderName, rig::http_client::HeaderValue>,
     ) -> Result<
         rmcp::transport::streamable_http_client::StreamableHttpPostResponse,
         rmcp::transport::streamable_http_client::StreamableHttpError<Self::Error>,

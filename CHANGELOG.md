@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 升级（rig）：升级 `rig-core` 并修复配套兼容
+  - `rig-core` 从 `0.31.0` 升级到 `0.33.0`
+  - `rmcp` 同步升级到 `0.16.0`，消除与 `rig-core` 的类型版本冲突
+  - 适配 `rig::completion::Message::System` 新枚举分支，补齐运行时与测试路径匹配逻辑
+  - 适配 `StreamableHttpClient::post_message` 新签名（新增 headers 参数）
+  - 已通过 `cargo check` 与 deepseek/system_mcp 相关回归测试
+
 - 修复（stream-fallback）：全渠道流式失败后永久降级非流式，并统一运行日志规范
   - 新增 `provider_non_stream_base_urls` 配置项：按 `base_url` 持久化“禁用流式”状态，重启后仍生效
   - 主聊天、归档总结、视觉图片转文本三条链路统一接入流式失败自动重试非流式逻辑

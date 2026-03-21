@@ -192,6 +192,7 @@ mod prepared_history_to_rig_messages_tests {
 
         for message in &chat_history {
             match message {
+                RigMessage::System { .. } => {}
                 RigMessage::Assistant { content, .. } => {
                     if content.iter().any(|item| {
                         matches!(
