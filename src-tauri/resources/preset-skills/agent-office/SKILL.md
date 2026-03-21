@@ -1,6 +1,6 @@
 ---
 name: agent-office
-description: 读取并提取 PDF / Word / Excel / PPT 的文本内容，适用于文档问答、摘要、检索前处理等场景。
+description: 当需要读取或提取 PDF、Word、Excel、PPT 的文本内容时，必须立刻阅读我。适用于文档问答、摘要、检索前处理等场景；我会告诉你该先看哪些项目资料和入口。
 ---
 
 # Agent Office

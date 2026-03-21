@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: 一款基于 Rust 的快速无头浏览器自动化 CLI，具备 Node.js 回退机制。它允许 AI 代理通过结构化指令实现页面导航、点击、输入及快照功能。适用场景：自动化网页交互、从页面提取结构化数据、以编程方式填写表单、测试 Web UI。
+description: 当需要自动化网页交互、从页面提取结构化数据、以编程方式填写表单或测试 Web UI 时，必须立刻阅读我。我会指导你使用这套基于 Rust 且带 Node.js 回退机制的无头浏览器自动化 CLI。
 
 ---
 

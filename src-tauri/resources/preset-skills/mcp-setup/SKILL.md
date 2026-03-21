@@ -1,6 +1,6 @@
 ---
 name: mcp-setup
-description: 如何自行安装和配置 MCP。适用于需要补齐工作区 MCP 能力的场景。
+description: 当需要自行安装和配置 MCP，补齐当前工作区的 MCP 能力时，必须立刻阅读我。我会约束目录位置、资料来源和安装配置流程。
 ---
 
 # MCP Setup

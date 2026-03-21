@@ -1,6 +1,6 @@
 ---
 name: private-organization-guide
-description: 在助理私域中维护私有人格与私有部门，使用 JSON 文件声明并通过 reload 生效。
+description: 当需要在助理私域中维护私有人格或私有部门时，必须立刻阅读我。我会告诉你如何用 JSON 文件声明它们，并通过 reload 让配置生效。
 ---
 
 # 私有组织指南

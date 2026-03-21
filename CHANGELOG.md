@@ -2,6 +2,11 @@
 
 ## 未发布
 
+- 新增（assistant-interaction-guide）：补充用户协作引导类 preset skill，并统一内置 skill 触发文案
+  - 新增 `assistant-interaction-guide`，用于引导用户如何与助理协作、如何提出任务，以及如何直接请求安装 Git、安装 Node.js、安装 skill、安装 MCP、安排部门与工作流
+  - 为多个内置 preset skill 的 `description` 统一改成“当……时，必须立刻阅读我”的强触发风格
+  - `skill-setup` 中的最小示例描述同步改为同一触发口径，避免模板与实际技能风格不一致
+
 - 调整（instruction-copy）：收敛最高指令常量中的风险与澄清措辞
   - 将“拒绝绕过”改写为更通用的“遵循约束”，强调优先查明限制原因且不跳过既有校验
   - 将“安全优先”改写为“稳妥优先”，聚焦输入处理、权限控制、数据暴露与脚本执行风险
