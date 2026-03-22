@@ -50,9 +50,7 @@ async fn assemble_runtime_tools(
     let has_remember = tool_enabled(selected_api, agent, current_department, "remember");
     let has_recall = tool_enabled(selected_api, agent, current_department, "recall");
     let has_screenshot = tool_enabled(selected_api, agent, current_department, "screenshot");
-    let has_wait = false;
-    let has_refresh_mcp_skills = tool_enabled(selected_api, agent, current_department, "reload");
-    let has_organize_context = tool_enabled(selected_api, agent, current_department, "organize_context");
+    let has_command = tool_enabled(selected_api, agent, current_department, "command");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_apply_patch = tool_enabled(selected_api, agent, current_department, "apply_patch");
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
@@ -63,18 +61,10 @@ async fn assemble_runtime_tools(
         None
     };
     let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
-    if has_delegate_base {
-        if let Some(reason) = delegate_runtime_reason.as_deref() {
-            eprintln!(
-                "[工具] delegate 已从运行时工具集中移除: session_id={}, reason={}",
-                tool_session_id,
-                reason
-            );
-        }
-    }
-
+    let has_remote_im_send = tool_enabled(selected_api, agent, current_department, "remote_im_send");
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
+    let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
 
     tool_manifest.push(tool_manifest_item(
         "builtin",
@@ -110,16 +100,8 @@ async fn assemble_runtime_tools(
         let state = app_state
             .ok_or_else(|| "remember requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinRememberTool {
-            app_state: state,
-        }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "remember",
-            true,
-            true,
-            None,
-        ));
+        tools.push(Box::new(BuiltinRememberTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item("builtin", "remember", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -134,16 +116,8 @@ async fn assemble_runtime_tools(
         let state = app_state
             .ok_or_else(|| "recall requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinRecallTool {
-            app_state: state,
-        }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "recall",
-            true,
-            true,
-            None,
-        ));
+        tools.push(Box::new(BuiltinRecallTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item("builtin", "recall", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -154,18 +128,11 @@ async fn assemble_runtime_tools(
         ));
     }
 
-    let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     if has_screenshot {
         match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
             Ok(client) => {
                 mcp_screenshot_client = Some(client);
-                tool_manifest.push(tool_manifest_item(
-                    "builtin_mcp",
-                    "screenshot",
-                    true,
-                    true,
-                    None,
-                ));
+                tool_manifest.push(tool_manifest_item("builtin_mcp", "screenshot", true, true, None));
             }
             Err(err) => {
                 eprintln!("[MCP] screenshot degraded to disabled: {err}");
@@ -200,13 +167,7 @@ async fn assemble_runtime_tools(
                 ));
             } else {
                 for name in names {
-                    tool_manifest.push(tool_manifest_item(
-                        "mcp_runtime",
-                        &name,
-                        true,
-                        true,
-                        None,
-                    ));
+                    tool_manifest.push(tool_manifest_item("mcp_runtime", &name, true, true, None));
                 }
             }
         }
@@ -222,59 +183,18 @@ async fn assemble_runtime_tools(
         }
     }
 
-    if has_wait {
-        tools.push(Box::new(BuiltinDesktopWaitTool));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "wait",
-            true,
-            true,
-            None,
-        ));
-    } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "wait",
-            false,
-            false,
-            Some("wait 工具已永久禁用".to_string()),
-        ));
-    }
-
-    if has_refresh_mcp_skills {
+    if has_command {
         let state = app_state
-            .ok_or_else(|| "reload requires app state".to_string())?
+            .ok_or_else(|| "command requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinRefreshMcpAndSkillsTool { app_state: state }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "reload",
-            true,
-            true,
-            None,
-        ));
-    } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "reload",
-            false,
-            false,
-            department_reason("reload").or_else(|| Some("当前人格未启用该工具".to_string())),
-        ));
-    }
-
-    if has_organize_context {
-        let state = app_state
-            .ok_or_else(|| "organize_context requires app state".to_string())?
-            .clone();
-        tools.push(Box::new(BuiltinOrganizeContextTool {
+        tools.push(Box::new(BuiltinCommandTool {
             app_state: state,
             api_config_id: selected_api.id.clone(),
             agent_id: agent.id.clone(),
         }));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "organize_context",
+            "command",
             true,
             true,
             None,
@@ -282,10 +202,10 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "organize_context",
+            "command",
             false,
             false,
-            department_reason("organize_context")
+            department_reason("command")
                 .or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
@@ -298,13 +218,7 @@ async fn assemble_runtime_tools(
             app_state: state,
             session_id: tool_session_id.to_string(),
         }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "exec",
-            true,
-            true,
-            None,
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "exec", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -323,13 +237,7 @@ async fn assemble_runtime_tools(
             app_state: state,
             session_id: tool_session_id.to_string(),
         }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "apply_patch",
-            true,
-            true,
-            None,
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "apply_patch", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -345,13 +253,7 @@ async fn assemble_runtime_tools(
             .ok_or_else(|| "task requires app state".to_string())?
             .clone();
         tools.push(Box::new(BuiltinTaskTool { app_state: state }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "task",
-            true,
-            true,
-            None,
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "task", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -370,13 +272,7 @@ async fn assemble_runtime_tools(
             app_state: state,
             session_id: tool_session_id.to_string(),
         }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "delegate",
-            true,
-            true,
-            None,
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "delegate", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
@@ -389,19 +285,12 @@ async fn assemble_runtime_tools(
         ));
     }
 
-    let has_remote_im_send = tool_enabled(selected_api, agent, current_department, "remote_im_send");
     if has_remote_im_send {
         let state = app_state
             .ok_or_else(|| "remote_im_send requires app state".to_string())?
             .clone();
         tools.push(Box::new(BuiltinRemoteImSendTool { app_state: state }));
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "remote_im_send",
-            true,
-            true,
-            None,
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "remote_im_send", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",

@@ -302,13 +302,6 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "wait".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["wait".to_string()],
-            enabled: false,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
             id: "exec".to_string(),
             command: "builtin".to_string(),
             args: vec!["exec".to_string()],
@@ -323,16 +316,9 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "reload".to_string(),
+            id: "command".to_string(),
             command: "builtin".to_string(),
-            args: vec!["reload".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
-            id: "organize_context".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["organize_context".to_string()],
+            args: vec!["command".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
@@ -944,6 +930,22 @@ struct ToolLoadStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct FrontendToolFunctionDefinition {
+    name: String,
+    description: String,
+    parameters: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendToolDefinition {
+    #[serde(rename = "type")]
+    kind: String,
+    function: FrontendToolFunctionDefinition,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ImageTextCacheStats {
     entries: usize,
     total_chars: usize,
@@ -1388,7 +1390,7 @@ fn tool_restricted_by_department(
     }
     if !matches!(
         tool_id,
-        "wait" | "reload" | "screenshot" | "organize_context" | "task" | "delegate" | "remote_im_send"
+        "command" | "screenshot" | "task" | "delegate" | "remote_im_send"
     ) {
         return None;
     }

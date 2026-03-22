@@ -47,7 +47,7 @@ fn tool_enabled(
     current_department: Option<&DepartmentConfig>,
     id: &str,
 ) -> bool {
-    if matches!(id, "screenshot" | "wait") && !selected_api.enable_image {
+    if id == "screenshot" && !selected_api.enable_image {
         return false;
     }
     if tool_restricted_by_department(current_department, id).is_some() {
@@ -106,4 +106,3 @@ fn truncate_by_chars(input: &str, max_chars: usize) -> String {
     out.push_str("...");
     out
 }
-

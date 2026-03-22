@@ -47,6 +47,12 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 2_000_000);
         api.max_output_tokens = api.max_output_tokens.clamp(256, 32_768);
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
+        let legacy_command_enabled = api.tools.iter().any(|tool| {
+            matches!(
+                tool.id.as_str(),
+                "command" | "desktop-wait" | "wait" | "reload" | "organize_context"
+            ) && tool.enabled
+        });
         for tool in &mut api.tools {
             match tool.id.as_str() {
                 "bing-search" => {
@@ -56,9 +62,8 @@ fn normalize_api_tools(config: &mut AppConfig) {
                     tool.id = "screenshot".to_string();
                     tool.args = vec!["screenshot".to_string()];
                 }
-                "desktop-wait" => {
-                    tool.id = "wait".to_string();
-                    tool.args = vec!["wait".to_string()];
+                "desktop-wait" | "wait" | "reload" | "organize_context" => {
+                    tool.id = "__merged_into_command__".to_string();
                 }
                 "shell-exec" => {
                     tool.id = "exec".to_string();
@@ -70,7 +75,12 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 _ => {}
             }
         }
-        api.tools.retain(|tool| tool.id != "__removed_shell_switch_workspace__");
+        api.tools.retain(|tool| {
+            !matches!(
+                tool.id.as_str(),
+                "__merged_into_command__" | "__removed_shell_switch_workspace__"
+            )
+        });
         api.tools.sort_by(|a, b| a.id.cmp(&b.id));
         api.tools.dedup_by(|a, b| a.id == b.id);
         if api.enable_tools {
@@ -84,6 +94,9 @@ fn normalize_api_tools(config: &mut AppConfig) {
                     }
                 }
             }
+        }
+        if let Some(command_tool) = api.tools.iter_mut().find(|tool| tool.id == "command") {
+            command_tool.enabled = command_tool.enabled || legacy_command_enabled;
         }
     }
 }
@@ -1015,7 +1028,5 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
     request_format.is_openai_style()
 }
-
-
 
 

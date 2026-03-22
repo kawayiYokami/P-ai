@@ -24,15 +24,9 @@ struct RecallToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct DesktopWaitToolArgs {
-    ms: u64,
+struct CommandToolArgs {
+    command: String,
 }
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct RefreshMcpAndSkillsToolArgs {}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct OrganizeContextToolArgs {}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TerminalExecToolArgs {
@@ -293,4 +287,3 @@ struct TaskToolArgsWire {
     #[serde(default)]
     trigger: Option<TaskTriggerInput>,
 }
-

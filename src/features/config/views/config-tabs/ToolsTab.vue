@@ -127,46 +127,20 @@
                 <span v-if="item.running" class="loading loading-spinner loading-sm"></span>
               </div>
               <div class="text-[11px] opacity-60">{{ item.description || t("config.mcpToolList.noDescription") }}</div>
+              <div v-if="toolParameterSummary(item.id).length" class="mt-1 flex flex-wrap gap-1">
+                <span
+                  v-for="paramText in toolParameterSummary(item.id)"
+                  :key="`${item.id}-param-${paramText}`"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-base-200 border border-base-300/70 opacity-80"
+                >
+                  {{ paramText }}
+                </span>
+              </div>
               <div v-if="statusDetail(item.id)" class="text-[11px] mt-1 rounded px-2 py-1" :class="statusMessageClass(item.id)">
                 {{ statusDetail(item.id) }}
               </div>
-              <!-- 额外信息 -->
               <div v-if="isImageBoundTool(item.id) && !toolApiConfig?.enableImage" class="text-[11px] bg-warning/10 text-base-content mt-1 rounded px-2 py-1">
-                        {{ t("config.tools.imageCapabilityRequired") }}
-                      </div>
-              <!-- 调试操作 -->
-              <div v-if="item.id === 'screenshot'" class="mt-2">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-[11px] opacity-70">{{ t("config.tools.desktopScreenshotDesc") }}</div>
-                  <button class="btn btn-sm btn-primary" :disabled="screenshotRunning || !toolApiConfig?.enableImage || toolSwitchDisabled(item.id)" @click="runDesktopScreenshot">
-                    {{ t("config.tools.runOnce") }}
-                  </button>
-                </div>
-                <div v-if="screenshotResult" class="mt-2 text-[11px] opacity-80 break-all">{{ screenshotResult }}</div>
-              </div>
-              <div v-if="item.id === 'wait'" class="mt-2">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-[11px] opacity-70">{{ t("config.tools.desktopWaitDesc") }}</div>
-                  <div class="flex items-center gap-2">
-                    <input v-model.number="waitMs" type="number" min="1" max="120000" step="100" class="input input-bordered input-sm w-24" />
-                    <button class="btn btn-sm btn-primary" :disabled="waitRunning || !toolApiConfig?.enableImage || toolSwitchDisabled(item.id)" @click="runDesktopWait">
-                      {{ t("config.tools.runOnce") }}
-                    </button>
-                  </div>
-                </div>
-                <div v-if="waitResult" class="mt-2 text-[11px] opacity-80 break-all">{{ waitResult }}</div>
-              </div>
-              <div v-if="item.id === 'exec'" class="mt-2">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-[11px] opacity-70">{{ t("config.tools.terminalSelfCheckDesc") }}</div>
-                  <button class="btn btn-sm btn-primary" :disabled="terminalSelfCheckRunning || toolSwitchDisabled(item.id)" @click="runTerminalSelfCheck">
-                    {{ t("config.tools.terminalSelfCheck") }}
-                  </button>
-                </div>
-                <pre
-                  v-if="terminalSelfCheckResult"
-                  class="mt-2 text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono bg-base-200 border border-base-300 rounded p-2"
-                >{{ terminalSelfCheckResult }}</pre>
+                {{ t("config.tools.imageCapabilityRequired") }}
               </div>
             </div>
           </div>
@@ -176,49 +150,22 @@
     </div>
   </template>
   <div v-else class="text-sm opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
-  <dialog ref="screenshotDialogRef" class="modal">
-    <div class="modal-box max-w-5xl">
-      <div class="text-sm font-medium mb-2">{{ t("config.tools.desktopScreenshotTitle") }}</div>
-      <img v-if="screenshotPreviewDataUrl" :src="screenshotPreviewDataUrl" alt="desktop screenshot preview" class="w-full rounded border border-base-300" />
-      <div class="modal-action">
-        <form method="dialog">
-          <button class="btn btn-sm">{{ t("common.close") }}</button>
-        </form>
-      </div>
-    </div>
-  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, PersonaProfile, ToolLoadStatus } from "../../../../types/app";
+import type {
+  ApiConfigItem,
+  AppConfig,
+  FrontendToolDefinition,
+  PersonaProfile,
+  ToolLoadStatus,
+} from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { open } from "@tauri-apps/plugin-dialog";
 import { type ToolListItem } from "../../components/ToolListCard.vue";
-
-type TerminalSelfCheckStep = {
-  name: string;
-  ok: boolean;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-};
-
-type TerminalSelfCheckResult = {
-  ok: boolean;
-  blockedReason?: string;
-  message?: string;
-  sessionId?: string;
-  rootPath?: string;
-  cwd?: string;
-  shellKind?: string;
-  shellPath?: string;
-  allowedProjectRoots?: string[];
-  steps?: TerminalSelfCheckStep[];
-};
 
 type TerminalShellCandidate = {
   kind: string;
@@ -253,15 +200,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const screenshotRunning = ref(false);
-const waitRunning = ref(false);
-const terminalSelfCheckRunning = ref(false);
-const screenshotResult = ref("");
-const waitResult = ref("");
-const terminalSelfCheckResult = ref("");
-const waitMs = ref(800);
-const screenshotPreviewDataUrl = ref("");
-const screenshotDialogRef = ref<HTMLDialogElement | null>(null);
+const toolDefinitions = ref<FrontendToolDefinition[]>([]);
 const shellWorkspaceInitializing = ref(false);
 const shellWorkspacePathResetting = ref(false);
 const shellWorkspaceStatus = ref("");
@@ -300,6 +239,15 @@ async function loadTerminalShellCandidates() {
     }
   } finally {
     terminalShellOptionsLoading.value = false;
+  }
+}
+
+async function loadToolCatalog() {
+  try {
+    const list = await invokeTauri<FrontendToolDefinition[]>("list_tool_catalog");
+    toolDefinitions.value = Array.isArray(list) ? list : [];
+  } catch {
+    toolDefinitions.value = [];
   }
 }
 
@@ -422,26 +370,12 @@ function statusDotClass(id: string): string {
   return "bg-base-content/20";
 }
 
-function toolDescription(id: string): string {
-  if (id === "fetch") return t("config.tools.descFetch");
-  if (id === "websearch") return t("config.tools.descBingSearch");
-  if (id === "remember") return t("config.tools.descRemember");
-  if (id === "recall") return t("config.tools.descRecall");
-  if (id === "screenshot") return t("config.tools.descDesktopScreenshot");
-  if (id === "wait") return t("config.tools.descDesktopWait");
-  if (id === "exec") return t("config.tools.descTerminalExec");
-  if (id === "apply_patch") return "结构化补丁编辑工具";
-  
-  if (id === "reload") return t("config.tools.descReload");
-  if (id === "organize_context") return t("config.tools.descOrganizeContext");
-  if (id === "task") return t("config.tools.descTask");
-  if (id === "delegate") return t("config.tools.descDelegate");
-  if (id === "remote_im_send") return t("config.tools.descRemoteImSend");
-  return t("config.tools.descGeneric");
+function definitionById(id: string): FrontendToolDefinition | undefined {
+  return toolDefinitions.value.find((item) => item.function?.name === id);
 }
 
 function isImageBoundTool(id: string): boolean {
-  return id === "screenshot" || id === "wait";
+  return id === "screenshot";
 }
 
 function toolSwitchDisabled(id: string): boolean {
@@ -449,30 +383,57 @@ function toolSwitchDisabled(id: string): boolean {
 }
 
 function isToolRunning(id: string): boolean {
-  if (id === "screenshot") return screenshotRunning.value;
-  if (id === "wait") return waitRunning.value;
-  if (id === "exec") return terminalSelfCheckRunning.value;
   return false;
 }
 
+function toolParameterSummary(id: string): string[] {
+  const definition = definitionById(id);
+  const parameters = definition?.function?.parameters;
+  if (!parameters || typeof parameters !== "object") return [];
+  const root = parameters as Record<string, unknown>;
+  const propertiesRaw = root.properties;
+  const requiredRaw = Array.isArray(root.required) ? root.required : [];
+  if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+  const properties = propertiesRaw as Record<string, unknown>;
+  return Object.entries(properties).map(([name, schema]) => {
+    const shape = schema && typeof schema === "object" ? (schema as Record<string, unknown>) : {};
+    const typeValue = String(shape.type || "any");
+    const required = requiredRaw.includes(name) ? "*" : "";
+    const enumValues = Array.isArray(shape.enum) ? ` [${shape.enum.map(String).join(", ")}]` : "";
+    const minText = shape.minimum !== undefined ? ` >= ${shape.minimum}` : "";
+    const maxText = shape.maximum !== undefined ? ` <= ${shape.maximum}` : "";
+    const desc = String(shape.description || "").trim();
+    const rangeText = `${enumValues}${minText}${maxText}`.trim();
+    const base = `${required}${name}: ${typeValue}${rangeText ? ` ${rangeText}` : ""}`;
+    return desc ? `${base} (${desc})` : base;
+  });
+}
+
 const toolListItems = computed<ToolListItem[]>(() =>
-  (props.selectedPersona?.tools ?? []).map((tool) => ({
-    id: tool.id,
-    name: tool.id,
-    description: toolDescription(tool.id),
-    enabled: !!tool.enabled,
-    toggleDisabled: toolSwitchDisabled(tool.id),
-    running: isToolRunning(tool.id),
-    statusClass: statusDotClass(tool.id),
-    statusTitle: statusText(tool.id),
-  })),
+  toolDefinitions.value.map((definition) => {
+    const id = String(definition.function?.name || "").trim();
+    const matched = props.selectedPersona?.tools.find((tool) => tool.id === id);
+    const enabled = matched ? !!matched.enabled : true;
+    return {
+      id,
+      name: id,
+      description: String(definition.function?.description || t("config.tools.descGeneric")),
+      enabled,
+      toggleDisabled: toolSwitchDisabled(id),
+      running: isToolRunning(id),
+      statusClass: statusDotClass(id),
+      statusTitle: statusText(id),
+    };
+  }).filter((item) => item.id.length > 0),
 );
 
 function onToggle(event: Event, id: string) {
   if (selectedPersonaIsPrivateWorkspace.value) return;
   const target = event.target as HTMLInputElement | null;
   const payload = { id, enabled: !!target?.checked };
-  const tool = props.selectedPersona?.tools.find((t) => t.id === payload.id);
+  const tools = props.selectedPersona?.tools;
+  if (!tools) return;
+  const tool = tools.find((t) => t.id === payload.id);
   if (!tool) return;
   if (toolSwitchDisabled(id)) return;
   tool.enabled = payload.enabled;
@@ -483,110 +444,9 @@ function openGitDownloadLink() {
   void invokeTauri("open_external_url", { url: GIT_DOWNLOAD_URL });
 }
 
-function normalizeOutputText(value: unknown): string {
-  const text = String(value ?? "").trim();
-  return text.length > 0 ? text : "(empty)";
-}
-
-function formatTerminalSelfCheckResult(payload: TerminalSelfCheckResult): string {
-  if (payload.ok) {
-    return `${t("config.tools.lastResult")}: OK`;
-  }
-
-  const reasons: string[] = [];
-  if (payload.message) reasons.push(`message=${payload.message}`);
-  if (payload.blockedReason) reasons.push(`blockedReason=${payload.blockedReason}`);
-
-  const steps = Array.isArray(payload.steps) ? payload.steps : [];
-  for (const step of steps) {
-    if (step.ok) continue;
-    reasons.push(`${step.name}: exit=${step.exitCode}`);
-    if (String(step.stderr || "").trim()) {
-      reasons.push(`stderr=${normalizeOutputText(step.stderr)}`);
-    } else if (String(step.stdout || "").trim()) {
-      reasons.push(`stdout=${normalizeOutputText(step.stdout)}`);
-    }
-    break;
-  }
-
-  if (reasons.length === 0) {
-    reasons.push("unknown error");
-  }
-  return `${t("config.tools.lastResult")}: FAILED | ${reasons.join(" | ")}`;
-}
-
-async function runTerminalSelfCheck() {
-  terminalSelfCheckRunning.value = true;
-  try {
-    const res = await invokeTauri<TerminalSelfCheckResult>("terminal_self_check");
-    terminalSelfCheckResult.value = formatTerminalSelfCheckResult(res);
-  } catch (error) {
-    terminalSelfCheckResult.value = `${t("config.tools.lastResult")}: ${toErrorMessage(error)}`;
-  } finally {
-    terminalSelfCheckRunning.value = false;
-  }
-}
-
 onMounted(() => {
   void loadTerminalShellCandidates();
+  void loadToolCatalog();
 });
 
-async function runDesktopScreenshot() {
-  if (!props.toolApiConfig?.enableImage) return;
-  screenshotRunning.value = true;
-  try {
-    const start = performance.now();
-    const res = await invokeTauri<{
-      path?: string;
-      imageMime: string;
-      imageBase64: string;
-      width: number;
-      height: number;
-      elapsedMs: number;
-      captureMs: number;
-      encodeMs: number;
-      saveMs?: number;
-    }>("desktop_screenshot", {
-      input: { mode: "desktop", webpQuality: 70 },
-    });
-    const invokeRoundTripMs = Math.round(performance.now() - start);
-
-    const renderStart = performance.now();
-    screenshotPreviewDataUrl.value = `data:${res.imageMime};base64,${res.imageBase64}`;
-    await nextTick();
-    screenshotDialogRef.value?.showModal();
-    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-    const modalRenderMs = Math.round(performance.now() - renderStart);
-
-    const saveInfo = res.path ? `, ${res.path}` : "";
-    screenshotResult.value =
-      `${t("config.tools.lastResult")}: ${res.width}x${res.height}` +
-      ` | backend=${res.elapsedMs}ms (capture=${res.captureMs}ms, encode=${res.encodeMs}ms` +
-      `${typeof res.saveMs === "number" ? `, save=${res.saveMs}ms` : ""})` +
-      ` | roundTrip=${invokeRoundTripMs}ms | render=${modalRenderMs}ms${saveInfo}`;
-  } catch (error) {
-    screenshotResult.value = `${t("config.tools.lastResult")}: ${toErrorMessage(error)}`;
-  } finally {
-    screenshotRunning.value = false;
-  }
-}
-
-async function runDesktopWait() {
-  if (!props.toolApiConfig?.enableImage) return;
-  waitRunning.value = true;
-  try {
-    const ms = Math.max(1, Math.min(120000, Number(waitMs.value || 800)));
-    const res = await invokeTauri<{
-      waitedMs: number;
-      elapsedMs: number;
-    }>("desktop_wait", {
-      input: { mode: "sleep", ms },
-    });
-    waitResult.value = `${t("config.tools.lastResult")}: waited=${res.waitedMs}ms, elapsed=${res.elapsedMs}ms`;
-  } catch (error) {
-    waitResult.value = `${t("config.tools.lastResult")}: ${toErrorMessage(error)}`;
-  } finally {
-    waitRunning.value = false;
-  }
-}
 </script>

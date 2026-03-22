@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 新增（command-tool-catalog）：统一命令工具并将工具页改为后端目录驱动
+  - 原 `wait`、`reload`、`organize_context` 运行时入口收口为统一内置工具 `command`，支持 `help`、`reload`、`organize_context`、`wait <ms>`
+  - 默认工具配置与运行时装配改为围绕 `command` 工作，旧 `desktop-wait` / `wait` / `reload` / `organize_context` 配置会自动迁移到 `command`
+  - 新增 `list_tool_catalog` 命令，后端统一下发工具名称、说明与参数结构，前端工具页不再按工具 ID 写死描述
+  - 工具页改为展示后端 catalog 中的参数摘要与状态信息，移除原页面内置调试按钮
+  - 新增归档文档 `plan/done/20260322_工具命令整合与工具页动态化归档.md`，归并 2026-03-22 两份已完成计划
+
 - 升级（rig）：升级 `rig-core` 并修复配套兼容
   - `rig-core` 从 `0.31.0` 升级到 `0.33.0`
   - `rmcp` 同步升级到 `0.16.0`，消除与 `rig-core` 的类型版本冲突

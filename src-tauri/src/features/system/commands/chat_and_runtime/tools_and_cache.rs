@@ -27,6 +27,16 @@ fn check_tools_status(
         .find(|item| item.id == target_agent_id)
         .cloned()
         .ok_or_else(|| format!("未找到人格：{target_agent_id}"))?;
+    let mut selected_tools = selected_agent.tools.clone();
+    if !selected_tools.iter().any(|tool| tool.id == "command") {
+        selected_tools.push(ApiToolConfig {
+            id: "command".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["command".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        });
+    }
     let current_department = department_for_agent_id(&config, &target_agent_id);
 
     let effective_api_id = department_for_agent_id(&config, &target_agent_id)
@@ -37,21 +47,13 @@ fn check_tools_status(
         .and_then(|api_id| resolve_selected_api_config(&config, Some(api_id)));
 
     if selected.is_none() {
-        return Ok(selected_agent
-            .tools
+        return Ok(selected_tools
             .iter()
             .map(|tool| {
-                if tool.id == "wait" {
-                    return ToolLoadStatus {
-                        id: tool.id.clone(),
-                        status: "unavailable".to_string(),
-                        detail: "wait 工具已永久禁用。".to_string(),
-                    };
-                }
                 let restricted_reason = tool_restricted_by_department(current_department, &tool.id);
                 let detail = if let Some(reason) = restricted_reason.clone() {
                     reason
-                } else if matches!(tool.id.as_str(), "screenshot" | "wait") {
+                } else if tool.id == "screenshot" {
                     "当前人格尚未委任部门，需绑定支持图像的部门模型后才能运行。".to_string()
                 } else if tool.enabled {
                     "当前人格已启用该工具，但尚未委任部门，暂不校验运行模型。".to_string()
@@ -63,7 +65,7 @@ fn check_tools_status(
                     status: if restricted_reason.is_some() {
                         "unavailable".to_string()
                     } else if tool.enabled {
-                        if matches!(tool.id.as_str(), "screenshot" | "wait") {
+                        if tool.id == "screenshot" {
                             "unavailable".to_string()
                         } else {
                             "loaded".to_string()
@@ -79,8 +81,7 @@ fn check_tools_status(
     let selected = selected.ok_or_else(|| "No API config configured. Please add one.".to_string())?;
 
     if !selected.enable_tools {
-        return Ok(selected_agent
-            .tools
+        return Ok(selected_tools
             .iter()
             .map(|tool| ToolLoadStatus {
                 id: tool.id.clone(),
@@ -92,15 +93,7 @@ fn check_tools_status(
 
     let runtime_shell = terminal_shell_for_state(&state);
     let mut statuses = Vec::new();
-    for tool in selected_agent.tools {
-        if tool.id == "wait" {
-            statuses.push(ToolLoadStatus {
-                id: tool.id,
-                status: "unavailable".to_string(),
-                detail: "wait 工具已永久禁用。".to_string(),
-            });
-            continue;
-        }
+    for tool in selected_tools {
         if let Some(reason) = tool_restricted_by_department(current_department, &tool.id) {
             statuses.push(ToolLoadStatus {
                 id: tool.id,
@@ -117,7 +110,7 @@ fn check_tools_status(
             });
             continue;
         }
-        if matches!(tool.id.as_str(), "screenshot" | "wait") && !selected.enable_image {
+        if tool.id == "screenshot" && !selected.enable_image {
             statuses.push(ToolLoadStatus {
                 id: tool.id,
                 status: "unavailable".to_string(),
@@ -131,23 +124,9 @@ fn check_tools_status(
             "remember" => ("loaded".to_string(), "记住工具可用".to_string()),
             "recall" => ("loaded".to_string(), "回忆工具可用".to_string()),
             "screenshot" => ("loaded".to_string(), "截图工具可用".to_string()),
-            "wait" => ("loaded".to_string(), "等待工具可用".to_string()),
-            "reload" => (
-                "loaded".to_string(),
-                "MCP/Skill 重载工具可用".to_string(),
-            ),
-            "organize_context" => (
-                "loaded".to_string(),
-                "整理上下文工具可用".to_string(),
-            ),
-            "task" => (
-                "loaded".to_string(),
-                "任务工具可用".to_string(),
-            ),
-            "delegate" => (
-                "loaded".to_string(),
-                "委托工具可用".to_string(),
-            ),
+            "command" => ("loaded".to_string(), "统一命令工具可用".to_string()),
+            "task" => ("loaded".to_string(), "任务工具可用".to_string()),
+            "delegate" => ("loaded".to_string(), "委托工具可用".to_string()),
             "remote_im_send" => (
                 "loaded".to_string(),
                 "远程联系人通讯工具可用（支持 list/send）".to_string(),
@@ -176,10 +155,7 @@ fn check_tools_status(
                     )
                 }
             }
-            "apply_patch" => (
-                "loaded".to_string(),
-                "结构化补丁编辑工具可用".to_string(),
-            ),
+            "apply_patch" => ("loaded".to_string(), "结构化补丁编辑工具可用".to_string()),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

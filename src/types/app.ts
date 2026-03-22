@@ -400,6 +400,17 @@ export type ToolLoadStatus = {
   detail: string;
 };
 
+export type FrontendToolFunctionDefinition = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+export type FrontendToolDefinition = {
+  type: string;
+  function: FrontendToolFunctionDefinition;
+};
+
 export type ImageTextCacheStats = {
   entries: number;
   totalChars: number;
