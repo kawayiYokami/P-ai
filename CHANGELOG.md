@@ -2,6 +2,11 @@
 
 ## 未发布
 
+- 修复（stt-config-selection）：保存其他配置时不再意外清空 STT API 选择
+  - 移除 `normalize_app_config` 中对 `stt_api_config_id` 的自动过滤，避免用户仅保存其他配置时丢失已选择的 STT API
+  - 改为在 `save_config` 中基于前后配置差异判断：只有当已选 STT API 被删除，或其格式被改成不再支持 STT 时，才清空选择并关闭自动发送
+  - 保留显式 STT 设置保存链路的原有行为，不影响用户主动切换 STT API
+
 - 新增（command-tool-catalog）：统一命令工具并将工具页改为后端目录驱动
   - 原 `wait`、`reload`、`organize_context` 运行时入口收口为统一内置工具 `command`，支持 `help`、`reload`、`organize_context`、`wait <ms>`
   - 默认工具配置与运行时装配改为围绕 `command` 工作，旧 `desktop-wait` / `wait` / `reload` / `organize_context` 配置会自动迁移到 `command`

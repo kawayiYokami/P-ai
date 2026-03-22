@@ -580,16 +580,6 @@ fn normalize_app_config(config: &mut AppConfig) {
         })
         .map(ToOwned::to_owned);
 
-    config.stt_api_config_id = config
-        .stt_api_config_id
-        .as_deref()
-        .filter(|id| {
-            config
-                .api_configs
-                .iter()
-                .any(|a| a.id == *id && a.request_format.is_openai_stt())
-        })
-        .map(ToOwned::to_owned);
     if config.stt_api_config_id.is_none() {
         config.stt_auto_send = false;
     }
@@ -599,6 +589,30 @@ fn normalize_app_config(config: &mut AppConfig) {
     normalize_remote_im_channels(config);
     normalize_provider_non_stream_base_urls(config);
     normalize_departments(config);
+}
+
+fn reconcile_stt_api_selection_after_api_changes(
+    previous: &AppConfig,
+    next: &mut AppConfig,
+) {
+    let Some(previous_stt_id) = previous.stt_api_config_id.as_deref() else {
+        return;
+    };
+    let Some(next_stt_id) = next.stt_api_config_id.as_deref() else {
+        return;
+    };
+    if previous_stt_id != next_stt_id {
+        return;
+    }
+    let still_supported = next
+        .api_configs
+        .iter()
+        .any(|api| api.id == next_stt_id && api.request_format.is_openai_stt());
+    if still_supported {
+        return;
+    }
+    next.stt_api_config_id = None;
+    next.stt_auto_send = false;
 }
 
 const MEDIA_REF_PREFIX: &str = "@media:";
@@ -1028,5 +1042,4 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
     request_format.is_openai_style()
 }
-
 

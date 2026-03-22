@@ -324,6 +324,7 @@ fn save_config(
     let mut data = state_read_app_data_cached(&state)?;
     let _ = ensure_default_agent(&mut data);
     let base_config = state_read_config_cached(&state)?;
+    reconcile_stt_api_selection_after_api_changes(&base_config, &mut config);
     let (_private_agent_ids, private_department_ids) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
     config.departments.retain(|item| !private_department_ids.contains(&item.id));
