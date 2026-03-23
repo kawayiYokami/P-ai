@@ -215,6 +215,27 @@ fn common_delegate_preflight(
     })
 }
 
+fn resolve_system_main_conversation_id(
+    app_state: &AppState,
+    agent_id: &str,
+) -> Result<String, String> {
+    let guard = app_state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let mut data = state_read_app_data_cached(app_state)?;
+    let idx = ensure_main_conversation_index(&mut data, "", agent_id);
+    let conversation_id = data
+        .conversations
+        .get(idx)
+        .map(|item| item.id.clone())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "未找到主会话，无法投递异步委托结果".to_string())?;
+    state_write_app_data_cached(app_state, &data)?;
+    drop(guard);
+    Ok(conversation_id)
+}
+
 fn spawn_delegate_task(
     app_state: AppState,
     delegate: DelegateEntry,
@@ -360,7 +381,7 @@ async fn builtin_delegate(
 
     let delegate = delegate_create_record(
         app_state,
-        &preflight.root_conversation_id,
+        &resolve_system_main_conversation_id(app_state, &source_agent_id)?,
         None,
         &preflight.source_department.id,
         &preflight.target_department.id,
@@ -387,7 +408,7 @@ async fn builtin_delegate(
     spawn_delegate_task(
         app_state.clone(),
         delegate.clone(),
-        preflight.root_conversation_id,
+        delegate.conversation_id.clone(),
         department_api_config_ids(&preflight.target_department),
     );
 

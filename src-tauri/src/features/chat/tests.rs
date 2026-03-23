@@ -282,3 +282,367 @@
         assert!(!d.forced);
         assert!(d.usage_ratio < 0.30);
     }
+
+    fn test_chat_runtime_state() -> AppState {
+        let root = std::env::temp_dir().join(format!("eca-chat-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp test root");
+        std::fs::create_dir_all(root.join("llm-workspace")).expect("create temp llm workspace");
+        AppState {
+            app_handle: Arc::new(Mutex::new(None)),
+            config_path: root.join("app_config.toml"),
+            data_path: root.join("app_data.json"),
+            llm_workspace_path: root.join("llm-workspace"),
+            terminal_shell: detect_default_terminal_shell(),
+            terminal_shell_candidates: detect_terminal_shell_candidates(),
+            state_lock: Arc::new(Mutex::new(())),
+            cached_config: Arc::new(Mutex::new(None)),
+            cached_config_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data: Arc::new(Mutex::new(None)),
+            cached_app_data_mtime: Arc::new(Mutex::new(None)),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            task_dispatch_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            dequeue_lock: Arc::new(Mutex::new(())),
+            delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            preferred_release_source: Arc::new(Mutex::new("github".to_string())),
+        }
+    }
+
+    fn test_pending_event(conversation_id: &str) -> ChatPendingEvent {
+        let created_at = now_iso();
+        ChatPendingEvent {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.to_string(),
+            created_at: created_at.clone(),
+            source: ChatEventSource::User,
+            messages: vec![test_text_message("user", "hello", &created_at)],
+            activate_assistant: true,
+            session_info: ChatSessionInfo {
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+            },
+            sender_info: None,
+        }
+    }
+
+    fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
+        Conversation {
+            id: conversation_id.to_string(),
+            title: conversation_id.to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: updated_at.to_string(),
+            updated_at: updated_at.to_string(),
+            last_user_at: None,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
+            status: status.to_string(),
+            summary: String::new(),
+            archived_at: None,
+            messages: Vec::new(),
+            memory_recall_table: Vec::new(),
+        }
+    }
+
+    fn test_user_switched_to_sub_conversation_data() -> AppData {
+        let now = now_iso();
+        let later = (now_utc() + time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("format later");
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        data.conversations = vec![
+            test_chat_conversation("conversation-main", "inactive", &now),
+            test_chat_conversation("conversation-sub", "active", &later),
+        ];
+        data
+    }
+
+    #[test]
+    fn scheduler_should_allow_two_conversations_to_run_in_parallel() {
+        let state = test_chat_runtime_state();
+        let ingress_a =
+            ingress_chat_event(&state, test_pending_event("conversation-a")).expect("ingress a");
+        let ingress_b =
+            ingress_chat_event(&state, test_pending_event("conversation-b")).expect("ingress b");
+
+        assert!(matches!(ingress_a, ChatEventIngress::Direct(_)));
+        assert!(matches!(ingress_b, ChatEventIngress::Direct(_)));
+        assert_eq!(total_queue_len(&state).expect("queue len"), 0);
+
+        let claims = state
+            .conversation_processing_claims
+            .lock()
+            .expect("lock claims");
+        assert!(claims.contains("conversation-a"));
+        assert!(claims.contains("conversation-b"));
+        assert_eq!(claims.len(), 2);
+    }
+
+    #[test]
+    fn scheduler_should_keep_same_conversation_serial() {
+        let state = test_chat_runtime_state();
+        let ingress_a1 =
+            ingress_chat_event(&state, test_pending_event("conversation-a")).expect("ingress a1");
+        let ingress_a2 =
+            ingress_chat_event(&state, test_pending_event("conversation-a")).expect("ingress a2");
+
+        assert!(matches!(ingress_a1, ChatEventIngress::Direct(_)));
+        assert!(matches!(ingress_a2, ChatEventIngress::Queued { .. }));
+        assert_eq!(total_queue_len(&state).expect("queue len"), 1);
+    }
+
+    #[test]
+    fn scheduler_should_allow_eight_conversations_and_queue_the_ninth() {
+        let state = test_chat_runtime_state();
+        for idx in 0..8 {
+            let conversation_id = format!("conversation-{idx}");
+            let ingress = ingress_chat_event(&state, test_pending_event(&conversation_id))
+                .unwrap_or_else(|_| panic!("ingress {conversation_id}"));
+            assert!(
+                matches!(ingress, ChatEventIngress::Direct(_)),
+                "expected direct ingress for {conversation_id}"
+            );
+        }
+
+        let ninth = ingress_chat_event(&state, test_pending_event("conversation-8"))
+            .expect("ingress ninth");
+        assert!(matches!(ninth, ChatEventIngress::Queued { .. }));
+        assert_eq!(total_queue_len(&state).expect("queue len"), 1);
+
+        let claims = state
+            .conversation_processing_claims
+            .lock()
+            .expect("lock claims");
+        assert_eq!(claims.len(), 8);
+        assert!(!claims.contains("conversation-8"));
+    }
+
+    #[test]
+    fn compaction_state_should_only_block_its_own_conversation() {
+        let state = test_chat_runtime_state();
+        set_conversation_runtime_state(&state, "conversation-a", MainSessionState::OrganizingContext)
+            .expect("set conversation state");
+
+        let ingress_same =
+            ingress_chat_event(&state, test_pending_event("conversation-a")).expect("same ingress");
+        let ingress_other =
+            ingress_chat_event(&state, test_pending_event("conversation-b")).expect("other ingress");
+
+        assert!(matches!(ingress_same, ChatEventIngress::Queued { .. }));
+        assert!(matches!(ingress_other, ChatEventIngress::Direct(_)));
+    }
+
+    #[test]
+    fn ensure_main_conversation_index_should_keep_notification_home_stable() {
+        let now = now_iso();
+        let later = (now_utc() + time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("format later");
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        data.conversations = vec![
+            test_chat_conversation("conversation-main", "inactive", &now),
+            test_chat_conversation("conversation-sub", "active", &later),
+        ];
+
+        let idx = ensure_main_conversation_index(&mut data, "", DEFAULT_AGENT_ID);
+
+        assert_eq!(data.conversations[idx].id, "conversation-main");
+        assert_eq!(
+            data.main_conversation_id.as_deref(),
+            Some("conversation-main")
+        );
+    }
+
+    #[test]
+    fn task_resolve_default_session_should_route_to_main_conversation() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let (_, _, _, conversation_id, _) =
+            task_resolve_default_session(&state).expect("resolve task session");
+
+        assert_eq!(conversation_id, "conversation-main");
+    }
+
+    #[test]
+    fn task_should_still_route_to_main_after_user_switches_to_sub_conversation() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let (_, _, _, conversation_id, _) =
+            task_resolve_default_session(&state).expect("resolve task session");
+        let updated = state_read_app_data_cached(&state).expect("read app data");
+
+        assert_eq!(conversation_id, "conversation-main");
+        assert_eq!(updated.main_conversation_id.as_deref(), Some("conversation-main"));
+        assert_eq!(
+            updated
+                .conversations
+                .iter()
+                .find(|item| item.id == "conversation-sub")
+                .map(|item| item.status.as_str()),
+            Some("active")
+        );
+    }
+
+    #[test]
+    fn resolve_system_main_conversation_id_should_ignore_active_sub_conversation() {
+        let state = test_chat_runtime_state();
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let conversation_id =
+            resolve_system_main_conversation_id(&state, DEFAULT_AGENT_ID).expect("resolve main");
+
+        assert_eq!(conversation_id, "conversation-main");
+    }
+
+    #[test]
+    fn async_delegate_should_still_route_to_main_after_user_switches_to_sub_conversation() {
+        let state = test_chat_runtime_state();
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let conversation_id =
+            resolve_system_main_conversation_id(&state, DEFAULT_AGENT_ID).expect("resolve main");
+        let updated = state_read_app_data_cached(&state).expect("read app data");
+
+        assert_eq!(conversation_id, "conversation-main");
+        assert_eq!(updated.main_conversation_id.as_deref(), Some("conversation-main"));
+        assert_eq!(
+            updated
+                .conversations
+                .iter()
+                .find(|item| item.id == "conversation-sub")
+                .map(|item| item.status.as_str()),
+            Some("active")
+        );
+    }
+
+    #[test]
+    fn delete_main_conversation_should_promote_existing_sub_conversation() {
+        let state = test_chat_runtime_state();
+        let config = AppConfig::default();
+        write_config(&state.config_path, &config).expect("write config");
+        let selected_api = resolve_selected_api_config(&config, None)
+            .expect("selected api")
+            .clone();
+
+        let now = now_iso();
+        let later = (now_utc() + time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("format later");
+        let source = test_chat_conversation("conversation-main", "active", &now);
+        let mut data = AppData::default();
+        data.main_conversation_id = Some(source.id.clone());
+        data.conversations = vec![
+            source.clone(),
+            test_chat_conversation("conversation-sub", "inactive", &later),
+        ];
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let next_id = delete_main_conversation_and_activate_latest(&state, &selected_api, &source)
+            .expect("delete main conversation");
+        let updated = state_read_app_data_cached(&state).expect("read app data");
+
+        assert_eq!(next_id, "conversation-sub");
+        assert_eq!(updated.main_conversation_id.as_deref(), Some("conversation-sub"));
+        assert_eq!(updated.conversations.len(), 1);
+        assert_eq!(updated.conversations[0].id, "conversation-sub");
+        assert_eq!(updated.conversations[0].status, "active");
+    }
+
+    #[test]
+    fn delete_last_main_conversation_should_create_replacement_main_conversation() {
+        let state = test_chat_runtime_state();
+        let config = AppConfig::default();
+        write_config(&state.config_path, &config).expect("write config");
+        let selected_api = resolve_selected_api_config(&config, None)
+            .expect("selected api")
+            .clone();
+
+        let now = now_iso();
+        let source = test_chat_conversation("conversation-main", "active", &now);
+        let mut data = AppData::default();
+        data.main_conversation_id = Some(source.id.clone());
+        data.conversations = vec![source.clone()];
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let next_id = delete_main_conversation_and_activate_latest(&state, &selected_api, &source)
+            .expect("delete last main conversation");
+        let updated = state_read_app_data_cached(&state).expect("read app data");
+
+        assert_ne!(next_id, "conversation-main");
+        assert_eq!(updated.main_conversation_id.as_deref(), Some(next_id.as_str()));
+        assert_eq!(updated.conversations.len(), 1);
+        assert_eq!(updated.conversations[0].id, next_id);
+        assert_eq!(updated.conversations[0].status, "active");
+        assert!(updated.conversations[0].summary.is_empty());
+    }
+
+    #[test]
+    fn archiving_main_conversation_should_promote_existing_sub_conversation() {
+        let now = now_iso();
+        let later = (now_utc() + time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("format later");
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        data.conversations = vec![
+            test_chat_conversation("conversation-main", "active", &now),
+            test_chat_conversation("conversation-sub", "inactive", &later),
+        ];
+
+        archive_conversation_now(&mut data, "conversation-main", "test", "archived summary")
+            .expect("archive current main");
+        let idx = ensure_main_conversation_index(&mut data, "", DEFAULT_AGENT_ID);
+
+        assert_eq!(data.conversations[idx].id, "conversation-sub");
+        assert_eq!(data.main_conversation_id.as_deref(), Some("conversation-sub"));
+    }
+
+    #[test]
+    fn archiving_last_main_conversation_should_create_replacement_main_conversation() {
+        let now = now_iso();
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        data.conversations = vec![test_chat_conversation("conversation-main", "active", &now)];
+
+        archive_conversation_now(&mut data, "conversation-main", "test", "archived summary")
+            .expect("archive last main");
+        let idx = ensure_main_conversation_index(&mut data, "api-default", DEFAULT_AGENT_ID);
+
+        assert_ne!(data.conversations[idx].id, "conversation-main");
+        assert_eq!(
+            data.main_conversation_id.as_deref(),
+            Some(data.conversations[idx].id.as_str())
+        );
+        assert_eq!(data.conversations[idx].status, "active");
+        assert!(data.conversations[idx].summary.is_empty());
+    }

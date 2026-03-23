@@ -45,6 +45,7 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            provider_non_stream_base_urls: Vec::new(),
             terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
@@ -112,6 +113,7 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            provider_non_stream_base_urls: Vec::new(),
             terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
@@ -175,6 +177,7 @@
             vision_api_config_id: Some("tts-a".to_string()),
             stt_api_config_id: Some("tts-a".to_string()),
             stt_auto_send: true,
+            provider_non_stream_base_urls: Vec::new(),
             terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
@@ -224,6 +227,7 @@
             vision_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
+            provider_non_stream_base_urls: Vec::new(),
             terminal_shell_kind: default_terminal_shell_kind(),
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
@@ -363,4 +367,3 @@
             r"E:\__easy_call_ai_path_norm_test__\repo".to_string()
         );
     }
-

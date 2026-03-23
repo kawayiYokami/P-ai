@@ -158,6 +158,8 @@ struct RuntimeStateFile {
     #[serde(default = "default_background_voice_screenshot_mode")]
     background_voice_screenshot_mode: String,
     #[serde(default)]
+    main_conversation_id: Option<String>,
+    #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
     #[serde(default)]
     remote_im_contacts: Vec<RemoteImContact>,
@@ -173,6 +175,7 @@ impl Default for RuntimeStateFile {
             pdf_read_mode: default_pdf_read_mode(),
             background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
+            main_conversation_id: None,
             image_text_cache: Vec::new(),
             remote_im_contacts: Vec::new(),
         }
@@ -383,6 +386,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         pdf_read_mode: profile.pdf_read_mode,
         background_voice_screenshot_keywords: profile.background_voice_screenshot_keywords,
         background_voice_screenshot_mode: profile.background_voice_screenshot_mode,
+        main_conversation_id: None,
         conversations: conversations.conversations,
         archived_conversations: Vec::new(),
         image_text_cache: image_cache.image_text_cache,
@@ -446,6 +450,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
         pdf_read_mode: runtime.pdf_read_mode,
         background_voice_screenshot_keywords: runtime.background_voice_screenshot_keywords,
         background_voice_screenshot_mode: runtime.background_voice_screenshot_mode,
+        main_conversation_id: runtime.main_conversation_id,
         conversations,
         archived_conversations: Vec::new(),
         image_text_cache: runtime.image_text_cache,
@@ -470,12 +475,14 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     let avatar_paths_migrated = migrate_agent_avatar_paths(path, &mut parsed);
     let merged_archives = migrate_app_data_archives_into_conversations(path, &mut parsed)?;
     let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
+    let main_conversation_marker_changed = normalize_main_conversation_marker(&mut parsed, "");
     if defaults_changed
         || conversation_metadata_filled
         || message_speaker_filled
         || avatar_paths_migrated
         || merged_archives
         || migrated
+        || main_conversation_marker_changed
         || !app_layout_exists(path)
     {
         write_app_data(path, &parsed)?;
@@ -495,6 +502,7 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
         pdf_read_mode: data.pdf_read_mode.clone(),
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
+        main_conversation_id: data.main_conversation_id.clone(),
         image_text_cache: data.image_text_cache.clone(),
         remote_im_contacts: data.remote_im_contacts.clone(),
     };

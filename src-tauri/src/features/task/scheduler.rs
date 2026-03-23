@@ -22,7 +22,7 @@ fn task_resolve_default_session(state: &AppState) -> Result<(String, String, Str
             .map(|a| a.id.clone())
             .ok_or_else(|| "No assistant agent configured for task dispatch.".to_string())?
     };
-    let conversation_idx = ensure_active_conversation_index(&mut data, &selected_api.id, &agent_id);
+    let conversation_idx = ensure_main_conversation_index(&mut data, &selected_api.id, &agent_id);
     let conversation_id = data
         .conversations
         .get(conversation_idx)

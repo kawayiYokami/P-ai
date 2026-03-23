@@ -356,6 +356,13 @@ fn resolve_conversation_id(
     data: &mut AppData,
     agent_id: &str,
 ) -> Result<String, String> {
+    let main_idx = ensure_main_conversation_index(data, "", agent_id);
+    let main_conversation_id = data
+        .conversations
+        .get(main_idx)
+        .map(|item| item.id.clone())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "主会话索引超出范围".to_string())?;
     if let Some(requested) = input
         .session
         .conversation_id
@@ -363,21 +370,11 @@ fn resolve_conversation_id(
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        if data.conversations.iter().any(|conv| {
-            conv.id == requested
-                && conv.status == "active"
-                && conv.summary.trim().is_empty()
-                && !conversation_is_delegate(conv)
-                && conv.agent_id == agent_id
-        }) {
-            return Ok(requested.to_string());
+        if requested == main_conversation_id {
+            return Ok(main_conversation_id);
         }
     }
-    let idx = ensure_active_conversation_index(data, "", agent_id);
-    data.conversations
-        .get(idx)
-        .map(|item| item.id.clone())
-        .ok_or_else(|| "活动会话索引超出范围".to_string())
+    Ok(main_conversation_id)
 }
 
 fn validate_enqueue_input(

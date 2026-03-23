@@ -1651,6 +1651,15 @@ fn create_unarchived_conversation(
     );
     let conversation_id = conversation.id.clone();
     data.conversations.push(conversation);
+    if data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        data.main_conversation_id = Some(conversation_id.clone());
+    }
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
@@ -1772,6 +1781,10 @@ fn delete_unarchived_conversation(
     if data.conversations.len() == before {
         drop(guard);
         return Err("Unarchived conversation not found.".to_string());
+    }
+    let _ = normalize_main_conversation_marker(&mut data, "");
+    if latest_main_conversation_index(&data, "").is_none() {
+        let _ = ensure_main_conversation_index(&mut data, "", "");
     }
     let _ = normalize_single_active_main_conversation(&mut data);
     state_write_app_data_cached(&state, &data)?;

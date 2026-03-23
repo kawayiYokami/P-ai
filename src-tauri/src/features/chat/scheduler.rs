@@ -131,26 +131,68 @@ const CHAT_HISTORY_FLUSHED_EVENT: &str = "easy-call:history-flushed";
 const CHAT_ROUND_COMPLETED_EVENT: &str = "easy-call:round-completed";
 const CHAT_ROUND_FAILED_EVENT: &str = "easy-call:round-failed";
 const CHAT_ASSISTANT_DELTA_EVENT: &str = "easy-call:assistant-delta";
+const CHAT_CONCURRENCY_LIMIT: usize = 8;
 
-fn lock_chat_pending_queue(
+fn lock_conversation_runtime_slots(
     state: &AppState,
-) -> Result<std::sync::MutexGuard<'_, std::collections::VecDeque<ChatPendingEvent>>, String> {
-    match state.chat_pending_queue.lock() {
+) -> Result<
+    std::sync::MutexGuard<'_, std::collections::HashMap<String, ConversationRuntimeSlot>>,
+    String,
+> {
+    match state.conversation_runtime_slots.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            eprintln!("[聊天调度] 警告: chat_pending_queue 锁已 poison，正在继续恢复使用");
+            eprintln!(
+                "[聊天调度] 警告: conversation_runtime_slots 锁已 poison，正在继续恢复使用"
+            );
             Ok(poisoned.into_inner())
         }
     }
 }
 
+fn lock_conversation_processing_claims(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, std::collections::HashSet<String>>, String> {
+    match state.conversation_processing_claims.lock() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            eprintln!(
+                "[聊天调度] 警告: conversation_processing_claims 锁已 poison，正在继续恢复使用"
+            );
+            Ok(poisoned.into_inner())
+        }
+    }
+}
+
+fn conversation_slot_mut<'a>(
+    slots: &'a mut std::collections::HashMap<String, ConversationRuntimeSlot>,
+    conversation_id: &str,
+) -> &'a mut ConversationRuntimeSlot {
+    slots.entry(conversation_id.to_string()).or_insert_with(|| {
+        let mut slot = ConversationRuntimeSlot::default();
+        slot.last_activity_at = now_iso();
+        slot
+    })
+}
+
+fn total_queue_len(state: &AppState) -> Result<usize, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots.values().map(|slot| slot.pending_queue.len()).sum())
+}
+
+fn conversation_running_slot_count(
+    claims: &std::collections::HashSet<String>,
+    conversation_id: &str,
+) -> usize {
+    usize::from(claims.contains(conversation_id))
+}
+
 /// 获取队列状态
 pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventSummary>, String> {
-    let queue = lock_chat_pending_queue(state)?;
-
-    let summaries = queue
-        .iter()
-        .map(|event| {
+    let slots = lock_conversation_runtime_slots(state)?;
+    let mut summaries = Vec::<ChatQueueEventSummary>::new();
+    for slot in slots.values() {
+        for event in &slot.pending_queue {
             let message_preview = event
                 .messages
                 .first()
@@ -161,22 +203,25 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
                     })
                 })
                 .unwrap_or_default();
-
             let preview = if message_preview.chars().count() > 50 {
                 format!("{}...", message_preview.chars().take(50).collect::<String>())
             } else {
                 message_preview
             };
-
-            ChatQueueEventSummary {
+            summaries.push(ChatQueueEventSummary {
                 id: event.id.clone(),
                 source: event.source.clone(),
                 created_at: event.created_at.clone(),
                 message_preview: preview,
                 conversation_id: event.conversation_id.clone(),
-            }
-        })
-        .collect();
+            });
+        }
+    }
+    summaries.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
 
     Ok(summaries)
 }
@@ -204,21 +249,30 @@ pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Opti
         .dequeue_lock
         .lock()
         .map_err(|_| "Failed to lock dequeue lock".to_string())?;
-    let mut queue = lock_chat_pending_queue(state)?;
-
-    if let Some(pos) = queue.iter().position(|e| e.id == event_id) {
-        let removed = queue.remove(pos);
-        eprintln!(
-            "[聊天调度] 从队列移除事件: id={}, source={:?}, queue_len={}",
-            event_id, removed.as_ref().map(|e| &e.source), queue.len()
-        );
-        drop(queue);
-        emit_chat_queue_snapshot(state);
-        complete_pending_chat_events_with_error(state, &[event_id.to_string()], "消息已从队列移除")?;
-        Ok(removed)
-    } else {
-        Ok(None)
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let mut removed = None;
+    let mut remaining_queue_len = 0usize;
+    for slot in slots.values_mut() {
+        if let Some(pos) = slot.pending_queue.iter().position(|e| e.id == event_id) {
+            removed = slot.pending_queue.remove(pos);
+            remaining_queue_len = slot.pending_queue.len();
+            break;
+        }
     }
+    drop(slots);
+    if removed.is_some() {
+        eprintln!(
+            "[聊天调度] 从队列移除事件: id={}, queue_len={}",
+            event_id, remaining_queue_len
+        );
+        emit_chat_queue_snapshot(state);
+        complete_pending_chat_events_with_error(
+            state,
+            &[event_id.to_string()],
+            "消息已从队列移除",
+        )?;
+    }
+    Ok(removed)
 }
 
 // ==================== 队列管理函数 ====================
@@ -232,14 +286,21 @@ pub(crate) fn ingress_chat_event(
         .dequeue_lock
         .lock()
         .map_err(|_| "Failed to lock dequeue lock".to_string())?;
-    let current_state = get_main_session_state(state)?;
-    let mut queue = lock_chat_pending_queue(state)?;
-    let blocked = current_state != MainSessionState::Idle || !queue.is_empty();
+    let mut claims = lock_conversation_processing_claims(state)?;
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let running_count = claims.len();
+    let slot = conversation_slot_mut(&mut slots, &event.conversation_id);
+    let blocked = slot.state != MainSessionState::Idle
+        || !slot.pending_queue.is_empty()
+        || conversation_running_slot_count(&claims, &event.conversation_id) > 0
+        || running_count >= CHAT_CONCURRENCY_LIMIT;
+    slot.last_activity_at = now_iso();
     if blocked {
         let event_id = event.id.clone();
-        queue.push_back(event);
+        slot.pending_queue.push_back(event);
         return Ok(ChatEventIngress::Queued { event_id });
     }
+    claims.insert(event.conversation_id.clone());
     Ok(ChatEventIngress::Direct(event))
 }
 
@@ -317,8 +378,10 @@ pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
 }
 
 pub(crate) fn is_chat_event_queued(state: &AppState, event_id: &str) -> Result<bool, String> {
-    let queue = lock_chat_pending_queue(state)?;
-    Ok(queue.iter().any(|item| item.id == event_id))
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .values()
+        .any(|slot| slot.pending_queue.iter().any(|item| item.id == event_id)))
 }
 
 pub(crate) async fn process_chat_queue_for_event(state: &AppState, event_id: &str) {
@@ -337,7 +400,9 @@ pub(crate) async fn process_chat_event_after_ingress(
     match ingress {
         ChatEventIngress::Direct(event) => {
             let conversation_id = event.conversation_id.clone();
-            if let Err(err) = process_conversation_batch(state, &conversation_id, vec![event]).await {
+            if let Err(err) =
+                process_claimed_conversation_batch(state, &conversation_id, vec![event]).await
+            {
                 eprintln!("[聊天调度] 处理直接事件失败: {}", err);
             }
         }
@@ -354,44 +419,55 @@ pub(crate) fn trigger_chat_event_after_ingress(state: &AppState, ingress: ChatEv
     });
 }
 
-/// 批量出队：一次性取走当前所有待处理事件
-///
-/// 注意：这里故意不是“一条一条弹出”。
-/// 我们需要把同一时刻已经排到门口的消息视为同一批候选输入，
-/// 之后再按 conversation_id 分组，统一决定这批消息如何进入正式历史。
-fn dequeue_batch(
+async fn process_claimed_conversation_batch(
     state: &AppState,
-) -> Result<Vec<ChatPendingEvent>, String> {
-    let mut queue = lock_chat_pending_queue(state)?;
-
-    let batch: Vec<ChatPendingEvent> = queue.drain(..).collect();
-    Ok(batch)
+    conversation_id: &str,
+    events: Vec<ChatPendingEvent>,
+) -> Result<(), String> {
+    let result = process_conversation_batch(state, conversation_id, events).await;
+    if let Err(release_err) = release_conversation_processing_claim(state, conversation_id) {
+        eprintln!(
+            "[聊天调度] 释放会话处理声明失败: conversation_id={}, error={}",
+            conversation_id, release_err
+        );
+    }
+    emit_chat_queue_snapshot(state);
+    trigger_chat_queue_processing(state);
+    result
 }
 
 // ==================== 状态机管理函数 ====================
 
 /// 获取当前状态
 pub(crate) fn get_main_session_state(state: &AppState) -> Result<MainSessionState, String> {
-    let state_guard = state
-        .main_session_state
-        .lock()
-        .map_err(|_| "Failed to lock main session state".to_string())?;
-    Ok(state_guard.clone())
+    let slots = lock_conversation_runtime_slots(state)?;
+    if slots
+        .values()
+        .any(|slot| slot.state == MainSessionState::OrganizingContext)
+    {
+        return Ok(MainSessionState::OrganizingContext);
+    }
+    if slots
+        .values()
+        .any(|slot| slot.state == MainSessionState::AssistantStreaming)
+    {
+        return Ok(MainSessionState::AssistantStreaming);
+    }
+    Ok(MainSessionState::Idle)
 }
 
-/// 设置状态并记录日志
-pub(crate) fn set_main_session_state(
+/// 设置会话状态并记录日志
+pub(crate) fn set_conversation_runtime_state(
     state: &AppState,
+    conversation_id: &str,
     new_state: MainSessionState,
 ) -> Result<(), String> {
     let (old_state_cn, new_state_cn) = {
-        let mut state_guard = state
-        .main_session_state
-        .lock()
-        .map_err(|_| "Failed to lock main session state".to_string())?;
-
-        let old_state = state_guard.clone();
-        *state_guard = new_state.clone();
+        let mut slots = lock_conversation_runtime_slots(state)?;
+        let slot = conversation_slot_mut(&mut slots, conversation_id);
+        let old_state = slot.state.clone();
+        slot.state = new_state.clone();
+        slot.last_activity_at = now_iso();
 
         let old_state_cn = match old_state {
             MainSessionState::Idle => "空闲",
@@ -407,45 +483,67 @@ pub(crate) fn set_main_session_state(
     };
 
     eprintln!(
-        "[聊天调度] 状态转换: {} -> {}",
-        old_state_cn, new_state_cn
+        "[聊天调度] 会话状态转换: conversation_id={}, {} -> {}",
+        conversation_id, old_state_cn, new_state_cn
     );
-
-    // 可选：发送事件到前端
-    // if let Some(app_handle) = state.app_handle.lock().ok().and_then(|g| g.as_ref()) {
-    //     let _ = app_handle.emit("main-session-state-changed", &new_state);
-    // }
 
     emit_chat_queue_snapshot(state);
     Ok(())
 }
 
-/// 检查是否可以出队
-///
-/// 只有主助理完全空闲时，才允许把下一批消息刷入历史。
-/// 这样可以保证：
-/// 1. 当前轮次流式期间，新消息只会排队，不会打断当前轮次；
-/// 2. 整理上下文期间，也不会出现“半整理、半对话”的混乱状态；
-/// 3. 每一轮开始前，输入集都是稳定且封闭的一批消息。
-pub(crate) fn can_dequeue(state: &AppState) -> Result<bool, String> {
-    let current_state = get_main_session_state(state)?;
-    let queue = lock_chat_pending_queue(state)?;
+fn release_conversation_processing_claim(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<(), String> {
+    let mut claims = lock_conversation_processing_claims(state)?;
+    claims.remove(conversation_id.trim());
+    Ok(())
+}
 
-    let can = current_state == MainSessionState::Idle && !queue.is_empty();
-
-    if !can && !queue.is_empty() {
-        let state_cn = match current_state {
-            MainSessionState::Idle => "空闲",
-            MainSessionState::AssistantStreaming => "助理流式输出",
-            MainSessionState::OrganizingContext => "整理上下文",
-        };
-        eprintln!(
-            "[聊天调度] 跳过: 出队被阻塞, state={}, queue_len={}, 原因=主助理未空闲或仍在整理上下文",
-            state_cn, queue.len()
-        );
+fn claim_queued_conversation_batches(
+    state: &AppState,
+) -> Result<Vec<(String, Vec<ChatPendingEvent>)>, String> {
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let mut claims = lock_conversation_processing_claims(state)?;
+    if claims.len() >= CHAT_CONCURRENCY_LIMIT {
+        return Ok(Vec::new());
     }
+    let available_slots = CHAT_CONCURRENCY_LIMIT.saturating_sub(claims.len());
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let mut eligible = slots
+        .iter()
+        .filter_map(|(conversation_id, slot)| {
+            if slot.state != MainSessionState::Idle
+                || slot.pending_queue.is_empty()
+                || claims.contains(conversation_id)
+            {
+                return None;
+            }
+            let created_at = slot
+                .pending_queue
+                .front()
+                .map(|event| event.created_at.clone())
+                .unwrap_or_default();
+            Some((conversation_id.clone(), created_at))
+        })
+        .collect::<Vec<_>>();
+    eligible.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
 
-    Ok(can)
+    let mut claimed_batches = Vec::<(String, Vec<ChatPendingEvent>)>::new();
+    for (conversation_id, _) in eligible.into_iter().take(available_slots) {
+        let slot = conversation_slot_mut(&mut slots, &conversation_id);
+        let batch = slot.pending_queue.drain(..).collect::<Vec<_>>();
+        if batch.is_empty() {
+            continue;
+        }
+        slot.last_activity_at = now_iso();
+        claims.insert(conversation_id.clone());
+        claimed_batches.push((conversation_id, batch));
+    }
+    Ok(claimed_batches)
 }
 
 // ==================== 出队调度器 ====================
@@ -458,63 +556,25 @@ pub(crate) fn can_dequeue(state: &AppState) -> Result<bool, String> {
 /// 3. 每个会话先批量写正式历史；
 /// 4. 再决定该会话是否需要开启新的主助理轮次。
 pub(crate) async fn process_chat_queue(state: &AppState) -> Result<(), String> {
-    loop {
-        // 获取出队锁并批量获取事件，然后立即释放锁
-        let batch = {
-            let _dequeue_guard = state
-                .dequeue_lock
-                .lock()
-                .map_err(|_| "Failed to lock dequeue lock".to_string())?;
-
-            // 检查是否可以出队
-            if !can_dequeue(state)? {
-                return Ok(());
-            }
-
-            // 批量获取所有待处理事件
-            dequeue_batch(state)?
-        }; // _dequeue_guard 在这里被释放
-
-        if batch.is_empty() {
-            return Ok(());
-        }
-        emit_chat_queue_snapshot(state);
-
-        eprintln!(
-            "[CHAT-SCHEDULER] Processing batch: size={}, events={:?}",
-            batch.len(),
-            batch.iter().map(|e| (&e.id, &e.source)).collect::<Vec<_>>()
-        );
-
-        // 按会话分组，并保持首次出现顺序稳定。
-        // 这样不同会话互不串扰，而同一会话在同一批里收到的消息，
-        // 又能以稳定顺序一起进入该会话的下一轮输入集。
-        let mut grouped: std::collections::HashMap<String, Vec<ChatPendingEvent>> = std::collections::HashMap::new();
-        let mut conversation_order = Vec::<String>::new();
-        for event in batch {
-            let conversation_id = event.conversation_id.clone();
-            if !grouped.contains_key(&conversation_id) {
-                conversation_order.push(conversation_id.clone());
-            }
-            grouped
-                .entry(conversation_id)
-                .or_insert_with(Vec::new)
-                .push(event);
-        }
-
-        // 逐会话处理
-        for conversation_id in conversation_order {
-            let Some(events) = grouped.remove(&conversation_id) else {
-                continue;
-            };
-            if let Err(err) = process_conversation_batch(state, &conversation_id, events).await {
-                eprintln!("[CHAT-SCHEDULER] Error processing conversation {}: {}", conversation_id, err);
-            }
-        }
-
-        // 处理完一批后，检查是否还有新事件，如果有则继续循环
-        // 如果没有或状态不是 Idle，则退出
+    let claimed_batches = claim_queued_conversation_batches(state)?;
+    if claimed_batches.is_empty() {
+        return Ok(());
     }
+    emit_chat_queue_snapshot(state);
+    for (conversation_id, events) in claimed_batches {
+        let state_clone = state.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(err) =
+                process_claimed_conversation_batch(&state_clone, &conversation_id, events).await
+            {
+                eprintln!(
+                    "[聊天调度] 处理会话失败 {}: {}",
+                    conversation_id, err
+                );
+            }
+        });
+    }
+    Ok(())
 }
 
 /// 处理单个会话的批次
@@ -802,7 +862,11 @@ async fn activate_main_assistant(
         .unwrap_or_else(|| format!("queue-{}", Uuid::new_v4()));
 
     // 设置状态为 AssistantStreaming
-    set_main_session_state(state, MainSessionState::AssistantStreaming)?;
+    set_conversation_runtime_state(
+        state,
+        conversation_id,
+        MainSessionState::AssistantStreaming,
+    )?;
 
     // 构造 trigger_only 请求
     let request = SendChatRequest {
@@ -858,7 +922,7 @@ async fn activate_main_assistant(
     let result = send_chat_message_inner(request, state, &active_channel).await;
 
     // 回复完成，切换回 Idle
-    set_main_session_state(state, MainSessionState::Idle)?;
+    set_conversation_runtime_state(state, conversation_id, MainSessionState::Idle)?;
 
     // 不在这里递归调用 process_chat_queue，避免 Send 问题
     // 改为在外部调用

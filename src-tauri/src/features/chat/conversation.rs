@@ -45,6 +45,35 @@ fn latest_main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usi
         .map(|(idx, _)| idx)
 }
 
+fn main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
+    let target_id = data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    data.conversations.iter().position(|conversation| {
+        conversation.id == target_id
+            && conversation.summary.trim().is_empty()
+            && !conversation_is_delegate(conversation)
+    })
+}
+
+fn normalize_main_conversation_marker(data: &mut AppData, _agent_id: &str) -> bool {
+    if main_conversation_index(data, "").is_some() {
+        return false;
+    }
+
+    let next_main_id = latest_active_conversation_index(data, "", "")
+        .or_else(|| latest_main_conversation_index(data, ""))
+        .and_then(|idx| data.conversations.get(idx))
+        .map(|conversation| conversation.id.clone());
+    if data.main_conversation_id == next_main_id {
+        return false;
+    }
+    data.main_conversation_id = next_main_id;
+    true
+}
+
 fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
     let Some(keep_idx) = latest_active_conversation_index(data, "", "")
         .or_else(|| latest_main_conversation_index(data, ""))
@@ -159,6 +188,7 @@ fn ensure_active_conversation_index(
     api_config_id: &str,
     agent_id: &str,
 ) -> usize {
+    let _ = normalize_main_conversation_marker(data, agent_id);
     let _ = normalize_single_active_main_conversation(data);
     if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
         return idx;
@@ -194,7 +224,42 @@ fn ensure_active_conversation_index(
         item.status = "inactive".to_string();
     }
     data.conversations.push(conversation);
+    if data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        data.main_conversation_id = data.conversations.last().map(|item| item.id.clone());
+    }
     data.conversations.len() - 1
+}
+
+fn ensure_main_conversation_index(
+    data: &mut AppData,
+    api_config_id: &str,
+    agent_id: &str,
+) -> usize {
+    let _ = normalize_main_conversation_marker(data, agent_id);
+    if let Some(idx) = main_conversation_index(data, agent_id) {
+        return idx;
+    }
+
+    if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id)
+        .or_else(|| latest_main_conversation_index(data, agent_id))
+    {
+        if let Some(conversation) = data.conversations.get(idx) {
+            data.main_conversation_id = Some(conversation.id.clone());
+        }
+        return idx;
+    }
+
+    let idx = ensure_active_conversation_index(data, api_config_id, agent_id);
+    if let Some(conversation) = data.conversations.get(idx) {
+        data.main_conversation_id = Some(conversation.id.clone());
+    }
+    idx
 }
 
 #[derive(Debug, Clone)]

@@ -578,6 +578,8 @@ fn delete_main_conversation_and_activate_latest(
         return Err("活动对话已变化，请重试归档。".to_string());
     }
 
+    let _ = normalize_main_conversation_marker(&mut data, "");
+
     let active_idx = if let Some(existing_idx) = latest_main_conversation_index(&data, "") {
         for (idx, conversation) in data.conversations.iter_mut().enumerate() {
             if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
@@ -589,9 +591,12 @@ fn delete_main_conversation_and_activate_latest(
                 "inactive".to_string()
             };
         }
+        if let Some(conversation) = data.conversations.get(existing_idx) {
+            data.main_conversation_id = Some(conversation.id.clone());
+        }
         existing_idx
     } else {
-        ensure_active_conversation_index(&mut data, &selected_api.id, "")
+        ensure_main_conversation_index(&mut data, &selected_api.id, "")
     };
     let active_conversation_id = data
         .conversations
@@ -975,8 +980,12 @@ pub(crate) async fn run_archive_pipeline(
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
 
-    // 设置状态为 OrganizingContext
-    set_main_session_state(state, MainSessionState::OrganizingContext)?;
+    // 设置状态为 OrganizingContext（仅影响所属会话）
+    set_conversation_runtime_state(
+        state,
+        &source.id,
+        MainSessionState::OrganizingContext,
+    )?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=archive_pipeline, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
@@ -997,7 +1006,9 @@ pub(crate) async fn run_archive_pipeline(
 
     // 归档完成，切换回 Idle（即使内部失败也要恢复状态）
     let elapsed_ms = started_at.elapsed().as_millis();
-    if let Err(state_err) = set_main_session_state(state, MainSessionState::Idle) {
+    if let Err(state_err) =
+        set_conversation_runtime_state(state, &source.id, MainSessionState::Idle)
+    {
         eprintln!(
             "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
             trace_id, elapsed_ms, state_err
@@ -1026,7 +1037,11 @@ pub(crate) async fn run_context_compaction_pipeline(
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
 
-    set_main_session_state(state, MainSessionState::OrganizingContext)?;
+    set_conversation_runtime_state(
+        state,
+        &source.id,
+        MainSessionState::OrganizingContext,
+    )?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
@@ -1046,7 +1061,9 @@ pub(crate) async fn run_context_compaction_pipeline(
     .await;
 
     let elapsed_ms = started_at.elapsed().as_millis();
-    if let Err(state_err) = set_main_session_state(state, MainSessionState::Idle) {
+    if let Err(state_err) =
+        set_conversation_runtime_state(state, &source.id, MainSessionState::Idle)
+    {
         eprintln!(
             "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
             trace_id, elapsed_ms, state_err

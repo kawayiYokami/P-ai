@@ -109,6 +109,7 @@ mod archive_host_selection_tests {
             assistant_department_agent_id: "pub-b".to_string(),
             user_alias: "u".to_string(),
             response_style_id: "concise".to_string(),
+            main_conversation_id: None,
             ..AppData::default()
         };
         let source = Conversation {
@@ -141,6 +142,7 @@ mod archive_host_selection_tests {
             assistant_department_agent_id: "p2".to_string(),
             user_alias: "u".to_string(),
             response_style_id: "concise".to_string(),
+            main_conversation_id: None,
             ..AppData::default()
         };
         let source = Conversation {

@@ -186,11 +186,7 @@ async fn send_chat_message(
         }
     };
 
-    let queue_len = state
-        .chat_pending_queue
-        .lock()
-        .map(|queue| queue.len())
-        .unwrap_or_default();
+    let queue_len = total_queue_len(state.inner()).unwrap_or_default();
     let ingress_mode = match &ingress {
         ChatEventIngress::Direct(_) => "direct",
         ChatEventIngress::Queued { .. } => "queued",
@@ -479,4 +475,3 @@ async fn get_main_session_state_snapshot(
 ) -> Result<MainSessionState, String> {
     get_main_session_state(state.inner())
 }
-

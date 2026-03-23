@@ -453,7 +453,7 @@ async fn builtin_shell_exec(
 #[cfg(test)]
 mod terminal_exec_tests {
     use super::*;
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -480,15 +480,15 @@ mod terminal_exec_tests {
             terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(VecDeque::new())),
             task_dispatch_queue: Arc::new(Mutex::new(VecDeque::new())),
-            chat_pending_queue: Arc::new(Mutex::new(VecDeque::new())),
+            conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(HashMap::new())),
             active_chat_view_bindings: Arc::new(Mutex::new(HashMap::new())),
-            main_session_state: Arc::new(Mutex::new(MainSessionState::Idle)),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
-            provider_streaming_disabled_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(HashSet::new())),
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
         }
     }
