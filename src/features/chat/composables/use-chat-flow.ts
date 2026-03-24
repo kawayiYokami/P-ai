@@ -32,6 +32,7 @@ type RoundCompletedPayload = {
 };
 
 type RoundFailedPayload = {
+  conversationId?: string;
   error: string;
 };
 
@@ -190,7 +191,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (!text) return null;
     try {
       const parsed = JSON.parse(text) as Record<string, unknown>;
-      return { error: String(parsed.error || "") };
+      return {
+        conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : undefined,
+        error: String(parsed.error || ""),
+      };
     } catch {
       return { error: text };
     }
@@ -446,6 +450,73 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
     if (options.streamToolCalls) options.streamToolCalls.value = [];
+  }
+
+  function clearForegroundRoundState() {
+    ++generation;
+    sendChatActiveGen = 0;
+    clearStreamBuffer();
+    if (round.phase === "streaming") {
+      removeDraft(round.draftId);
+    }
+    round = { phase: "idle" };
+    activeHistoryMessageCount = 0;
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+    resetDisplayState();
+    options.chatErrorText.value = "";
+  }
+
+  function readMessagePlainText(message?: ChatMessage): string {
+    if (!message) return "";
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    return parts
+      .filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text")
+      .map((part) => String((part as { text?: unknown }).text || ""))
+      .join("");
+  }
+
+  function freezeForegroundRoundState() {
+    ++generation;
+    sendChatActiveGen = 0;
+    clearStreamBuffer();
+    if (round.phase === "streaming") {
+      finalizeDraft(round.draftId);
+    }
+    round = { phase: "idle" };
+    activeHistoryMessageCount = 0;
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+    resetDisplayState();
+    options.chatErrorText.value = "";
+  }
+
+  function ensureForegroundStreamingRound() {
+    if (round.phase === "streaming") {
+      return round.gen;
+    }
+    const gen = ++generation;
+    const existingDraft = [...options.allMessages.value]
+      .reverse()
+      .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
+    const existingDraftId = String(existingDraft?.id || "").trim();
+    const existingDraftMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
+    options.latestAssistantText.value = readMessagePlainText(existingDraft);
+    options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
+    options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
+    activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
+    const draftId = existingDraftId || insertDraft(gen);
+    if (existingDraftId) {
+      updateDraftText(draftId);
+    }
+    options.visibleMessageBlockCount.value = Math.max(1, activeHistoryMessageCount + 1);
+    round = { phase: "streaming", gen, draftId };
+    options.chatting.value = true;
+    return gen;
+  }
+
+  function formalizeMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.filter((item) => !String(item?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
   }
 
   // =========================================================================
@@ -770,7 +841,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
 
   async function handleExternalRoundCompleted(payload: unknown) {
-    if (round.phase !== "streaming") return;
     const raw = (() => {
       if (typeof payload === "string") return payload;
       if (payload && typeof payload === "object") {
@@ -789,6 +859,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
       return;
     }
+    if (round.phase !== "streaming") {
+      resetDisplayState();
+      options.chatting.value = false;
+      reasoningStartedAtMs.value = 0;
+      await options.onReloadMessages();
+      return;
+    }
     handleRoundCompleted(round.gen, {
       assistantText: String(parsed.assistantText || ""),
       reasoningStandard: parsed.reasoningStandard,
@@ -798,7 +875,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
 
   async function handleExternalRoundFailed(payload: unknown) {
-    if (round.phase !== "streaming") return;
     const raw = (() => {
       if (typeof payload === "string") return payload;
       if (payload && typeof payload === "object") {
@@ -811,6 +887,43 @@ export function useChatFlow(options: UseChatFlowOptions) {
       return "";
     })();
     const parsed = readRoundFailedPayload(raw);
+    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
+    const payloadConversationId = String(parsed?.conversationId || "").trim();
+    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return;
+    }
+    if (round.phase !== "streaming") {
+      clearStreamBuffer();
+      options.latestAssistantText.value = "";
+      options.latestReasoningStandardText.value = "";
+      options.latestReasoningInlineText.value = "";
+      options.chatting.value = false;
+      reasoningStartedAtMs.value = 0;
+      // 记录非流式阶段的轮次失败错误，包含上下文和错误详情
+      const errorDetail = parsed?.error || raw || String(raw);
+      const errorObj = typeof errorDetail === "string" ? (
+        (() => {
+          try {
+            const obj = JSON.parse(errorDetail);
+            return obj;
+          } catch {
+            return { message: errorDetail };
+          }
+        })()
+      ) : errorDetail;
+      console.error(
+        "[聊天流程] 非流式轮次失败",
+        {
+          roundPhase: round.phase,
+          roundGen: round.phase === "idle" ? null : round.gen,
+          error: errorObj,
+          rawPayload: raw,
+        }
+      );
+      options.chatErrorText.value = options.formatRequestFailed(errorDetail);
+      await options.onReloadMessages();
+      return;
+    }
     handleRoundFailed(round.gen, parsed?.error || raw || String(raw));
   }
 
@@ -822,7 +935,17 @@ export function useChatFlow(options: UseChatFlowOptions) {
       return;
     }
     const parsed = readAssistantEvent(rawObj?.event ?? payload);
-    const currentGen = round.phase === "streaming" ? round.gen : 0;
+    const shouldResumeForegroundRound =
+      round.phase !== "streaming"
+      && (
+        !!readDeltaMessage(parsed)
+        || parsed.kind === "reasoning_standard"
+        || parsed.kind === "reasoning_inline"
+        || parsed.kind === "tool_status"
+      );
+    const currentGen = shouldResumeForegroundRound
+      ? ensureForegroundStreamingRound()
+      : (round.phase === "streaming" ? round.gen : 0);
     handleStreamingEvent(currentGen, parsed);
   }
 
@@ -1022,6 +1145,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   return {
     sendChat,
     stopChat,
+    clearForegroundRoundState,
+    freezeForegroundRoundState,
     bindActiveConversationStream,
     handleExternalHistoryFlushed,
     handleExternalRoundCompleted,

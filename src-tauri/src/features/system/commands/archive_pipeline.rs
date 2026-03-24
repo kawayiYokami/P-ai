@@ -104,7 +104,79 @@ struct ForceArchiveResult {
     merge_groups: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForceArchivePreviewResult {
+    conversation_id: String,
+    can_archive: bool,
+    can_discard: bool,
+    message_count: usize,
+    has_assistant_reply: bool,
+    is_empty: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_disabled_reason: Option<String>,
+}
+
 const SHORT_CONVERSATION_DELETE_THRESHOLD: usize = 3;
+
+fn resolve_archive_target_conversation(
+    state: &AppState,
+    input: &SessionSelector,
+) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut app_config = read_config(&state.config_path)?;
+    let mut data = state_read_app_data_cached(state)?;
+    ensure_default_agent(&mut data);
+    merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
+    let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+        .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+    let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+    let requested_agent_id = input.agent_id.trim();
+    let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        requested_agent_id.to_string()
+    } else if data
+        .agents
+        .iter()
+        .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
+    {
+        data.assistant_department_agent_id.clone()
+    } else {
+        data.agents
+            .iter()
+            .find(|a| !a.is_built_in_user)
+            .map(|a| a.id.clone())
+            .ok_or_else(|| "Selected agent not found.".to_string())?
+    };
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let source_idx = if let Some(conversation_id) = requested_conversation_id {
+        data.conversations.iter().position(|conversation| {
+            conversation.id == conversation_id
+                && conversation.summary.trim().is_empty()
+                && !conversation_is_delegate(conversation)
+        })
+    } else {
+        latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
+    }
+    .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
+    let source = data
+        .conversations
+        .get(source_idx)
+        .cloned()
+        .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
+    drop(guard);
+    Ok((selected_api, resolved_api, source, effective_agent_id))
+}
 
 fn archive_pipeline_message_count_for_delete(source: &Conversation) -> usize {
     source
@@ -117,6 +189,13 @@ fn archive_pipeline_message_count_for_delete(source: &Conversation) -> usize {
             )
         })
         .count()
+}
+
+fn archive_pipeline_has_assistant_reply(source: &Conversation) -> bool {
+    source
+        .messages
+        .iter()
+        .any(|message| message.role.trim().eq_ignore_ascii_case("assistant"))
 }
 
 async fn summarize_archived_conversation_with_model_v2(
@@ -911,48 +990,8 @@ async fn force_archive_current(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
-    let (selected_api, resolved_api, source, effective_agent_id) = {
-        let guard = state
-            .state_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut app_config = read_config(&state.config_path)?;
-        let mut data = state_read_app_data_cached(&state)?;
-        ensure_default_agent(&mut data);
-        merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
-        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
-            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
-        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
-        let requested_agent_id = input.agent_id.trim();
-        let effective_agent_id = if data
-            .agents
-            .iter()
-            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
-        {
-            requested_agent_id.to_string()
-        } else if data
-            .agents
-            .iter()
-            .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
-        {
-            data.assistant_department_agent_id.clone()
-        } else {
-            data.agents
-                .iter()
-                .find(|a| !a.is_built_in_user)
-                .map(|a| a.id.clone())
-                .ok_or_else(|| "Selected agent not found.".to_string())?
-        };
-        let source_idx = latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
-            .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
-        let source = data
-            .conversations
-            .get(source_idx)
-            .cloned()
-            .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
-        drop(guard);
-        (selected_api, resolved_api, source, effective_agent_id)
-    };
+    let (selected_api, resolved_api, source, effective_agent_id) =
+        resolve_archive_target_conversation(state.inner(), &input)?;
 
     let result = run_archive_pipeline(
         &state,
@@ -966,6 +1005,39 @@ async fn force_archive_current(
     .await;
     trigger_chat_queue_processing(state.inner());
     result
+}
+
+#[tauri::command]
+fn preview_force_archive_current(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<ForceArchivePreviewResult, String> {
+    let (_selected_api, _resolved_api, source, _effective_agent_id) =
+        resolve_archive_target_conversation(state.inner(), &input)?;
+    let message_count = archive_pipeline_message_count_for_delete(&source);
+    let has_assistant_reply = archive_pipeline_has_assistant_reply(&source);
+    let is_empty = source.messages.is_empty();
+    let archive_disabled_reason = if is_empty {
+        Some("当前会话为空，不能归档。".to_string())
+    } else if !has_assistant_reply {
+        Some("当前会话还没有助理回复，不能归档。".to_string())
+    } else if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
+        Some(format!(
+            "当前会话过短（仅 {} 条用户/助理消息），不进入归档，建议直接抛弃。",
+            message_count
+        ))
+    } else {
+        None
+    };
+    Ok(ForceArchivePreviewResult {
+        conversation_id: source.id,
+        can_archive: archive_disabled_reason.is_none(),
+        can_discard: true,
+        message_count,
+        has_assistant_reply,
+        is_empty,
+        archive_disabled_reason,
+    })
 }
 
 pub(crate) async fn run_archive_pipeline(
@@ -1098,6 +1170,33 @@ async fn run_context_compaction_pipeline_inner(
             merged_memories: 0,
             warning: None,
             reason_code: Some("empty_conversation".to_string()),
+            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            memory_feedback: None,
+            merge_groups: None,
+        });
+    }
+
+    if !archive_pipeline_has_assistant_reply(source) {
+        let active_conversation_id =
+            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
+        emit_deleted_history_flushed_event(
+            state,
+            &source.id,
+            &active_conversation_id,
+            "no_assistant_reply_deleted",
+        );
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 整理前直接删除：conversation_id={}, reason=no_assistant_reply_deleted, next_conversation_id={}",
+            source.id, active_conversation_id
+        );
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            active_conversation_id: Some(active_conversation_id),
+            summary: String::new(),
+            merged_memories: 0,
+            warning: None,
+            reason_code: Some("no_assistant_reply_deleted".to_string()),
             elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
             memory_feedback: None,
             merge_groups: None,
@@ -1288,6 +1387,33 @@ async fn run_archive_pipeline_inner(
             merged_memories: 0,
             warning: None,
             reason_code: Some("empty_conversation_deleted".to_string()),
+            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            memory_feedback: None,
+            merge_groups: None,
+        });
+    }
+
+    if !archive_pipeline_has_assistant_reply(source) {
+        let active_conversation_id =
+            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
+        emit_deleted_history_flushed_event(
+            state,
+            &source.id,
+            &active_conversation_id,
+            "no_assistant_reply_deleted",
+        );
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 无助理回复会话直接删除: conversation_id={}, next_conversation_id={}",
+            source.id, active_conversation_id
+        );
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            active_conversation_id: Some(active_conversation_id),
+            summary: String::new(),
+            merged_memories: 0,
+            warning: None,
+            reason_code: Some("no_assistant_reply_deleted".to_string()),
             elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
             memory_feedback: None,
             merge_groups: None,

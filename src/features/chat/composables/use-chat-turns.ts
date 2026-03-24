@@ -20,6 +20,19 @@ type UseChatMessageBlocksOptions = {
 };
 
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
+  let lastMessageBlockSignature = "";
+  let lastMessageBlocks: ChatMessageBlock[] = [];
+
+  function messageSignature(message: ChatMessage): string {
+    return [
+      String(message.id || "").trim(),
+      String(message.createdAt || "").trim(),
+      JSON.stringify(message.parts || []),
+      JSON.stringify(message.providerMeta || {}),
+      JSON.stringify(message.toolCall || []),
+    ].join("|");
+  }
+
   function latestBackendContextUsagePercent(messages: ChatMessage[]): number | null {
     for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
       const message = messages[idx];
@@ -111,6 +124,10 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
     const startedAt = options.perfNow();
     const messages = options.allMessages.value;
+    const signature = messages.map((message) => messageSignature(message)).join("||");
+    if (signature === lastMessageBlockSignature) {
+      return lastMessageBlocks;
+    }
     const blocks = messages.map((message) => {
       const rendered = removeBinaryPlaceholders(renderMessage(message));
       const parsed = parseAssistantStoredText(rendered);
@@ -171,6 +188,8 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       const cost = Math.round((options.perfNow() - startedAt) * 10) / 10;
       console.log(`【性能】构建消息块 messages=${messages.length} blocks=${blocks.length} 完成 耗时=${cost}ms`);
     }
+    lastMessageBlockSignature = signature;
+    lastMessageBlocks = blocks;
     return blocks;
   });
 

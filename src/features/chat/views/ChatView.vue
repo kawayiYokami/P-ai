@@ -390,20 +390,44 @@
         <div class="flex items-center justify-between gap-2">
           <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-gradient-to-r from-base-300 via-base-300 to-base-200 px-2 py-1.5 text-[11px] overflow-hidden">
             <div class="flex items-center gap-1 min-w-0 overflow-x-auto conversation-tray-scroll-hidden">
+              <template v-if="mainConversationItem">
+                <button
+                  :key="mainConversationItem.conversationId"
+                  class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
+                  :class="mainConversationItem.conversationId === activeConversationId ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300'"
+                  :disabled="frozen"
+                  @click="onConversationItemClick(mainConversationItem)"
+                >
+                  <span class="badge badge-xs badge-primary shrink-0">主</span>
+                  <span
+                    class="w-2 h-2 rounded-full shrink-0"
+                    :class="{
+                      'bg-primary': mainConversationItem.color === 'primary',
+                      'bg-secondary': mainConversationItem.color === 'secondary',
+                      'bg-accent': mainConversationItem.color === 'accent',
+                      'bg-neutral': mainConversationItem.color === 'neutral',
+                      'bg-info': mainConversationItem.color === 'info',
+                      'bg-success': mainConversationItem.color === 'success',
+                      'bg-warning': mainConversationItem.color === 'warning',
+                      'bg-error': mainConversationItem.color === 'error',
+                    }"
+                  ></span>
+                  <span
+                    v-if="mainConversationItem.backgroundStatus"
+                    class="w-2 h-2 rounded-full shrink-0"
+                    :class="mainConversationItem.backgroundStatus === 'failed' ? 'bg-error' : 'bg-success'"
+                    :title="mainConversationItem.backgroundStatus === 'failed' ? '后台失败' : '后台完成'"
+                  ></span>
+                  <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ mainConversationItem.workspaceLabel || '默认工作空间' }}</span>
+                </button>
+                <div class="mx-1 h-4 w-px shrink-0 bg-base-content/20"></div>
+              </template>
               <button
-                class="btn btn-xs btn-circle bg-base-100 border-base-300 shrink-0"
-                :class="{ 'btn-disabled': chatting || frozen || !unarchivedConversationItems[0]?.canCreateNew }"
-                :title="unarchivedConversationItems[0]?.canCreateNew ? t('chat.newConversation') : t('chat.maxConversations')"
-                @click="$emit('createConversation')"
-              >
-                <Plus class="h-3 w-3" />
-              </button>
-              <button
-                v-for="item in unarchivedConversationItems"
+                v-for="item in secondaryConversationItems"
                 :key="item.conversationId"
                 class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
-                :class="(item.conversationId === activeConversationId || (!activeConversationId && item.isActive)) ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300'"
-                :disabled="chatting || frozen"
+                :class="item.conversationId === activeConversationId ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300'"
+                :disabled="frozen"
                 @click="onConversationItemClick(item)"
               >
                 <span
@@ -419,7 +443,23 @@
                     'bg-error': item.color === 'error',
                   }"
                 ></span>
-                <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ formatRelativeTime(item.updatedAt || '') }} · {{ item.workspaceLabel || '默认工作空间' }}</span>
+                <span
+                  v-if="item.backgroundStatus"
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :class="item.backgroundStatus === 'failed' ? 'bg-error' : 'bg-success'"
+                  :title="item.backgroundStatus === 'failed' ? '后台失败' : '后台完成'"
+                ></span>
+                <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ item.workspaceLabel || '默认工作空间' }}</span>
+              </button>
+              <div v-if="secondaryConversationItems.length > 0" class="mx-1 h-4 w-px shrink-0 bg-base-content/20"></div>
+              <button
+                class="btn btn-xs btn-circle bg-base-100 border-base-300 shrink-0"
+                :class="{ 'btn-disabled': frozen || !canCreateConversation }"
+                :disabled="frozen || !canCreateConversation"
+                :title="canCreateConversation ? t('chat.newConversation') : t('chat.maxConversations')"
+                @click="$emit('createConversation')"
+              >
+                <Plus class="h-3 w-3" />
               </button>
             </div>
           </div>
@@ -561,10 +601,24 @@ const props = defineProps<{
     updatedAt?: string;
     workspaceLabel?: string;
     isActive?: boolean;
+    isMainConversation?: boolean;
     color?: string;
     canCreateNew?: boolean;
+    backgroundStatus?: "completed" | "failed";
   }>;
 }>();
+
+const mainConversationItem = computed(
+  () => props.unarchivedConversationItems.find((item) => !!item.isMainConversation) || null,
+);
+
+const secondaryConversationItems = computed(
+  () => props.unarchivedConversationItems.filter((item) => !item.isMainConversation),
+);
+
+const canCreateConversation = computed(
+  () => !!props.unarchivedConversationItems[0]?.canCreateNew,
+);
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
@@ -1261,26 +1315,6 @@ function onConversationItemClick(item: { conversationId: string; isActive?: bool
     || (!props.activeConversationId && !!item.isActive);
   if (isCurrent) return;
   emit("switchConversation", conversationId);
-}
-
-function formatRelativeTime(isoTime: string): string {
-  const date = new Date(isoTime);
-  if (isNaN(date.getTime())) return "";
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-  const diffMonth = Math.floor(diffDay / 30);
-  const diffYear = Math.floor(diffDay / 365);
-
-  if (diffSec < 60) return `${diffSec}秒前`;
-  if (diffMin < 60) return `${diffMin}分钟前`;
-  if (diffHour < 24) return `${diffHour}小时前`;
-  if (diffDay < 30) return `${diffDay}天前`;
-  if (diffMonth < 12) return `${diffMonth}个月前`;
-  return `${diffYear}年前`;
 }
 
 let loadingMore = false;

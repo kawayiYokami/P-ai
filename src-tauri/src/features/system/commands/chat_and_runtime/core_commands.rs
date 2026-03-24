@@ -230,6 +230,11 @@ async fn bind_active_chat_view_stream(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    runtime_log_info(format!(
+        "[聊天推送] 收到前端绑定请求: window={}, conversation_id={}",
+        window_label,
+        conversation_id.unwrap_or("*")
+    ));
     if let Some(conversation_id) = conversation_id {
         set_active_chat_view_stream_binding(
             state.inner(),

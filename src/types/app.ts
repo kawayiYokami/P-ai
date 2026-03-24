@@ -357,6 +357,7 @@ export type UnarchivedConversationSummary = {
   agentId: string;
   apiConfigId?: string;
   isActive?: boolean;
+  isMainConversation?: boolean;
 };
 
 export type DelegateConversationSummary = {

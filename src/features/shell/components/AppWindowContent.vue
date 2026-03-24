@@ -333,8 +333,10 @@ const props = defineProps<{
     updatedAt?: string;
     workspaceLabel?: string;
     isActive?: boolean;
+    isMainConversation?: boolean;
     color?: string;
     canCreateNew?: boolean;
+    backgroundStatus?: "completed" | "failed";
   }>;
   archives: ArchiveSummary[];
   selectedArchiveId: string;

@@ -1119,6 +1119,10 @@ fn emit_history_flushed_event(
     conversation_id: &str,
     event_ids: &[String],
 ) {
+    eprintln!(
+        "[聊天推送] 准备发送 history_flushed: conversation_id={}, event_ids={:?}",
+        conversation_id, event_ids
+    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1153,8 +1157,16 @@ fn send_round_completed_event(
     result: &SendChatResult,
 ) {
     if activation.source != QueuedChatActivationSource::ActiveViewBinding {
+        eprintln!(
+            "[聊天推送] 跳过 round_completed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
+            conversation_id
+        );
         return;
     }
+    eprintln!(
+        "[聊天推送] 通过绑定通道发送 round_completed: conversation_id={}, event_id={}",
+        conversation_id, activation.event_id
+    );
     let payload_json = serde_json::to_string(result).unwrap_or_else(|_| {
         serde_json::json!({
             "conversationId": result.conversation_id,
@@ -1184,8 +1196,16 @@ fn send_round_failed_event(
     error_text: &str,
 ) {
     if activation.source != QueuedChatActivationSource::ActiveViewBinding {
+        eprintln!(
+            "[聊天推送] 跳过 round_failed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
+            conversation_id
+        );
         return;
     }
+    eprintln!(
+        "[聊天推送] 通过绑定通道发送 round_failed: conversation_id={}, event_id={}",
+        conversation_id, activation.event_id
+    );
     let payload_json = serde_json::json!({
         "error": error_text,
     })
@@ -1206,11 +1226,20 @@ fn emit_round_completed_event(
     conversation_id: &str,
     result: &SendChatResult,
 ) {
+    eprintln!(
+        "[聊天推送] 准备 emit round_completed: conversation_id={}, has_assistant_message={}",
+        conversation_id,
+        result.assistant_message.is_some()
+    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
+        eprintln!(
+            "[聊天推送] emit round_completed 失败: app_handle unavailable, conversation_id={}",
+            conversation_id
+        );
         return;
     };
     let payload = serde_json::json!({
@@ -1221,7 +1250,16 @@ fn emit_round_completed_event(
         "archivedBeforeSend": result.archived_before_send,
         "assistantMessage": result.assistant_message,
     });
-    let _ = app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload);
+    match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
+        Ok(_) => eprintln!(
+            "[聊天推送] emit round_completed 成功: conversation_id={}",
+            conversation_id
+        ),
+        Err(err) => eprintln!(
+            "[聊天推送] emit round_completed 失败: conversation_id={}, error={}",
+            conversation_id, err
+        ),
+    }
 }
 
 fn emit_round_failed_event(
@@ -1229,18 +1267,36 @@ fn emit_round_failed_event(
     conversation_id: &str,
     error_text: &str,
 ) {
+    eprintln!(
+        "[聊天推送] 准备 emit round_failed: conversation_id={}, error_len={}",
+        conversation_id,
+        error_text.len()
+    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
+        eprintln!(
+            "[聊天推送] emit round_failed 失败: app_handle unavailable, conversation_id={}",
+            conversation_id
+        );
         return;
     };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
         "error": error_text,
     });
-    let _ = app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload);
+    match app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload) {
+        Ok(_) => eprintln!(
+            "[聊天推送] emit round_failed 成功: conversation_id={}",
+            conversation_id
+        ),
+        Err(err) => eprintln!(
+            "[聊天推送] emit round_failed 失败: conversation_id={}, error={}",
+            conversation_id, err
+        ),
+    }
 }
 
 fn collect_active_chat_view_activations(
