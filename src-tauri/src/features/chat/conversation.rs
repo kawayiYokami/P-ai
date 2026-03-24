@@ -9,7 +9,7 @@ fn latest_active_conversation_index(
         .filter(|(_, c)| {
             c.status == "active"
                 && c.summary.trim().is_empty()
-                && !conversation_is_delegate(c)
+                && conversation_visible_in_foreground_lists(c)
         })
         .max_by(|(idx_a, a), (idx_b, b)| {
             let a_updated = a.updated_at.trim();
@@ -30,7 +30,7 @@ fn latest_main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usi
         .enumerate()
         .filter(|(_, c)| {
             c.summary.trim().is_empty()
-                && !conversation_is_delegate(c)
+                && conversation_visible_in_foreground_lists(c)
         })
         .max_by(|(idx_a, a), (idx_b, b)| {
             let a_updated = a.updated_at.trim();
@@ -54,7 +54,7 @@ fn main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
     data.conversations.iter().position(|conversation| {
         conversation.id == target_id
             && conversation.summary.trim().is_empty()
-            && !conversation_is_delegate(conversation)
+            && conversation_visible_in_foreground_lists(conversation)
     })
 }
 
@@ -83,7 +83,7 @@ fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
 
     let mut changed = false;
     for (idx, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let target_status = if idx == keep_idx { "active" } else { "inactive" };
@@ -108,6 +108,15 @@ fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
 
 fn conversation_is_delegate(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+}
+
+fn conversation_is_remote_im_hidden(conversation: &Conversation) -> bool {
+    conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_HIDDEN
+}
+
+fn conversation_visible_in_foreground_lists(conversation: &Conversation) -> bool {
+    !conversation_is_delegate(conversation)
+        && !conversation_is_remote_im_hidden(conversation)
 }
 
 fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
@@ -196,7 +205,7 @@ fn ensure_active_conversation_index(
 
     if let Some(idx) = latest_main_conversation_index(data, agent_id) {
         for (i, conversation) in data.conversations.iter_mut().enumerate() {
-            if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+            if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
                 continue;
             }
             conversation.status = if i == idx {
@@ -218,7 +227,7 @@ fn ensure_active_conversation_index(
     );
 
     for item in &mut data.conversations {
-        if conversation_is_delegate(item) || !item.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(item) || !item.summary.trim().is_empty() {
             continue;
         }
         item.status = "inactive".to_string();
@@ -401,8 +410,9 @@ fn archive_conversation_now(
     let idx = data
         .conversations
         .iter()
-        .position(|c| c.id == conversation_id && c.status == "active")?;
+        .position(|c| c.id == conversation_id && c.summary.trim().is_empty())?;
     let conv = data.conversations.get_mut(idx)?;
+    let previous_status = conv.status.clone();
     let now = now_iso();
     conv.status = "archived".to_string();
     conv.summary = summary.to_string();
@@ -410,8 +420,11 @@ fn archive_conversation_now(
     conv.updated_at = now;
     let archive_id = conv.id.clone();
     eprintln!(
-        "[会话] 已归档: conversation_id={}, reason=\"{}\", summary=\"{}\"",
-        conv.id, reason, summary
+        "[会话] 已归档: conversation_id={}, previous_status={}, reason=\"{}\", summary=\"{}\"",
+        conv.id,
+        previous_status,
+        reason,
+        summary
     );
     clear_screenshot_artifact_cache();
     Some(archive_id)
@@ -1643,9 +1656,9 @@ fn build_prompt_with_mode(
         ),
     };
     let remote_im_rules_block = match ui_language.trim() {
-        "en-US" => "## Remote IM Contact Tool Rules\n- If a message contains remote IM context, do not fabricate contact info.\n- First call `remote_im_send` with `action=list` to get available contacts when needed.\n- To send, call `remote_im_send` with `action=send` and exact `channel_id` + `contact_id` from context/list.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final send in this round.",
-        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 當訊息包含遠端 IM 上下文時，不要自行編造聯絡人資訊。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- 發送時呼叫 `remote_im_send`，`action=send`，並使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一條用 `done`。",
-        _ => "## 远程 IM 联系人工具规则\n- 当消息包含远程 IM 上下文时，不要自行编造联系人信息。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- 发送时调用 `remote_im_send`，`action=send`，并使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一条用 `done`。",
+        "en-US" => "## Remote IM Contact Tool Rules\n- If a message contains remote IM context, do not fabricate contact info.\n- First call `remote_im_send` with `action=list` to get available contacts when needed.\n- To reply, call `remote_im_send` with `action=send` and exact `channel_id` + `contact_id` from context/list.\n- If you decide not to reply, call `remote_im_send` with `action=no_reply`.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final decision in this round.",
+        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 當訊息包含遠端 IM 上下文時，不要自行編造聯絡人資訊。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- 要回覆時呼叫 `remote_im_send`，`action=send`，並使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- 若決定不回覆，必須呼叫 `remote_im_send`，`action=no_reply`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一個決策用 `done`。",
+        _ => "## 远程 IM 联系人工具规则\n- 当消息包含远程 IM 上下文时，不要自行编造联系人信息。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- 要回复时调用 `remote_im_send`，`action=send`，并使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- 若决定不回复，必须调用 `remote_im_send`，`action=no_reply`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一个决策用 `done`。",
     };
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
     let mut preamble = if let Some((user_name, user_intro)) = user_profile {
