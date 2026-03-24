@@ -5,14 +5,22 @@
     @mousedown.left.prevent="$emit('start-drag')"
   >
     <div class="flex-none" @mousedown.stop>
-      <button
-        v-if="viewMode === 'chat'"
-        class="btn btn-ghost btn-sm"
-        :title="openConfigTitle"
-        @click.stop="$emit('open-config')"
-      >
-        <Settings class="h-3.5 w-3.5" />
-      </button>
+      <div v-if="viewMode === 'chat'" class="flex items-center gap-1">
+        <button
+          class="btn btn-ghost btn-sm"
+          :title="openConfigTitle"
+          @click.stop="$emit('open-config')"
+        >
+          <Settings class="h-3.5 w-3.5" />
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          title="打开归档窗口"
+          @click.stop="$emit('open-archives')"
+        >
+          <Archive class="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
     <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center px-2">
       <span class="font-semibold text-sm">{{ titleText }}</span>
@@ -64,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { Pin, Settings, X } from "lucide-vue-next";
+import { Archive, Pin, Settings, X } from "lucide-vue-next";
 
 defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -87,6 +95,7 @@ defineEmits<{
   (e: "force-archive"): void;
   (e: "toggle-always-on-top"): void;
   (e: "open-config"): void;
+  (e: "open-archives"): void;
   (e: "open-runtime-logs"): void;
   (e: "close-window"): void;
 }>();
