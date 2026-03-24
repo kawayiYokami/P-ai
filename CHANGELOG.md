@@ -2,6 +2,12 @@
 
 ## 未发布
 
+- 调整（tool-copy-alignment）：统一工具说明中文文案并校准 `apply_patch` 约束
+  - `apply_patch` 工具说明改为中文规则式描述，移除示例，明确要求绝对路径
+  - 补充 `Update File` 必须先写 `@@` hunk 头的说明，并明确不接受完整 git diff 头
+  - `fetch`、`websearch`、`task`、`exec` 等工具的可见说明与参数描述统一为中文
+  - `read_file` 参数说明移除本机路径示例，截图工具目录不再暴露 `webpQuality` 参数
+
 - 新增（read-file-mcp-experimental）：新增实验性 `read_file` MCP 工具并修正图片读取与会话模型选择
   - 新增 `read_file` 工具，支持文本、图片、PDF 与部分 Office 文件读取，文本结果统一按 `offset/limit` 分页并限制在 30000 字符内
   - `read_file` 运行时改为通过内建 MCP 服务器注册，不再直接以内建 tool 形式挂载，图片结果协议对齐截图工具链路

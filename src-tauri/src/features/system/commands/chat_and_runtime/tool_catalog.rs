@@ -22,12 +22,6 @@ fn frontend_screenshot_tool_definition() -> FrontendToolDefinition {
                         "type": "string",
                         "enum": ["desktop", "focused_window"],
                         "description": "截图模式"
-                    },
-                    "webpQuality": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 100,
-                        "description": "webp 压缩质量"
                     }
                 },
                 "required": [],
@@ -46,7 +40,7 @@ fn frontend_read_file_tool_definition() -> FrontendToolDefinition {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "absolute_path": { "type": "string", "description": "文件绝对路径，例如 E:\\\\github\\\\easy_call_ai\\\\README.md" },
+                    "absolute_path": { "type": "string", "description": "文件绝对路径" },
                     "offset": { "type": "integer", "minimum": 0, "description": "0-based 起始行号，用于分页读取大文件" },
                     "limit": { "type": "integer", "minimum": 1, "description": "最多读取的行数，配合 offset 使用" }
                 },

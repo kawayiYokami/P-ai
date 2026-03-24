@@ -10,12 +10,12 @@ impl Tool for BuiltinFetchTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "fetch".to_string(),
-            description: "Fetch webpage text. Prefer other available network search/fetch tools first; use this only when no other network search or fetch tool is available.".to_string(),
+            description: "抓取网页文本内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "url": { "type": "string", "description": "URL" },
-                "max_length": { "type": "integer", "description": "Max chars", "default": 1800 }
+                "url": { "type": "string", "description": "要抓取的网页地址" },
+                "max_length": { "type": "integer", "description": "返回内容的最大字符数", "default": 1800 }
               },
               "required": ["url"]
             }),
@@ -53,11 +53,11 @@ impl Tool for BuiltinBingSearchTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "websearch".to_string(),
-            description: "Search the web. Prefer other available network search/fetch tools first; use this only when no other network search or fetch tool is available.".to_string(),
+            description: "搜索互联网内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "query": { "type": "string", "description": "Query" }
+                "query": { "type": "string", "description": "搜索关键词或问题" }
               },
               "required": ["query"]
             }),
@@ -219,7 +219,7 @@ impl Tool for BuiltinCommandTool {
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "command": { "type": "string", "description": "命令文本，例如 `reload`、`wait 800`" }
+                "command": { "type": "string", "description": "命令文本" }
               },
               "required": ["command"],
               "additionalProperties": false
@@ -348,9 +348,9 @@ impl Tool for BuiltinTerminalExecTool {
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["run", "list", "close"], "default": "run" },
-                "session_id": { "type": "string", "description": "Optional shell session id; defaults to current chat session id." },
-                "command": { "type": "string", "description": "Shell command to execute when action=run" },
-                "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000 }
+                "session_id": { "type": "string", "description": "可选 shell 会话 ID；默认使用当前聊天会话" },
+                "command": { "type": "string", "description": "action=run 时要执行的 shell 命令" },
+                "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000, "description": "命令超时时间，单位毫秒" }
               },
               "required": []
             }),
@@ -424,15 +424,20 @@ impl Tool for BuiltinApplyPatchTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "apply_patch".to_string(),
-            description: format!(
-                "{}\nUse the `apply_patch` tool to edit files.\nPatch format:\n*** Begin Patch\n[ one or more file sections ]\n*** End Patch\n\nFile headers:\n*** Add File: <path>\n*** Delete File: <path>\n*** Update File: <path>\n(optional) *** Move to: <new path>\n\nHunk lines:\n@@\n<space> context line\n- removed line\n+ added line\n\nImportant:\n- Input must be Codex patch, NOT git diff (`diff --git ...`).\n- Paths must be relative.\n\nMinimal examples:\n*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** End Patch\n\n*** Begin Patch\n*** Update File: src/main.ts\n@@\n-old\n+new\n*** End Patch\n\n*** Begin Patch\n*** Delete File: old.txt\n*** End Patch",
-                apply_patch_tool_description()
-            ),
+            description: [
+                "编辑文件的结构化补丁工具。",
+                "输入必须是固定补丁格式：以 *** Begin Patch 开始，以 *** End Patch 结束。",
+                "支持的文件头有：*** Add File:、*** Delete File:、*** Update File:，以及可选的 *** Move to:。",
+                "Update File 的每个 hunk 都必须先写一行 @@ 头。",
+                "在 @@ 头之后，hunk 中空格前缀表示上下文，- 表示删除，+ 表示新增。",
+                "文件路径必须是绝对路径。",
+                "不接受 git diff；不要使用 diff --git、---、+++ 等格式。",
+            ].join("\n"),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "input": { "type": "string", "description": "Full patch text. Must start with *** Begin Patch and end with *** End Patch." },
-                "session_id": { "type": "string", "description": "Optional tool session id; defaults to current chat session id." }
+                "input": { "type": "string", "description": "完整补丁文本；必须以 *** Begin Patch 开始并以 *** End Patch 结束" },
+                "session_id": { "type": "string", "description": "可选工具会话 ID；默认使用当前聊天会话" }
               },
               "required": ["input"],
               "additionalProperties": false
@@ -483,7 +488,7 @@ impl Tool for BuiltinTaskTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "task".to_string(),
-            description: "Manage the persistent task board. Use action=list|get|create|update|complete. Trigger rules: if trigger.run_at is omitted, the task becomes active immediately; if trigger.run_at is set, it runs once at that local time; if trigger.every_minutes is also set, it repeats every N minutes starting from trigger.run_at and must also include trigger.end_at as the stop time. When writing trigger.run_at or trigger.end_at, copy the local RFC3339 time format shown in the hidden task/current-time hints, including timezone offset and second precision; do not use milliseconds.".to_string(),
+            description: "管理持久化任务板。支持 list、get、create、update、complete 五种动作。若未填写 trigger.run_at，任务会立即生效；若填写 trigger.run_at，则在该本地时间执行一次；若同时填写 trigger.every_minutes，则会从 trigger.run_at 开始按分钟重复执行，并且必须同时填写 trigger.end_at 作为停止时间。trigger.run_at 与 trigger.end_at 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
@@ -502,9 +507,9 @@ impl Tool for BuiltinTaskTool {
                 "trigger": {
                   "type": "object",
                   "properties": {
-                    "run_at": { "type": "string", "description": "Optional. Copy the same local RFC3339 format shown in the task/current-time hints, for example 2026-03-10T09:30:00+08:00. Include timezone offset, keep second precision, and do not include milliseconds. If omitted, the task becomes active immediately." },
-                    "every_minutes": { "type": "integer", "minimum": 1, "description": "Optional. If set, repeat every N minutes starting from trigger.run_at. Requires trigger.run_at and trigger.end_at." },
-                    "end_at": { "type": "string", "description": "Optional unless trigger.every_minutes is set. Defines when a repeating task stops. Must be later than trigger.run_at. Use the same local RFC3339 format shown in the task/current-time hints." }
+                    "run_at": { "type": "string", "description": "可选。本地 RFC3339 执行时间；需保留时区偏移与秒级精度，不要包含毫秒。未填写时任务立即生效" },
+                    "every_minutes": { "type": "integer", "minimum": 1, "description": "可选。按分钟重复执行间隔；填写后必须同时提供 trigger.run_at 与 trigger.end_at" },
+                    "end_at": { "type": "string", "description": "可选；当填写 trigger.every_minutes 时必填。表示重复任务的停止时间，且必须晚于 trigger.run_at" }
                   }
                 }
               },

@@ -505,7 +505,7 @@ fn terminal_shell_runtime_label(shell: &TerminalShellProfile) -> String {
 
 fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
     format!(
-        "Execute a command inside current shell workspace root. Runtime shell: {}.",
+        "在当前 shell 工作区根目录中执行命令。运行时 shell：{}。",
         terminal_shell_runtime_label(shell)
     )
 }
