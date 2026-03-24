@@ -19,6 +19,7 @@
       @force-archive="openForceArchiveActionDialog"
       @toggle-always-on-top="toggleAlwaysOnTop"
       @open-config="openConfigWindow"
+      @open-archives="openCurrentHistory"
       @open-runtime-logs="openRuntimeLogsDialog"
       @close-window="closeWindow"
     />
