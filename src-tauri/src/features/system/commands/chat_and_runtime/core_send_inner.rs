@@ -1,3 +1,119 @@
+fn remote_im_extract_action_from_tool_arguments(raw: &Value) -> Option<String> {
+    match raw {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            serde_json::from_str::<Value>(trimmed)
+                .ok()
+                .and_then(|value| remote_im_extract_action_from_tool_arguments(&value))
+        }
+        Value::Object(map) => map
+            .get("action")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+fn remote_im_is_reply_decision_action(action: &str) -> bool {
+    matches!(action.trim().to_ascii_lowercase().as_str(), "send" | "no_reply")
+}
+
+fn remote_im_extract_reply_decision_from_tool_history(events: &[Value]) -> Option<String> {
+    let mut latest_action: Option<String> = None;
+    for event in events {
+        let Some(tool_calls) = event.get("tool_calls").and_then(Value::as_array) else {
+            continue;
+        };
+        for tool_call in tool_calls {
+            let Some(function) = tool_call.get("function") else {
+                continue;
+            };
+            let Some(name) = function.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if name.trim() != "remote_im_send" {
+                continue;
+            }
+            let Some(action) = function
+                .get("arguments")
+                .and_then(remote_im_extract_action_from_tool_arguments)
+            else {
+                continue;
+            };
+            if remote_im_is_reply_decision_action(&action) {
+                latest_action = Some(action);
+            }
+        }
+    }
+    latest_action
+}
+
+fn remote_im_message_has_reply_decision(message: &ChatMessage) -> bool {
+    if let Some(action) = message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("remoteImDecision"))
+        .and_then(|value| value.get("action"))
+        .and_then(Value::as_str)
+    {
+        if remote_im_is_reply_decision_action(action) {
+            return true;
+        }
+    }
+    message
+        .tool_call
+        .as_ref()
+        .and_then(|events| remote_im_extract_reply_decision_from_tool_history(events))
+        .is_some()
+}
+
+fn remote_im_trim_conversation_for_qa_mode(conversation: &Conversation) -> Conversation {
+    let last_processed_index = conversation
+        .messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, message)| {
+            if message.role.trim() == "assistant" && remote_im_message_has_reply_decision(message) {
+                Some(index)
+            } else {
+                None
+            }
+        });
+
+    let Some(boundary_index) = last_processed_index else {
+        return conversation.clone();
+    };
+
+    let mut trimmed = conversation.clone();
+    trimmed.messages = conversation
+        .messages
+        .iter()
+        .skip(boundary_index + 1)
+        .cloned()
+        .collect();
+    trimmed
+}
+
+fn remote_im_find_hidden_contact_by_conversation<'a>(
+    data: &'a AppData,
+    conversation_id: &str,
+) -> Option<&'a RemoteImContact> {
+    data.remote_im_contacts.iter().find(|contact| {
+        contact
+            .bound_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            == Some(conversation_id)
+    })
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -512,6 +628,8 @@ async fn send_chat_message_inner(
         latest_user_text,
         current_agent,
         estimated_prompt_tokens,
+        is_hidden_remote_im_conversation,
+        hidden_remote_im_processing_mode,
     ) = {
         let guard = state
             .state_lock
@@ -595,6 +713,12 @@ async fn send_chat_message_inner(
         } else {
             runtime_conversation.clone()
         };
+        let hidden_remote_im_contact =
+            remote_im_find_hidden_contact_by_conversation(&data, &conversation_before.id).cloned();
+        let hidden_remote_im_processing_mode = hidden_remote_im_contact
+            .as_ref()
+            .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
+            .unwrap_or_else(|| "continuous".to_string());
         let is_delegate_conversation =
             conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
         let last_archive_summary = if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
@@ -606,8 +730,22 @@ async fn send_chat_message_inner(
                 .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
                 .map(|c| c.summary.clone())
         };
+        let prompt_conversation_before = if hidden_remote_im_contact.is_some()
+            && hidden_remote_im_processing_mode == "qa"
+        {
+            let trimmed = remote_im_trim_conversation_for_qa_mode(&conversation_before);
+            eprintln!(
+                "[远程IM] 问答模式裁剪会话上下文: conversation_id={}, original_messages={}, trimmed_messages={}",
+                conversation_before.id,
+                conversation_before.messages.len(),
+                trimmed.messages.len()
+            );
+            trimmed
+        } else {
+            conversation_before.clone()
+        };
         let conversation = if trigger_only {
-            let latest_message = conversation_before
+            let latest_message = prompt_conversation_before
                 .messages
                 .last()
                 .ok_or_else(|| "当前对话没有可供继续处理的消息。".to_string())?;
@@ -619,7 +757,7 @@ async fn send_chat_message_inner(
             {
                 return Err("当前最后一条消息来自助理自身，无需重复激活。".to_string());
             }
-            conversation_before.clone()
+            prompt_conversation_before.clone()
         } else {
             let mut storage_api = selected_api.clone();
             storage_api.enable_image = true;
@@ -634,7 +772,7 @@ async fn send_chat_message_inner(
                 (Vec::<String>::new(), None)
             } else {
                 let recall_query_text =
-                    memory_recall_query_text(&conversation_before, &effective_user_text);
+                    memory_recall_query_text(&prompt_conversation_before, &effective_user_text);
                 let private_memory_enabled = data
                     .agents
                     .iter()
@@ -820,6 +958,8 @@ async fn send_chat_message_inner(
             latest_user_text,
             agent,
             estimated_prompt_tokens,
+            hidden_remote_im_contact.is_some(),
+            hidden_remote_im_processing_mode,
         )
     };
     log_run_stage("prompt_ready");
@@ -974,6 +1114,18 @@ async fn send_chat_message_inner(
     let reasoning_inline = model_reply.reasoning_inline;
     let tool_history_events = model_reply.tool_history_events;
     let suppress_assistant_message = model_reply.suppress_assistant_message;
+    let remote_im_reply_decision =
+        remote_im_extract_reply_decision_from_tool_history(&tool_history_events);
+    if is_hidden_remote_im_conversation && remote_im_reply_decision.is_none() {
+        eprintln!(
+            "[远程IM] 隐藏联系人线程缺少回复工具决策，判定失败: conversation_id={}, processing_mode={}",
+            conversation_id, hidden_remote_im_processing_mode
+        );
+        return Err(
+            "后台联系人线程本轮未调用 remote_im_send 做出最终决策，请模型必须使用 send 或 no_reply。"
+                .to_string(),
+        );
+    }
     let trusted_input_tokens = model_reply.trusted_input_tokens;
     let (effective_prompt_tokens, effective_prompt_source) =
         effective_prompt_tokens_from_provider(estimated_prompt_tokens, trusted_input_tokens);
@@ -989,10 +1141,11 @@ async fn send_chat_message_inner(
             && inline.is_empty()
             && trusted_input_tokens.is_none()
             && estimated_prompt_tokens == 0
+            && remote_im_reply_decision.is_none()
         {
             None
         } else {
-            Some(serde_json::json!({
+            let mut meta = serde_json::json!({
                 "reasoningStandard": standard,
                 "reasoningInline": inline,
                 "providerPromptTokens": trusted_input_tokens,
@@ -1001,7 +1154,20 @@ async fn send_chat_message_inner(
                 "effectivePromptSource": effective_prompt_source,
                 "contextUsagePercent": context_usage_percent,
                 "contextUsageRatio": context_usage_ratio
-            }))
+            });
+            if let Some(action) = remote_im_reply_decision.as_deref() {
+                if let Some(obj) = meta.as_object_mut() {
+                    obj.insert(
+                        "remoteImDecision".to_string(),
+                        serde_json::json!({
+                            "action": action,
+                            "processingMode": hidden_remote_im_processing_mode,
+                            "conversationKind": "remote_im_hidden"
+                        }),
+                    );
+                }
+            }
+            Some(meta)
         }
     };
     log_run_stage("model_reply_ready");

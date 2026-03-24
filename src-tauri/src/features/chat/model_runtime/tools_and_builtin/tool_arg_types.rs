@@ -76,7 +76,7 @@ where
         type Value = String;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("action string: list or send")
+            formatter.write_str("action string: list, send or no_reply")
         }
 
         fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -85,9 +85,9 @@ where
         {
             let normalized = value.trim().to_ascii_lowercase();
             match normalized.as_str() {
-                "list" | "send" => Ok(normalized),
+                "list" | "send" | "no_reply" => Ok(normalized),
                 _ => Err(E::custom(format!(
-                    "action 非法：`{value}`。请返回正确动作：list 或 send"
+                    "action 非法：`{value}`。请返回正确动作：list、send 或 no_reply"
                 ))),
             }
         }

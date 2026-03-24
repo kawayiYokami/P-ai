@@ -131,10 +131,28 @@ export type RemoteImContact = {
   activationMode: "always" | "never" | "keyword";
   activationKeywords: string[];
   activationCooldownSeconds: number;
+  routeMode?: "main_session" | "dedicated_hidden_thread";
+  boundDepartmentId?: string;
+  boundConversationId?: string;
+  processingMode?: "qa" | "continuous";
   lastActivatedAt?: string;
   lastMessageAt?: string;
   dingtalkSessionWebhook?: string;
   dingtalkSessionWebhookExpiredTime?: number;
+};
+
+export type HiddenRemoteImConversationSummary = {
+  contactId: string;
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  lastMessageAt?: string;
+  messageCount: number;
+  channelId: string;
+  platform: RemoteImPlatform;
+  contactDisplayName: string;
+  boundDepartmentId?: string;
+  processingMode: "qa" | "continuous";
 };
 
 export type McpDefinitionValidateResult = {

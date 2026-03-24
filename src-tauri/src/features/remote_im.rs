@@ -115,7 +115,51 @@ struct RemoteImContactRemarkUpdateInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RemoteImContactRouteModeUpdateInput {
+    contact_id: String,
+    route_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactDepartmentBindingUpdateInput {
+    contact_id: String,
+    #[serde(default)]
+    department_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactProcessingModeUpdateInput {
+    contact_id: String,
+    processing_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RemoteImContactDeleteInput {
+    contact_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HiddenRemoteImConversationSummary {
+    contact_id: String,
+    conversation_id: String,
+    title: String,
+    updated_at: String,
+    last_message_at: Option<String>,
+    message_count: usize,
+    channel_id: String,
+    platform: RemoteImPlatform,
+    contact_display_name: String,
+    bound_department_id: Option<String>,
+    processing_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HiddenRemoteImConversationMessagesInput {
     contact_id: String,
 }
 
@@ -182,6 +226,10 @@ fn remote_im_upsert_contact_for_inbound(
         activation_mode: "never".to_string(),
         activation_keywords: Vec::new(),
         activation_cooldown_seconds: 0,
+        route_mode: "main_session".to_string(),
+        bound_department_id: None,
+        bound_conversation_id: None,
+        processing_mode: "continuous".to_string(),
         last_activated_at: None,
         last_message_at: Some(now.to_string()),
         dingtalk_session_webhook: if matches!(input.platform, RemoteImPlatform::Dingtalk) {
@@ -222,6 +270,97 @@ fn normalize_contact_activation_keywords(values: &[String]) -> Vec<String> {
     out
 }
 
+fn normalize_contact_route_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "dedicated_hidden_thread" => "dedicated_hidden_thread".to_string(),
+        _ => "main_session".to_string(),
+    }
+}
+
+fn normalize_contact_processing_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "qa" => "qa".to_string(),
+        _ => "continuous".to_string(),
+    }
+}
+
+fn remote_im_contact_display_name(contact: &RemoteImContact) -> String {
+    let remark = contact.remark_name.trim();
+    if !remark.is_empty() {
+        return remark.to_string();
+    }
+    let remote_name = contact.remote_contact_name.trim();
+    if !remote_name.is_empty() {
+        return remote_name.to_string();
+    }
+    contact.remote_contact_id.trim().to_string()
+}
+
+fn remote_im_contact_is_main_department(config: &AppConfig, contact: &RemoteImContact) -> bool {
+    let Some(bound_department_id) = contact
+        .bound_department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return true;
+    };
+    bound_department_id == ASSISTANT_DEPARTMENT_ID
+        || assistant_department(config)
+            .map(|dept| dept.id.trim() == bound_department_id)
+            .unwrap_or(false)
+}
+
+fn remote_im_resolve_effective_route_mode(
+    config: &AppConfig,
+    contact: &RemoteImContact,
+) -> String {
+    if remote_im_contact_is_main_department(config, contact) {
+        "main_session".to_string()
+    } else {
+        "dedicated_hidden_thread".to_string()
+    }
+}
+
+fn remote_im_hidden_conversation_title(contact: &RemoteImContact) -> String {
+    format!("联系人 · {}", remote_im_contact_display_name(contact))
+}
+
+fn ensure_hidden_remote_im_conversation_id(
+    data: &mut AppData,
+    contact: &mut RemoteImContact,
+) -> Result<String, String> {
+    if let Some(existing_id) = contact
+        .bound_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+    {
+        if data.conversations.iter().any(|conversation| {
+            conversation.id == existing_id
+                && conversation.summary.trim().is_empty()
+                && conversation_is_remote_im_hidden(conversation)
+        }) {
+            return Ok(existing_id);
+        }
+    }
+
+    let mut conversation = build_conversation_record(
+        "",
+        "",
+        &remote_im_hidden_conversation_title(contact),
+        CONVERSATION_KIND_REMOTE_IM_HIDDEN,
+        None,
+        None,
+    );
+    conversation.status = "inactive".to_string();
+    let conversation_id = conversation.id.clone();
+    data.conversations.push(conversation);
+    contact.bound_conversation_id = Some(conversation_id.clone());
+    Ok(conversation_id)
+}
+
 fn remote_im_set_sender_origin_meta(
     input: &RemoteImEnqueueInput,
     conversation_id: &str,
@@ -259,9 +398,6 @@ struct ValidatedEnqueueInput {
     audios: Vec<BinaryPart>,
     attachments: Vec<AttachmentMetaInput>,
     channel: RemoteImChannelConfig,
-    department_id: String,
-    agent_id: String,
-    conversation_id: String,
 }
 
 fn validate_images(channel: &RemoteImChannelConfig, input: &RemoteImEnqueueInput) -> Vec<BinaryPart> {
@@ -308,18 +444,20 @@ fn resolve_channel_config(
     Ok((channel_id, channel))
 }
 
-fn resolve_route_config(
-    input: &RemoteImEnqueueInput,
+fn resolve_department_agent_pair(
+    requested_department_id: Option<&str>,
+    requested_agent_id: Option<&str>,
     config: &AppConfig,
 ) -> Result<(String, String), String> {
-    let requested_department_id = input
-        .session
-        .department_id
-        .as_deref()
+    let requested_department_id = requested_department_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    let requested_agent_id = input.session.agent_id.trim().to_string();
+    let requested_agent_id = requested_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_default();
     let agent_id = if !requested_agent_id.is_empty() {
         requested_agent_id
     } else {
@@ -351,47 +489,18 @@ fn resolve_route_config(
     Ok((department.id.clone(), agent_id))
 }
 
-fn resolve_conversation_id(
-    input: &RemoteImEnqueueInput,
-    data: &mut AppData,
-    agent_id: &str,
-) -> Result<String, String> {
-    let main_idx = ensure_main_conversation_index(data, "", agent_id);
-    let main_conversation_id = data
-        .conversations
-        .get(main_idx)
-        .map(|item| item.id.clone())
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "主会话索引超出范围".to_string())?;
-    if let Some(requested) = input
-        .session
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
-        if requested == main_conversation_id {
-            return Ok(main_conversation_id);
-        }
-    }
-    Ok(main_conversation_id)
-}
-
 fn validate_enqueue_input(
     input: &RemoteImEnqueueInput,
     config: &AppConfig,
-    data: &mut AppData,
 ) -> Result<ValidatedEnqueueInput, String> {
     let text = input.payload.text.as_deref().unwrap_or("").trim().to_string();
     let (_channel_id, channel) = resolve_channel_config(input, config)?;
-    let (department_id, agent_id) = resolve_route_config(input, config)?;
     let images = validate_images(&channel, input);
     let audios = validate_audios(&channel, input);
     let attachments = validate_attachments(&channel, input);
     if text.is_empty() && images.is_empty() && audios.is_empty() && attachments.is_empty() {
         return Err("远程IM消息内容为空".to_string());
     }
-    let conversation_id = resolve_conversation_id(input, data, &agent_id)?;
 
     Ok(ValidatedEnqueueInput {
         text,
@@ -399,10 +508,39 @@ fn validate_enqueue_input(
         audios,
         attachments,
         channel,
-        department_id,
-        agent_id,
-        conversation_id,
     })
+}
+
+fn resolve_contact_session_target(
+    config: &AppConfig,
+    data: &mut AppData,
+    contact: &mut RemoteImContact,
+) -> Result<(String, String, String), String> {
+    let effective_route_mode = remote_im_resolve_effective_route_mode(config, contact);
+    contact.route_mode = effective_route_mode.clone();
+    if effective_route_mode == "main_session" {
+        let (department_id, agent_id) = resolve_department_agent_pair(
+            Some(ASSISTANT_DEPARTMENT_ID),
+            assistant_department_agent_id(config).as_deref(),
+            config,
+        )?;
+        let main_idx = ensure_main_conversation_index(data, "", &agent_id);
+        let conversation_id = data
+            .conversations
+            .get(main_idx)
+            .map(|item| item.id.clone())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "主会话索引超出范围".to_string())?;
+        return Ok((department_id, agent_id, conversation_id));
+    }
+
+    let (department_id, agent_id) = resolve_department_agent_pair(
+        contact.bound_department_id.as_deref(),
+        None,
+        config,
+    )?;
+    let conversation_id = ensure_hidden_remote_im_conversation_id(data, contact)?;
+    Ok((department_id, agent_id, conversation_id))
 }
 
 fn build_chat_message_from_input(
@@ -605,6 +743,188 @@ fn remote_im_update_contact_remark(
 }
 
 #[tauri::command]
+fn remote_im_update_contact_route_mode(
+    input: RemoteImContactRouteModeUpdateInput,
+    state: State<'_, AppState>,
+) -> Result<RemoteImContact, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter_mut()
+        .find(|item| item.id == input.contact_id)
+        .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
+    let requested_mode = normalize_contact_route_mode(&input.route_mode);
+    let final_mode = if remote_im_contact_is_main_department(&config, contact) {
+        "main_session".to_string()
+    } else {
+        "dedicated_hidden_thread".to_string()
+    };
+    if requested_mode != final_mode {
+        eprintln!(
+            "[远程IM] 联系人路由模式已被约束修正: contact_id={}, requested={}, final={}",
+            contact.id, requested_mode, final_mode
+        );
+    }
+    contact.route_mode = final_mode;
+    let output = contact.clone();
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(output)
+}
+
+#[tauri::command]
+fn remote_im_update_contact_department_binding(
+    input: RemoteImContactDepartmentBindingUpdateInput,
+    state: State<'_, AppState>,
+) -> Result<RemoteImContact, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter_mut()
+        .find(|item| item.id == input.contact_id)
+        .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
+    let next_department_id = input
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    if let Some(department_id) = next_department_id.as_deref() {
+        let department = department_by_id(&config, department_id)
+            .ok_or_else(|| format!("部门不存在: {department_id}"))?;
+        let api_id = department_primary_api_config_id(department);
+        if api_id.trim().is_empty() {
+            return Err(format!("部门模型未配置: {}", department.id));
+        }
+    }
+    contact.bound_department_id = next_department_id;
+    contact.route_mode = remote_im_resolve_effective_route_mode(&config, contact);
+    let output = contact.clone();
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(output)
+}
+
+#[tauri::command]
+fn remote_im_update_contact_processing_mode(
+    input: RemoteImContactProcessingModeUpdateInput,
+    state: State<'_, AppState>,
+) -> Result<RemoteImContact, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter_mut()
+        .find(|item| item.id == input.contact_id)
+        .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
+    contact.processing_mode = normalize_contact_processing_mode(&input.processing_mode);
+    let output = contact.clone();
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(output)
+}
+
+#[tauri::command]
+fn remote_im_list_hidden_contact_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<HiddenRemoteImConversationSummary>, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let data = state_read_app_data_cached(&state)?;
+    let mut items = data
+        .remote_im_contacts
+        .iter()
+        .filter_map(|contact| {
+            let conversation_id = contact
+                .bound_conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            let conversation = data.conversations.iter().find(|conversation| {
+                conversation.id == conversation_id
+                    && conversation.summary.trim().is_empty()
+                    && conversation_is_remote_im_hidden(conversation)
+            })?;
+            Some(HiddenRemoteImConversationSummary {
+                contact_id: contact.id.clone(),
+                conversation_id: conversation.id.clone(),
+                title: remote_im_hidden_conversation_title(contact),
+                updated_at: conversation.updated_at.clone(),
+                last_message_at: conversation.messages.last().map(|message| message.created_at.clone()),
+                message_count: conversation.messages.len(),
+                channel_id: contact.channel_id.clone(),
+                platform: contact.platform.clone(),
+                contact_display_name: remote_im_contact_display_name(contact),
+                bound_department_id: contact.bound_department_id.clone(),
+                processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
+            })
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| {
+        let bk = b.last_message_at.as_deref().unwrap_or(b.updated_at.as_str());
+        let ak = a.last_message_at.as_deref().unwrap_or(a.updated_at.as_str());
+        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+    drop(guard);
+    Ok(items)
+}
+
+#[tauri::command]
+fn remote_im_get_hidden_contact_messages(
+    input: HiddenRemoteImConversationMessagesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    let contact_id = input.contact_id.trim();
+    if contact_id.is_empty() {
+        return Err("contactId is required.".to_string());
+    }
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let data = state_read_app_data_cached(&state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter()
+        .find(|item| item.id == contact_id)
+        .ok_or_else(|| format!("未找到远程联系人：{contact_id}"))?;
+    let conversation_id = contact
+        .bound_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("联系人未绑定隐藏会话：{contact_id}"))?;
+    let mut messages = data
+        .conversations
+        .iter()
+        .find(|conversation| {
+            conversation.id == conversation_id
+                && conversation.summary.trim().is_empty()
+                && conversation_is_remote_im_hidden(conversation)
+        })
+        .map(|conversation| conversation.messages.clone())
+        .ok_or_else(|| format!("隐藏会话不存在：{conversation_id}"))?;
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+    drop(guard);
+    Ok(messages)
+}
+
+#[tauri::command]
 fn remote_im_delete_contact(
     input: RemoteImContactDeleteInput,
     state: State<'_, AppState>,
@@ -644,11 +964,8 @@ pub(crate) fn remote_im_enqueue_message_internal(
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(state)?;
     let mut data = state_read_app_data_cached(state)?;
-    let validated = validate_enqueue_input(&input, &config, &mut data)?;
+    let validated = validate_enqueue_input(&input, &config)?;
     let channel = validated.channel;
-    let department_id = validated.department_id;
-    let agent_id = validated.agent_id;
-    let conversation_id = validated.conversation_id;
     let text = validated.text;
     let images = validated.images;
     let audios = validated.audios;
@@ -656,33 +973,35 @@ pub(crate) fn remote_im_enqueue_message_internal(
 
     let now = now_iso();
     let contact_id = remote_im_upsert_contact_for_inbound(&mut data, &channel, &input, &now);
-    let mut allow_receive = data
+    let contact_idx = data
         .remote_im_contacts
         .iter()
-        .find(|item| item.id == contact_id)
-        .map(|item| item.allow_receive)
-        .unwrap_or(false);
+        .position(|item| item.id == contact_id)
+        .ok_or_else(|| format!("联系人不存在: {contact_id}"))?;
+    let contact = data
+        .remote_im_contacts
+        .get_mut(contact_idx)
+        .ok_or_else(|| format!("联系人不存在: {contact_id}"))?;
+    let mut allow_receive = contact.allow_receive;
     if !allow_receive
         && matches!(channel.platform, RemoteImPlatform::Dingtalk)
         && channel.activate_assistant
     {
-        if let Some(contact) = data.remote_im_contacts.iter_mut().find(|item| item.id == contact_id) {
-            let looks_like_default_contact = !contact.allow_send
-                && !contact.allow_receive
-                && contact.activation_mode == "never"
-                && contact.activation_keywords.is_empty()
-                && contact.activation_cooldown_seconds == 0;
-            if looks_like_default_contact {
-                contact.allow_receive = true;
-                eprintln!(
-                    "[远程IM] 自动开启收信: contact_id={}, contact_name={}, channel_id={}, platform={:?}, reason=matched_default_contact",
-                    contact.id,
-                    contact.remote_contact_name,
-                    channel.id,
-                    channel.platform
-                );
-                allow_receive = true;
-            }
+        let looks_like_default_contact = !contact.allow_send
+            && !contact.allow_receive
+            && contact.activation_mode == "never"
+            && contact.activation_keywords.is_empty()
+            && contact.activation_cooldown_seconds == 0;
+        if looks_like_default_contact {
+            contact.allow_receive = true;
+            eprintln!(
+                "[远程IM] 自动开启收信: contact_id={}, contact_name={}, channel_id={}, platform={:?}, reason=matched_default_contact",
+                contact.id,
+                contact.remote_contact_name,
+                channel.id,
+                channel.platform
+            );
+            allow_receive = true;
         }
     }
     if !allow_receive {
@@ -690,6 +1009,26 @@ pub(crate) fn remote_im_enqueue_message_internal(
         drop(guard);
         return Err(format!("联系人未开启收信，跳过: contact_id={contact_id}"));
     }
+    let (department_id, agent_id, conversation_id) = {
+        let mut detached_contact = data
+            .remote_im_contacts
+            .get(contact_idx)
+            .cloned()
+            .ok_or_else(|| format!("联系人不存在: {contact_id}"))?;
+        let resolved = resolve_contact_session_target(&config, &mut data, &mut detached_contact)?;
+        data.remote_im_contacts[contact_idx] = detached_contact;
+        resolved
+    };
+    eprintln!(
+        "[远程IM] 入站消息路由完成: contact_id={}, channel_id={}, department_id={}, agent_id={}, conversation_id={}, route_mode={}, processing_mode={}",
+        contact_id,
+        input.channel_id.trim(),
+        department_id,
+        agent_id,
+        conversation_id,
+        data.remote_im_contacts[contact_idx].route_mode,
+        data.remote_im_contacts[contact_idx].processing_mode
+    );
     let message = build_chat_message_from_input(
         &input,
         &conversation_id,

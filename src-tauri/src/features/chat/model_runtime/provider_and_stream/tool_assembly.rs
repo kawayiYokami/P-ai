@@ -36,6 +36,30 @@ fn delegate_tool_runtime_disabled_reason(
     }
 }
 
+fn remote_im_hidden_conversation_forces_send_tool(
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> bool {
+    let Some(state) = app_state else {
+        return false;
+    };
+    let Some((_, conversation_id)) = tool_session_id.split_once("::") else {
+        return false;
+    };
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return false;
+    }
+    let Ok(data) = state_read_app_data_cached(state) else {
+        return false;
+    };
+    data.conversations.iter().any(|conversation| {
+        conversation.id == conversation_id
+            && conversation.summary.trim().is_empty()
+            && conversation_is_remote_im_hidden(conversation)
+    })
+}
+
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -61,7 +85,10 @@ async fn assemble_runtime_tools(
         None
     };
     let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
-    let has_remote_im_send = tool_enabled(selected_api, agent, current_department, "remote_im_send");
+    let force_remote_im_send =
+        remote_im_hidden_conversation_forces_send_tool(app_state, tool_session_id);
+    let has_remote_im_send =
+        force_remote_im_send || tool_enabled(selected_api, agent, current_department, "remote_im_send");
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
     let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
@@ -295,10 +322,14 @@ async fn assemble_runtime_tools(
         tool_manifest.push(tool_manifest_item(
             "builtin",
             "remote_im_send",
+            force_remote_im_send,
             false,
-            false,
-            department_reason("remote_im_send")
-                .or_else(|| Some("当前人格未启用该工具".to_string())),
+            if force_remote_im_send {
+                Some("联系人隐藏线程已强制启用该工具".to_string())
+            } else {
+                department_reason("remote_im_send")
+                    .or_else(|| Some("当前人格未启用该工具".to_string()))
+            },
         ));
     }
 

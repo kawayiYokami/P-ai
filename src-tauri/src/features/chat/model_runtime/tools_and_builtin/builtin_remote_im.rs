@@ -16,7 +16,7 @@ impl Tool for BuiltinRemoteImSendTool {
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "action": { "type": "string", "enum": ["list", "send"], "description": "动作。list=列出可用联系人；send=发送消息", "default": "send" },
+                "action": { "type": "string", "enum": ["list", "send", "no_reply"], "description": "动作。list=列出可用联系人；send=发送消息；no_reply=本轮决定不回复", "default": "send" },
                 "channel_id": { "type": "string", "description": "action=send 时必填；action=list 时可选（用于按渠道过滤）" },
                 "contact_id": { "type": "string", "description": "action=send 时必填；远程联系人 ID（contactId，即QQ号或群号）" },
                 "text": { "type": "string", "description": "action=send 时可选；要发送的文本内容（当传入 file_paths 时可为空）" },
@@ -162,9 +162,30 @@ async fn builtin_remote_im_send(
             }));
         }
         "send" => {}
+        "no_reply" => {
+            let status = args.status.trim().to_ascii_lowercase();
+            let stop_tool_loop = match status.as_str() {
+                "done" => true,
+                "continue" => false,
+                other => {
+                    return Err(format!(
+                        "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
+                    ))
+                }
+            };
+            return Ok(serde_json::json!({
+                "ok": true,
+                "action": "no_reply",
+                "status": status,
+                "done": stop_tool_loop,
+                "continue": !stop_tool_loop,
+                "stopToolLoop": stop_tool_loop,
+                "noReply": true
+            }));
+        }
         other => {
             return Err(format!(
-                "remote_im_send.action 非法：`{other}`。请返回正确动作：list 或 send"
+                "remote_im_send.action 非法：`{other}`。请返回正确动作：list、send 或 no_reply"
             ));
         }
     }

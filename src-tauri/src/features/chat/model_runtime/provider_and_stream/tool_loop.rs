@@ -76,6 +76,12 @@ fn should_stop_after_remote_im_send(tool_name: &str, tool_result: &str) -> bool 
         .unwrap_or(false)
 }
 
+fn remote_im_result_action(tool_result: &str) -> Option<String> {
+    serde_json::from_str::<Value>(tool_result)
+        .ok()
+        .and_then(|value| value.get("action").and_then(Value::as_str).map(str::to_string))
+}
+
 fn tool_history_without_organize_context(events: &[Value]) -> Vec<Value> {
     let mut filtered = Vec::<Value>::new();
     let mut skip_next_tool = false;
@@ -378,7 +384,10 @@ where
                     chat_session_key
                 );
                 let final_text = if full_assistant_text.trim().is_empty() {
-                    "已发送完成。".to_string()
+                    match remote_im_result_action(&tool_result).as_deref() {
+                        Some("no_reply") => "本轮决定不回复。".to_string(),
+                        _ => "已发送完成。".to_string(),
+                    }
                 } else {
                     full_assistant_text.clone()
                 };

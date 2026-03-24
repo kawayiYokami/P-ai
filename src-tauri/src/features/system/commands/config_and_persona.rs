@@ -1330,7 +1330,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
     let mut summaries = data
         .conversations
         .iter()
-        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
+        .filter(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c))
         .map(|c| {
             let last_message_at = c.messages.last().map(|m| m.created_at.clone());
             UnarchivedConversationSummary {
@@ -1424,7 +1424,7 @@ fn set_active_unarchived_conversation(
         data.conversations.iter().position(|item| {
             item.id == conversation_id
                 && item.summary.trim().is_empty()
-                && !conversation_is_delegate(item)
+                && conversation_visible_in_foreground_lists(item)
         })
     });
     if target_idx.is_none() {
@@ -1435,7 +1435,7 @@ fn set_active_unarchived_conversation(
                     .enumerate()
                     .filter(|(_, item)| {
                         item.summary.trim().is_empty()
-                            && !conversation_is_delegate(item)
+                            && conversation_visible_in_foreground_lists(item)
                     })
                     .max_by(|(idx_a, a), (idx_b, b)| {
                         let a_updated = a.updated_at.trim();
@@ -1459,7 +1459,7 @@ fn set_active_unarchived_conversation(
 
     let mut changed = defaults_changed || normalized_changed;
     for (idx, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let target_status = if idx == target_idx { "active" } else { "inactive" };
@@ -1505,13 +1505,13 @@ fn switch_active_conversation_snapshot(
         .position(|item| {
             item.id == target_conversation_id
                 && item.summary.trim().is_empty()
-                && !conversation_is_delegate(item)
+                && conversation_visible_in_foreground_lists(item)
         })
         .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
 
     let mut changed = defaults_changed || normalized_changed;
     for (idx, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let target_status = if idx == target_idx { "active" } else { "inactive" };
@@ -1545,7 +1545,7 @@ fn switch_active_conversation_snapshot(
     let mut unarchived_conversations = data
         .conversations
         .iter()
-        .filter(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c))
+        .filter(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c))
         .map(|c| {
             let last_message_at = c.messages.last().map(|m| m.created_at.clone());
             UnarchivedConversationSummary {
@@ -1652,7 +1652,7 @@ fn create_unarchived_conversation(
         .ok_or_else(|| "No API config available".to_string())?;
 
     for conversation in &mut data.conversations {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         conversation.status = "inactive".to_string();
@@ -1745,7 +1745,7 @@ fn get_unarchived_conversation_messages(
     let requested_messages = data
         .conversations
         .iter()
-        .find(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c) && c.id == conversation_id)
+        .find(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c) && c.id == conversation_id)
         .map(|c| c.messages.clone());
     let fallback_messages = latest_active_conversation_index(&data, "", "")
         .and_then(|idx| data.conversations.get(idx))
@@ -1777,7 +1777,7 @@ fn get_unarchived_conversation_recent_messages(
     let mut messages = data
         .conversations
         .iter()
-        .find(|c| c.summary.trim().is_empty() && !conversation_is_delegate(c) && c.id == conversation_id)
+        .find(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c) && c.id == conversation_id)
         .map(|c| {
             let total = c.messages.len();
             let start = total.saturating_sub(limit);
@@ -1842,7 +1842,7 @@ fn delete_unarchived_conversation(
     data.conversations.retain(|conversation| {
         !(conversation.id == conversation_id
             && conversation.summary.trim().is_empty()
-            && !conversation_is_delegate(conversation))
+            && conversation_visible_in_foreground_lists(conversation))
     });
     if data.conversations.len() == before {
         drop(guard);
@@ -1858,7 +1858,7 @@ fn delete_unarchived_conversation(
         .iter()
         .find(|conversation| {
             conversation.summary.trim().is_empty()
-                && !conversation_is_delegate(conversation)
+                && conversation_visible_in_foreground_lists(conversation)
                 && conversation.status.trim() == "active"
         })
         .map(|conversation| conversation.id.clone())
@@ -1866,7 +1866,7 @@ fn delete_unarchived_conversation(
             data.conversations
                 .iter()
                 .find(|conversation| {
-                    conversation.summary.trim().is_empty() && !conversation_is_delegate(conversation)
+                    conversation.summary.trim().is_empty() && conversation_visible_in_foreground_lists(conversation)
                 })
                 .map(|conversation| conversation.id.clone())
         })
@@ -1941,7 +1941,7 @@ fn get_active_conversation_messages(
             .position(|item| {
                 item.id == conversation_id
                     && item.summary.trim().is_empty()
-                    && !conversation_is_delegate(item)
+                    && conversation_visible_in_foreground_lists(item)
             })
         {
             idx
@@ -1975,7 +1975,7 @@ fn get_active_conversation_messages(
     };
     let mut status_changed = false;
     for (i, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let next_status = if i == idx { "active" } else { "inactive" };
@@ -2077,7 +2077,7 @@ fn resolve_unarchived_conversation_messages_after(
         .find(|item| {
             item.id == conversation_id
                 && item.summary.trim().is_empty()
-                && !conversation_is_delegate(item)
+                && conversation_visible_in_foreground_lists(item)
         })
         .ok_or_else(|| format!("Unarchived conversation not found: {conversation_id}"))?;
     let messages = conversation.messages.clone();
@@ -2165,7 +2165,7 @@ fn get_active_conversation_messages_before(
             .position(|item| {
                 item.id == conversation_id
                     && item.summary.trim().is_empty()
-                    && !conversation_is_delegate(item)
+                    && conversation_visible_in_foreground_lists(item)
             })
         {
             idx
@@ -2190,7 +2190,7 @@ fn get_active_conversation_messages_before(
 
     let mut status_changed = false;
     for (i, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let next_status = if i == idx { "active" } else { "inactive" };
@@ -2284,7 +2284,7 @@ fn get_active_conversation_messages_after(
             .position(|item| {
                 item.id == conversation_id
                     && item.summary.trim().is_empty()
-                    && !conversation_is_delegate(item)
+                    && conversation_visible_in_foreground_lists(item)
             })
         {
             idx
@@ -2309,7 +2309,7 @@ fn get_active_conversation_messages_after(
 
     let mut status_changed = false;
     for (i, conversation) in data.conversations.iter_mut().enumerate() {
-        if conversation_is_delegate(conversation) || !conversation.summary.trim().is_empty() {
+        if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
         }
         let next_status = if i == idx { "active" } else { "inactive" };
@@ -2520,7 +2520,7 @@ fn rewind_conversation_from_message(
                 item.id == conversation_id
                     && item.status == "active"
                     && item.summary.trim().is_empty()
-                    && !conversation_is_delegate(item)
+                    && conversation_visible_in_foreground_lists(item)
             })
             .ok_or_else(|| {
                 format!("Target active conversation not found, conversationId={conversation_id}")
@@ -2630,3 +2630,4 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+

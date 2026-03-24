@@ -110,6 +110,9 @@
       :delegate-conversations="delegateConversations"
       :selected-delegate-conversation-id="selectedDelegateConversationId"
       :delegate-messages="delegateMessages"
+      :hidden-remote-im-conversations="hiddenRemoteImConversations"
+      :selected-hidden-remote-im-contact-id="selectedHiddenRemoteImContactId"
+      :hidden-remote-im-messages="hiddenRemoteImMessages"
       :message-text="messageText"
       :extract-message-images="extractMessageImages"
       :memory-list="memoryList"
@@ -178,6 +181,7 @@
       :select-archive="selectArchive"
       :select-unarchived-conversation="selectUnarchivedConversation"
       :select-delegate-conversation="selectDelegateConversation"
+      :select-hidden-remote-im-conversation="selectHiddenRemoteImConversation"
       :export-archive="exportArchive"
       :import-archive-file="prepareArchiveImport"
       :delete-archive="deleteArchive"
@@ -637,12 +641,16 @@ const {
   delegateConversations,
   delegateMessages,
   selectedDelegateConversationId,
+  hiddenRemoteImConversations,
+  hiddenRemoteImMessages,
+  selectedHiddenRemoteImContactId,
   loadArchives,
   loadDelegateConversations,
   loadUnarchivedConversations,
   selectArchive,
   selectUnarchivedConversation,
   selectDelegateConversation,
+  selectHiddenRemoteImConversation,
   deleteUnarchivedConversation: deleteUnarchivedConversationFromArchives,
   deleteArchive,
   exportArchive,

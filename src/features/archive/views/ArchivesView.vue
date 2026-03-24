@@ -25,6 +25,14 @@
       >
         {{ t("archives.archivedMessages") }}
       </button>
+      <button
+        type="button"
+        class="btn btn-sm join-item"
+        :class="viewMode === 'remoteIm' ? 'btn-primary' : 'btn-ghost'"
+        @click="switchViewMode('remoteIm')"
+      >
+        联系人消息
+      </button>
     </div>
     <div class="flex items-center gap-2">
       <button class="btn bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('loadArchives')">{{ t("archives.refresh") }}</button>
@@ -33,7 +41,7 @@
       <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
       <button
         class="btn bg-base-100 border-base-300 hover:bg-base-200 text-error"
-        :disabled="viewMode === 'delegate' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && !selectedUnarchivedConversationId)"
+        :disabled="viewMode === 'delegate' || viewMode === 'remoteIm' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && !selectedUnarchivedConversationId)"
         @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
       >
         {{ t("common.delete") }}
@@ -72,7 +80,7 @@
             <div v-if="a.archivedAt" class="text-sm opacity-70 truncate">{{ formatDate(a.archivedAt) }}</div>
           </div>
         </div>
-        <div v-else class="flex flex-col gap-2">
+        <div v-else-if="viewMode === 'delegate'" class="flex flex-col gap-2">
           <div
             v-for="c in delegateConversations"
             :key="c.conversationId"
@@ -84,10 +92,23 @@
             <div class="text-sm opacity-70 truncate">{{ formatDate(c.archivedAt || c.lastMessageAt || c.updatedAt) }}</div>
           </div>
         </div>
+        <div v-else class="flex flex-col gap-2">
+          <div
+            v-for="c in hiddenRemoteImConversations"
+            :key="c.contactId"
+            class="p-2 rounded cursor-pointer hover:bg-base-200"
+            :class="{ 'bg-primary/10': c.contactId === selectedHiddenRemoteImContactId }"
+            @click="$emit('selectHiddenRemoteImConversation', c.contactId)"
+          >
+            <div class="font-medium truncate text-sm">{{ c.contactDisplayName }}</div>
+            <div class="text-xs opacity-70 truncate">{{ c.boundDepartmentId || "-" }} · {{ c.processingMode }}</div>
+            <div class="text-sm opacity-70 truncate">{{ formatDate(c.lastMessageAt || c.updatedAt) }}</div>
+          </div>
+        </div>
       </div>
       <div class="flex-1 overflow-auto space-y-2">
         <div class="text-sm opacity-70 sticky top-0 z-10 bg-base-200/90 backdrop-blur px-1 py-1">
-          {{ viewMode === "current" ? t("archives.currentUnarchived") : viewMode === "delegate" ? t("archives.delegateConversations") : t("archives.archivedMessages") }}
+          {{ viewMode === "current" ? t("archives.currentUnarchived") : viewMode === "delegate" ? t("archives.delegateConversations") : viewMode === "archive" ? t("archives.archivedMessages") : "联系人消息" }}
         </div>
         <div
           v-if="viewMode === 'archive' && archiveSummaryText"
@@ -127,7 +148,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ArchiveSummary, ChatMessage, DelegateConversationSummary, MessagePart, UnarchivedConversationSummary } from "../../../types/app";
+import type {
+  ArchiveSummary,
+  ChatMessage,
+  DelegateConversationSummary,
+  HiddenRemoteImConversationSummary,
+  MessagePart,
+  UnarchivedConversationSummary,
+} from "../../../types/app";
 
 const props = defineProps<{
   archives: ArchiveSummary[];
@@ -140,6 +168,9 @@ const props = defineProps<{
   delegateConversations: DelegateConversationSummary[];
   selectedDelegateConversationId: string;
   delegateMessages: ChatMessage[];
+  hiddenRemoteImConversations: HiddenRemoteImConversationSummary[];
+  selectedHiddenRemoteImContactId: string;
+  hiddenRemoteImMessages: ChatMessage[];
   personaNameMap?: Record<string, string>;
 }>();
 const { t, locale } = useI18n();
@@ -149,24 +180,27 @@ const emit = defineEmits<{
   (e: "selectArchive", archiveId: string): void;
   (e: "selectUnarchivedConversation", conversationId: string): void;
   (e: "selectDelegateConversation", conversationId: string): void;
+  (e: "selectHiddenRemoteImConversation", contactId: string): void;
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
   (e: "deleteArchive", archiveId: string): void;
   (e: "deleteUnarchivedConversation", conversationId: string): void;
   (e: "importArchiveFile", file: File): void;
 }>();
 
-const viewMode = ref<"current" | "delegate" | "archive">("archive");
+const viewMode = ref<"current" | "delegate" | "archive" | "remoteIm">("archive");
 
 const visibleMessages = computed(() =>
   viewMode.value === "current"
     ? props.unarchivedMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
     : viewMode.value === "delegate"
       ? props.delegateMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
-      : props.archiveMessages,
+      : viewMode.value === "remoteIm"
+        ? props.hiddenRemoteImMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+        : props.archiveMessages,
 );
 const archiveImportInputRef = ref<HTMLInputElement | null>(null);
 
-function switchViewMode(mode: "current" | "delegate" | "archive") {
+function switchViewMode(mode: "current" | "delegate" | "archive" | "remoteIm") {
   viewMode.value = mode;
 }
 

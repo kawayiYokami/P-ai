@@ -1,6 +1,12 @@
 import { ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ArchiveSummary, ChatMessage, DelegateConversationSummary, UnarchivedConversationSummary } from "../../../types/app";
+import type {
+  ArchiveSummary,
+  ChatMessage,
+  DelegateConversationSummary,
+  HiddenRemoteImConversationSummary,
+  UnarchivedConversationSummary,
+} from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -77,6 +83,9 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   const delegateConversations = ref<DelegateConversationSummary[]>([]);
   const delegateMessages = ref<ChatMessage[]>([]);
   const selectedDelegateConversationId = ref("");
+  const hiddenRemoteImConversations = ref<HiddenRemoteImConversationSummary[]>([]);
+  const hiddenRemoteImMessages = ref<ChatMessage[]>([]);
+  const selectedHiddenRemoteImContactId = ref("");
 
   async function selectUnarchivedConversation(conversationId: string) {
     const previousId = selectedUnarchivedConversationId.value;
@@ -147,6 +156,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   async function loadArchives() {
     await loadUnarchivedConversations();
     await loadDelegateConversations();
+    await loadHiddenRemoteImConversations();
     try {
       archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
       if (archives.value.length === 0) {
@@ -161,6 +171,40 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       await selectArchive(targetId);
     } catch (e) {
       options.setStatusError("status.loadArchivesFailed", e);
+    }
+  }
+
+  async function selectHiddenRemoteImConversation(contactId: string) {
+    const previousId = selectedHiddenRemoteImContactId.value;
+    const previousMessages = hiddenRemoteImMessages.value;
+    try {
+      const messages = await invokeTauri<ChatMessage[]>("remote_im_get_hidden_contact_messages", {
+        input: { contactId },
+      });
+      selectedHiddenRemoteImContactId.value = contactId;
+      hiddenRemoteImMessages.value = messages;
+    } catch (e) {
+      selectedHiddenRemoteImContactId.value = previousId;
+      hiddenRemoteImMessages.value = previousMessages;
+      options.setStatusError("status.loadMessagesFailed", e);
+    }
+  }
+
+  async function loadHiddenRemoteImConversations() {
+    try {
+      hiddenRemoteImConversations.value =
+        await invokeTauri<HiddenRemoteImConversationSummary[]>("remote_im_list_hidden_contact_sessions");
+      if (hiddenRemoteImConversations.value.length === 0) {
+        selectedHiddenRemoteImContactId.value = "";
+        hiddenRemoteImMessages.value = [];
+        return;
+      }
+      const targetId = hiddenRemoteImConversations.value.some((item) => item.contactId === selectedHiddenRemoteImContactId.value)
+        ? selectedHiddenRemoteImContactId.value
+        : hiddenRemoteImConversations.value[0].contactId;
+      await selectHiddenRemoteImConversation(targetId);
+    } catch (e) {
+      options.setStatusError("status.loadMessagesFailed", e);
     }
   }
 
@@ -297,10 +341,15 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     delegateConversations,
     delegateMessages,
     selectedDelegateConversationId,
+    hiddenRemoteImConversations,
+    hiddenRemoteImMessages,
+    selectedHiddenRemoteImContactId,
     selectUnarchivedConversation,
     selectDelegateConversation,
+    selectHiddenRemoteImConversation,
     loadUnarchivedConversations,
     loadDelegateConversations,
+    loadHiddenRemoteImConversations,
     loadArchives,
     selectArchive,
     deleteUnarchivedConversation,

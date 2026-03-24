@@ -300,7 +300,36 @@
             <!-- 激活配置 -->
             <div class="flex flex-col gap-2 mt-2 pt-2 border-t border-base-200">
               <div class="flex items-center justify-between gap-2">
-                <span>{{ t("config.remoteIm.activateMode") }}</span>
+                <span>消息路由</span>
+                <span class="text-xs opacity-70">{{ contactRouteLabel(item) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span>处理部门</span>
+                <select
+                  class="select select-bordered select-sm w-40"
+                  :value="item.boundDepartmentId || ''"
+                  @change="(e) => onContactDepartmentChange(item, (e.target as HTMLSelectElement).value)"
+                >
+                  <option value="">主部门</option>
+                  <option v-for="dept in remoteImDepartmentOptions" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+                </select>
+              </div>
+              <div class="text-[11px] opacity-50 leading-5">
+                主部门固定进入主会话；非主部门固定进入该联系人的独占后台会话。切换处理部门不会清空联系人原有后台会话历史。
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span>处理模式</span>
+                <select
+                  class="select select-bordered select-sm w-40"
+                  :value="normalizeProcessingMode(item.processingMode)"
+                  @change="(e) => onContactProcessingModeChange(item, (e.target as HTMLSelectElement).value)"
+                >
+                  <option value="continuous">有上下文</option>
+                  <option value="qa">无上下文</option>
+                </select>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span>回复策略</span>
                 <select
                   class="select select-bordered select-sm w-32"
                   :value="item.activationMode"
@@ -311,8 +340,11 @@
                   <option value="keyword">{{ t("config.remoteIm.activateModeKeyword") }}</option>
                 </select>
               </div>
+              <div class="text-[11px] opacity-50 leading-5">
+                {{ contactActivationHint(item) }}
+              </div>
               <div class="flex items-center justify-between gap-2">
-                <span>{{ t("config.remoteIm.activateCooldown") }}</span>
+                <span>处理间隔</span>
                 <div class="flex items-center gap-1">
                   <input
                     type="number"
@@ -324,8 +356,11 @@
                   <span class="opacity-60">{{ t("config.remoteIm.seconds") }}</span>
                 </div>
               </div>
+              <div class="text-[11px] opacity-60">
+                {{ contactRoutingHint(item) }}
+              </div>
               <div v-if="item.activationMode === 'keyword'" class="flex items-center justify-between gap-2">
-                <span>{{ t("config.remoteIm.activateKeywords") }}</span>
+                <span>唤醒关键词</span>
                 <input
                   type="text"
                   class="input input-bordered input-sm flex-1"
@@ -485,6 +520,12 @@ const currentChannelContacts = computed(() => {
   if (!selectedChannelId.value) return [];
   return contacts.value.filter((c) => c.channelId === selectedChannelId.value);
 });
+
+const remoteImDepartmentOptions = computed(() =>
+  (props.config.departments || [])
+    .filter((dept) => dept.id !== "assistant-department" && !dept.isBuiltInAssistant)
+    .map((dept) => ({ id: dept.id, name: dept.name || dept.id })),
+);
 
 const channelPageCount = computed(() =>
   Math.max(1, Math.ceil(channels.value.length / CHANNELS_PAGE_SIZE)),
@@ -748,6 +789,36 @@ function normalizeActivationMode(value: string): RemoteImContact["activationMode
   return "never";
 }
 
+function normalizeProcessingMode(value?: string): "qa" | "continuous" {
+  return value === "qa" ? "qa" : "continuous";
+}
+
+function isMainDepartmentContact(item: RemoteImContact): boolean {
+  return !String(item.boundDepartmentId || "").trim();
+}
+
+function contactRouteLabel(item: RemoteImContact): string {
+  return isMainDepartmentContact(item) ? "主会话" : "联系人独占隐藏会话";
+}
+
+function contactRoutingHint(item: RemoteImContact): string {
+  const processingMode = normalizeProcessingMode(item.processingMode);
+  const routeLabel = isMainDepartmentContact(item) ? "当前走主会话" : "当前走联系人独占隐藏会话";
+  const processingLabel = processingMode === "qa" ? "无上下文" : "有上下文";
+  return `${routeLabel} · ${processingLabel}`;
+}
+
+function contactActivationHint(item: RemoteImContact): string {
+  const mode = normalizeActivationMode(item.activationMode);
+  if (mode === "always") {
+    return "始终回复：任何时候都回复。";
+  }
+  if (mode === "keyword") {
+    return "关键字触发：消息命中关键字时回复。";
+  }
+  return "不回复：任何时候都不回复。";
+}
+
 function parseActivationKeywords(raw: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -795,6 +866,50 @@ function onContactActivationModeChange(item: RemoteImContact, modeRaw: string) {
   void saveContactActivation(item, { activationMode: mode });
 }
 
+async function onContactDepartmentChange(
+  item: RemoteImContact,
+  departmentIdRaw: string,
+) {
+  const oldValue = item.boundDepartmentId;
+  const nextDepartmentId = String(departmentIdRaw || "").trim() || "";
+  item.boundDepartmentId = nextDepartmentId || undefined;
+  try {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_department_binding", {
+      input: {
+        contactId: item.id,
+        departmentId: nextDepartmentId || null,
+      },
+    });
+    if (nextDepartmentId) {
+      props.setStatusAction("非主部门联系人将自动使用独占隐藏会话。");
+    }
+    await refreshContacts();
+  } catch (error) {
+    item.boundDepartmentId = oldValue;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
+}
+
+async function onContactProcessingModeChange(
+  item: RemoteImContact,
+  processingModeRaw: string,
+) {
+  const oldValue = normalizeProcessingMode(item.processingMode);
+  item.processingMode = normalizeProcessingMode(processingModeRaw);
+  try {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_processing_mode", {
+      input: {
+        contactId: item.id,
+        processingMode: item.processingMode,
+      },
+    });
+    await refreshContacts();
+  } catch (error) {
+    item.processingMode = oldValue;
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
+}
+
 function onContactActivationCooldownChange(item: RemoteImContact, cooldownSeconds: number) {
   void saveContactActivation(item, {
     activationCooldownSeconds: Math.max(0, Math.floor(Number(cooldownSeconds) || 0)),
@@ -817,6 +932,7 @@ async function refreshContacts() {
       item.activationMode = normalizeActivationMode(item.activationMode || "never");
       item.activationKeywords = Array.isArray(item.activationKeywords) ? item.activationKeywords : [];
       item.activationCooldownSeconds = Math.max(0, Number(item.activationCooldownSeconds || 0));
+      item.processingMode = normalizeProcessingMode(item.processingMode);
       contactKeywordDrafts.value[item.id] = item.activationKeywords.join(", ");
     }
   } catch (error) {

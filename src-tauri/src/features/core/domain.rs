@@ -8,6 +8,7 @@ const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
+const CONVERSATION_KIND_REMOTE_IM_HIDDEN: &str = "remote_im_hidden";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const DEFAULT_PDF_READ_MODE: &str = "image";
 const DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE: &str = "focused_window";
@@ -1322,6 +1323,14 @@ struct RemoteImContact {
     activation_keywords: Vec<String>,
     #[serde(default)]
     activation_cooldown_seconds: u64,
+    #[serde(default = "default_remote_im_contact_route_mode")]
+    route_mode: String,
+    #[serde(default)]
+    bound_department_id: Option<String>,
+    #[serde(default)]
+    bound_conversation_id: Option<String>,
+    #[serde(default = "default_remote_im_contact_processing_mode")]
+    processing_mode: String,
     #[serde(default)]
     last_activated_at: Option<String>,
     #[serde(default)]
@@ -1338,6 +1347,14 @@ fn default_assistant_department_agent_id() -> String {
 
 fn default_remote_im_contact_activation_mode() -> String {
     "never".to_string()
+}
+
+fn default_remote_im_contact_route_mode() -> String {
+    "main_session".to_string()
+}
+
+fn default_remote_im_contact_processing_mode() -> String {
+    "continuous".to_string()
 }
 
 fn default_user_alias() -> String {
