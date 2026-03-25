@@ -126,6 +126,7 @@
         :workspace-locked="chatWorkspaceLocked"
         :active-conversation-id="currentChatConversationId"
         :unarchived-conversation-items="chatUnarchivedConversationItems"
+        :current-theme="currentTheme"
         @update:chat-input="updateChatInput"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"

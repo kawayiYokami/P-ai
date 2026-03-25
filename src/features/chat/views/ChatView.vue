@@ -176,6 +176,7 @@
                 ]"
                 custom-id="chat-markstream"
                 :nodes="markdownNodesForBlock(block)"
+                :is-dark="markdownIsDark"
                 :final="!block.isStreaming"
                 :max-live-nodes="0"
                 :batch-rendering="true"
@@ -541,6 +542,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, MessageCircle, Mic, Minus, Paperclip, Pause, Play, Plus, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import "markstream-vue/index.css";
@@ -595,6 +597,7 @@ const props = defineProps<{
   currentWorkspaceName: string;
   workspaceLocked: boolean;
   activeConversationId: string;
+  currentTheme: string;
   unarchivedConversationItems: Array<{
     conversationId: string;
     messageCount: number;
@@ -619,6 +622,8 @@ const secondaryConversationItems = computed(
 const canCreateConversation = computed(
   () => !!props.unarchivedConversationItems[0]?.canCreateNew,
 );
+
+const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;

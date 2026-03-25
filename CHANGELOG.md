@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 修复（ui-scrollbar-and-markdown-theme）：统一滚动条预留策略并让聊天 Markdown 跟随 DaisyUI 主题切换
+  - 全局滚动容器统一使用 `scrollbar-gutter: stable both-edges`，减少内容区在滚动条出现时的挤压与覆盖
+  - 聊天 Markdown 渲染改为根据当前 DaisyUI 主题向 `markstream-vue` 显式传入亮暗模式，避免渲染层停留在独立的白天/夜间样式
+
 - 修复（terminal-utf8-runtime）：补齐 Windows 终端拉起链路的 UTF-8 注入并为历史编码输出增加兜底解码
   - Git Bash 与 PowerShell 的终端包裹命令统一补充 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，减少 Python 跟随系统 `cp936/gbk` 输出乱码
   - Windows 终端进程启动时统一注入 `LANG`、`LC_ALL` 与 Python UTF-8 环境变量，收敛 live session 与单次执行链路的编码行为

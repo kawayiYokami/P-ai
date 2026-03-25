@@ -39,12 +39,31 @@ export const APP_THEMES = [
   "silk",
 ] as const;
 
+export const DARK_APP_THEMES = new Set<string>([
+  "dark",
+  "synthwave",
+  "halloween",
+  "forest",
+  "black",
+  "luxury",
+  "dracula",
+  "business",
+  "night",
+  "coffee",
+  "dim",
+  "abyss",
+]);
+
 export type AppTheme = (typeof APP_THEMES)[number];
 const THEME_SET = new Set<string>(APP_THEMES);
 const currentTheme = ref<AppTheme>("light");
 
 function isValidTheme(value: unknown): value is AppTheme {
   return typeof value === "string" && THEME_SET.has(value);
+}
+
+export function isDarkAppTheme(theme: string): boolean {
+  return DARK_APP_THEMES.has(String(theme || "").trim());
 }
 
 export function useAppTheme() {
