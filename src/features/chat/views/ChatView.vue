@@ -63,7 +63,15 @@
               <time v-else-if="formattedBlockTime(block.createdAt)" class="opacity-50 leading-none">{{ formattedBlockTime(block.createdAt) }}</time>
             </span>
           </div>
-          <div :class="['chat-bubble max-w-[92%]', isOwnMessage(block) ? '' : 'bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble']">
+          <div :class="[
+            'chat-bubble',
+            isOwnMessage(block)
+              ? ''
+              : [
+                'bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
+                blockHasMermaid(block) ? 'ecall-assistant-bubble-wide' : '',
+              ],
+          ]">
             <div v-if="block.taskTrigger" class="space-y-2">
               <div class="flex items-center gap-2">
                 <span class="badge badge-sm badge-outline">{{ t("chat.taskTrigger.badge") }}</span>
@@ -956,6 +964,11 @@ function markdownNodesForBlock(block: ChatMessageBlock): any[] {
   return nodes;
 }
 
+function blockHasMermaid(block: ChatMessageBlock): boolean {
+  const text = splitThinkText(block.text).visible;
+  return /```(?:\s*)mermaid\b/i.test(text);
+}
+
 function resolvedInlineReasoning(block: ChatMessageBlock): string {
   return splitThinkText(block.text).inline || block.reasoningInline || "";
 }
@@ -1572,6 +1585,10 @@ watch(
   overflow-x: auto;
 }
 
+.assistant-markdown :deep(.ecall-markdown-content ._mermaid) {
+  width: 100%;
+}
+
 :deep(.chat-bubble) {
   min-width: 0;
   min-height: 0;
@@ -1580,6 +1597,11 @@ watch(
 .ecall-assistant-bubble {
   min-width: 3rem;
   min-height: 2.25rem;
+}
+
+.ecall-assistant-bubble-wide {
+  width: 100%;
+  max-width: 100%;
 }
 
 :deep(.chat-input-no-focus),
