@@ -52,6 +52,8 @@ export const DARK_APP_THEMES = new Set<string>([
   "coffee",
   "dim",
   "abyss",
+  "sunset",
+  "aqua",
 ]);
 
 export type AppTheme = (typeof APP_THEMES)[number];
