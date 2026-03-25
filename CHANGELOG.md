@@ -2,6 +2,11 @@
 
 ## 未发布
 
+- 重构（markdown-render-markstream-only）：聊天 Markdown 渲染统一收口到 `markstream-vue`
+  - 移除旧的 `markdown-it`、`@mdit/plugin-*`、`DOMPurify`、`twemoji` 与手工 Mermaid 二次扫描链路，避免多套渲染体系并存导致的样式与性能问题
+  - 聊天消息正文统一仅通过 `markstream-vue` 的节点解析与流式渲染输出，继续保留公式与 Mermaid 的显示能力
+  - 代码块与 Mermaid 工具栏收口为轻量展示模式，仅保留基础头部与复制能力，关闭预览、展开、导出、全屏、缩放等非必要交互
+
 - 修复（ui-scrollbar-and-markdown-theme）：统一滚动条预留策略并让聊天 Markdown 跟随 DaisyUI 主题切换
   - 全局滚动容器统一使用 `scrollbar-gutter: stable both-edges`，减少内容区在滚动条出现时的挤压与覆盖
   - 聊天 Markdown 渲染改为根据当前 DaisyUI 主题向 `markstream-vue` 显式传入亮暗模式，避免渲染层停留在独立的白天/夜间样式

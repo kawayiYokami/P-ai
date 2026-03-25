@@ -3,7 +3,6 @@ import ChatApp from "./apps/chat/ChatApp.vue";
 import "./style.css";
 import "cropperjs/dist/cropper.css";
 import "katex/dist/katex.min.css";
-import "@mdit/plugin-alert/style";
 import { i18n } from "./i18n";
 
 window.addEventListener("error", (event) => {

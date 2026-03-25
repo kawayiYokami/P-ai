@@ -182,6 +182,8 @@
                 :batch-rendering="true"
                 :render-batch-size="16"
                 :render-batch-delay="8"
+                :code-block-props="markdownCodeBlockProps"
+                :mermaid-props="markdownMermaidProps"
                 :typewriter="false"
                 @click="handleAssistantLinkClick"
               />
@@ -546,13 +548,6 @@ import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ArrowDown, ArrowUp, Copy, FileText, Image as ImageIcon, Lock, LockOpen, MessageCircle, Mic, Minus, Paperclip, Pause, Play, Plus, RotateCcw, Send, Square, Undo2, X } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import "markstream-vue/index.css";
-import MarkdownIt from "markdown-it";
-import { katex } from "@mdit/plugin-katex";
-import { mark } from "@mdit/plugin-mark";
-import { alert } from "@mdit/plugin-alert";
-import mermaid from "mermaid";
-import DOMPurify from "dompurify";
-import twemoji from "twemoji";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
 import ChatQueuePreview from "../components/ChatQueuePreview.vue";
@@ -562,6 +557,26 @@ enableMermaid();
 enableKatex();
 const markstreamMarkdown = getMarkdown();
 const markdownNodeCache = new Map<string, { text: string; final: boolean; nodes: any[] }>();
+const markdownCodeBlockProps = {
+  showHeader: true,
+  showCopyButton: true,
+  showPreviewButton: false,
+  showExpandButton: false,
+  showCollapseButton: false,
+  showFontSizeButtons: false,
+  enableFontSizeControl: false,
+  isShowPreview: false,
+};
+const markdownMermaidProps = {
+  showHeader: true,
+  showCopyButton: true,
+  showExportButton: false,
+  showFullscreenButton: false,
+  showCollapseButton: false,
+  showZoomControls: false,
+  showModeToggle: false,
+  enableWheelZoom: false,
+};
 
 const props = defineProps<{
   userAlias: string;
@@ -795,153 +810,6 @@ const linkOpenErrorText = ref("");
 let activeAudio: HTMLAudioElement | null = null;
 let followScrollRaf = 0;
 let resizeInputRaf = 0;
-let mermaidInited = false;
-let mermaidRenderToken = 0;
-let mermaidApi: any | null = null;
-let mermaidObserver: MutationObserver | null = null;
-let mermaidRenderQueued = false;
-const MERMAID_SENTINEL = "__EASY_CALL_MERMAID__";
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  breaks: true,
-})
-  .use(katex)
-  .use(mark)
-  .use(alert);
-const mdAny = md as any;
-const defaultFenceRenderer =
-  mdAny.renderer?.rules?.fence ??
-  ((tokens: any[], idx: number, options: unknown, _env: unknown, self: any) =>
-    self.renderToken(tokens, idx, options));
-mdAny.renderer.rules.fence = (
-  tokens: any[],
-  idx: number,
-  options: unknown,
-  env: unknown,
-  self: any,
-) => {
-  const token = tokens[idx];
-  const info = String(token?.info || "").trim().toLowerCase();
-  if (info === "mermaid") {
-    const content = String(token?.content || "");
-    return `<pre><code>${escapeHtml(`${MERMAID_SENTINEL}\n${content}`)}</code></pre>`;
-  }
-  return defaultFenceRenderer(tokens, idx, options, env, self);
-};
-
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function ensureMermaidInited(): boolean {
-  if (mermaidInited && mermaidApi) return true;
-  try {
-    const api = (mermaid as any).default ?? mermaid;
-    api.initialize({
-      startOnLoad: false,
-      theme: "default",
-      securityLevel: "strict",
-    });
-    mermaidApi = api;
-    mermaidInited = true;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function scheduleRenderMermaidBlocks() {
-  // markstream-vue 已内建 mermaid 渲染，停用旧的二次扫描替换链路。
-  return;
-  if (mermaidRenderQueued) return;
-  mermaidRenderQueued = true;
-  requestAnimationFrame(() => {
-    mermaidRenderQueued = false;
-    void renderMermaidBlocks();
-  });
-}
-
-async function renderMermaidBlocks() {
-  const root = scrollContainer.value;
-  if (!root) return;
-  const candidates = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      ".assistant-markdown pre > code",
-    ),
-  );
-  if (!candidates.length) return;
-  const token = ++mermaidRenderToken;
-  const ok = ensureMermaidInited();
-  if (!ok || !mermaidApi) return;
-  for (let index = 0; index < candidates.length; index += 1) {
-    if (token !== mermaidRenderToken) return;
-    const node = candidates[index];
-    const host =
-      node.tagName === "CODE" ? (node.parentElement as HTMLElement | null) : node;
-    if (!host) continue;
-    const rawText = (
-      node.tagName === "CODE"
-        ? node.textContent
-        : node.querySelector("code")?.textContent || node.textContent
-    || "").trim();
-    if (!rawText.startsWith(MERMAID_SENTINEL)) continue;
-    const source = rawText
-      .slice(MERMAID_SENTINEL.length)
-      .replace(/^\r?\n/, "")
-      .trim();
-    if (!source) continue;
-    const sourceKey = `${source.length}:${source}`;
-    if (host.dataset.failedFor === sourceKey) continue;
-    host.classList.remove("ecall-mermaid-error");
-    try {
-      const id = `ecall-mermaid-${Date.now()}-${index}`;
-      const { svg } = await mermaidApi.render(id, source);
-      if (token !== mermaidRenderToken) return;
-      const container = document.createElement("div");
-      container.className = "ecall-mermaid-diagram";
-      container.innerHTML = svg;
-      host.replaceWith(container);
-    } catch {
-      try {
-        const normalized = normalizeMermaidSource(source);
-        if (normalized && normalized !== source) {
-          const id = `ecall-mermaid-retry-${Date.now()}-${index}`;
-          const { svg } = await mermaidApi.render(id, normalized);
-          if (token !== mermaidRenderToken) return;
-          const container = document.createElement("div");
-          container.className = "ecall-mermaid-diagram";
-          container.innerHTML = svg;
-          host.replaceWith(container);
-          continue;
-        }
-      } catch {
-        // fall through to failed mark
-      }
-      host.dataset.failedFor = sourceKey;
-      host.classList.add("ecall-mermaid-error");
-    }
-  }
-}
-
-function normalizeMermaidSource(source: string): string {
-  return source
-    .replace(/\r\n/g, "\n")
-    .replace(/[：]/g, ":")
-    .replace(/[，]/g, ",")
-    .replace(/[；]/g, ";")
-    .replace(/[（]/g, "(")
-    .replace(/[）]/g, ")")
-    .replace(/[【]/g, "[")
-    .replace(/[】]/g, "]")
-    .replace(/[“”]/g, "\"")
-    .replace(/[‘’]/g, "'");
-}
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();
@@ -1073,17 +941,6 @@ function splitThinkText(raw: string): { visible: string; inline: string } {
     visible: visible.trim(),
     inline: blocks.join("\n\n"),
   };
-}
-
-function renderMarkdown(text: string): string {
-  const raw = md.render(text || "");
-  const safeHtml = DOMPurify.sanitize(raw);
-  const withEmoji = twemoji.parse(safeHtml, {
-    folder: "svg",
-    ext: ".svg",
-    className: "twemoji",
-  });
-  return DOMPurify.sanitize(withEmoji);
 }
 
 function markdownNodesForBlock(block: ChatMessageBlock): any[] {
@@ -1430,17 +1287,6 @@ onMounted(() => {
     scrollToBottom();
     autoFollowOutput.value = true;
     resizeChatInput();
-    scheduleRenderMermaidBlocks();
-    const root = scrollContainer.value;
-    if (!root) return;
-    mermaidObserver = new MutationObserver(() => {
-      scheduleRenderMermaidBlocks();
-    });
-    mermaidObserver.observe(root, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
   });
 });
 
@@ -1452,10 +1298,6 @@ onBeforeUnmount(() => {
   if (resizeInputRaf) {
     cancelAnimationFrame(resizeInputRaf);
     resizeInputRaf = 0;
-  }
-  if (mermaidObserver) {
-    mermaidObserver.disconnect();
-    mermaidObserver = null;
   }
   clearLoadingMoreTimer();
   stopAudioPlayback();
@@ -1504,9 +1346,6 @@ watch(
     if (newLen > oldLen && autoFollowOutput.value) {
       nextTick(() => scrollToBottom());
     }
-    nextTick(() => {
-      scheduleRenderMermaidBlocks();
-    });
   },
 );
 
@@ -1530,9 +1369,6 @@ watch(
     if (autoFollowOutput.value) {
       nextTick(() => scrollToBottom());
     }
-    nextTick(() => {
-      scheduleRenderMermaidBlocks();
-    });
   },
 );
 
@@ -1734,24 +1570,6 @@ watch(
 
 .assistant-markdown :deep(.ecall-markdown-content pre) {
   overflow-x: auto;
-}
-
-.assistant-markdown :deep(.ecall-mermaid-diagram) {
-  margin: 0.3rem 0 0.45rem;
-  overflow-x: auto;
-}
-
-.assistant-markdown :deep(.ecall-mermaid-diagram svg) {
-  max-width: 100%;
-  height: auto;
-}
-
-.assistant-markdown :deep(img.twemoji) {
-  width: 1.1em;
-  height: 1.1em;
-  margin: 0 0.06em;
-  vertical-align: -0.14em;
-  display: inline-block;
 }
 
 :deep(.chat-bubble) {
