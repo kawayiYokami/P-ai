@@ -1872,6 +1872,7 @@ dependencies = [
  "chrono",
  "dingtalk-stream",
  "directories",
+ "encoding_rs",
  "enigo",
  "font-kit",
  "futures-util",

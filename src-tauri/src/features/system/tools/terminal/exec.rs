@@ -1,5 +1,5 @@
 fn terminal_decode_live_line(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).to_string()
+    terminal_decode_output_bytes(bytes)
 }
 
 async fn terminal_live_exec_command(

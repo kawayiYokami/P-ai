@@ -51,12 +51,26 @@ fn terminal_command_block_reason(command: &str) -> Option<&'static str> {
     None
 }
 
+fn terminal_decode_output_bytes(bytes: &[u8]) -> String {
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return text;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let (decoded, _, had_errors) = encoding_rs::GBK.decode(bytes);
+        if !had_errors {
+            return decoded.into_owned();
+        }
+    }
+    String::from_utf8_lossy(bytes).to_string()
+}
+
 fn truncate_terminal_output(bytes: &[u8]) -> (String, bool) {
     if bytes.len() <= TERMINAL_MAX_OUTPUT_BYTES {
-        return (String::from_utf8_lossy(bytes).to_string(), false);
+        return (terminal_decode_output_bytes(bytes), false);
     }
     (
-        String::from_utf8_lossy(&bytes[..TERMINAL_MAX_OUTPUT_BYTES]).to_string(),
+        terminal_decode_output_bytes(&bytes[..TERMINAL_MAX_OUTPUT_BYTES]),
         true,
     )
 }
@@ -65,3 +79,19 @@ fn terminal_is_timeout_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("timed out after")
 }
 
+#[cfg(test)]
+mod terminal_output_decode_tests {
+    use super::*;
+
+    #[test]
+    fn decode_utf8_output_should_keep_utf8_text() {
+        assert_eq!(terminal_decode_output_bytes("中文".as_bytes()), "中文");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn decode_windows_gbk_output_should_fallback_to_gbk() {
+        let bytes = [0xd6, 0xd0, 0xce, 0xc4];
+        assert_eq!(terminal_decode_output_bytes(&bytes), "中文");
+    }
+}

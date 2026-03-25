@@ -17,11 +17,11 @@ fn sandbox_windows_wrap_command_for_shell(
 ) -> String {
     if matches!(shell.kind.as_str(), "powershell7" | "powershell5") {
         return format!(
-            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; exit $(if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }})"
+            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; exit $(if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }})"
         );
     }
     if shell.kind == "git-bash" {
-        return format!("chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; export LC_ALL=en_US.UTF-8; {command}");
+        return format!("chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; export LC_ALL=en_US.UTF-8; export PYTHONUTF8=1; export PYTHONIOENCODING=utf-8; {command}");
     }
     command.to_string()
 }
@@ -62,6 +62,7 @@ fn sandbox_run_with_windows_job_backend_blocking(
     command_builder.stderr(std::process::Stdio::piped());
     command_builder.stdin(std::process::Stdio::null());
     command_builder.creation_flags(CREATE_NO_WINDOW);
+    terminal_apply_windows_utf8_env(&mut command_builder);
     for arg in &shell.args_prefix {
         command_builder.arg(arg);
     }
@@ -192,6 +193,8 @@ mod sandbox_windows_backend_tests {
         assert!(wrapped.contains("InputEncoding"));
         assert!(wrapped.contains("OutputEncoding"));
         assert!(wrapped.contains("chcp.com 65001"));
+        assert!(wrapped.contains("PYTHONUTF8"));
+        assert!(wrapped.contains("PYTHONIOENCODING"));
         assert!(wrapped.contains("Write-Output 'hi'"));
     }
 
@@ -206,6 +209,8 @@ mod sandbox_windows_backend_tests {
         assert!(wrapped.contains("chcp.com 65001"));
         assert!(wrapped.contains("LANG=en_US.UTF-8"));
         assert!(wrapped.contains("LC_ALL=en_US.UTF-8"));
+        assert!(wrapped.contains("PYTHONUTF8=1"));
+        assert!(wrapped.contains("PYTHONIOENCODING=utf-8"));
         assert!(wrapped.ends_with("echo hi"));
     }
 }

@@ -5,6 +5,39 @@ struct TerminalShellProfile {
     args_prefix: Vec<String>,
 }
 
+#[cfg(target_os = "windows")]
+fn terminal_apply_windows_utf8_env<T>(command_builder: &mut T)
+where
+    T: CommandExtUtf8Env,
+{
+    command_builder.env("LANG", "en_US.UTF-8");
+    command_builder.env("LC_ALL", "en_US.UTF-8");
+    command_builder.env("PYTHONUTF8", "1");
+    command_builder.env("PYTHONIOENCODING", "utf-8");
+}
+
+#[cfg(target_os = "windows")]
+mod terminal_windows_command_ext {
+    pub trait CommandExtUtf8Env {
+        fn env(&mut self, key: &str, value: &str) -> &mut Self;
+    }
+
+    impl CommandExtUtf8Env for tokio::process::Command {
+        fn env(&mut self, key: &str, value: &str) -> &mut Self {
+            tokio::process::Command::env(self, key, value)
+        }
+    }
+
+    impl CommandExtUtf8Env for std::process::Command {
+        fn env(&mut self, key: &str, value: &str) -> &mut Self {
+            std::process::Command::env(self, key, value)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+use terminal_windows_command_ext::CommandExtUtf8Env;
+
 #[derive(Debug)]
 struct TerminalLiveShellSession {
     session_id: String,
@@ -96,7 +129,7 @@ fn terminal_live_compose_command(shell: &TerminalShellProfile, cwd: &Path, comma
         let cwd_raw = cwd.to_string_lossy().to_string();
         let cwd_text = terminal_powershell_escape_literal(&cwd_raw);
         return format!(
-            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; Set-Location -LiteralPath '{cwd_text}'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; $ecaExit = if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }}; Write-Output \"{marker}:$ecaExit\""
+            "$ErrorActionPreference='Continue'; try {{ [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; chcp.com 65001 > $null; $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; Set-Location -LiteralPath '{cwd_text}'; {command} }} catch {{ Write-Error $_; $global:LASTEXITCODE = 1 }}; $ecaExit = if ($null -eq $LASTEXITCODE) {{ 0 }} else {{ $LASTEXITCODE }}; Write-Output \"{marker}:$ecaExit\""
         );
     }
     if shell.kind == "git-bash" {
@@ -104,7 +137,7 @@ fn terminal_live_compose_command(shell: &TerminalShellProfile, cwd: &Path, comma
         {
             let cwd_text = terminal_bash_escape_literal(&terminal_windows_path_to_bash(cwd));
             return format!(
-                "chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; cd '{cwd_text}' || exit 1; {command}; printf '%s:%s\\n' '{marker}' \"$?\""
+                "chcp.com 65001 > /dev/null 2>&1; export LANG=en_US.UTF-8; export LC_ALL=en_US.UTF-8; export PYTHONUTF8=1; export PYTHONIOENCODING=utf-8; cd '{cwd_text}' || exit 1; {command}; printf '%s:%s\\n' '{marker}' \"$?\""
             );
         }
     }
@@ -135,6 +168,7 @@ async fn terminal_live_create_session(
     {
         // 0x08000000 = CREATE_NO_WINDOW, keep shell sessions headless on Windows.
         command_builder.creation_flags(0x08000000);
+        terminal_apply_windows_utf8_env(&mut command_builder);
     }
     if matches!(shell.kind.as_str(), "powershell7" | "powershell5") {
         command_builder.arg("-NoLogo");
@@ -146,8 +180,6 @@ async fn terminal_live_create_session(
     } else if shell.kind == "git-bash" {
         command_builder.arg("--noprofile");
         command_builder.arg("--norc");
-        command_builder.env("LANG", "en_US.UTF-8");
-        command_builder.env("LC_ALL", "en_US.UTF-8");
     } else if shell.kind == "bash" {
         command_builder.arg("--noprofile");
         command_builder.arg("--norc");
@@ -503,9 +535,9 @@ fn terminal_shell_runtime_label(shell: &TerminalShellProfile) -> String {
     format!("{title} ({})", shell.path.trim())
 }
 
-fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
-    format!(
-        "在当前 shell 工作区根目录中执行命令。运行时 shell：{}。",
-        terminal_shell_runtime_label(shell)
-    )
-}
+    fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
+        format!(
+            "在当前 shell 工作区根目录中执行命令。运行时 shell：{}。",
+            terminal_shell_runtime_label(shell)
+        )
+    }

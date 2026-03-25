@@ -2,6 +2,12 @@
 
 ## 未发布
 
+- 修复（terminal-utf8-runtime）：补齐 Windows 终端拉起链路的 UTF-8 注入并为历史编码输出增加兜底解码
+  - Git Bash 与 PowerShell 的终端包裹命令统一补充 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，减少 Python 跟随系统 `cp936/gbk` 输出乱码
+  - Windows 终端进程启动时统一注入 `LANG`、`LC_ALL` 与 Python UTF-8 环境变量，收敛 live session 与单次执行链路的编码行为
+  - 终端输出展示改为 UTF-8 优先解码，并在 Windows 下为非 UTF-8 输出增加 GBK 兜底，降低旧 CLI 或脚本残留乱码概率
+  - 新增终端编码相关回归测试，覆盖 PowerShell / Git Bash UTF-8 注入与 Windows GBK 输出兜底解码
+
 - 调整（fixed-model-retry-policy）：统一聊天模型失败重试策略并移除用户配置项
   - 聊天请求在同一驱动模型内固定重试 `3` 次，每次等待 `5` 秒，不再区分空回复、`429` 或其他错误类型
   - 同模型重试期间继续通过前端反馈渠道显示“正在重试”状态；同模型最终失败后，仍保留切换到下一个候选模型的提示
