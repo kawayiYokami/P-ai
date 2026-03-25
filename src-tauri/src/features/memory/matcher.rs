@@ -249,45 +249,45 @@ fn conversation_search_text(conversation: &Conversation) -> String {
     lines.join("\n")
 }
 
-fn chat_message_text_lowercase(message: &ChatMessage) -> String {
-    let mut parts = Vec::<String>::new();
-    for part in &message.parts {
-        if let MessagePart::Text { text } = part {
-            if !text.trim().is_empty() {
-                parts.push(text.to_lowercase());
-            }
-        }
+fn memory_extract_query_tags_from_text(memories: &[MemoryEntry], latest_user_text: &str) -> Vec<String> {
+    let lowered = latest_user_text.to_lowercase();
+    if lowered.trim().is_empty() {
+        return Vec::new();
     }
-    parts.join("\n")
+
+    let mut seen_lower = HashSet::<String>::new();
+    let mut tags = memories
+        .iter()
+        .flat_map(|memory| memory.tags.iter())
+        .map(|tag| tag.trim())
+        .filter(|tag| tag.chars().count() >= 2)
+        .filter(|tag| lowered.contains(&tag.to_lowercase()))
+        .filter(|tag| seen_lower.insert(tag.to_lowercase()))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    tags.sort_by(|a, b| {
+        b.chars()
+            .count()
+            .cmp(&a.chars().count())
+            .then_with(|| a.cmp(b))
+    });
+    tags.truncate(24);
+    tags
 }
 
-fn memory_recall_query_text(conversation: &Conversation, latest_user_text: &str) -> String {
-    let latest_assistant = conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|msg| msg.role == "assistant")
-        .map(chat_message_text_lowercase)
-        .unwrap_or_default();
-
-    let latest_user = if latest_user_text.trim().is_empty() {
-        conversation
-            .messages
-            .iter()
-            .rev()
-            .find(|msg| msg.role == "user")
-            .map(chat_message_text_lowercase)
-            .unwrap_or_default()
-    } else {
-        latest_user_text.to_lowercase()
-    };
-
-    [latest_assistant, latest_user]
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+fn memory_search_query_text(memories: &[MemoryEntry], query_text: &str) -> String {
+    let trimmed = query_text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.chars().count() > 100 {
+        let matched_tags = memory_extract_query_tags_from_text(memories, trimmed);
+        if !matched_tags.is_empty() {
+            return matched_tags.join("\n");
+        }
+    }
+    trimmed.to_string()
 }
 
 #[cfg(test)]
@@ -581,6 +581,10 @@ fn memory_mixed_ranked_items(
     if memories.is_empty() || query_text.trim().is_empty() {
         return Vec::new();
     }
+    let effective_query_text = memory_search_query_text(memories, query_text);
+    if effective_query_text.trim().is_empty() {
+        return Vec::new();
+    }
 
     let memory_index = memories
         .iter()
@@ -588,7 +592,7 @@ fn memory_mixed_ranked_items(
         .map(|(idx, memory)| (memory.id.clone(), idx))
         .collect::<HashMap<_, _>>();
 
-    let bm25_hits = memory_tantivy_bm25_scores(memories, query_text, MEMORY_ROUTE_CANDIDATE_LIMIT)
+    let bm25_hits = memory_tantivy_bm25_scores(memories, &effective_query_text, MEMORY_ROUTE_CANDIDATE_LIMIT)
         .unwrap_or_default();
     let mut bm25_map = HashMap::<String, f64>::new();
     let mut bm25_raw_map = HashMap::<String, f64>::new();
@@ -605,7 +609,7 @@ fn memory_mixed_ranked_items(
     if has_embedding {
         match memory_store_search_vector_scores(
             data_path,
-            query_text,
+            &effective_query_text,
             MEMORY_ROUTE_CANDIDATE_LIMIT,
         ) {
             Ok(rows) => {
@@ -693,7 +697,7 @@ fn memory_mixed_ranked_items(
             .filter_map(|id| memory_index.get(id).and_then(|idx| memories.get(*idx)))
             .collect::<Vec<_>>();
         if let Some(provider) = rerank_provider.as_ref() {
-            match memory_rerank_scores(provider.as_ref(), query_text, &candidate_memories) {
+            match memory_rerank_scores(provider.as_ref(), &effective_query_text, &candidate_memories) {
                 Ok(map) => {
                     rerank_available = true;
                     rerank_map = map;

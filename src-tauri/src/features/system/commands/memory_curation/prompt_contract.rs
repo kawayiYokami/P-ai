@@ -7,7 +7,7 @@ fn build_memory_generation_instruction(agent: &AgentProfile, user_alias: &str) -
          C) 你是 {assistant_name}，用户称谓是 {user_name}。\n\
          \n\
          ## 记忆要求（仅约束 usefulMemoryIds/newMemories/mergeGroups）\n\
-         1) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event（禁止 task）。\n\
+         1) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event。\n\
          2) usefulMemoryIds 只能从“本次会话使用过的记忆”中选择。\n\
          3) mergeGroups 不是必须，默认输出 []；仅当语义等价或高度重复且合并后不丢信息时才允许填写。\n\
          4) mergeGroups.sourceIds 只能从“本次会话使用过的记忆”中选择，且每组至少 2 个；不确定时必须保持 []。\n\
@@ -18,7 +18,9 @@ fn build_memory_generation_instruction(agent: &AgentProfile, user_alias: &str) -
          9) reasoning 应尽量简洁具体；若没有可靠理由或证据不足，可留空字符串。\n\
          10) judgment 必须能被 reasoning 支撑；若无法支撑，宁可不生成该条记忆。\n\
          11) tags/judgment/reasoning 必须使用当前用户本轮语言（专有名词除外）。\n\
-         12) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。",
+         12) tags 中的每一项都必须是独立、紧凑、稳定、可检索的词元；不要写整句，不要写短语拼接，不要写“用户喜欢极简风格”这类带关系的长表达。\n\
+         13) tags 只写检索锚点本身，例如 人名、项目名、偏好词、主题词、技能词、物品名；同一项里不要混入多个语义。\n\
+         14) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。",
         assistant_name = agent.name,
         user_name = user_alias
     )

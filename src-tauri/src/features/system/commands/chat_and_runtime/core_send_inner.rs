@@ -158,6 +158,45 @@ fn prioritize_requested_chat_api_id(
     candidate_api_ids.insert(0, requested_api_id.to_string());
 }
 
+fn memory_recall_query_from_conversation_window(
+    conversation: &Conversation,
+    effective_agent_id: &str,
+) -> String {
+    let last_assistant_index = conversation
+        .messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(idx, message)| {
+            let role = prompt_role_for_message(message, effective_agent_id)?;
+            if role == "assistant" {
+                Some(idx)
+            } else {
+                None
+            }
+        });
+
+    conversation
+        .messages
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| last_assistant_index.map(|boundary| *idx > boundary).unwrap_or(true))
+        .filter_map(|(_, message)| {
+            let role = prompt_role_for_message(message, effective_agent_id)?;
+            if role != "user" {
+                return None;
+            }
+            let text = render_message_content_for_model(message).trim().to_string();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -775,8 +814,6 @@ async fn send_chat_message_inner(
             .as_ref()
             .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
             .unwrap_or_else(|| "continuous".to_string());
-        let is_delegate_conversation =
-            conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
         let last_archive_summary = if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
             None
         } else {
@@ -800,7 +837,7 @@ async fn send_chat_message_inner(
         } else {
             conversation_before.clone()
         };
-        let conversation = if trigger_only {
+        let mut conversation = if trigger_only {
             let latest_message = prompt_conversation_before
                 .messages
                 .last()
@@ -824,33 +861,6 @@ async fn send_chat_message_inner(
             }
             let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
             externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
-            let (recall_hit_ids, memory_board_xml) = if is_delegate_conversation {
-                (Vec::<String>::new(), None)
-            } else {
-                let recall_query_text =
-                    memory_recall_query_text(&prompt_conversation_before, &effective_user_text);
-                let private_memory_enabled = data
-                    .agents
-                    .iter()
-                    .find(|a| a.id == effective_agent_id)
-                    .map(|a| a.private_memory_enabled)
-                    .unwrap_or(false);
-                let store_memories = memory_store_list_memories_visible_for_agent(
-                    &state.data_path,
-                    &effective_agent_id,
-                    private_memory_enabled,
-                )?;
-                let recall_hit_ids =
-                    memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
-                let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
-                let memory_board_xml =
-                    build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
-                (recall_hit_ids, memory_board_xml)
-            };
-            let mut extra_text_blocks = input.payload.extra_text_blocks.clone().unwrap_or_default();
-            if let Some(xml) = &memory_board_xml {
-                extra_text_blocks.push(xml.clone());
-            }
             let attachment_meta = normalize_payload_attachments(input.payload.attachments.as_ref());
             let user_provider_meta =
                 merge_provider_meta_with_attachments(input.payload.provider_meta.clone(), &attachment_meta);
@@ -861,17 +871,12 @@ async fn send_chat_message_inner(
                 created_at: now.clone(),
                 speaker_agent_id: Some(input.speaker_agent_id.clone().unwrap_or_else(|| USER_PERSONA_ID.to_string())),
                 parts: user_parts,
-                extra_text_blocks,
+                extra_text_blocks: input.payload.extra_text_blocks.clone().unwrap_or_default(),
                 provider_meta: user_provider_meta,
                 tool_call: None,
                 mcp_call: None,
             };
             if let Some(idx) = idx {
-                for memory_id in &recall_hit_ids {
-                    data.conversations[idx]
-                        .memory_recall_table
-                        .push(memory_id.clone());
-                }
                 data.conversations[idx].messages.push(user_message);
                 data.conversations[idx].updated_at = now.clone();
                 data.conversations[idx].last_user_at = Some(now_iso());
@@ -879,9 +884,6 @@ async fn send_chat_message_inner(
                     compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
                 data.conversations[idx].clone()
             } else {
-                for memory_id in &recall_hit_ids {
-                    runtime_conversation.memory_recall_table.push(memory_id.clone());
-                }
                 runtime_conversation.messages.push(user_message);
                 runtime_conversation.updated_at = now.clone();
                 runtime_conversation.last_user_at = Some(now_iso());
@@ -910,6 +912,69 @@ async fn send_chat_message_inner(
         };
         let is_delegate_conversation =
             conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
+        let recall_query_text =
+            memory_recall_query_from_conversation_window(&conversation, &effective_agent_id);
+        if !is_delegate_conversation {
+            let private_memory_enabled = data
+                .agents
+                .iter()
+                .find(|a| a.id == effective_agent_id)
+                .map(|a| a.private_memory_enabled)
+                .unwrap_or(false);
+            let store_memories = memory_store_list_memories_visible_for_agent(
+                &state.data_path,
+                &effective_agent_id,
+                private_memory_enabled,
+            )?;
+            let recall_hit_ids =
+                memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
+            let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
+            let memory_board_xml =
+                build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
+            if let Some(xml) = &memory_board_xml {
+                if let Some((latest_user_idx, _)) = conversation
+                    .messages
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, message)| {
+                        prompt_role_for_message(message, &effective_agent_id).as_deref()
+                            == Some("user")
+                    })
+                {
+                    conversation.messages[latest_user_idx]
+                        .extra_text_blocks
+                        .push(xml.clone());
+                }
+            }
+            if let Some(idx) = idx {
+                for memory_id in &recall_hit_ids {
+                    data.conversations[idx]
+                        .memory_recall_table
+                        .push(memory_id.clone());
+                }
+            }
+            eprintln!(
+                "[记忆RAG] 消息组建节点: conversation_id={}, agent_id={}, private_memory_enabled={}, visible_memories={}, recall_query={:?}, hit_ids={:?}, memory_board_present={}",
+                conversation.id,
+                effective_agent_id,
+                private_memory_enabled,
+                store_memories.len(),
+                recall_query_text,
+                latest_recall_ids,
+                memory_board_xml.is_some()
+            );
+            runtime_log_info(format!(
+                "[记忆RAG] 消息组建节点 状态=完成 conversation_id={} agent_id={} private_memory_enabled={} 可见记忆数={} 检索query={:?} 命中memory_ids={:?} 注入memory_board={:?}",
+                conversation.id,
+                effective_agent_id,
+                private_memory_enabled,
+                store_memories.len(),
+                recall_query_text,
+                latest_recall_ids,
+                memory_board_xml.as_deref().unwrap_or("")
+            ));
+        }
         let latest_user_meta_text = conversation
             .messages
             .last()

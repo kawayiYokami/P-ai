@@ -104,13 +104,23 @@ impl Tool for BuiltinRememberTool {
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "memory_type": { "type": "string", "enum": ["knowledge", "skill", "emotion", "event"], "description": "记忆类型（不支持 task）" },
-                "judgment": { "type": "string", "description": "记忆论断，单条可检索判断句" },
-                "reasoning": { "type": "string", "description": "理由，可为空" },
+                "memory_type": {
+                  "type": "string",
+                  "enum": ["knowledge", "skill", "emotion", "event"],
+                  "description": "记忆类型。knowledge=稳定认知或事实，skill=做事方法或能力，emotion=稳定情绪偏好或态度，event=发生过的事件。"
+                },
+                "judgment": {
+                  "type": "string",
+                  "description": "记忆本体。用一句独立、清楚、可检索的判断句写出真正要记住的内容。"
+                },
+                "reasoning": {
+                  "type": "string",
+                  "description": "支撑 judgment 的依据或背景，可为空。只写理由、证据、来源，不要写流程话术。"
+                },
                 "tags": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "标签列表，用于后续命中提示板"
+                  "description": "检索锚点列表，用于后续命中提示板。每一项都必须是独立、紧凑、稳定、可检索的词元，例如人名、项目名、偏好词、主题词、技能词、物品名；不要写整句，不要写短语拼接，不要把多个语义塞进同一个 tag。"
                 }
               },
               "required": ["memory_type", "judgment", "tags"]

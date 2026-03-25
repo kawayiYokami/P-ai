@@ -233,20 +233,71 @@
     }
 
     #[test]
-    fn memory_recall_query_should_mix_latest_assistant_and_current_user() {
-        let now = now_iso();
-        let conv = test_active_conversation_with_messages(
-            vec![
-                test_text_message("user", "old user text", &now),
-                test_text_message("assistant", "assistant latest context", &now),
-            ],
-            Some(now),
-        );
+    fn memory_search_query_should_use_matched_tags_only_for_long_query_text() {
+        let memories = vec![
+            MemoryEntry {
+                id: "m1".to_string(),
+                memory_type: "knowledge".to_string(),
+                judgment: "用户关注极简风格".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["极简风格".to_string(), "界面".to_string()],
+                created_at: now_iso(),
+                owner_agent_id: None,
+                updated_at: now_iso(),
+            },
+            MemoryEntry {
+                id: "m2".to_string(),
+                memory_type: "knowledge".to_string(),
+                judgment: "用户关注项目A".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["项目A".to_string()],
+                created_at: now_iso(),
+                owner_agent_id: None,
+                updated_at: now_iso(),
+            },
+        ];
+        let long_query_text =
+            "这次我想认真聊一下项目A目前的界面问题，我还是更偏向极简风格，不希望页面里出现太多装饰性信息，同时也想减少噪声内容，让信息层级更清楚一些。除此之外，我还希望后续讨论能尽量围绕核心问题，不要被太多支线细节带偏，因为现在最重要的还是先把整体风格和主信息路径稳定下来。";
 
-        let query = memory_recall_query_text(&conv, "new user request");
-        assert!(query.contains("assistant latest context"));
-        assert!(query.contains("new user request"));
-        assert!(!query.contains("old user text"));
+        let query = memory_search_query_text(&memories, long_query_text);
+
+        assert!(query.contains("项目A"));
+        assert!(query.contains("极简风格"));
+        assert!(!query.contains("这次我想认真聊一下"));
+    }
+
+    #[test]
+    fn memory_search_query_should_dedup_tags_case_insensitively() {
+        let memories = vec![
+            MemoryEntry {
+                id: "m1".to_string(),
+                memory_type: "knowledge".to_string(),
+                judgment: "用户提到 Apple".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["Apple".to_string()],
+                created_at: now_iso(),
+                owner_agent_id: None,
+                updated_at: now_iso(),
+            },
+            MemoryEntry {
+                id: "m2".to_string(),
+                memory_type: "knowledge".to_string(),
+                judgment: "用户提到 apple".to_string(),
+                reasoning: "".to_string(),
+                tags: vec!["apple".to_string()],
+                created_at: now_iso(),
+                owner_agent_id: None,
+                updated_at: now_iso(),
+            },
+        ];
+        let long_query_text =
+            "这里先铺一些上下文，确保查询长度超过一百字。用户一直在聊 Apple 的设备生态、apple 相关使用体验，以及后续可能继续扩展到更多兼容问题，所以这轮检索应该只保留一个大小写去重后的标签，而不是重复返回两个等价词元。";
+
+        let query = memory_search_query_text(&memories, long_query_text);
+        let lines = query.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].eq_ignore_ascii_case("apple"));
     }
 
     #[test]
@@ -270,5 +321,3 @@
             ]
         );
     }
-
-
