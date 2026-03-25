@@ -47,42 +47,30 @@
       </template>
     </div>
     <div class="flex-none flex gap-1 ml-auto" @mousedown.stop>
-      <template v-if="viewMode === 'chat'">
-        <button
-          class="btn btn-ghost btn-sm"
-          title="最小化"
-          @click.stop="$emit('minimize-window')"
-          :disabled="!windowReady"
-        >
-          <Minus class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-ghost btn-sm"
-          :title="maximized ? '还原窗口' : '最大化'"
-          @click.stop="$emit('toggle-maximize-window')"
-          :disabled="!windowReady"
-        >
-          <Square class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-sm btn-ghost hover:bg-error"
-          :title="closeTitle || 'Close'"
-          @click.stop="$emit('close-window')"
-          :disabled="!windowReady"
-        >
-          <X class="h-3.5 w-3.5" />
-        </button>
-      </template>
-      <template v-else>
-        <button
-          class="btn btn-sm btn-ghost hover:bg-error"
-          :title="closeTitle || 'Close'"
-          @click.stop="$emit('close-window')"
-          :disabled="!windowReady"
-        >
-          <X class="h-3.5 w-3.5" />
-        </button>
-      </template>
+      <button
+        class="btn btn-ghost btn-sm"
+        title="最小化"
+        @click.stop="$emit('minimize-window')"
+        :disabled="!windowReady"
+      >
+        <Minus class="h-3.5 w-3.5" />
+      </button>
+      <button
+        class="btn btn-ghost btn-sm"
+        :title="maximized ? '还原窗口' : '最大化'"
+        @click.stop="$emit('toggle-maximize-window')"
+        :disabled="!windowReady"
+      >
+        <Square class="h-3.5 w-3.5" />
+      </button>
+      <button
+        class="btn btn-sm btn-ghost hover:bg-error"
+        :title="closeTitle || 'Close'"
+        @click.stop="$emit('close-window')"
+        :disabled="!windowReady"
+      >
+        <X class="h-3.5 w-3.5" />
+      </button>
     </div>
   </div>
 </template>
