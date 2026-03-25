@@ -8,6 +8,15 @@
       <div v-if="viewMode === 'chat'" class="flex items-center gap-1">
         <button
           class="btn btn-ghost btn-sm"
+          :class="{ 'btn-active': alwaysOnTop }"
+          :title="alwaysOnTop ? alwaysOnTopOffTitle : alwaysOnTopOnTitle"
+          @click.stop="$emit('toggle-always-on-top')"
+          :disabled="!windowReady"
+        >
+          <Pin class="h-3.5 w-3.5" />
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
           :title="openConfigTitle"
           @click.stop="$emit('open-config')"
         >
@@ -41,12 +50,19 @@
       <template v-if="viewMode === 'chat'">
         <button
           class="btn btn-ghost btn-sm"
-          :class="{ 'btn-active': alwaysOnTop }"
-          :title="alwaysOnTop ? alwaysOnTopOffTitle : alwaysOnTopOnTitle"
-          @click.stop="$emit('toggle-always-on-top')"
+          title="最小化"
+          @click.stop="$emit('minimize-window')"
           :disabled="!windowReady"
         >
-          <Pin class="h-3.5 w-3.5" />
+          <Minus class="h-3.5 w-3.5" />
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :title="maximized ? '还原窗口' : '最大化'"
+          @click.stop="$emit('toggle-maximize-window')"
+          :disabled="!windowReady"
+        >
+          <Square class="h-3.5 w-3.5" />
         </button>
         <button
           class="btn btn-sm btn-ghost hover:bg-error"
@@ -72,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { Archive, Pin, Settings, X } from "lucide-vue-next";
+import { Archive, Minus, Pin, Settings, Square, X } from "lucide-vue-next";
 
 defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -81,6 +97,7 @@ defineProps<{
   forcingArchive: boolean;
   chatting: boolean;
   alwaysOnTop: boolean;
+  maximized: boolean;
   windowReady: boolean;
   forceArchiveTip: string;
   alwaysOnTopOnTitle: string;
@@ -94,6 +111,8 @@ defineEmits<{
   (e: "start-drag"): void;
   (e: "force-archive"): void;
   (e: "toggle-always-on-top"): void;
+  (e: "minimize-window"): void;
+  (e: "toggle-maximize-window"): void;
   (e: "open-config"): void;
   (e: "open-archives"): void;
   (e: "open-runtime-logs"): void;

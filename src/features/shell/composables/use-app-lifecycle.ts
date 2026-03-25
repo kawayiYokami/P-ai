@@ -13,7 +13,7 @@ type UseAppLifecycleOptions = {
   recordHotkeyUnmount: () => void;
   refreshAllViewData: () => Promise<void>;
   viewMode: Ref<"chat" | "archives" | "config">;
-  syncAlwaysOnTop: () => Promise<void>;
+  syncWindowControlsState: () => Promise<void>;
   clearStreamBuffer: () => void;
   stopRecording: (discard: boolean) => Promise<void>;
   cleanupSpeechRecording: () => void;
@@ -36,7 +36,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     try {
       await options.refreshAllViewData();
       if (options.viewMode.value === "chat") {
-        await options.syncAlwaysOnTop();
+        await options.syncWindowControlsState();
       }
       await options.afterMountedReady?.();
     } catch (error) {

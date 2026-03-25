@@ -8,6 +8,7 @@
       :forcing-archive="forcingArchive"
       :chatting="chatting"
       :always-on-top="alwaysOnTop"
+      :maximized="maximized"
       :window-ready="windowReady"
       :force-archive-tip="t('chat.forceArchiveTip')"
       :always-on-top-on-title="t('chat.alwaysOnTopOn')"
@@ -18,6 +19,8 @@
       @start-drag="startDrag"
       @force-archive="openForceArchiveActionDialog"
       @toggle-always-on-top="toggleAlwaysOnTop"
+      @minimize-window="minimizeWindow"
+      @toggle-maximize-window="toggleMaximizeWindow"
       @open-config="openConfigWindow"
       @open-archives="openCurrentHistory"
       @open-runtime-logs="openRuntimeLogsDialog"
@@ -482,7 +485,18 @@ const viewMode = ref<"chat" | "archives" | "config">(props.fixedViewMode ?? "con
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => (params ? t(key, params) : t(key));
 const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(window.navigator.platform || "");
-const { windowReady, alwaysOnTop, initWindow, syncAlwaysOnTop, closeWindow, startDrag, toggleAlwaysOnTop } =
+const {
+  windowReady,
+  alwaysOnTop,
+  maximized,
+  initWindow,
+  syncWindowControlsState,
+  closeWindow,
+  startDrag,
+  toggleAlwaysOnTop,
+  minimizeWindow,
+  toggleMaximizeWindow,
+} =
   useWindowShell();
 const { currentTheme, applyTheme, setTheme, restoreThemeFromStorage } = useAppTheme();
 
@@ -2654,7 +2668,7 @@ useAppLifecycle({
   recordHotkeyUnmount: recordHotkey.unmount,
   refreshAllViewData,
   viewMode,
-  syncAlwaysOnTop,
+  syncWindowControlsState,
   clearStreamBuffer,
   stopRecording,
   cleanupSpeechRecording,
