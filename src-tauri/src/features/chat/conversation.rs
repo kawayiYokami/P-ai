@@ -759,12 +759,6 @@ fn build_prompt_user_meta_text(
         .filter(|items| !items.is_empty())
     {
         tags.push(format!("memory={}", memory_ids.join(",")));
-    } else if message
-        .extra_text_blocks
-        .iter()
-        .any(|item| item.contains("[MemoryBoard]") || item.contains("<memory_board"))
-    {
-        tags.push("memory=已注入".to_string());
     }
     if !tags.is_empty() {
         if !base.trim().is_empty() {

@@ -11,6 +11,14 @@
   - `get_active_conversation_messages`、`before`、`after` 重新统一为“指定会话优先，缺失则回退到最新未归档前台会话”
   - 补充未归档会话索引回退测试，避免前端历史加载因旧会话 id 失效而直接失败
 
+- 调整（hide-legacy-deepseek-protocol）：前端隐藏 `deepseek/kimi` 协议选项
+  - API 配置页不再对新配置暴露 `deepseek/kimi` 协议选择入口
+  - 已存在的旧配置仍保留展示与兼容，避免用户存量配置被强制改写
+
+- 发布（v0.7.2）：同步版本号以承接协议与提示词格式修正
+  - 前后端版本号统一升级到 `0.7.2`
+  - 便于区分 `deepseek/kimi` 协议隐藏与 MemoryBoard 系统提醒格式修正后的构建
+
 - 修复（multi-conversation-send-routing）：移除多会话发送对单 active 状态的旧依赖
   - 发送消息时不再因目标会话 `status=inactive` 被后端静默回退到其他会话
   - 普通未归档前台会话统一保持 `active`，避免旧单会话时代遗留状态继续干扰并发会话发送
