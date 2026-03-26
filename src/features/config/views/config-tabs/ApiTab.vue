@@ -327,7 +327,6 @@ const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
     { value: "openai", label: "OpenAI Compatible" },
     { value: "openai_responses", label: "OpenAI Responses" },
     { value: "gemini", label: "Google Gemini" },
-    { value: "deepseek/kimi", label: "DeepSeek/Kimi" },
     { value: "anthropic", label: "Anthropic" },
   ],
   voice: [
@@ -415,7 +414,16 @@ const toolsToggleAvailable = computed(() => {
   const value = selectedModelCapability.value?.enableTools;
   return value === undefined ? true : !!value;
 });
-const currentProtocolOptions = computed(() => protocolOptionsByCapability[activeCapability.value]);
+const currentProtocolOptions = computed(() => {
+  const base = protocolOptionsByCapability[activeCapability.value];
+  if (activeCapability.value !== "text" || currentProtocol.value !== "deepseek/kimi") {
+    return base;
+  }
+  return [
+    { value: "deepseek/kimi", label: "DeepSeek/Kimi（旧协议）" as const },
+    ...base,
+  ];
+});
 const capabilityScopedConfigs = computed(() =>
   props.config.apiConfigs.filter(
     (cfg) => capabilityFromConfig(cfg) === activeCapability.value,

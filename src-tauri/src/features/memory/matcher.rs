@@ -912,6 +912,7 @@ fn build_memory_board_xml_from_recall_ids(
     }
 
     let mut out = String::new();
+    out.push_str("<system-reminder>\n");
     out.push_str("[MemoryBoard]\n\n");
     for memory in ordered_memories {
         out.push_str(memory.judgment.trim());
@@ -922,7 +923,9 @@ fn build_memory_board_xml_from_recall_ids(
         out.push_str(display_reasoning);
         out.push_str("\n\n");
     }
-    Some(out.trim_end().to_string())
+    out.truncate(out.trim_end().len());
+    out.push_str("\n</system-reminder>");
+    Some(out)
 }
 
 #[cfg(test)]

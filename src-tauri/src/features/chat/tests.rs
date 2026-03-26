@@ -137,6 +137,28 @@
         assert!(prepared.latest_user_meta_text.contains("凯瑟琳"));
         assert!(prepared.latest_user_text.contains("现在补发第二次提醒"));
     }
+
+    #[test]
+    fn build_prompt_user_meta_text_should_not_append_memory_injected_tag() {
+        let now = now_iso();
+        let mut message = test_text_message("user", "继续", &now);
+        message.extra_text_blocks.push(
+            "<system-reminder>\n[MemoryBoard]\n\n用户询问 codex 是什么\n> 无\n</system-reminder>"
+                .to_string(),
+        );
+
+        let meta = build_prompt_user_meta_text(
+            &message,
+            &[default_agent(), default_user_persona()],
+            "用户",
+            "zh-CN",
+            false,
+        )
+        .expect("meta text");
+
+        assert!(!meta.contains("memory=已注入"));
+        assert!(meta.contains("T"));
+    }
     #[test]
     fn request_preview_should_keep_structured_tool_history_messages() {
         let api = ApiConfig {
