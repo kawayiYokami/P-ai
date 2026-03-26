@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 修复（responses-tool-id-replay-and-remote-im-platform-fallback）：修正 Responses 工具历史回放 ID，并放宽远程 IM 平台值读取
+  - OpenAI Responses 工具历史回放改为严格区分 `id` 与 `call_id`，旧式缺少 `call_id` 的工具历史不再伪装为结构化 function call，避免因把 `call_*` 当作 `fc_*` 发送而触发 400
+  - 远程 IM 渠道 `platform` 反序列化改为宽松模式，未知值统一按 `onebot_v11` 处理，避免单个旧值或手写值导致整份 `app_config.toml` 解析失败
+
 - 调整（remote-im-contact-conversation-naming）：远程 IM 会话语义统一改称“联系人会话”
   - 前后端显示文案、日志与核心函数命名统一从“隐藏会话/隐藏线程”收敛为“联系人会话”
   - 联系人专属会话继续保持“渠道 + 联系人”唯一映射，避免名称误导为纯 UI 隐藏能力

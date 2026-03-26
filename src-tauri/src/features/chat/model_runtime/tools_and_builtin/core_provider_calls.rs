@@ -10,6 +10,7 @@ struct ModelReply {
 
 fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<RigMessage>, String> {
     let mut chat_history = Vec::<RigMessage>::new();
+    let mut tool_call_id_to_call_id = std::collections::HashMap::<String, String>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
             let base_user_text = if hm.text.trim().is_empty() {
@@ -83,8 +84,15 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                         .get("call_id")
                         .and_then(Value::as_str)
                         .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .or_else(|| Some(id.to_string()));
+                        .filter(|s| !s.is_empty());
+                    if let Some(call_id_value) = call_id.clone() {
+                        tool_call_id_to_call_id.insert(id.to_string(), call_id_value);
+                    } else {
+                        // Older provider histories may only have a generic `call_*` id and no
+                        // Responses-style `call_id`. Replaying them as structured tool calls
+                        // breaks OpenAI Responses validation, so skip the structured block.
+                        continue;
+                    }
                     let tool_call = rig::message::ToolCall {
                         id: id.to_string(),
                         call_id,
@@ -113,15 +121,21 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                 hm.text.clone()
             };
             let result_content = OneOrMany::one(ToolResultContent::text(safe_tool_text.clone()));
-            let tool_user_content = if let Some(tool_call_id) = hm
+            let tool_user_content = if let Some((tool_call_id, call_id)) = hm
                 .tool_call_id
                 .as_deref()
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
+                .and_then(|tool_call_id| {
+                    tool_call_id_to_call_id
+                        .get(tool_call_id)
+                        .cloned()
+                        .map(|call_id| (tool_call_id.to_string(), call_id))
+                })
             {
                 UserContent::tool_result_with_call_id(
-                    tool_call_id.to_string(),
-                    tool_call_id.to_string(),
+                    tool_call_id,
+                    call_id,
                     result_content,
                 )
             } else {
@@ -140,7 +154,7 @@ mod prepared_history_to_rig_messages_tests {
     use super::*;
 
     #[test]
-    fn should_replay_tool_result_message_into_rig_history() {
+    fn should_replay_structured_tool_history_when_call_id_is_present() {
         let prepared = PreparedPrompt {
             preamble: "sys".to_string(),
             history_messages: vec![
@@ -161,7 +175,8 @@ mod prepared_history_to_rig_messages_tests {
                     images: Vec::new(),
                     audios: Vec::new(),
                     tool_calls: Some(vec![serde_json::json!({
-                        "id": "call_1",
+                        "id": "fc_1",
+                        "call_id": "call_1",
                         "type": "function",
                         "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
                     })]),
@@ -175,7 +190,7 @@ mod prepared_history_to_rig_messages_tests {
                     images: Vec::new(),
                     audios: Vec::new(),
                     tool_calls: None,
-                    tool_call_id: Some("call_1".to_string()),
+                    tool_call_id: Some("fc_1".to_string()),
                     reasoning_content: None,
                 },
             ],
@@ -198,7 +213,8 @@ mod prepared_history_to_rig_messages_tests {
                         matches!(
                             item,
                             AssistantContent::ToolCall(call)
-                                if call.id == "call_1"
+                                if call.id == "fc_1"
+                                    && call.call_id.as_deref() == Some("call_1")
                                     && call.function.name == "xcap"
                         )
                     }) {
@@ -210,7 +226,8 @@ mod prepared_history_to_rig_messages_tests {
                         matches!(
                             item,
                             UserContent::ToolResult(result)
-                                if result.id == "call_1"
+                                if result.id == "fc_1"
+                                    && result.call_id.as_deref() == Some("call_1")
                                     && result.content.iter().any(|part| {
                                         matches!(
                                             part,
@@ -228,6 +245,66 @@ mod prepared_history_to_rig_messages_tests {
 
         assert!(saw_assistant_tool_call, "assistant tool call should be replayed");
         assert!(saw_tool_result, "tool result should be replayed as rig UserContent::ToolResult");
+    }
+
+    #[test]
+    fn should_downgrade_legacy_tool_history_without_call_id_to_plain_text() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_legacy_1",
+                        "type": "function",
+                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_legacy_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let chat_history = prepared_history_to_rig_messages(&prepared).expect("history built");
+        assert!(chat_history.iter().any(|message| {
+            matches!(
+                message,
+                RigMessage::Assistant { content, .. }
+                    if content.iter().all(|item| matches!(item, AssistantContent::Text(_)))
+            )
+        }));
+        assert!(chat_history.iter().any(|message| {
+            matches!(
+                message,
+                RigMessage::User { content }
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            UserContent::Text(text)
+                                if text.text.contains("capture_focused_window")
+                        )
+                    })
+            )
+        }));
     }
 }
 
@@ -604,4 +681,3 @@ async fn call_model_anthropic_rig_style(
         .map_err(|err| format!("rig stream start failed: {err}"))?;
     collect_streaming_model_reply(&mut stream, None).await
 }
-

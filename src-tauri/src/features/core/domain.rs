@@ -627,13 +627,30 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum RemoteImPlatform {
     Feishu,
     Dingtalk,
-    #[serde(rename = "onebot_v11", alias = "napcat")]
+    #[serde(rename = "onebot_v11", alias = "napcat", alias = "weixin_oc")]
     OnebotV11,
+}
+
+impl<'de> serde::Deserialize<'de> for RemoteImPlatform {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        let normalized = raw.trim().to_ascii_lowercase();
+        let platform = match normalized.as_str() {
+            "feishu" => Self::Feishu,
+            "dingtalk" => Self::Dingtalk,
+            "onebot_v11" | "napcat" | "weixin_oc" => Self::OnebotV11,
+            _ => Self::OnebotV11,
+        };
+        Ok(platform)
+    }
 }
 
 fn default_remote_im_channel_activate_assistant() -> bool {
