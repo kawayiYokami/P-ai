@@ -23,6 +23,7 @@ type ReadFileMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 struct RuntimeToolAssembly {
     tools: Vec<Box<dyn ToolDyn>>,
     tool_manifest: Vec<Value>,
+    unavailable_tool_notices: Vec<String>,
     _mcp_screenshot_client: Option<ScreenshotMcpClient>,
     _mcp_read_file_client: Option<ReadFileMcpClient>,
 }

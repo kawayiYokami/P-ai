@@ -174,6 +174,7 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
             draft.tags.len()
         );
         return Ok(serde_json::json!({
+          "ok": false,
           "saved": false,
           "id": Value::Null,
           "tags": draft.tags,
@@ -188,6 +189,7 @@ fn builtin_memory_save(app_state: &AppState, args: Value) -> Result<Value, Strin
         .next()
         .ok_or_else(|| "memory_save failed to produce result".to_string())?;
     Ok(serde_json::json!({
+      "ok": first.saved,
       "saved": first.saved,
       "id": first.id,
       "tags": first.tags,
@@ -232,8 +234,8 @@ fn builtin_recall(app_state: &AppState, query: &str) -> Result<Value, String> {
         .unwrap_or_default();
 
     Ok(serde_json::json!({
+      "ok": true,
       "memoryBoard": memory_board,
       "count": latest_recall_ids.len()
     }))
 }
-

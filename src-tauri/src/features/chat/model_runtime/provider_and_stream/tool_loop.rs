@@ -252,12 +252,7 @@ where
                                 None,
                                 &format!("工具调用失败：{} ({})", tool_name, err_text),
                             );
-                            serde_json::json!({
-                                "ok": false,
-                                "tool": tool_name,
-                                "error": err_text
-                            })
-                            .to_string()
+                            tool_failure_result_json(&tool_name, &err_text)
                         }
                     };
                     let tool_call_call_id = tool_call.call_id.clone();

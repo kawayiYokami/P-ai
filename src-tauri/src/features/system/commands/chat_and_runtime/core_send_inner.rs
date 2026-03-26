@@ -100,10 +100,21 @@ fn remote_im_trim_conversation_for_qa_mode(conversation: &Conversation) -> Conve
     trimmed
 }
 
-fn remote_im_find_hidden_contact_by_conversation<'a>(
+fn remote_im_find_contact_by_conversation<'a>(
     data: &'a AppData,
     conversation_id: &str,
 ) -> Option<&'a RemoteImContact> {
+    let conversation = data.conversations.iter().find(|item| item.id == conversation_id)?;
+    let contact_conversation_key = conversation
+        .root_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(key) = contact_conversation_key {
+        return data.remote_im_contacts.iter().find(|contact| {
+            remote_im_contact_conversation_key(contact) == key
+        });
+    }
     data.remote_im_contacts.iter().find(|contact| {
         contact
             .bound_conversation_id
@@ -112,6 +123,61 @@ fn remote_im_find_hidden_contact_by_conversation<'a>(
             .filter(|value| !value.is_empty())
             == Some(conversation_id)
     })
+}
+
+fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: &str) -> Vec<Value> {
+    let args_value = serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string());
+    let tool_call_id = format!("remote_im_send_auto_{}", Uuid::new_v4());
+    vec![
+        serde_json::json!({
+            "role": "assistant",
+            "content": Value::Null,
+            "tool_calls": [{
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": "remote_im_send",
+                    "arguments": args_value
+                }
+            }]
+        }),
+        serde_json::json!({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": sanitize_tool_result_for_history("remote_im_send", tool_result)
+        }),
+    ]
+}
+
+async fn remote_im_auto_send_contact_assistant_reply(
+    state: &AppState,
+    conversation_id: &str,
+    assistant_text: &str,
+) -> Result<Option<(String, Vec<Value>)>, String> {
+    let trimmed_text = assistant_text.trim();
+    if trimmed_text.is_empty() {
+        return Ok(None);
+    }
+    let data = state_read_app_data_cached(state)?;
+    let contact = remote_im_find_contact_by_conversation(&data, conversation_id)
+        .cloned()
+        .ok_or_else(|| format!("未找到联系人会话绑定: conversation_id={conversation_id}"))?;
+    let args = RemoteImSendToolArgs {
+        action: "send".to_string(),
+        channel_id: Some(contact.channel_id.clone()),
+        contact_id: Some(contact.remote_contact_id.clone()),
+        text: Some(trimmed_text.to_string()),
+        status: "done".to_string(),
+        file_paths: None,
+    };
+    let tool_result = serde_json::to_string(
+        &builtin_remote_im_send(state, args.clone()).await?
+    )
+    .map_err(|err| format!("serialize auto remote_im_send result failed: {err}"))?;
+    Ok(Some((
+        "send".to_string(),
+        remote_im_send_tool_history_events(&args, &tool_result),
+    )))
 }
 
 fn prioritize_requested_chat_api_id(
@@ -726,8 +792,8 @@ async fn send_chat_message_inner(
         latest_user_text,
         current_agent,
         estimated_prompt_tokens,
-        is_hidden_remote_im_conversation,
-        hidden_remote_im_processing_mode,
+        is_remote_im_contact_conversation,
+        remote_im_contact_processing_mode,
     ) = {
         let guard = state
             .state_lock
@@ -807,9 +873,9 @@ async fn send_chat_message_inner(
         } else {
             runtime_conversation.clone()
         };
-        let hidden_remote_im_contact =
-            remote_im_find_hidden_contact_by_conversation(&data, &conversation_before.id).cloned();
-        let hidden_remote_im_processing_mode = hidden_remote_im_contact
+        let remote_im_contact =
+            remote_im_find_contact_by_conversation(&data, &conversation_before.id).cloned();
+        let remote_im_contact_processing_mode = remote_im_contact
             .as_ref()
             .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
             .unwrap_or_else(|| "continuous".to_string());
@@ -822,8 +888,8 @@ async fn send_chat_message_inner(
                 .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
                 .map(|c| c.summary.clone())
         };
-        let prompt_conversation_before = if hidden_remote_im_contact.is_some()
-            && hidden_remote_im_processing_mode == "qa"
+        let prompt_conversation_before = if remote_im_contact.is_some()
+            && remote_im_contact_processing_mode == "qa"
         {
             let trimmed = remote_im_trim_conversation_for_qa_mode(&conversation_before);
             eprintln!(
@@ -1078,8 +1144,8 @@ async fn send_chat_message_inner(
             latest_user_text,
             agent,
             estimated_prompt_tokens,
-            hidden_remote_im_contact.is_some(),
-            hidden_remote_im_processing_mode,
+            remote_im_contact.is_some(),
+            remote_im_contact_processing_mode,
         )
     };
     log_run_stage("prompt_ready");
@@ -1226,17 +1292,55 @@ async fn send_chat_message_inner(
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
-    let tool_history_events = model_reply.tool_history_events;
+    let mut tool_history_events = model_reply.tool_history_events;
     let suppress_assistant_message = model_reply.suppress_assistant_message;
-    let remote_im_reply_decision =
+    let mut remote_im_reply_decision =
         remote_im_extract_reply_decision_from_tool_history(&tool_history_events);
-    if is_hidden_remote_im_conversation && remote_im_reply_decision.is_none() {
+    if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
+        if !assistant_text.trim().is_empty() {
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: "".to_string(),
+                kind: Some("tool_status".to_string()),
+                tool_name: Some("remote_im_send".to_string()),
+                tool_status: Some("running".to_string()),
+                tool_args: None,
+                message: Some("联系人会话未显式调用 remote_im_send，正在按直接回复内容自动发送。".to_string()),
+            });
+            match remote_im_auto_send_contact_assistant_reply(&state, &conversation_id, &assistant_text).await {
+                Ok(Some((action, mut auto_events))) => {
+                    tool_history_events.append(&mut auto_events);
+                    remote_im_reply_decision = Some(action);
+                    let _ = on_delta.send(AssistantDeltaEvent {
+                        delta: "".to_string(),
+                        kind: Some("tool_status".to_string()),
+                        tool_name: Some("remote_im_send".to_string()),
+                        tool_status: Some("done".to_string()),
+                        tool_args: None,
+                        message: Some("联系人会话直接回复已自动作为 remote_im_send 发送。".to_string()),
+                    });
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    let _ = on_delta.send(AssistantDeltaEvent {
+                        delta: "".to_string(),
+                        kind: Some("tool_status".to_string()),
+                        tool_name: Some("remote_im_send".to_string()),
+                        tool_status: Some("failed".to_string()),
+                        tool_args: None,
+                        message: Some(format!("联系人会话自动发送失败：{err}")),
+                    });
+                    return Err(format!("联系人会话自动发送失败：{err}"));
+                }
+            }
+        }
+    }
+    if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
         eprintln!(
-            "[远程IM] 隐藏联系人线程缺少回复工具决策，判定失败: conversation_id={}, processing_mode={}",
-            conversation_id, hidden_remote_im_processing_mode
+            "[远程IM] 联系人会话缺少回复工具决策，判定失败: conversation_id={}, processing_mode={}",
+            conversation_id, remote_im_contact_processing_mode
         );
         return Err(
-            "后台联系人线程本轮未调用 remote_im_send 做出最终决策，请模型必须使用 send 或 no_reply。"
+            "联系人会话本轮既未调用 remote_im_send，也未产生可自动发送的回复内容。"
                 .to_string(),
         );
     }
@@ -1275,8 +1379,8 @@ async fn send_chat_message_inner(
                         "remoteImDecision".to_string(),
                         serde_json::json!({
                             "action": action,
-                            "processingMode": hidden_remote_im_processing_mode,
-                            "conversationKind": "remote_im_hidden"
+                            "processingMode": remote_im_contact_processing_mode,
+                            "conversationKind": "remote_im_contact"
                         }),
                     );
                 }

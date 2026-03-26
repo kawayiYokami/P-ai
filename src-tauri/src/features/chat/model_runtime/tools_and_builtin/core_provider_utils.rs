@@ -28,17 +28,29 @@ fn send_tool_status_event(
         "done" | "success" | "ok" | "completed" => "完成",
         "skip" | "skipped" => "跳过",
         "error" | "failed" | "fail" => "失败",
-        _ => "完成",
+        _ => "未知",
     };
-    let send_desc = if send_result.is_ok() {
-        "发送成功"
+    let delivery_desc = if send_result.is_ok() {
+        "投递成功"
     } else {
-        "发送失败"
+        "投递失败"
     };
     eprintln!(
-        "[工具调用] 名称={} 状态={} 消息={} 发送结果={}",
-        tool_name, unified_status, message, send_desc
+        "[工具调用] 名称={} 状态={} 消息={} 事件投递结果={}",
+        tool_name, unified_status, message, delivery_desc
     );
+}
+
+fn tool_failure_result_json(tool_name: &str, err_text: &str) -> String {
+    let tool_name = tool_name.trim();
+    let err_text = err_text.trim();
+    serde_json::json!({
+        "ok": false,
+        "tool": tool_name,
+        "error": err_text,
+        "message": format!("工具 `{}` 调用失败：{}", tool_name, err_text)
+    })
+    .to_string()
 }
 
 fn tool_enabled(
@@ -105,4 +117,31 @@ fn truncate_by_chars(input: &str, max_chars: usize) -> String {
     }
     out.push_str("...");
     out
+}
+
+#[cfg(test)]
+mod core_provider_utils_tests {
+    use super::*;
+
+    #[test]
+    fn tool_failure_result_json_marks_failure_explicitly() {
+        let raw = tool_failure_result_json("remote_im_send", "远程IM渠道未开启文件发送");
+        let value: Value = serde_json::from_str(&raw).expect("tool failure json");
+        assert_eq!(value.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            value.get("tool").and_then(Value::as_str),
+            Some("remote_im_send")
+        );
+        assert_eq!(
+            value.get("error").and_then(Value::as_str),
+            Some("远程IM渠道未开启文件发送")
+        );
+        assert!(
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .contains("工具 `remote_im_send` 调用失败")
+        );
+    }
 }

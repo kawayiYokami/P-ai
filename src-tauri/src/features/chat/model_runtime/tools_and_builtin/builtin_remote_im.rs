@@ -12,11 +12,11 @@ impl Tool for BuiltinRemoteImSendTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "remote_im_send".to_string(),
-            description: "远程联系人通讯工具。action=list 可列出当前可用联系人；action=send 可向指定联系人发送消息。".to_string(),
+            description: "远程联系人回复决策工具。来自联系人的消息，必须且只能通过本工具完成回复决策：回复时使用 action=send；决定不回复时也必须使用 action=no_reply；不要直接输出给联系人的回复正文来代替工具调用。action=list 仅用于获取可用联系人。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
-                "action": { "type": "string", "enum": ["list", "send", "no_reply"], "description": "动作。list=列出可用联系人；send=发送消息；no_reply=本轮决定不回复", "default": "send" },
+                "action": { "type": "string", "enum": ["list", "send", "no_reply"], "description": "动作。list=列出可用联系人；send=向联系人发送消息；no_reply=本轮决定不回复。对于联系人消息，最终必须使用 send 或 no_reply 做出决策。", "default": "send" },
                 "channel_id": { "type": "string", "description": "action=send 时必填；action=list 时可选（用于按渠道过滤）" },
                 "contact_id": { "type": "string", "description": "action=send 时必填；远程联系人 ID（contactId，即QQ号或群号）" },
                 "text": { "type": "string", "description": "action=send 时可选；要发送的文本内容（当传入 file_paths 时可为空）" },

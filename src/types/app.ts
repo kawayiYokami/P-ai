@@ -130,7 +130,7 @@ export type RemoteImContact = {
   activationMode: "always" | "never" | "keyword";
   activationKeywords: string[];
   activationCooldownSeconds: number;
-  routeMode?: "main_session" | "dedicated_hidden_thread";
+  routeMode?: "main_session" | "dedicated_contact_conversation";
   boundDepartmentId?: string;
   boundConversationId?: string;
   processingMode?: "qa" | "continuous";
@@ -140,7 +140,7 @@ export type RemoteImContact = {
   dingtalkSessionWebhookExpiredTime?: number;
 };
 
-export type HiddenRemoteImConversationSummary = {
+export type RemoteImContactConversationSummary = {
   contactId: string;
   conversationId: string;
   title: string;

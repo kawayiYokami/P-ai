@@ -36,7 +36,7 @@ fn delegate_tool_runtime_disabled_reason(
     }
 }
 
-fn remote_im_hidden_conversation_forces_send_tool(
+fn remote_im_contact_conversation_forces_send_tool(
     app_state: Option<&AppState>,
     tool_session_id: &str,
 ) -> bool {
@@ -56,7 +56,7 @@ fn remote_im_hidden_conversation_forces_send_tool(
     data.conversations.iter().any(|conversation| {
         conversation.id == conversation_id
             && conversation.summary.trim().is_empty()
-            && conversation_is_remote_im_hidden(conversation)
+            && conversation_is_remote_im_contact(conversation)
     })
 }
 
@@ -90,11 +90,12 @@ async fn assemble_runtime_tools(
     };
     let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
     let force_remote_im_send =
-        remote_im_hidden_conversation_forces_send_tool(app_state, tool_session_id);
+        remote_im_contact_conversation_forces_send_tool(app_state, tool_session_id);
     let has_remote_im_send =
         force_remote_im_send || tool_enabled(selected_api, agent, current_department, "remote_im_send");
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
+    let mut unavailable_tool_notices = Vec::<String>::new();
     let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     let mut mcp_read_file_client: Option<ReadFileMcpClient> = None;
 
@@ -168,6 +169,10 @@ async fn assemble_runtime_tools(
             }
             Err(err) => {
                 eprintln!("[MCP] screenshot degraded to disabled: {err}");
+                unavailable_tool_notices.push(format!(
+                    "工具 `screenshot` MCP 挂载失败：{}。",
+                    err
+                ));
                 tool_manifest.push(tool_manifest_item(
                     "builtin_mcp",
                     "screenshot",
@@ -188,8 +193,9 @@ async fn assemble_runtime_tools(
     }
 
     match attach_enabled_mcp_tools_for_runtime(&mut tools, app_state).await {
-        Ok(names) => {
-            if names.is_empty() {
+        Ok(outcome) => {
+            unavailable_tool_notices.extend(outcome.unavailable_tool_notices);
+            if outcome.attached_tool_names.is_empty() {
                 tool_manifest.push(tool_manifest_item(
                     "mcp_runtime",
                     "(none)",
@@ -198,7 +204,7 @@ async fn assemble_runtime_tools(
                     Some("no enabled MCP tools attached".to_string()),
                 ));
             } else {
-                for name in names {
+                for name in outcome.attached_tool_names {
                     tool_manifest.push(tool_manifest_item("mcp_runtime", &name, true, true, None));
                 }
             }
@@ -278,6 +284,10 @@ async fn assemble_runtime_tools(
                     "[MCP] 失败，任务=read_file，触发条件=MCP 附加失败，error={}",
                     err
                 );
+                unavailable_tool_notices.push(format!(
+                    "工具 `read_file` MCP 挂载失败：{}。",
+                    err
+                ));
                 tool_manifest.push(tool_manifest_item(
                     "builtin_mcp",
                     "read_file",
@@ -383,6 +393,7 @@ async fn assemble_runtime_tools(
     Ok(RuntimeToolAssembly {
         tools,
         tool_manifest,
+        unavailable_tool_notices,
         _mcp_screenshot_client: mcp_screenshot_client,
         _mcp_read_file_client: mcp_read_file_client,
     })

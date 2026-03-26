@@ -315,7 +315,7 @@
                 </select>
               </div>
               <div class="text-[11px] opacity-50 leading-5">
-                主部门固定进入主会话；非主部门固定进入该联系人的独占后台会话。切换处理部门不会清空联系人原有后台会话历史。
+                主部门固定进入主会话；非主部门固定进入该联系人的独占联系人会话。切换处理部门不会清空联系人原有联系人会话历史。
               </div>
               <div class="flex items-center justify-between gap-2">
                 <span>处理模式</span>
@@ -798,12 +798,12 @@ function isMainDepartmentContact(item: RemoteImContact): boolean {
 }
 
 function contactRouteLabel(item: RemoteImContact): string {
-  return isMainDepartmentContact(item) ? "主会话" : "联系人独占隐藏会话";
+  return isMainDepartmentContact(item) ? "主会话" : "联系人独占会话";
 }
 
 function contactRoutingHint(item: RemoteImContact): string {
   const processingMode = normalizeProcessingMode(item.processingMode);
-  const routeLabel = isMainDepartmentContact(item) ? "当前走主会话" : "当前走联系人独占隐藏会话";
+  const routeLabel = isMainDepartmentContact(item) ? "当前走主会话" : "当前走联系人独占会话";
   const processingLabel = processingMode === "qa" ? "无上下文" : "有上下文";
   return `${routeLabel} · ${processingLabel}`;
 }
@@ -881,7 +881,7 @@ async function onContactDepartmentChange(
       },
     });
     if (nextDepartmentId) {
-      props.setStatusAction("非主部门联系人将自动使用独占隐藏会话。");
+      props.setStatusAction("非主部门联系人将自动使用独占联系人会话。");
     }
     await refreshContacts();
   } catch (error) {

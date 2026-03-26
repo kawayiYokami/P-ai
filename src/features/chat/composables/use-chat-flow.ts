@@ -824,6 +824,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
     })();
     const parsed = readHistoryFlushedPayload(raw);
     if (!parsed) return;
+    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
+    const payloadConversationId = String(parsed.conversationId || "").trim();
+    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return;
+    }
     const treatAsSendChat = sendChatActiveGen > 0 && !!parsed.activateAssistant;
     const source: "sendChat" | "bound" = treatAsSendChat ? "sendChat" : "bound";
     const gen = treatAsSendChat ? sendChatActiveGen : ++generation;

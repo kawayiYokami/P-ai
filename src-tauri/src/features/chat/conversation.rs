@@ -109,13 +109,13 @@ fn conversation_is_delegate(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
 }
 
-fn conversation_is_remote_im_hidden(conversation: &Conversation) -> bool {
-    conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_HIDDEN
+fn conversation_is_remote_im_contact(conversation: &Conversation) -> bool {
+    conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
 }
 
 fn conversation_visible_in_foreground_lists(conversation: &Conversation) -> bool {
     !conversation_is_delegate(conversation)
-        && !conversation_is_remote_im_hidden(conversation)
+        && !conversation_is_remote_im_contact(conversation)
 }
 
 fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
@@ -1645,9 +1645,9 @@ fn build_prompt_with_mode(
         ),
     };
     let remote_im_rules_block = match ui_language.trim() {
-        "en-US" => "## Remote IM Contact Tool Rules\n- If a message contains remote IM context, do not fabricate contact info.\n- First call `remote_im_send` with `action=list` to get available contacts when needed.\n- To reply, call `remote_im_send` with `action=send` and exact `channel_id` + `contact_id` from context/list.\n- If you decide not to reply, call `remote_im_send` with `action=no_reply`.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final decision in this round.",
-        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 當訊息包含遠端 IM 上下文時，不要自行編造聯絡人資訊。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- 要回覆時呼叫 `remote_im_send`，`action=send`，並使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- 若決定不回覆，必須呼叫 `remote_im_send`，`action=no_reply`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一個決策用 `done`。",
-        _ => "## 远程 IM 联系人工具规则\n- 当消息包含远程 IM 上下文时，不要自行编造联系人信息。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- 要回复时调用 `remote_im_send`，`action=send`，并使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- 若决定不回复，必须调用 `remote_im_send`，`action=no_reply`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一个决策用 `done`。",
+        "en-US" => "## Remote IM Contact Tool Rules\n- For messages from a remote contact, reply decisions must only be made through `remote_im_send`.\n- Do not output a direct reply message as a substitute for the tool.\n- If needed, first call `remote_im_send` with `action=list` to get available contacts.\n- To reply, call `remote_im_send` with `action=send` and exact `channel_id` + `contact_id` from context/list.\n- If you decide not to reply, you must still call `remote_im_send` with `action=no_reply`.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final decision in this round.",
+        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 來自聯絡人的訊息，回覆決策必須且只能透過 `remote_im_send` 完成。\n- 不要直接輸出要發給聯絡人的回覆文字來取代工具呼叫。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- 要回覆時呼叫 `remote_im_send`，`action=send`，並使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- 若決定不回覆，也必須呼叫 `remote_im_send`，`action=no_reply`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一個決策用 `done`。",
+        _ => "## 远程 IM 联系人工具规则\n- 来自联系人的消息，回复决策必须且只能通过 `remote_im_send` 完成。\n- 不要直接输出要发给联系人的回复文字来代替工具调用。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- 要回复时调用 `remote_im_send`，`action=send`，并使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- 若决定不回复，也必须调用 `remote_im_send`，`action=no_reply`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一个决策用 `done`。",
     };
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
     let mut preamble = if let Some((user_name, user_intro)) = user_profile {

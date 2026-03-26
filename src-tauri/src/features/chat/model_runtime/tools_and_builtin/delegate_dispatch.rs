@@ -115,9 +115,12 @@ fn delegate_create_record(
 }
 
 fn delegate_failed_result(reason: impl Into<String>) -> Value {
+    let reason = reason.into();
     serde_json::json!({
+        "ok": false,
         "status": "委托无法送达",
-        "reason": reason.into(),
+        "reason": reason,
+        "message": "委托工具执行失败"
     })
 }
 
@@ -392,6 +395,7 @@ async fn builtin_delegate(
     );
 
     Ok(serde_json::json!({
+        "ok": true,
         "status": "委托已送达",
         "delegate": delegate,
         "targetName": target_name
@@ -465,6 +469,7 @@ async fn delegate_execute_sync(
     .await
     {
         Ok(run) => Ok(serde_json::json!({
+            "ok": true,
             "status": "委托完成",
             "delegate": delegate,
             "conversationId": preflight.root_conversation_id,
@@ -473,9 +478,11 @@ async fn delegate_execute_sync(
             "targetAgentId": preflight.target_agent_id,
         })),
         Err(err) => Ok(serde_json::json!({
+            "ok": false,
             "status": "委托无法送达",
             "delegate": delegate,
             "reason": err,
+            "message": "委托工具执行失败"
         })),
     }
 }

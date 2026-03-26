@@ -94,11 +94,11 @@
         </div>
         <div v-else class="flex flex-col gap-2">
           <div
-            v-for="c in hiddenRemoteImConversations"
+            v-for="c in remoteImContactConversations"
             :key="c.contactId"
             class="p-2 rounded cursor-pointer hover:bg-base-200"
-            :class="{ 'bg-primary/10': c.contactId === selectedHiddenRemoteImContactId }"
-            @click="$emit('selectHiddenRemoteImConversation', c.contactId)"
+            :class="{ 'bg-primary/10': c.contactId === selectedRemoteImContactId }"
+            @click="$emit('selectRemoteImContactConversation', c.contactId)"
           >
             <div class="font-medium truncate text-sm">{{ c.contactDisplayName }}</div>
             <div class="text-xs opacity-70 truncate">{{ c.boundDepartmentId || "-" }} · {{ c.processingMode }}</div>
@@ -152,7 +152,7 @@ import type {
   ArchiveSummary,
   ChatMessage,
   DelegateConversationSummary,
-  HiddenRemoteImConversationSummary,
+  RemoteImContactConversationSummary,
   MessagePart,
   UnarchivedConversationSummary,
 } from "../../../types/app";
@@ -168,9 +168,9 @@ const props = defineProps<{
   delegateConversations: DelegateConversationSummary[];
   selectedDelegateConversationId: string;
   delegateMessages: ChatMessage[];
-  hiddenRemoteImConversations: HiddenRemoteImConversationSummary[];
-  selectedHiddenRemoteImContactId: string;
-  hiddenRemoteImMessages: ChatMessage[];
+  remoteImContactConversations: RemoteImContactConversationSummary[];
+  selectedRemoteImContactId: string;
+  remoteImContactMessages: ChatMessage[];
   personaNameMap?: Record<string, string>;
 }>();
 const { t, locale } = useI18n();
@@ -180,7 +180,7 @@ const emit = defineEmits<{
   (e: "selectArchive", archiveId: string): void;
   (e: "selectUnarchivedConversation", conversationId: string): void;
   (e: "selectDelegateConversation", conversationId: string): void;
-  (e: "selectHiddenRemoteImConversation", contactId: string): void;
+  (e: "selectRemoteImContactConversation", contactId: string): void;
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
   (e: "deleteArchive", archiveId: string): void;
   (e: "deleteUnarchivedConversation", conversationId: string): void;
@@ -195,7 +195,7 @@ const visibleMessages = computed(() =>
     : viewMode.value === "delegate"
       ? props.delegateMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
       : viewMode.value === "remoteIm"
-        ? props.hiddenRemoteImMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+        ? props.remoteImContactMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
         : props.archiveMessages,
 );
 const archiveImportInputRef = ref<HTMLInputElement | null>(null);

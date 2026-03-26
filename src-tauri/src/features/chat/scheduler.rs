@@ -1316,7 +1316,7 @@ fn collect_active_chat_view_activations(
         "[聊天调度] 绑定快照: conversation_id={}, bindings={:?}",
         conversation_id, binding_snapshot
     );
-    let mut exact = bindings
+    let exact = bindings
         .iter()
         .filter_map(|(window_label, binding)| {
             if binding.conversation_id != conversation_id {
@@ -1360,23 +1360,6 @@ fn collect_active_chat_view_activations(
         return Ok(wildcard);
     }
 
-    // 兜底：项目当前通常只有一个会话窗口，若仅有一个绑定则仍推送，避免“已入历史但前端无感知”。
-    if bindings.len() == 1 {
-        if let Some((window_label, binding)) = bindings.iter().next() {
-            eprintln!(
-                "[聊天调度] 会话绑定不匹配，使用单窗口兜底推送: conversation_id={}, bound_conversation_id={}, window={}",
-                conversation_id,
-                binding.conversation_id,
-                window_label
-            );
-            exact.push(QueuedChatActivation {
-                event_id: format!("active-view:{window_label}"),
-                on_delta: binding.on_delta.clone(),
-                source: QueuedChatActivationSource::ActiveViewBinding,
-            });
-            return Ok(exact);
-        }
-    }
     eprintln!(
         "[聊天调度] 绑定筛选未命中: conversation_id={}, bindings_count={}",
         conversation_id,

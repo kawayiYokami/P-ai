@@ -4,7 +4,7 @@ import type {
   ArchiveSummary,
   ChatMessage,
   DelegateConversationSummary,
-  HiddenRemoteImConversationSummary,
+  RemoteImContactConversationSummary,
   UnarchivedConversationSummary,
 } from "../../../types/app";
 
@@ -83,9 +83,9 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   const delegateConversations = ref<DelegateConversationSummary[]>([]);
   const delegateMessages = ref<ChatMessage[]>([]);
   const selectedDelegateConversationId = ref("");
-  const hiddenRemoteImConversations = ref<HiddenRemoteImConversationSummary[]>([]);
-  const hiddenRemoteImMessages = ref<ChatMessage[]>([]);
-  const selectedHiddenRemoteImContactId = ref("");
+  const remoteImContactConversations = ref<RemoteImContactConversationSummary[]>([]);
+  const remoteImContactMessages = ref<ChatMessage[]>([]);
+  const selectedRemoteImContactId = ref("");
 
   async function selectUnarchivedConversation(conversationId: string) {
     const previousId = selectedUnarchivedConversationId.value;
@@ -156,7 +156,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   async function loadArchives() {
     await loadUnarchivedConversations();
     await loadDelegateConversations();
-    await loadHiddenRemoteImConversations();
+    await loadRemoteImContactConversations();
     try {
       archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
       if (archives.value.length === 0) {
@@ -174,35 +174,35 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
-  async function selectHiddenRemoteImConversation(contactId: string) {
-    const previousId = selectedHiddenRemoteImContactId.value;
-    const previousMessages = hiddenRemoteImMessages.value;
+  async function selectRemoteImContactConversation(contactId: string) {
+    const previousId = selectedRemoteImContactId.value;
+    const previousMessages = remoteImContactMessages.value;
     try {
-      const messages = await invokeTauri<ChatMessage[]>("remote_im_get_hidden_contact_messages", {
+      const messages = await invokeTauri<ChatMessage[]>("remote_im_get_contact_conversation_messages", {
         input: { contactId },
       });
-      selectedHiddenRemoteImContactId.value = contactId;
-      hiddenRemoteImMessages.value = messages;
+      selectedRemoteImContactId.value = contactId;
+      remoteImContactMessages.value = messages;
     } catch (e) {
-      selectedHiddenRemoteImContactId.value = previousId;
-      hiddenRemoteImMessages.value = previousMessages;
+      selectedRemoteImContactId.value = previousId;
+      remoteImContactMessages.value = previousMessages;
       options.setStatusError("status.loadMessagesFailed", e);
     }
   }
 
-  async function loadHiddenRemoteImConversations() {
+  async function loadRemoteImContactConversations() {
     try {
-      hiddenRemoteImConversations.value =
-        await invokeTauri<HiddenRemoteImConversationSummary[]>("remote_im_list_hidden_contact_sessions");
-      if (hiddenRemoteImConversations.value.length === 0) {
-        selectedHiddenRemoteImContactId.value = "";
-        hiddenRemoteImMessages.value = [];
+      remoteImContactConversations.value =
+        await invokeTauri<RemoteImContactConversationSummary[]>("remote_im_list_contact_conversations");
+      if (remoteImContactConversations.value.length === 0) {
+        selectedRemoteImContactId.value = "";
+        remoteImContactMessages.value = [];
         return;
       }
-      const targetId = hiddenRemoteImConversations.value.some((item) => item.contactId === selectedHiddenRemoteImContactId.value)
-        ? selectedHiddenRemoteImContactId.value
-        : hiddenRemoteImConversations.value[0].contactId;
-      await selectHiddenRemoteImConversation(targetId);
+      const targetId = remoteImContactConversations.value.some((item) => item.contactId === selectedRemoteImContactId.value)
+        ? selectedRemoteImContactId.value
+        : remoteImContactConversations.value[0].contactId;
+      await selectRemoteImContactConversation(targetId);
     } catch (e) {
       options.setStatusError("status.loadMessagesFailed", e);
     }
@@ -341,15 +341,15 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     delegateConversations,
     delegateMessages,
     selectedDelegateConversationId,
-    hiddenRemoteImConversations,
-    hiddenRemoteImMessages,
-    selectedHiddenRemoteImContactId,
+    remoteImContactConversations,
+    remoteImContactMessages,
+    selectedRemoteImContactId,
     selectUnarchivedConversation,
     selectDelegateConversation,
-    selectHiddenRemoteImConversation,
+    selectRemoteImContactConversation,
     loadUnarchivedConversations,
     loadDelegateConversations,
-    loadHiddenRemoteImConversations,
+    loadRemoteImContactConversations,
     loadArchives,
     selectArchive,
     deleteUnarchivedConversation,

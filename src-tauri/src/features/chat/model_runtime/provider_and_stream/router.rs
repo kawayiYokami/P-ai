@@ -43,6 +43,37 @@ fn prepared_has_any_history_image(prepared: &PreparedPrompt) -> bool {
         .any(|hm| hm.role == "user" && !hm.images.is_empty())
 }
 
+fn append_unavailable_tool_notices_to_prepared(
+    prepared: &mut PreparedPrompt,
+    notices: &[String],
+) {
+    let merged = notices
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if merged.is_empty() {
+        return;
+    }
+    let block = format!(
+        "## 本轮不可用工具提醒\n{}",
+        merged
+            .iter()
+            .map(|item| format!("- {}", item))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    if prepared.latest_user_extra_text.trim().is_empty() {
+        prepared.latest_user_extra_text = block;
+    } else {
+        prepared.latest_user_extra_text = format!(
+            "{}\n\n{}",
+            prepared.latest_user_extra_text.trim(),
+            block
+        );
+    }
+}
+
 async fn dispatch_openai_style_call(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -148,6 +179,10 @@ async fn call_model_openai_style(
         {
             let tool_assembly =
                 assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
+            append_unavailable_tool_notices_to_prepared(
+                &mut prepared,
+                &tool_assembly.unavailable_tool_notices,
+            );
             if tool_assembly.tools.is_empty() {
                 call_model_gemini_rig_style(api_config, model_name, prepared).await
             } else {
@@ -174,6 +209,10 @@ async fn call_model_openai_style(
         {
             let tool_assembly =
                 assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
+            append_unavailable_tool_notices_to_prepared(
+                &mut prepared,
+                &tool_assembly.unavailable_tool_notices,
+            );
             if tool_assembly.tools.is_empty() {
                 call_model_anthropic_rig_style(api_config, model_name, prepared).await
             } else {
@@ -209,6 +248,10 @@ async fn call_model_openai_style(
             let stream_result = if selected_api.enable_tools {
                 let tool_assembly =
                     assemble_runtime_tools(app_config, selected_api, agent, app_state, chat_session_key).await?;
+                append_unavailable_tool_notices_to_prepared(
+                    &mut prepared,
+                    &tool_assembly.unavailable_tool_notices,
+                );
                 tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                 dispatch_openai_style_call(
                     api_config,
@@ -306,6 +349,10 @@ async fn call_model_openai_style(
                             chat_session_key,
                         )
                         .await?;
+                        append_unavailable_tool_notices_to_prepared(
+                            &mut fallback,
+                            &tool_assembly.unavailable_tool_notices,
+                        );
                         tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                         dispatch_openai_style_call(
                             api_config,

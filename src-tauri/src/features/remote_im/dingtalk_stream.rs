@@ -535,6 +535,26 @@ fn mime_from_name_fallback(file_name: &str) -> String {
     }
 }
 
+fn normalize_dingtalk_image_mime(raw: &[u8], mime: &str) -> String {
+    let trimmed = mime.trim();
+    if trimmed.starts_with("image/") {
+        return trimmed.to_string();
+    }
+    match image::guess_format(raw) {
+        Ok(image::ImageFormat::Png) => "image/png".to_string(),
+        Ok(image::ImageFormat::Jpeg) => "image/jpeg".to_string(),
+        Ok(image::ImageFormat::Gif) => "image/gif".to_string(),
+        Ok(image::ImageFormat::WebP) => "image/webp".to_string(),
+        _ => {
+            if trimmed.is_empty() {
+                "image/png".to_string()
+            } else {
+                trimmed.to_string()
+            }
+        }
+    }
+}
+
 async fn parse_and_enqueue_dingtalk_callback(
     channel: &RemoteImChannelConfig,
     callback_payload: &Value,
@@ -610,6 +630,7 @@ async fn parse_and_enqueue_dingtalk_callback(
             return Err("跳过: picture 缺少 robotCode".to_string());
         }
         let (raw, mime) = dingtalk_download_file_by_code(channel, download_code, &robot_code).await?;
+        let mime = normalize_dingtalk_image_mime(&raw, &mime);
         images.push(BinaryPart {
             mime,
             bytes_base64: B64.encode(raw),
@@ -642,6 +663,7 @@ async fn parse_and_enqueue_dingtalk_callback(
                 }
                 let (raw, mime) =
                     dingtalk_download_file_by_code(channel, download_code, &robot_code).await?;
+                let mime = normalize_dingtalk_image_mime(&raw, &mime);
                 images.push(BinaryPart {
                     mime,
                     bytes_base64: B64.encode(raw),

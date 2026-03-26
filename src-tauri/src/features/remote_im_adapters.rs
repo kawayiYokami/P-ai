@@ -106,6 +106,42 @@ fn remote_im_payload_has_non_text_items(payload: &Value) -> bool {
         .any(|item| item.get("type").and_then(Value::as_str).unwrap_or("") != "text")
 }
 
+fn remote_im_payload_media_summary(payload: &Value) -> Value {
+    let items = remote_im_payload_content_items(payload);
+    let mut text_count = 0usize;
+    let mut image_count = 0usize;
+    let mut file_count = 0usize;
+    let mut unknown_count = 0usize;
+    let mut image_mimes = Vec::<String>::new();
+    let mut file_names = Vec::<String>::new();
+    for item in items {
+        match item.get("type").and_then(Value::as_str).unwrap_or("") {
+            "text" => text_count += 1,
+            "image" => {
+                image_count += 1;
+                if let Some(mime) = item.get("mime").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+                    image_mimes.push(mime.to_string());
+                }
+            }
+            "file" => {
+                file_count += 1;
+                if let Some(name) = item.get("name").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+                    file_names.push(name.to_string());
+                }
+            }
+            _ => unknown_count += 1,
+        }
+    }
+    serde_json::json!({
+        "textCount": text_count,
+        "imageCount": image_count,
+        "fileCount": file_count,
+        "unknownCount": unknown_count,
+        "imageMimes": image_mimes,
+        "fileNames": file_names,
+    })
+}
+
 fn remote_im_content_item_name(item: &Value, default_name: &str) -> String {
     item.get("name")
         .and_then(Value::as_str)
@@ -469,7 +505,8 @@ impl RemoteImSdk for FeishuSdk {
                     "contact_id": contact.id,
                     "remote_contact_id": contact.remote_contact_id,
                     "receive_id_type": receive_id_type,
-                    "status": "开始"
+                    "status": "开始",
+                    "payload_summary": remote_im_payload_media_summary(payload)
                 }),
             );
             let client = reqwest::Client::builder()
@@ -722,10 +759,14 @@ impl DingtalkSdk {
 
     fn get_robot_code(&self, channel: &RemoteImChannelConfig) -> Option<String> {
         let robot_code = remote_im_credential_text(&channel.credentials, "robotCode");
-        if robot_code.is_empty() {
+        if !robot_code.is_empty() {
+            return Some(robot_code);
+        }
+        let client_id = remote_im_credential_text(&channel.credentials, "clientId");
+        if client_id.is_empty() {
             return None;
         }
-        Some(robot_code)
+        Some(client_id)
     }
 
     fn session_webhook_from_contact(&self, contact: &RemoteImContact) -> Option<String> {
@@ -1018,6 +1059,20 @@ impl RemoteImSdk for DingtalkSdk {
                 None,
                 Some(default_mode),
             );
+            remote_im_log(
+                "INFO",
+                "dingtalk.send_outbound_payload",
+                serde_json::json!({
+                    "task_name": "dingtalk.send_outbound_payload",
+                    "trigger": "remote_im_send",
+                    "channel_id": channel.id,
+                    "contact_id": contact.id,
+                    "remote_contact_id": contact.remote_contact_id,
+                    "send_mode": default_mode,
+                    "payload_summary": remote_im_payload_media_summary(payload),
+                    "status": "开始"
+                }),
+            );
 
             let client = match reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(12))
@@ -1127,7 +1182,7 @@ impl RemoteImSdk for DingtalkSdk {
             // ========== openapi fallback ==========
             let Some(robot_code) = self.get_robot_code(channel) else {
                 let err =
-                    "dingtalk stream 模式缺少可用会话（sessionWebhook），且未配置 robotCode 兜底发送"
+                    "dingtalk 非文本发送缺少可用发送身份：未找到 robotCode，且 clientId 也不可用"
                         .to_string();
                 self.log_outcome(
                     "ERROR",
@@ -1345,7 +1400,8 @@ impl RemoteImSdk for OnebotV11Sdk {
                     "channel_id": channel.id,
                     "action": action,
                     "remote_contact_id": contact.remote_contact_id,
-                    "status": "开始"
+                    "status": "开始",
+                    "payload_summary": remote_im_payload_media_summary(payload)
                 }),
             );
             let result = match manager.call_api(&channel.id, action, params, 10000).await {
@@ -1499,6 +1555,22 @@ mod remote_im_adapter_tests {
         assert!(sdk.validate_channel(&ok).is_ok());
         let bad = mock_channel(RemoteImPlatform::Dingtalk, serde_json::json!({"clientId":"x"}));
         assert!(sdk.validate_channel(&bad).is_err());
+    }
+
+    #[test]
+    fn dingtalk_robot_code_should_fallback_to_client_id() {
+        let sdk = DingtalkSdk;
+        let channel = mock_channel(
+            RemoteImPlatform::Dingtalk,
+            serde_json::json!({"clientId":"client-x","clientSecret":"secret-y"}),
+        );
+        assert_eq!(sdk.get_robot_code(&channel).as_deref(), Some("client-x"));
+
+        let explicit = mock_channel(
+            RemoteImPlatform::Dingtalk,
+            serde_json::json!({"clientId":"client-x","clientSecret":"secret-y","robotCode":"robot-z"}),
+        );
+        assert_eq!(sdk.get_robot_code(&explicit).as_deref(), Some("robot-z"));
     }
 
     #[test]

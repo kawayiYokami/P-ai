@@ -167,15 +167,15 @@
       :delegate-conversations="delegateConversations"
       :selected-delegate-conversation-id="selectedDelegateConversationId"
       :delegate-messages="delegateMessages"
-      :hidden-remote-im-conversations="hiddenRemoteImConversations"
-      :selected-hidden-remote-im-contact-id="selectedHiddenRemoteImContactId"
-      :hidden-remote-im-messages="hiddenRemoteImMessages"
+      :remote-im-contact-conversations="remoteImContactConversations"
+      :selected-remote-im-contact-id="selectedRemoteImContactId"
+      :remote-im-contact-messages="remoteImContactMessages"
       :persona-name-map="chatPersonaNameMap"
       @load-archives="loadArchives"
       @select-archive="selectArchive"
       @select-unarchived-conversation="selectUnarchivedConversation"
       @select-delegate-conversation="selectDelegateConversation"
-      @select-hidden-remote-im-conversation="selectHiddenRemoteImConversation"
+      @select-remote-im-contact-conversation="selectRemoteImContactConversation"
       @export-archive="exportArchive"
       @import-archive-file="importArchiveFile"
       @delete-archive="deleteArchive"
@@ -238,7 +238,7 @@ import type {
   ChatMessageBlock,
   ChatPersonaPresenceChip,
   DelegateConversationSummary,
-  HiddenRemoteImConversationSummary,
+  RemoteImContactConversationSummary,
   ImageTextCacheStats,
   PersonaProfile,
   ResponseStyleOption,
@@ -354,9 +354,9 @@ const props = defineProps<{
   delegateConversations: DelegateConversationSummary[];
   selectedDelegateConversationId: string;
   delegateMessages: ChatMessage[];
-  hiddenRemoteImConversations: HiddenRemoteImConversationSummary[];
-  selectedHiddenRemoteImContactId: string;
-  hiddenRemoteImMessages: ChatMessage[];
+  remoteImContactConversations: RemoteImContactConversationSummary[];
+  selectedRemoteImContactId: string;
+  remoteImContactMessages: ChatMessage[];
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
   memoryList: MemoryItem[];
@@ -423,7 +423,7 @@ const props = defineProps<{
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;
   selectDelegateConversation: (id: string) => void;
-  selectHiddenRemoteImConversation: (id: string) => void;
+  selectRemoteImContactConversation: (id: string) => void;
   exportArchive: (payload: { format: "markdown" | "json" }) => void;
   importArchiveFile: (file: File) => void;
   deleteArchive: (id: string) => void;

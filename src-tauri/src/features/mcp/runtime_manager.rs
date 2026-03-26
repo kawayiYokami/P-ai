@@ -600,16 +600,22 @@ async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<M
     Ok(out)
 }
 
+#[derive(Debug, Clone, Default)]
+struct McpRuntimeAttachOutcome {
+    attached_tool_names: Vec<String>,
+    unavailable_tool_notices: Vec<String>,
+}
+
 async fn attach_enabled_mcp_tools_for_runtime(
     tools: &mut Vec<Box<dyn ToolDyn>>,
     app_state: Option<&AppState>,
-) -> Result<Vec<String>, String> {
+) -> Result<McpRuntimeAttachOutcome, String> {
     let Some(state) = app_state else {
-        return Ok(Vec::new());
+        return Ok(McpRuntimeAttachOutcome::default());
     };
     let servers = load_workspace_mcp_servers(state)?;
 
-    let mut attached_tool_names = Vec::<String>::new();
+    let mut outcome = McpRuntimeAttachOutcome::default();
     for server in &servers {
         if !mcp_runtime_state_get(&server.id)
             .map(|s| s.deployed)
@@ -619,6 +625,10 @@ async fn attach_enabled_mcp_tools_for_runtime(
         }
         if let Err(err) = parse_mcp_server_definition_from_config(server) {
             eprintln!("[MCP] skip server={} parse failed: {err}", server.id);
+            outcome.unavailable_tool_notices.push(format!(
+                "MCP 服务器 `{}` 解析失败：{}。",
+                server.name, err
+            ));
             continue;
         }
 
@@ -626,6 +636,10 @@ async fn attach_enabled_mcp_tools_for_runtime(
             Ok(v) => v,
             Err(err) => {
                 eprintln!("[MCP] skip server={} connect/list failed: {}", server.id, err);
+                outcome.unavailable_tool_notices.push(format!(
+                    "MCP 服务器 `{}` 连接或列工具失败：{}。",
+                    server.name, err
+                ));
                 continue;
             }
         };
@@ -641,9 +655,11 @@ async fn attach_enabled_mcp_tools_for_runtime(
                 def,
                 peer.clone(),
             )));
-            attached_tool_names.push(format!("{}::{}", server.name, tool_name));
+            outcome
+                .attached_tool_names
+                .push(format!("{}::{}", server.name, tool_name));
         }
     }
 
-    Ok(attached_tool_names)
+    Ok(outcome)
 }
