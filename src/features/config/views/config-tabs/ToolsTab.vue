@@ -74,7 +74,7 @@
           <div class="text-sm font-bold text-base-content whitespace-nowrap">{{ t("config.tools.maxIterations") }}</div>
           <input v-model.number="config.toolMaxIterations" type="number" min="1" max="100" step="1" class="input input-bordered input-sm w-20" />
         </div>
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-2 shrink-0 ml-auto">
           <button
             class="btn btn-sm"
             :class="selectedPersonaIsPrivateWorkspace ? 'bg-base-100 text-base-content/40 cursor-not-allowed' : 'btn-primary'"
@@ -84,7 +84,6 @@
             {{ t("common.save") }}
           </button>
         </div>
-        <div class="font-medium ml-auto">{{ t('config.mcpToolList.toolList') }}<span v-if="toolListItems.length">（{{ toolListItems.length }}）</span></div>
       </div>
       <!-- 当前编辑状态提示 -->
       <div class="px-3 py-1.5 bg-base-200/30 text-[11px] opacity-70">
