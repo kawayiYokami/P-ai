@@ -1665,20 +1665,47 @@ impl AppState {
             .ok_or_else(|| "Failed to resolve new config directory".to_string())?;
         let legacy_config_dir = legacy_project_dirs.config_dir().to_path_buf();
         let next_config_dir = next_project_dirs.config_dir().to_path_buf();
-        let using_new = next_config_dir.exists() || !legacy_config_dir.exists();
-        let using_legacy = !using_new;
-        let config_dir = if using_new {
+        let legacy_exists = legacy_config_dir.exists();
+        let next_exists = next_config_dir.exists();
+        let mut migrated_legacy_to_new = false;
+
+        let config_dir = if next_exists {
             next_config_dir.clone()
         } else {
-            legacy_config_dir.clone()
+            if legacy_exists {
+                if let Some(parent) = next_config_dir.parent() {
+                    fs::create_dir_all(parent).map_err(|err| {
+                        format!(
+                            "Create new config parent directory failed ({}): {err}",
+                            parent.display()
+                        )
+                    })?;
+                }
+                fs::rename(&legacy_config_dir, &next_config_dir).map_err(|err| {
+                    format!(
+                        "Migrate legacy config directory failed ({} -> {}): {err}",
+                        legacy_config_dir.display(),
+                        next_config_dir.display()
+                    )
+                })?;
+                migrated_legacy_to_new = true;
+                next_config_dir.clone()
+            } else {
+                fs::create_dir_all(&next_config_dir).map_err(|err| {
+                    format!(
+                        "Create new config directory failed ({}): {err}",
+                        next_config_dir.display()
+                    )
+                })?;
+                next_config_dir.clone()
+            }
         };
-        let migrated_to_new = using_new && legacy_config_dir.exists() && next_config_dir.exists();
         eprintln!(
-            "[配置路径] 选择配置目录: selected={}, using_new={}, fallback_legacy={}, migrated_legacy_to_new={}",
+            "[配置路径] 固定使用 p-ai: selected={}, legacy_exists={}, next_exists_before={}, migrated_legacy_to_new={}",
             config_dir.display(),
-            using_new,
-            using_legacy,
-            migrated_to_new
+            legacy_exists,
+            next_exists,
+            migrated_legacy_to_new
         );
         fs::create_dir_all(&config_dir)
             .map_err(|err| format!("Create config directory failed: {err}"))?;
