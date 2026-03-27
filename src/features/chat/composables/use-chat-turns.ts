@@ -22,15 +22,21 @@ type UseChatMessageBlocksOptions = {
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   let lastMessageBlockSignature = "";
   let lastMessageBlocks: ChatMessageBlock[] = [];
+  const messageSignatureCache = new WeakMap<ChatMessage, string>();
+  const messageBlockCache = new WeakMap<ChatMessage, { signature: string; block: ChatMessageBlock | null }>();
 
   function messageSignature(message: ChatMessage): string {
-    return [
+    const cached = messageSignatureCache.get(message);
+    if (cached) return cached;
+    const signature = [
       String(message.id || "").trim(),
       String(message.createdAt || "").trim(),
       JSON.stringify(message.parts || []),
       JSON.stringify(message.providerMeta || {}),
       JSON.stringify(message.toolCall || []),
     ].join("|");
+    messageSignatureCache.set(message, signature);
+    return signature;
   }
 
   function latestBackendContextUsagePercent(messages: ChatMessage[]): number | null {
@@ -121,59 +127,67 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     };
   }
 
-  const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
-    const startedAt = options.perfNow();
-    const messages = options.allMessages.value;
-    const signature = messages.map((message) => messageSignature(message)).join("||");
-    if (signature === lastMessageBlockSignature) {
-      return lastMessageBlocks;
+  function buildMessageBlock(message: ChatMessage): ChatMessageBlock | null {
+    const signature = messageSignature(message);
+    const cached = messageBlockCache.get(message);
+    if (cached && cached.signature === signature) {
+      return cached.block;
     }
-    const blocks = messages.map((message) => {
-      const rendered = removeBinaryPlaceholders(renderMessage(message));
-      const parsed = parseAssistantStoredText(rendered);
-      const meta = (message.providerMeta || {}) as Record<string, unknown>;
-      const toolSummary = summarizeToolHistory(message.toolCall);
-      const streamSegments = Array.isArray(meta._streamSegments)
-        ? (meta._streamSegments as unknown[])
-          .map((item) => String(item ?? ""))
-          .filter((item) => item.length > 0)
-        : [];
-      const streamTail = String(meta._streamTail ?? "");
-      return {
-        id: message.id,
-        role: message.role,
-        isStreaming: !!meta._streaming,
-        streamSegments,
-        streamTail,
-        speakerAgentId: resolveSpeakerAgentId(message) || undefined,
-        createdAt: String(message.createdAt || "").trim() || undefined,
-        text: message.role === "assistant" ? parsed.assistantText : rendered,
-        images: extractMessageImages(message),
-        audios: extractMessageAudios(message),
-        attachmentFiles: extractMessageAttachmentFiles(message),
-        taskTrigger: resolveTaskTrigger(message),
-        remoteImOrigin: (() => {
-          const origin = meta.origin as Record<string, unknown> | undefined;
-          if (!origin || origin.kind !== "remote_im") return undefined;
-          return {
-            senderName: String(origin.senderName || ""),
-            remoteContactName: String(origin.remoteContactName || "") || undefined,
-            remoteContactType: String(origin.remoteContactType || "private"),
-            channelId: String(origin.channelId || ""),
-            contactId: String(origin.contactId || ""),
-          };
-        })(),
-        reasoningStandard:
-          parsed.reasoningStandard
-          || String(meta.reasoningStandard || "").trim(),
-        reasoningInline:
-          parsed.reasoningInline
-          || String(meta.reasoningInline || "").trim(),
-        toolCallCount: toolSummary.count,
-        lastToolName: toolSummary.lastToolName,
-        toolCalls: toolSummary.calls,
-      };
-    }).filter((block) =>
+
+    const rendered = removeBinaryPlaceholders(renderMessage(message));
+    const parsed = parseAssistantStoredText(rendered);
+    const meta = (message.providerMeta || {}) as Record<string, unknown>;
+    const toolSummary = summarizeToolHistory(message.toolCall);
+    const streamSegments = Array.isArray(meta._streamSegments)
+      ? (meta._streamSegments as unknown[])
+        .map((item) => String(item ?? ""))
+        .filter((item) => item.length > 0)
+      : [];
+    const streamTail = String(meta._streamTail ?? "");
+    const block = {
+      id: message.id,
+      role: message.role,
+      isStreaming: !!meta._streaming,
+      streamSegments,
+      streamTail,
+      speakerAgentId: resolveSpeakerAgentId(message) || undefined,
+      createdAt: String(message.createdAt || "").trim() || undefined,
+      text: message.role === "assistant" ? parsed.assistantText : rendered,
+      images: extractMessageImages(message),
+      audios: extractMessageAudios(message),
+      attachmentFiles: extractMessageAttachmentFiles(message),
+      taskTrigger: resolveTaskTrigger(message),
+      remoteImOrigin: (() => {
+        const origin = meta.origin as Record<string, unknown> | undefined;
+        if (!origin || origin.kind !== "remote_im") return undefined;
+        const senderName = String(origin.sender_name || "").trim();
+        const remoteContactName = String(origin.contact_name || "").trim();
+        const remoteContactType = String(origin.contact_type || "private").trim() || "private";
+        const channelId = String(origin.channel_id || "").trim();
+        const contactId = String(origin.contact_id || "").trim();
+        if (!senderName && !remoteContactName && !channelId && !contactId) {
+          return undefined;
+        }
+        return {
+          senderName,
+          remoteContactName: remoteContactName || undefined,
+          remoteContactType,
+          channelId,
+          contactId,
+        };
+      })(),
+      reasoningStandard:
+        parsed.reasoningStandard
+        || String(meta.reasoningStandard || "").trim(),
+      reasoningInline:
+        parsed.reasoningInline
+        || String(meta.reasoningInline || "").trim(),
+      toolCallCount: toolSummary.count,
+      lastToolName: toolSummary.lastToolName,
+      toolCalls: toolSummary.calls,
+    } satisfies ChatMessageBlock;
+
+    const normalized =
       block.text
       || !!block.isStreaming
       || block.images.length > 0
@@ -181,8 +195,24 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       || block.attachmentFiles.length > 0
       || !!block.taskTrigger
       || !!block.reasoningStandard
-      || !!block.reasoningInline,
-    );
+      || !!block.reasoningInline
+        ? block
+        : null;
+
+    messageBlockCache.set(message, { signature, block: normalized });
+    return normalized;
+  }
+
+  const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
+    const startedAt = options.perfNow();
+    const messages = options.allMessages.value;
+    const signature = messages.map((message) => messageSignature(message)).join("||");
+    if (signature === lastMessageBlockSignature) {
+      return lastMessageBlocks;
+    }
+    const blocks = messages
+      .map((message) => buildMessageBlock(message))
+      .filter((block): block is ChatMessageBlock => !!block);
 
     if (options.perfDebug) {
       const cost = Math.round((options.perfNow() - startedAt) * 10) / 10;

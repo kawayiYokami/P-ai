@@ -2036,27 +2036,13 @@ fn resolve_unarchived_conversation_index_with_fallback(
         }) {
             return Ok(idx);
         }
-        // 请求的conversation_id未找到，记录警告并开始回退
-        if let Some(existing_idx) = latest_active_conversation_index(data, "", effective_agent_id) {
-            runtime_log_warn(format!(
-                "[解析对话索引] 请求的conversation_id不存在: '{}' (agent_id: '{}'), 回退到最近活跃对话索引: {}",
-                conversation_id, effective_agent_id, existing_idx
-            ));
-            return Ok(existing_idx);
-        }
-        // 连最近活跃都没有，继续到确保活跃流程
-        let api_config = resolve_selected_api_config(app_config, None)
-            .ok_or_else(|| "No API config available".to_string())?;
-        let fallback_idx = ensure_active_conversation_index(
-            data,
-            &api_config.id,
-            effective_agent_id,
-        );
         runtime_log_warn(format!(
-            "[解析对话索引] 请求的conversation_id不存在: '{}' (agent_id: '{}'), 回退到确保活跃新建对话索引: {}",
-            conversation_id, effective_agent_id, fallback_idx
+            "[解析对话索引] 请求的conversation_id不存在，终止本次读取: '{}' (agent_id: '{}')",
+            conversation_id, effective_agent_id
         ));
-        return Ok(fallback_idx);
+        return Err(format!(
+            "Requested conversation not found: {conversation_id}"
+        ));
     }
 
     if let Some(existing_idx) = latest_active_conversation_index(data, "", effective_agent_id) {

@@ -159,6 +159,67 @@
         assert!(!meta.contains("memory=已注入"));
         assert!(meta.contains("T"));
     }
+
+    #[test]
+    fn build_prompt_user_meta_text_should_use_snake_case_remote_identity_tags() {
+        let now = now_iso();
+        let mut message = test_text_message("user", "你好", &now);
+        message.provider_meta = Some(serde_json::json!({
+            "origin": {
+                "kind": "remote_im",
+                "channel_id": "remote-im-1",
+                "contact_type": "group",
+                "contact_id": "group-42",
+                "contact_name": "测试群",
+                "sender_name": "张三"
+            }
+        }));
+
+        let meta = build_prompt_user_meta_text(
+            &message,
+            &[default_agent(), default_user_persona()],
+            "用户",
+            "zh-CN",
+            true,
+        )
+        .expect("meta text");
+
+        assert!(meta.contains("张三 (测试群)"));
+        assert!(meta.contains("channel_id=remote-im-1"));
+        assert!(meta.contains("contact_id=group-42"));
+        assert!(!meta.contains("channelId="));
+        assert!(!meta.contains("contactId="));
+    }
+
+    #[test]
+    fn build_prompt_user_meta_text_should_ignore_legacy_remote_identity_keys() {
+        let now = now_iso();
+        let mut message = test_text_message("user", "你好", &now);
+        message.provider_meta = Some(serde_json::json!({
+            "origin": {
+                "kind": "remote_im",
+                "channelId": "legacy-channel",
+                "remoteContactType": "private",
+                "remoteContactId": "legacy-contact",
+                "remoteContactName": "旧联系人",
+                "senderName": "旧联系人"
+            }
+        }));
+
+        let meta = build_prompt_user_meta_text(
+            &message,
+            &[default_agent(), default_user_persona()],
+            "用户",
+            "zh-CN",
+            true,
+        )
+        .expect("meta text");
+
+        assert!(!meta.contains("旧联系人"));
+        assert!(!meta.contains("channel_id=legacy-channel"));
+        assert!(!meta.contains("contact_id=legacy-contact"));
+    }
+
     #[test]
     fn request_preview_should_keep_structured_tool_history_messages() {
         let api = ApiConfig {
@@ -609,9 +670,9 @@
 
     #[test]
     fn resolve_unarchived_conversation_index_with_fallback_should_use_requested_conversation_when_available() {
-        let data = test_user_switched_to_sub_conversation_data();
+        let mut data = test_user_switched_to_sub_conversation_data();
         let idx = resolve_unarchived_conversation_index_with_fallback(
-            &mut data.clone(),
+            &mut data,
             &AppConfig::default(),
             DEFAULT_AGENT_ID,
             Some("conversation-main"),
@@ -622,17 +683,17 @@
     }
 
     #[test]
-    fn resolve_unarchived_conversation_index_with_fallback_should_fallback_to_latest_active_when_requested_missing() {
+    fn resolve_unarchived_conversation_index_with_fallback_should_error_when_requested_missing() {
         let mut data = test_user_switched_to_sub_conversation_data();
-        let idx = resolve_unarchived_conversation_index_with_fallback(
+        let err = resolve_unarchived_conversation_index_with_fallback(
             &mut data,
             &AppConfig::default(),
             DEFAULT_AGENT_ID,
             Some("conversation-missing"),
         )
-        .expect("fallback to latest active conversation");
+        .expect_err("missing requested conversation should fail");
 
-        assert_eq!(data.conversations[idx].id, "conversation-sub");
+        assert!(err.contains("Requested conversation not found"));
     }
 
     #[test]
