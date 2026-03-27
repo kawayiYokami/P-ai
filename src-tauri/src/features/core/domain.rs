@@ -1094,7 +1094,6 @@ struct AssistantDeltaEvent {
 #[derive(Clone)]
 struct ActiveChatViewBinding {
     conversation_id: String,
-    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

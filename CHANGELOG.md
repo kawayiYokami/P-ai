@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 清理（active-chat-view-binding-unused-channel）：移除前台聊天流绑定中的未使用字段
+  - 删除 `ActiveChatViewBinding` 中未被读取的 `on_delta` 字段，收敛活动会话绑定结构
+  - 保留绑定命令入参兼容，避免仅为清理 warning 扩大前后端调用面变更
+
 ## 发布（v0.8.4）：统一远程 IM 激活来源自动发送并补强消息链路回归
 
 - 前后端版本号统一升级到 `0.8.4`
