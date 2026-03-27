@@ -186,6 +186,7 @@ where
         let mut tool_calls = Vec::<AssistantContent>::new();
         let mut tool_results = Vec::<(String, String, Option<String>, String)>::new();
         let mut did_call_tool = false;
+        let mut stop_after_remote_im_done_in_turn = false;
 
         while let Some(chunk) = stream.next().await {
             match chunk {
@@ -283,6 +284,16 @@ where
 
                     tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
                     tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
+                    if let Some((last_tool_name, _, _, last_tool_result)) = tool_results.last() {
+                        if should_stop_after_remote_im_send(last_tool_name, last_tool_result) {
+                            eprintln!(
+                                "[聊天] remote_im_send done=true，当前轮次立即停止后续工具调用 (session={})",
+                                chat_session_key
+                            );
+                            stop_after_remote_im_done_in_turn = true;
+                            break;
+                        }
+                    }
                 }
                 Ok(StreamedAssistantContent::Final(res)) => {
                     trusted_input_tokens = rig::completion::GetTokenUsage::token_usage(&res)
@@ -327,6 +338,12 @@ where
                 Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
                 Err(err) => return Err(format!("rig streaming failed: {err}")),
             }
+        }
+        if stop_after_remote_im_done_in_turn {
+            eprintln!(
+                "[聊天] 结束当前工具轮次：remote_im_send 已返回 done (session={})",
+                chat_session_key
+            );
         }
 
         if !turn_text.is_empty() {
