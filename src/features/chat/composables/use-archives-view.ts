@@ -120,6 +120,22 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
+  async function loadUnarchivedConversationListOnly() {
+    try {
+      unarchivedConversations.value = await invokeTauri<UnarchivedConversationSummary[]>("list_unarchived_conversations");
+      const selectedId = String(selectedUnarchivedConversationId.value || "").trim();
+      if (!unarchivedConversations.value.some((item) => String(item.conversationId || "").trim() === selectedId)) {
+        selectedUnarchivedConversationId.value = "";
+        unarchivedMessages.value = [];
+      }
+      if (unarchivedConversations.value.length === 0) {
+        unarchivedMessages.value = [];
+      }
+    } catch (e) {
+      options.setStatusError("status.loadMessagesFailed", e);
+    }
+  }
+
   async function selectDelegateConversation(conversationId: string) {
     const previousId = selectedDelegateConversationId.value;
     const previousMessages = delegateMessages.value;
@@ -370,6 +386,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     selectDelegateConversation,
     selectRemoteImContactConversation,
     loadUnarchivedConversations,
+    loadUnarchivedConversationListOnly,
     loadDelegateConversations,
     loadRemoteImContactConversations,
     loadArchives,

@@ -125,12 +125,30 @@ type RoundState =
   | { phase: "queued"; gen: number }
   | { phase: "streaming"; gen: number; draftId: string };
 
+type PendingTerminalEvent =
+  | {
+      kind: "completed";
+      gen: number;
+      result: {
+        assistantText: string;
+        reasoningStandard?: string;
+        reasoningInline?: string;
+        assistantMessage?: ChatMessage;
+      };
+    }
+  | {
+      kind: "failed";
+      gen: number;
+      error: unknown;
+    };
+
 export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
   let round: RoundState = { phase: "idle" };
   let generation = 0;
   let sendChatActiveGen = 0; // 防止 bound channel 抢占 sendChat 轮次
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
+  let pendingTerminalEvent: PendingTerminalEvent | null = null;
 
   // ── 流式统计 ──
   let streamToolCallCount = 0;
@@ -624,6 +642,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.visibleMessageBlockCount.value = batchVisibleCount;
     round = { phase: "streaming", gen, draftId };
     options.chatting.value = true;
+    applyPendingTerminalEvent(gen);
   }
 
   /**
@@ -691,17 +710,43 @@ export function useChatFlow(options: UseChatFlowOptions) {
     reasoningStartedAtMs.value = 0;
   }
 
+  function applyPendingTerminalEvent(gen: number) {
+    if (!pendingTerminalEvent || pendingTerminalEvent.gen !== gen) return false;
+    const pending = pendingTerminalEvent;
+    pendingTerminalEvent = null;
+    if (pending.kind === "completed") {
+      handleRoundCompleted(gen, pending.result);
+      return true;
+    }
+    handleRoundFailed(gen, pending.error);
+    return true;
+  }
+
   // =========================================================================
   // Delta 分发
   // =========================================================================
 
   function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {
     if (!currentGen) return;
-    if (round.phase !== "streaming") return;
-    if (round.gen !== currentGen) return;
+    const currentRound = round;
+    if (currentRound.phase !== "streaming" && currentRound.phase !== "queued") return;
+    if (currentRound.gen !== currentGen) return;
 
     if (parsed.kind === "round_completed") {
       const p = readRoundCompletedPayload(parsed.message);
+      if (currentRound.phase === "queued") {
+        pendingTerminalEvent = {
+          kind: "completed",
+          gen: currentGen,
+          result: {
+            assistantText: String(p?.assistantText || ""),
+            reasoningStandard: p?.reasoningStandard,
+            reasoningInline: p?.reasoningInline,
+            assistantMessage: p?.assistantMessage,
+          },
+        };
+        return;
+      }
       handleRoundCompleted(currentGen, {
         assistantText: String(p?.assistantText || ""),
         reasoningStandard: p?.reasoningStandard,
@@ -712,6 +757,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     if (parsed.kind === "round_failed") {
       const p = readRoundFailedPayload(parsed.message);
+      if (currentRound.phase === "queued") {
+        pendingTerminalEvent = {
+          kind: "failed",
+          gen: currentGen,
+          error: p?.error || parsed.message || JSON.stringify(parsed),
+        };
+        return;
+      }
       handleRoundFailed(currentGen, p?.error || parsed.message || JSON.stringify(parsed));
       return;
     }
@@ -738,14 +791,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const dt = readDeltaMessage(parsed);
       if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
       options.latestReasoningStandardText.value += dt;
-      updateDraftText(round.draftId);
+      if (currentRound.phase === "streaming") {
+        updateDraftText(currentRound.draftId);
+      }
       return;
     }
     if (parsed.kind === "reasoning_inline") {
       const dt = readDeltaMessage(parsed);
       if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
       options.latestReasoningInlineText.value += dt;
-      updateDraftText(round.draftId);
+      if (currentRound.phase === "streaming") {
+        updateDraftText(currentRound.draftId);
+      }
       return;
     }
 
@@ -978,6 +1035,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     const gen = ++generation;
     sendChatActiveGen = gen;
+    pendingTerminalEvent = null;
 
     if (!wasChatting) {
       resetDisplayState();
@@ -1072,6 +1130,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (round.phase === "queued") {
       ++generation;
       sendChatActiveGen = 0;
+      pendingTerminalEvent = null;
       clearStreamBuffer();
       round = { phase: "idle" };
       options.chatting.value = false;

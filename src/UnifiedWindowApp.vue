@@ -16,15 +16,14 @@
       :open-config-title="t('window.configTitle')"
       :open-logs-title="'运行日志'"
       :close-title="t('common.close')"
-      @start-drag="startDrag"
       @force-archive="openForceArchiveActionDialog"
       @toggle-always-on-top="toggleAlwaysOnTop"
-      @minimize-window="minimizeWindow"
+      @minimize-window="minimizeWindowAndClearForeground"
       @toggle-maximize-window="toggleMaximizeWindow"
       @open-config="openConfigWindow"
       @open-archives="openCurrentHistory"
       @open-runtime-logs="openRuntimeLogsDialog"
-      @close-window="closeWindow"
+      @close-window="closeWindowAndClearForeground"
     />
 
     <AppWindowContent
@@ -493,7 +492,6 @@ const {
   initWindow,
   syncWindowControlsState,
   closeWindow,
-  startDrag,
   toggleAlwaysOnTop,
   minimizeWindow,
   toggleMaximizeWindow,
@@ -533,6 +531,9 @@ let chatRoundFailedUnlisten: UnlistenFn | null = null;
 let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
 let foregroundPaintTraceSeq = 0;
+let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let chatMicPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+let foregroundConversationCacheRaf = 0;
 const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
 const personas = ref<PersonaProfile[]>([]);
 const assistantDepartmentAgentId = ref("default-agent");
@@ -600,6 +601,8 @@ const personaSaving = ref(false);
 const apiModelOptions = ref<Record<string, string[]>>({});
 const suppressAutosave = ref(false);
 const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
+const CHAT_WINDOW_FOCUS_SYNC_DEBOUNCE_MS = 180;
+const CHAT_WINDOW_MIC_PREWARM_DEBOUNCE_MS = 260;
 const lastSavedConfigJson = ref("");
 const lastSavedPersonasJson = ref("");
 const PERF_DEBUG = import.meta.env.DEV;
@@ -663,6 +666,7 @@ const {
   loadArchives,
   loadDelegateConversations,
   loadUnarchivedConversations,
+  loadUnarchivedConversationListOnly,
   selectArchive,
   selectUnarchivedConversation,
   selectDelegateConversation,
@@ -708,6 +712,24 @@ const {
   setStatus,
   setStatusError,
 });
+
+function clearChatWindowActiveSyncTimer() {
+  if (!chatWindowActiveSyncTimer) return;
+  clearTimeout(chatWindowActiveSyncTimer);
+  chatWindowActiveSyncTimer = null;
+}
+
+function clearChatMicPrewarmTimer() {
+  if (!chatMicPrewarmTimer) return;
+  clearTimeout(chatMicPrewarmTimer);
+  chatMicPrewarmTimer = null;
+}
+
+function clearForegroundConversationCacheRaf() {
+  if (!foregroundConversationCacheRaf) return;
+  cancelAnimationFrame(foregroundConversationCacheRaf);
+  foregroundConversationCacheRaf = 0;
+}
 
 const titleText = computed(() => {
   if (viewMode.value === "chat") {
@@ -822,10 +844,11 @@ const {
   },
 });
 
-async function tryPrewarmChatMic() {
+async function tryPrewarmChatMic(reason: string) {
   if (viewMode.value !== "chat") return;
   if (document.visibilityState === "hidden") return;
   if (!document.hasFocus()) return;
+  void reason;
   await prewarmMicrophone();
 }
 
@@ -838,7 +861,32 @@ function clearRecordHotkeyProbeState() {
   recordHotkeyProbeLastSeq.value = 0;
 }
 
-function syncChatWindowActiveState() {
+function scheduleChatWindowActiveStateSync(reason: string, delayMs = 0) {
+  if (!isChatTauriWindow.value) return;
+  clearChatWindowActiveSyncTimer();
+  if (delayMs <= 0) {
+    syncChatWindowActiveState(reason);
+    return;
+  }
+  chatWindowActiveSyncTimer = setTimeout(() => {
+    chatWindowActiveSyncTimer = null;
+    syncChatWindowActiveState(reason);
+  }, delayMs);
+}
+
+function scheduleChatMicPrewarm(reason: string, delayMs = 0) {
+  clearChatMicPrewarmTimer();
+  if (delayMs <= 0) {
+    void tryPrewarmChatMic(reason);
+    return;
+  }
+  chatMicPrewarmTimer = setTimeout(() => {
+    chatMicPrewarmTimer = null;
+    void tryPrewarmChatMic(reason);
+  }, delayMs);
+}
+
+function syncChatWindowActiveState(reason = "unknown") {
   if (!isChatTauriWindow.value) return;
   const active = isChatWindowActiveNow();
   if (chatWindowActiveSynced.value === active) return;
@@ -846,6 +894,14 @@ function syncChatWindowActiveState() {
   if (active) {
     void stopRecording(false);
     recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
+    const activeConversationId = String(currentChatConversationId.value || "").trim();
+    if (!activeConversationId) {
+      void loadUnarchivedConversationListOnly()
+        .then(() => ensureForegroundConversation("window_activated"))
+        .catch((error) => {
+          console.warn("[聊天追踪][前台会话] 激活恢复失败", error);
+        });
+    }
   }
   clearRecordHotkeyProbeState();
   void invokeTauri("set_chat_window_active", { active }).catch((error) => {
@@ -854,15 +910,20 @@ function syncChatWindowActiveState() {
 }
 
 function handleWindowFocusForStateSync() {
-  syncChatWindowActiveState();
+  scheduleChatWindowActiveStateSync("focus", CHAT_WINDOW_FOCUS_SYNC_DEBOUNCE_MS);
 }
 
 function handleWindowBlurForStateSync() {
-  syncChatWindowActiveState();
+  scheduleChatWindowActiveStateSync("blur", CHAT_WINDOW_FOCUS_SYNC_DEBOUNCE_MS);
 }
 
 function handleVisibilityForStateSync() {
-  syncChatWindowActiveState();
+  clearChatWindowActiveSyncTimer();
+  clearChatMicPrewarmTimer();
+  if (isChatTauriWindow.value && document.visibilityState !== "visible") {
+    clearForegroundConversation("window_hidden");
+  }
+  syncChatWindowActiveState("visibilitychange");
 }
 const chatMedia = useChatMedia({
   t: tr,
@@ -1448,14 +1509,71 @@ const {
 } = chatRuntime;
 
 async function refreshChatUnarchivedConversations() {
-  await loadUnarchivedConversations();
-  const current = String(currentChatConversationId.value || "").trim();
+  await loadUnarchivedConversationListOnly();
   const candidates = unarchivedConversations.value;
-  if (candidates.some((item) => String(item.conversationId || "").trim() === current)) {
+  const current = String(currentChatConversationId.value || "").trim();
+  if (current && !candidates.some((item) => String(item.conversationId || "").trim() === current)) {
+    currentChatConversationId.value = "";
+  }
+  if (!String(currentChatConversationId.value || "").trim()) {
+    await ensureForegroundConversation("refresh_unarchived_list");
+  }
+}
+
+function pickForegroundConversationId(candidates: UnarchivedConversationSummary[]): string {
+  const target =
+    candidates.find((item) => !!item.isActive)
+    || candidates.find((item) => !!item.isMainConversation)
+    || candidates[0];
+  return String(target?.conversationId || "").trim();
+}
+
+async function ensureForegroundConversation(reason: string) {
+  if (conversationForegroundSyncing.value) return;
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  const candidates = unarchivedConversations.value;
+  if (candidates.length === 0) {
+    if (currentConversationId) {
+      clearForegroundConversation(`${reason}_empty_list`);
+    }
     return;
   }
-  const activeItem = candidates.find((item) => !!item.isActive) || candidates[0];
-  currentChatConversationId.value = String(activeItem?.conversationId || "").trim();
+  if (currentConversationId && candidates.some((item) => String(item.conversationId || "").trim() === currentConversationId)) {
+    return;
+  }
+  const nextConversationId = pickForegroundConversationId(candidates);
+  if (!nextConversationId) return;
+  console.warn("[聊天追踪][前台会话] 已设置", {
+    windowLabel: tauriWindowLabel.value,
+    reason,
+    conversationId: nextConversationId,
+    previousConversationId: currentConversationId,
+  });
+  await switchUnarchivedConversation(nextConversationId);
+}
+
+function clearForegroundConversation(reason: string) {
+  const previousConversationId = String(currentChatConversationId.value || "").trim();
+  if (!previousConversationId) return;
+  cacheConversationMessages(previousConversationId, allMessages.value);
+  currentChatConversationId.value = "";
+  allMessages.value = [];
+  visibleMessageBlockCount.value = 1;
+  hasMoreBackendHistory.value = false;
+  chatFlow.freezeForegroundRoundState();
+  console.warn("[聊天追踪][前台会话] 已清空", {
+    windowLabel: tauriWindowLabel.value,
+    reason,
+    previousConversationId,
+  });
+}
+
+function hasActiveForegroundConversation(conversationId?: string | null): boolean {
+  if (!isChatWindowActiveNow()) return false;
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (!currentConversationId) return false;
+  const targetConversationId = String(conversationId || "").trim();
+  return !targetConversationId || targetConversationId === currentConversationId;
 }
 
 function formalizeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -1585,6 +1703,24 @@ async function requestConversationMessagesAfterAsync(conversationId: string, tra
       fallbackLimit: BACKGROUND_CONVERSATION_CACHE_LIMIT,
     },
   });
+}
+
+async function reloadForegroundConversationMessages(reason = "unknown") {
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  if (!conversationId) {
+    await loadAllMessages();
+    return;
+  }
+  try {
+    await requestConversationMessagesAfterAsync(conversationId);
+  } catch (error) {
+    console.warn("[会话缓存] 增量补消息失败，回退全量加载", {
+      reason,
+      conversationId,
+      error,
+    });
+    await loadAllMessages();
+  }
 }
 
 function mergeConversationMessagesFromSyncPayload(
@@ -1927,12 +2063,12 @@ const appBootstrap = useAppBootstrap({
 });
 
 function handleWindowFocusForMicPrewarm() {
-  void tryPrewarmChatMic();
+  scheduleChatMicPrewarm("focus", CHAT_WINDOW_MIC_PREWARM_DEBOUNCE_MS);
 }
 
 function handleVisibilityForMicPrewarm() {
   if (document.visibilityState !== "visible") return;
-  void tryPrewarmChatMic();
+  scheduleChatMicPrewarm("visibility_visible", CHAT_WINDOW_MIC_PREWARM_DEBOUNCE_MS);
 }
 
 onMounted(() => {
@@ -1958,8 +2094,8 @@ onMounted(() => {
         payloadConversationId,
         currentConversationId,
       });
-      void loadUnarchivedConversations();
-      if (!payloadConversationId || payloadConversationId === currentConversationId) {
+      void loadUnarchivedConversationListOnly();
+      if (hasActiveForegroundConversation(payloadConversationId)) {
         void chatFlow.handleExternalHistoryFlushed(event.payload);
       }
     })
@@ -1975,14 +2111,12 @@ onMounted(() => {
     void listen<unknown>("easy-call:round-completed", (event) => {
       const payloadConversationId = readConversationIdFromPayload(event.payload);
       const currentConversationId = String(currentChatConversationId.value || "").trim();
-      void loadUnarchivedConversations();
+      void loadUnarchivedConversationListOnly();
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "completed");
-        void requestConversationMessagesAfterAsync(payloadConversationId).catch((error) => {
-          console.warn("[会话缓存] 后台完成后同步失败", error);
-        });
         return;
       }
+      if (!hasActiveForegroundConversation(payloadConversationId)) return;
       clearConversationBadge(payloadConversationId);
       void chatFlow.handleExternalRoundCompleted(event.payload);
     })
@@ -1995,14 +2129,12 @@ onMounted(() => {
     void listen<unknown>("easy-call:round-failed", (event) => {
       const payloadConversationId = readConversationIdFromPayload(event.payload);
       const currentConversationId = String(currentChatConversationId.value || "").trim();
-      void loadUnarchivedConversations();
+      void loadUnarchivedConversationListOnly();
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "failed");
-        void requestConversationMessagesAfterAsync(payloadConversationId).catch((error) => {
-          console.warn("[会话缓存] 后台失败后同步失败", error);
-        });
         return;
       }
+      if (!hasActiveForegroundConversation(payloadConversationId)) return;
       clearConversationBadge(payloadConversationId);
       void chatFlow.handleExternalRoundFailed(event.payload);
     })
@@ -2014,8 +2146,7 @@ onMounted(() => {
       });
     void listen<unknown>("easy-call:assistant-delta", (event) => {
       const conversationId = readConversationIdFromPayload(event.payload);
-      const currentConversationId = String(currentChatConversationId.value || "").trim();
-      if (!conversationId || conversationId === currentConversationId) {
+      if (hasActiveForegroundConversation(conversationId)) {
         void chatFlow.handleExternalAssistantDelta(event.payload);
       }
     })
@@ -2036,7 +2167,7 @@ onMounted(() => {
       });
 
   }
-  syncChatWindowActiveState();
+  scheduleChatWindowActiveStateSync("mounted");
   window.addEventListener("focus", handleWindowFocusForStateSync);
   window.addEventListener("blur", handleWindowBlurForStateSync);
   document.addEventListener("visibilitychange", handleVisibilityForStateSync);
@@ -2068,6 +2199,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
+  clearChatWindowActiveSyncTimer();
+  clearChatMicPrewarmTimer();
+  clearForegroundConversationCacheRaf();
   clearRecordHotkeyProbeState();
   agentWorkPresence.cleanup();
   chatWindowActiveSynced.value = null;
@@ -2095,7 +2229,7 @@ watch(
 watch(
   () => viewMode.value,
   () => {
-    syncChatWindowActiveState();
+    scheduleChatWindowActiveStateSync("viewmode_changed");
   },
 );
 
@@ -2146,7 +2280,7 @@ watch(
   () => viewMode.value,
   (mode) => {
     if (mode !== "chat") return;
-    void tryPrewarmChatMic();
+    scheduleChatMicPrewarm("viewmode_chat", CHAT_WINDOW_MIC_PREWARM_DEBOUNCE_MS);
   },
 );
 
@@ -2354,7 +2488,24 @@ async function clearRuntimeLogs() {
 }
 
 function summonChatWindowFromConfig() {
+  if (isChatTauriWindow.value) {
+    clearForegroundConversation("before_manual_summon");
+  }
   void invokeTauri("show_chat_window");
+}
+
+async function closeWindowAndClearForeground() {
+  if (isChatTauriWindow.value) {
+    clearForegroundConversation("close_window");
+  }
+  await closeWindow();
+}
+
+async function minimizeWindowAndClearForeground() {
+  if (isChatTauriWindow.value) {
+    clearForegroundConversation("minimize_window");
+  }
+  await minimizeWindow();
 }
 
 async function openGithubRepository() {
@@ -2486,7 +2637,7 @@ const chatFlow = useChatFlow({
       },
       onDelta,
     }),
-  onReloadMessages: () => loadAllMessages(),
+  onReloadMessages: () => reloadForegroundConversationMessages("chat_flow_reload"),
   onHistoryFlushed: async ({ conversationId, pendingMessages, activateAssistant }) => {
     const flushedConversationId = String(conversationId || "").trim();
     console.warn("[聊天追踪][历史刷写处理] 开始", {
@@ -2497,7 +2648,7 @@ const chatFlow = useChatFlow({
       currentConversationId: String(currentChatConversationId.value || "").trim(),
       currentMessageCount: allMessages.value.length,
     });
-    if (flushedConversationId) {
+    if (flushedConversationId && isChatWindowActiveNow()) {
       currentChatConversationId.value = flushedConversationId;
     }
     // 激活助理的批次：清屏并原子重放；非激活批次：仅顺序追加，不清屏。
@@ -2542,7 +2693,7 @@ const chatFlow = useChatFlow({
         finalMessageCount: allMessages.value.length,
       });
     }
-    await loadUnarchivedConversations();
+    await loadUnarchivedConversationListOnly();
     cacheConversationMessages(flushedConversationId || String(currentChatConversationId.value || "").trim(), allMessages.value);
     console.warn("[聊天追踪][历史刷写处理] 完成", {
       windowLabel: tauriWindowLabel.value,
@@ -2565,12 +2716,42 @@ watch(
 );
 
 watch(
+  () => ({
+    mode: viewMode.value,
+    conversationId: String(currentChatConversationId.value || "").trim(),
+  }),
+  ({ mode, conversationId }) => {
+    if (mode !== "chat") return;
+    console.warn("[聊天追踪][流绑定] 准备绑定", {
+      windowLabel: tauriWindowLabel.value,
+      conversationId,
+    });
+    void chatFlow.bindActiveConversationStream(conversationId).catch((error) => {
+      console.warn("[聊天推送] 绑定前台流失败", {
+        conversationId,
+        error,
+      });
+    });
+  },
+  { immediate: true },
+);
+
+watch(
   [() => String(currentChatConversationId.value || "").trim(), () => allMessages.value],
   ([conversationId, messages]) => {
     if (!conversationId) return;
-    cacheConversationMessages(conversationId, Array.isArray(messages) ? messages : []);
+    const nextMessages = Array.isArray(messages) ? messages : [];
+    const hasStreamingDraft = nextMessages.some((item) => {
+      const meta = (item?.providerMeta || {}) as Record<string, unknown>;
+      return !!meta._streaming;
+    });
+    if (hasStreamingDraft) return;
+    clearForegroundConversationCacheRaf();
+    foregroundConversationCacheRaf = requestAnimationFrame(() => {
+      foregroundConversationCacheRaf = 0;
+      cacheConversationMessages(conversationId, nextMessages);
+    });
   },
-  { deep: true },
 );
 
 function clearStreamBuffer() {
@@ -2696,6 +2877,7 @@ useAppWatchers({
   toolApiConfig,
   activeChatApiConfigId: assistantDepartmentApiConfigId,
   suppressChatReloadWatch,
+  suppressAutosave,
   modelRefreshError,
   toolStatuses,
   defaultApiTools,
@@ -2703,7 +2885,8 @@ useAppWatchers({
   normalizeApiBindingsLocal,
   syncUserAliasFromPersona,
   syncTrayIcon,
-  saveChatSettings: saveChatSettingsNow,
+  saveChatPreferences,
+  saveConversationApiSettings,
   refreshToolsStatus,
   refreshImageCacheStats,
   refreshConversationHistory,

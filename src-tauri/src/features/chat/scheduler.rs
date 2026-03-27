@@ -91,14 +91,6 @@ pub(crate) struct ChatPendingEvent {
 #[derive(Clone)]
 struct QueuedChatActivation {
     event_id: String,
-    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
-    source: QueuedChatActivationSource,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QueuedChatActivationSource {
-    PendingEvent,
-    ActiveViewBinding,
 }
 
 pub(crate) enum ChatEventIngress {
@@ -794,15 +786,11 @@ async fn process_conversation_batch(
                 oldest_queue_created_at,
             ).await {
                 Ok(result) => {
-                    if let Some(active) = activation.as_ref() {
-                        send_round_completed_event(state, conversation_id, active, &result);
-                    }
+                    emit_round_completed_event(state, conversation_id, &result);
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                 }
                 Err(err) => {
-                    if let Some(active) = activation.as_ref() {
-                        send_round_failed_event(state, conversation_id, active, &err);
-                    }
+                    emit_round_failed_event(state, conversation_id, &err);
                     complete_pending_chat_events_with_error(state, &event_ids, &err)?;
                     return Err(err);
                 }
@@ -1085,7 +1073,7 @@ fn log_remote_im_activation_decision(
     );
     let channel_id_owned = channel_id.to_string();
     let message = format!(
-        "[激活判定] contactId={}, action={}, reason={}",
+        "[激活判定] contact_id={}, action={}, reason={}",
         remote_contact_id, action, reason
     );
     let manager = onebot_v11_ws_manager();
@@ -1148,64 +1136,6 @@ fn emit_history_flushed_event(
             );
         }
     }
-}
-
-fn send_round_completed_event(
-    state: &AppState,
-    conversation_id: &str,
-    activation: &QueuedChatActivation,
-    result: &SendChatResult,
-) {
-    eprintln!(
-        "[聊天推送] 通过激活通道发送 round_completed: conversation_id={}, event_id={}, source={:?}",
-        conversation_id, activation.event_id
-        , activation.source
-    );
-    let payload_json = serde_json::to_string(result).unwrap_or_else(|_| {
-        serde_json::json!({
-            "conversationId": result.conversation_id,
-            "assistantText": result.assistant_text,
-            "reasoningStandard": result.reasoning_standard,
-            "reasoningInline": result.reasoning_inline,
-            "archivedBeforeSend": result.archived_before_send,
-            "assistantMessage": result.assistant_message,
-        })
-        .to_string()
-    });
-    let _ = activation.on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("round_completed".to_string()),
-        tool_name: None,
-        tool_status: None,
-        tool_args: None,
-        message: Some(payload_json),
-    });
-    emit_round_completed_event(state, conversation_id, result);
-}
-
-fn send_round_failed_event(
-    state: &AppState,
-    conversation_id: &str,
-    activation: &QueuedChatActivation,
-    error_text: &str,
-) {
-    eprintln!(
-        "[聊天推送] 通过激活通道发送 round_failed: conversation_id={}, event_id={}, source={:?}",
-        conversation_id, activation.event_id, activation.source
-    );
-    let payload_json = serde_json::json!({
-        "error": error_text,
-    })
-    .to_string();
-    let _ = activation.on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("round_failed".to_string()),
-        tool_name: None,
-        tool_status: None,
-        tool_args: None,
-        message: Some(payload_json),
-    });
-    emit_round_failed_event(state, conversation_id, error_text);
 }
 
 fn emit_round_completed_event(
@@ -1311,8 +1241,6 @@ fn collect_active_chat_view_activations(
             }
             Some(QueuedChatActivation {
                 event_id: format!("active-view:{window_label}"),
-                on_delta: binding.on_delta.clone(),
-                source: QueuedChatActivationSource::ActiveViewBinding,
             })
         })
         .collect::<Vec<_>>();
@@ -1333,8 +1261,6 @@ fn collect_active_chat_view_activations(
             }
             Some(QueuedChatActivation {
                 event_id: format!("active-view:{window_label}"),
-                on_delta: binding.on_delta.clone(),
-                source: QueuedChatActivationSource::ActiveViewBinding,
             })
         })
         .collect::<Vec<_>>();
@@ -1365,11 +1291,9 @@ fn take_queued_chat_activations(
         .map_err(|_| "Failed to lock pending chat delta channels".to_string())?;
     let mut activations = Vec::<QueuedChatActivation>::new();
     for event_id in event_ids {
-        if let Some(on_delta) = channels.remove(event_id) {
+        if channels.remove(event_id).is_some() {
             activations.push(QueuedChatActivation {
                 event_id: event_id.clone(),
-                on_delta,
-                source: QueuedChatActivationSource::PendingEvent,
             });
         }
     }
