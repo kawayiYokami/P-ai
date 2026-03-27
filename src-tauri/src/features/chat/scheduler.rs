@@ -319,7 +319,7 @@ pub(crate) fn set_active_chat_view_stream_binding(
     state: &AppState,
     window_label: &str,
     conversation_id: Option<&str>,
-    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+    _on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<(), String> {
     let mut bindings = state
         .active_chat_view_bindings
@@ -338,7 +338,6 @@ pub(crate) fn set_active_chat_view_stream_binding(
             trimmed_window_label.to_string(),
             ActiveChatViewBinding {
                 conversation_id,
-                on_delta,
             },
         );
     } else {
