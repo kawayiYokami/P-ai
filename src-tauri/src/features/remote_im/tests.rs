@@ -303,3 +303,98 @@
             Some("active")
         );
     }
+
+    #[test]
+    fn conversation_has_remote_im_platform_message_should_match_existing_origin_meta() {
+        let conversation = Conversation {
+            id: "conv-1".to_string(),
+            title: "联系人".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            conversation_kind: CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now_iso(),
+            updated_at: now_iso(),
+            last_user_at: None,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
+            status: "inactive".to_string(),
+            summary: String::new(),
+            archived_at: None,
+            messages: vec![ChatMessage {
+                id: "msg-1".to_string(),
+                role: "user".to_string(),
+                created_at: now_iso(),
+                speaker_agent_id: None,
+                parts: vec![MessagePart::Text {
+                    text: "hello".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "origin": {
+                        "kind": "remote_im",
+                        "channelId": "c1",
+                        "remoteContactType": "private",
+                        "remoteContactId": "u1",
+                        "platformMessageId": "m1"
+                    }
+                })),
+                tool_call: None,
+                mcp_call: None,
+            }],
+            memory_recall_table: Vec::new(),
+        };
+
+        assert!(conversation_has_remote_im_platform_message(
+            &conversation,
+            "c1",
+            "private",
+            "u1",
+            "m1",
+        ));
+        assert!(!conversation_has_remote_im_platform_message(
+            &conversation,
+            "c1",
+            "private",
+            "u1",
+            "m2",
+        ));
+    }
+
+    #[test]
+    fn weixin_oc_parse_media_aes_key_should_accept_base64_encoded_hex_text() {
+        let encoded = B64.encode("00112233445566778899aabbccddeeff");
+        let decoded = weixin_oc_parse_media_aes_key(&encoded).expect("decode aes key");
+        assert_eq!(
+            decoded,
+            vec![
+                0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+                0xcc, 0xdd, 0xee, 0xff,
+            ]
+        );
+    }
+
+    #[test]
+    fn weixin_oc_decrypt_media_ecb_should_remove_pkcs7_padding() {
+        use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+
+        let key = vec![
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+            0xdd, 0xee, 0xff,
+        ];
+        let plain = b"wechat-image-bytes".to_vec();
+        let pad_len = 16 - (plain.len() % 16);
+        let mut padded = plain.clone();
+        padded.extend(std::iter::repeat(pad_len as u8).take(pad_len));
+
+        let cipher = aes::Aes128::new_from_slice(&key).expect("create cipher");
+        let mut encrypted = padded.clone();
+        for chunk in encrypted.chunks_exact_mut(16) {
+            let block = GenericArray::from_mut_slice(chunk);
+            cipher.encrypt_block(block);
+        }
+
+        let decrypted = weixin_oc_decrypt_media_ecb(&encrypted, &key).expect("decrypt");
+        assert_eq!(decrypted, plain);
+    }

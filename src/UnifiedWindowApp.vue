@@ -190,6 +190,7 @@
       :import-archive-file="prepareArchiveImport"
       :delete-archive="deleteArchive"
       :delete-unarchived-conversation="deleteUnarchivedConversation"
+      :delete-remote-im-contact-conversation="deleteRemoteImContactConversation"
       :close-memory-viewer="closeMemoryViewer"
       :prev-memory-page="() => { memoryPage--; }"
       :next-memory-page="() => { memoryPage++; }"
@@ -667,6 +668,7 @@ const {
   selectDelegateConversation,
   selectRemoteImContactConversation,
   deleteUnarchivedConversation: deleteUnarchivedConversationFromArchives,
+  deleteRemoteImContactConversation,
   deleteArchive,
   exportArchive,
   buildArchiveImportPreview,

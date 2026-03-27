@@ -429,6 +429,85 @@ fn remote_im_resolve_inbound_activate(
     message_flag.unwrap_or(channel.activate_assistant)
 }
 
+fn message_origin_string<'a>(message: &'a ChatMessage, key: &str) -> Option<&'a str> {
+    message
+        .provider_meta
+        .as_ref()?
+        .get("origin")?
+        .get(key)?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn conversation_has_remote_im_platform_message(
+    conversation: &Conversation,
+    channel_id: &str,
+    remote_contact_type: &str,
+    remote_contact_id: &str,
+    platform_message_id: &str,
+) -> bool {
+    conversation.messages.iter().any(|message| {
+        message_origin_string(message, "kind") == Some("remote_im")
+            && message_origin_string(message, "channelId") == Some(channel_id)
+            && message_origin_string(message, "remoteContactType") == Some(remote_contact_type)
+            && message_origin_string(message, "remoteContactId") == Some(remote_contact_id)
+            && message_origin_string(message, "platformMessageId") == Some(platform_message_id)
+    })
+}
+
+fn pending_event_has_remote_im_platform_message(
+    event: &ChatPendingEvent,
+    channel_id: &str,
+    remote_contact_type: &str,
+    remote_contact_id: &str,
+    platform_message_id: &str,
+) -> bool {
+    event.sender_info.as_ref().is_some_and(|sender| {
+        sender.channel_id.trim() == channel_id
+            && sender.remote_contact_type.trim() == remote_contact_type
+            && sender.remote_contact_id.trim() == remote_contact_id
+            && sender.platform_message_id.as_deref().map(str::trim) == Some(platform_message_id)
+    })
+}
+
+fn remote_im_is_duplicate_platform_message(
+    state: &AppState,
+    data: &AppData,
+    conversation_id: &str,
+    channel_id: &str,
+    remote_contact_type: &str,
+    remote_contact_id: &str,
+    platform_message_id: &str,
+) -> Result<bool, String> {
+    if data.conversations.iter().any(|conversation| {
+        conversation.id == conversation_id
+            && conversation_has_remote_im_platform_message(
+                conversation,
+                channel_id,
+                remote_contact_type,
+                remote_contact_id,
+                platform_message_id,
+            )
+    }) {
+        return Ok(true);
+    }
+
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots.values().any(|slot| {
+        slot.pending_queue.iter().any(|event| {
+            event.conversation_id == conversation_id
+                && pending_event_has_remote_im_platform_message(
+                    event,
+                    channel_id,
+                    remote_contact_type,
+                    remote_contact_id,
+                    platform_message_id,
+                )
+        })
+    }))
+}
+
 struct ValidatedEnqueueInput {
     text: String,
     images: Vec<BinaryPart>,
@@ -992,20 +1071,76 @@ fn remote_im_delete_contact(
     input: RemoteImContactDeleteInput,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    let contact_id = input.contact_id.trim();
+    if contact_id.is_empty() {
+        return Err("contactId is required.".to_string());
+    }
     let guard = state
         .state_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let before = data.remote_im_contacts.len();
+    let before_contacts = data.remote_im_contacts.len();
     data.remote_im_contacts
-        .retain(|item| item.id != input.contact_id.trim());
-    let removed = data.remote_im_contacts.len() != before;
+        .retain(|item| item.id != contact_id);
+    let removed = data.remote_im_contacts.len() != before_contacts;
     if removed {
         state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
     Ok(removed)
+}
+
+#[tauri::command]
+fn remote_im_clear_contact_conversation(
+    input: RemoteImContactDeleteInput,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let contact_id = input.contact_id.trim();
+    if contact_id.is_empty() {
+        return Err("contactId is required.".to_string());
+    }
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let Some(contact_idx) = data.remote_im_contacts.iter().position(|item| item.id == contact_id) else {
+        return Err(format!("未找到远程联系人：{contact_id}"));
+    };
+    let conversation_id = {
+        let contact = &data.remote_im_contacts[contact_idx];
+        contact
+            .bound_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| find_remote_im_contact_conversation_id(&data, contact))
+    };
+    let Some(conversation_id) = conversation_id else {
+        return Ok(false);
+    };
+    let Some(conversation) = data.conversations.iter_mut().find(|conversation| {
+        conversation.id == conversation_id
+            && conversation.summary.trim().is_empty()
+            && conversation_is_remote_im_contact(conversation)
+    }) else {
+        return Ok(false);
+    };
+
+    conversation.messages.clear();
+    conversation.memory_recall_table.clear();
+    conversation.last_user_at = None;
+    conversation.last_assistant_at = None;
+    conversation.last_context_usage_ratio = 0.0;
+    conversation.last_effective_prompt_tokens = 0;
+    conversation.status = "inactive".to_string();
+    conversation.updated_at = now_iso();
+
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -1103,6 +1238,38 @@ pub(crate) fn remote_im_enqueue_message_internal(
         attachments.len(),
         attachments.iter().map(|item| item.file_name.clone()).collect::<Vec<_>>()
     );
+    if let Some(platform_message_id) = input
+        .platform_message_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if remote_im_is_duplicate_platform_message(
+            state,
+            &data,
+            &conversation_id,
+            input.channel_id.trim(),
+            input.remote_contact_type.trim(),
+            input.remote_contact_id.trim(),
+            platform_message_id,
+        )? {
+            eprintln!(
+                "[远程IM] 入站消息去重: channel_id={}, contact_id={}, conversation_id={}, platform_message_id={}",
+                input.channel_id.trim(),
+                input.remote_contact_id.trim(),
+                conversation_id,
+                platform_message_id
+            );
+            state_write_app_data_cached(state, &data)?;
+            drop(guard);
+            return Ok(RemoteImEnqueueResult {
+                event_id: String::new(),
+                conversation_id,
+                activate_assistant: false,
+                contact_id,
+            });
+        }
+    }
     let message = build_chat_message_from_input(
         &input,
         &conversation_id,

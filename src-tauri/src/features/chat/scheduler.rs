@@ -1161,6 +1161,7 @@ fn send_round_completed_event(
             "[聊天推送] 跳过 round_completed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
             conversation_id
         );
+        emit_round_completed_event(state, conversation_id, result);
         return;
     }
     eprintln!(
@@ -1200,6 +1201,7 @@ fn send_round_failed_event(
             "[聊天推送] 跳过 round_failed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
             conversation_id
         );
+        emit_round_failed_event(state, conversation_id, error_text);
         return;
     }
     eprintln!(

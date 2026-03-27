@@ -239,3 +239,52 @@ fn open_external_url(url: String) -> Result<(), String> {
     webbrowser::open(trimmed).map_err(|err| format!("Open browser failed: {err}"))?;
     Ok(())
 }
+
+#[tauri::command]
+fn open_workspace_file(relative_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let trimmed = relative_path.trim().replace('\\', "/");
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+    let target = state.llm_workspace_path.join(&trimmed);
+    let canonical = target
+        .canonicalize()
+        .map_err(|err| format!("解析文件路径失败: {err}"))?;
+    let workspace = state
+        .llm_workspace_path
+        .canonicalize()
+        .map_err(|err| format!("解析工作区路径失败: {err}"))?;
+    if !canonical.starts_with(&workspace) {
+        return Err("仅允许打开工作区内的文件".to_string());
+    }
+    if !canonical.is_file() {
+        return Err("目标文件不存在".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(canonical.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(canonical.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(canonical.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+}

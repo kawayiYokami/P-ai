@@ -41,8 +41,8 @@
       <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
       <button
         class="btn bg-base-100 border-base-300 hover:bg-base-200 text-error"
-        :disabled="viewMode === 'delegate' || viewMode === 'remoteIm' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && !selectedUnarchivedConversationId)"
-        @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
+        :disabled="viewMode === 'delegate' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && !selectedUnarchivedConversationId) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
+        @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
       >
         {{ t("common.delete") }}
       </button>
@@ -123,6 +123,21 @@
             <div class="opacity-60 text-sm">{{ formatDate(m.createdAt) }}</div>
           </div>
           <div v-if="messageText(m)" class="whitespace-pre-wrap wrap-break-word">{{ messageText(m) }}</div>
+          <div
+            v-if="messageAttachments(m).length > 0"
+            class="mt-2 flex flex-wrap gap-2"
+          >
+            <button
+              v-for="(file, idx) in messageAttachments(m)"
+              :key="`${m.id}-attachment-${idx}`"
+              type="button"
+              class="link link-primary text-sm"
+              :title="file.relativePath"
+              @click="openAttachment(file.relativePath)"
+            >
+              {{ file.fileName }}
+            </button>
+          </div>
           <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">
             <details v-for="(tool, idx) in toolSummaries(m)" :key="`${m.id}-tool-${idx}`" class="collapse collapse-arrow border border-base-300 bg-base-200">
               <summary class="collapse-title py-2 px-3 min-h-0 text-sm font-medium">{{ t("archives.toolCall", { name: tool.name }) }}</summary>
@@ -148,6 +163,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { invokeTauri } from "../../../services/tauri-api";
 import type {
   ArchiveSummary,
   ChatMessage,
@@ -184,6 +200,7 @@ const emit = defineEmits<{
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
   (e: "deleteArchive", archiveId: string): void;
   (e: "deleteUnarchivedConversation", conversationId: string): void;
+  (e: "deleteRemoteImContactConversation", contactId: string): void;
   (e: "importArchiveFile", file: File): void;
 }>();
 
@@ -230,6 +247,12 @@ function onDeleteUnarchivedClick(conversationId: string) {
   emit("deleteUnarchivedConversation", conversationId);
 }
 
+function onDeleteRemoteImContactClick(contactId: string) {
+  if (!contactId) return;
+  if (!window.confirm(t("archives.deleteUnarchivedConfirm"))) return;
+  emit("deleteRemoteImContactConversation", contactId);
+}
+
 function messageText(msg: ChatMessage): string {
   const partText = msg.parts
     .filter((p): p is Extract<MessagePart, { type: "text" }> => p.type === "text")
@@ -250,6 +273,24 @@ function speakerLabel(msg: ChatMessage): string {
   }
   if (msg.role === "tool") return t("archives.roleTool");
   return String(msg.role || "").trim() || "-";
+}
+
+function messageAttachments(msg: ChatMessage): Array<{ fileName: string; relativePath: string; mime?: string }> {
+  const raw = Array.isArray(msg.providerMeta?.attachments) ? msg.providerMeta?.attachments : [];
+  return raw
+    .map((item) => {
+      const fileName = String(item?.fileName || "").trim();
+      const relativePath = String(item?.relativePath || "").trim().replace(/\\/g, "/");
+      const mime = typeof item?.mime === "string" ? item.mime.trim() : "";
+      if (!fileName || !relativePath) return undefined;
+      return { fileName, relativePath, mime: mime || undefined };
+    })
+    .filter((item): item is NonNullable<typeof item> => !!item);
+}
+
+function openAttachment(relativePath: string) {
+  if (!relativePath.trim()) return;
+  void invokeTauri("open_workspace_file", { relativePath });
 }
 
 function formatDate(value?: string): string {

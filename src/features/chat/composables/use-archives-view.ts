@@ -260,6 +260,19 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
+  async function deleteRemoteImContactConversation(contactId: string) {
+    if (!contactId) return;
+    try {
+      await invokeTauri<boolean>("remote_im_clear_contact_conversation", {
+        input: { contactId },
+      });
+      options.setStatus("联系人会话已清空。");
+      await loadRemoteImContactConversations();
+    } catch (e) {
+      options.setStatusError("status.deleteUnarchivedConversationFailed", e);
+    }
+  }
+
   async function exportArchive(payload: { format: "markdown" | "json" }) {
     if (!selectedArchiveId.value) {
       options.setStatus(options.t("status.selectArchiveFirst"));
@@ -353,6 +366,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     loadArchives,
     selectArchive,
     deleteUnarchivedConversation,
+    deleteRemoteImContactConversation,
     deleteArchive,
     exportArchive,
     buildArchiveImportPreview,

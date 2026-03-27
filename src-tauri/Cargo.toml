@@ -32,6 +32,7 @@ dingtalk-stream = "0.1.5"
 reqwest = { version = "0.11.27", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
 async-openai = { version = "0.33.0", default-features = false, features = ["rustls", "chat-completion", "byot"] }
 base64 = "0.22"
+aes = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 uuid = { version = "1", features = ["v4"] }
 once_cell = "1"
