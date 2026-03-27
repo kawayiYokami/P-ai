@@ -319,6 +319,15 @@ function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string 
 function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
   return msg.parts
     .filter((p): p is Extract<MessagePart, { type: "image" }> => p.type === "image")
-    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
+    .map((p) => ({
+      mime: String(p.mime || "").trim(),
+      bytesBase64: String((p as { bytesBase64?: unknown }).bytesBase64 ?? "").trim(),
+    }))
+    .filter((item) =>
+      item.mime.length > 0
+      && item.bytesBase64.length > 0
+      && item.bytesBase64 !== "undefined"
+      && item.bytesBase64 !== "null",
+    );
 }
 </script>

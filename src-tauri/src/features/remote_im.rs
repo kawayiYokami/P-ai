@@ -979,6 +979,8 @@ fn remote_im_update_contact_processing_mode(
 fn remote_im_list_contact_conversations(
     state: State<'_, AppState>,
 ) -> Result<Vec<RemoteImContactConversationSummary>, String> {
+    let started_at = std::time::Instant::now();
+    eprintln!("[远程IM][联系人会话][列表] 开始");
     let guard = state
         .state_lock
         .lock()
@@ -1021,6 +1023,11 @@ fn remote_im_list_contact_conversations(
         bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
     });
     drop(guard);
+    eprintln!(
+        "[远程IM][联系人会话][列表] 完成: contact_count={}, elapsed_ms={}",
+        items.len(),
+        started_at.elapsed().as_millis()
+    );
     Ok(items)
 }
 
@@ -1033,6 +1040,11 @@ fn remote_im_get_contact_conversation_messages(
     if contact_id.is_empty() {
         return Err("contactId is required.".to_string());
     }
+    let started_at = std::time::Instant::now();
+    eprintln!(
+        "[远程IM][联系人会话][读取] 开始: contact_id={}",
+        contact_id
+    );
     let guard = state
         .state_lock
         .lock()
@@ -1061,8 +1073,14 @@ fn remote_im_get_contact_conversation_messages(
         })
         .map(|conversation| conversation.messages.clone())
         .ok_or_else(|| format!("联系人会话不存在：{conversation_id}"))?;
-    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     drop(guard);
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+    eprintln!(
+        "[远程IM][联系人会话][读取] 完成: contact_id={}, message_count={}, elapsed_ms={}",
+        contact_id,
+        messages.len(),
+        started_at.elapsed().as_millis()
+    );
     Ok(messages)
 }
 
@@ -1100,6 +1118,11 @@ fn remote_im_clear_contact_conversation(
     if contact_id.is_empty() {
         return Err("contactId is required.".to_string());
     }
+    let started_at = std::time::Instant::now();
+    eprintln!(
+        "[远程IM][联系人会话][清空] 开始: contact_id={}",
+        contact_id
+    );
     let guard = state
         .state_lock
         .lock()
@@ -1140,6 +1163,11 @@ fn remote_im_clear_contact_conversation(
 
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
+    eprintln!(
+        "[远程IM][联系人会话][清空] 完成: contact_id={}, elapsed_ms={}",
+        contact_id,
+        started_at.elapsed().as_millis()
+    );
     Ok(true)
 }
 

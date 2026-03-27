@@ -154,9 +154,11 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   }
 
   async function loadArchives() {
-    await loadUnarchivedConversations();
-    await loadDelegateConversations();
-    await loadRemoteImContactConversations();
+    await Promise.all([
+      loadUnarchivedConversations(),
+      loadDelegateConversations(),
+      loadRemoteImContactConversations(),
+    ]);
     try {
       archives.value = await invokeTauri<ArchiveSummary[]>("list_archives");
       if (archives.value.length === 0) {
@@ -177,11 +179,12 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   async function selectRemoteImContactConversation(contactId: string) {
     const previousId = selectedRemoteImContactId.value;
     const previousMessages = remoteImContactMessages.value;
+    // 先更新高亮，避免等待消息加载导致左侧选中反馈卡顿。
+    selectedRemoteImContactId.value = contactId;
     try {
       const messages = await invokeTauri<ChatMessage[]>("remote_im_get_contact_conversation_messages", {
         input: { contactId },
       });
-      selectedRemoteImContactId.value = contactId;
       remoteImContactMessages.value = messages;
     } catch (e) {
       selectedRemoteImContactId.value = previousId;
@@ -192,6 +195,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
 
   async function loadRemoteImContactConversations() {
     try {
+      const previousSelectedId = selectedRemoteImContactId.value;
       remoteImContactConversations.value =
         await invokeTauri<RemoteImContactConversationSummary[]>("remote_im_list_contact_conversations");
       if (remoteImContactConversations.value.length === 0) {
@@ -202,7 +206,12 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       const targetId = remoteImContactConversations.value.some((item) => item.contactId === selectedRemoteImContactId.value)
         ? selectedRemoteImContactId.value
         : remoteImContactConversations.value[0].contactId;
-      await selectRemoteImContactConversation(targetId);
+      selectedRemoteImContactId.value = targetId;
+      if (targetId !== previousSelectedId) {
+        remoteImContactMessages.value = [];
+      }
+      // 列表优先响应，消息异步加载，避免大会话阻塞左侧选中反馈。
+      void selectRemoteImContactConversation(targetId);
     } catch (e) {
       options.setStatusError("status.loadMessagesFailed", e);
     }
