@@ -180,6 +180,46 @@ async fn remote_im_auto_send_contact_assistant_reply(
     )))
 }
 
+fn spawn_remote_im_auto_send_contact_assistant_reply(
+    state: AppState,
+    conversation_id: String,
+    assistant_text: String,
+) {
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        eprintln!(
+            "[远程IM][自动发送] 开始: conversation_id={}, text_len={}",
+            conversation_id,
+            assistant_text.chars().count()
+        );
+        match remote_im_auto_send_contact_assistant_reply(&state, &conversation_id, &assistant_text).await {
+            Ok(Some((action, _))) => {
+                eprintln!(
+                    "[远程IM][自动发送] 完成: conversation_id={}, action={}, elapsed_ms={}",
+                    conversation_id,
+                    action,
+                    started.elapsed().as_millis()
+                );
+            }
+            Ok(None) => {
+                eprintln!(
+                    "[远程IM][自动发送] 跳过: conversation_id={}, reason=empty_reply, elapsed_ms={}",
+                    conversation_id,
+                    started.elapsed().as_millis()
+                );
+            }
+            Err(err) => {
+                eprintln!(
+                    "[远程IM][自动发送] 失败: conversation_id={}, error={}, elapsed_ms={}",
+                    conversation_id,
+                    err,
+                    started.elapsed().as_millis()
+                );
+            }
+        }
+    });
+}
+
 fn prioritize_requested_chat_api_id(
     requested_api_id: Option<&str>,
     candidate_api_ids: &mut Vec<String>,
@@ -873,8 +913,12 @@ async fn send_chat_message_inner(
         } else {
             runtime_conversation.clone()
         };
-        let remote_im_contact =
-            remote_im_find_contact_by_conversation(&data, &conversation_before.id).cloned();
+        let is_remote_im_contact_conversation = conversation_is_remote_im_contact(&conversation_before);
+        let remote_im_contact = if is_remote_im_contact_conversation {
+            remote_im_find_contact_by_conversation(&data, &conversation_before.id).cloned()
+        } else {
+            None
+        };
         let remote_im_contact_processing_mode = remote_im_contact
             .as_ref()
             .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
@@ -888,7 +932,7 @@ async fn send_chat_message_inner(
                 .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
                 .map(|c| c.summary.clone())
         };
-        let prompt_conversation_before = if remote_im_contact.is_some()
+        let prompt_conversation_before = if is_remote_im_contact_conversation
             && remote_im_contact_processing_mode == "qa"
         {
             let trimmed = remote_im_trim_conversation_for_qa_mode(&conversation_before);
@@ -1144,7 +1188,7 @@ async fn send_chat_message_inner(
             latest_user_text,
             agent,
             estimated_prompt_tokens,
-            remote_im_contact.is_some(),
+            is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
         )
     };
@@ -1310,46 +1354,19 @@ async fn send_chat_message_inner(
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
-    let mut tool_history_events = model_reply.tool_history_events;
+    let tool_history_events = model_reply.tool_history_events;
     let suppress_assistant_message = model_reply.suppress_assistant_message;
     let mut remote_im_reply_decision =
         remote_im_extract_reply_decision_from_tool_history(&tool_history_events);
     if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
         if !assistant_text.trim().is_empty() {
-            let _ = on_delta.send(AssistantDeltaEvent {
-                delta: "".to_string(),
-                kind: Some("tool_status".to_string()),
-                tool_name: Some("remote_im_send".to_string()),
-                tool_status: Some("running".to_string()),
-                tool_args: None,
-                message: Some("联系人会话未显式调用 remote_im_send，正在按直接回复内容自动发送。".to_string()),
-            });
-            match remote_im_auto_send_contact_assistant_reply(&state, &conversation_id, &assistant_text).await {
-                Ok(Some((action, mut auto_events))) => {
-                    tool_history_events.append(&mut auto_events);
-                    remote_im_reply_decision = Some(action);
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: "".to_string(),
-                        kind: Some("tool_status".to_string()),
-                        tool_name: Some("remote_im_send".to_string()),
-                        tool_status: Some("done".to_string()),
-                        tool_args: None,
-                        message: Some("联系人会话直接回复已自动作为 remote_im_send 发送。".to_string()),
-                    });
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: "".to_string(),
-                        kind: Some("tool_status".to_string()),
-                        tool_name: Some("remote_im_send".to_string()),
-                        tool_status: Some("failed".to_string()),
-                        tool_args: None,
-                        message: Some(format!("联系人会话自动发送失败：{err}")),
-                    });
-                    return Err(format!("联系人会话自动发送失败：{err}"));
-                }
-            }
+            // 联系人会话兜底自动发送改为后台异步派发，避免阻塞本轮收尾与前端结束状态。
+            spawn_remote_im_auto_send_contact_assistant_reply(
+                state.clone(),
+                conversation_id.clone(),
+                assistant_text.clone(),
+            );
+            remote_im_reply_decision = Some("send".to_string());
         }
     }
     if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
