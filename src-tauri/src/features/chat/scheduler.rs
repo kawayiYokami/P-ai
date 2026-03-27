@@ -1156,17 +1156,10 @@ fn send_round_completed_event(
     activation: &QueuedChatActivation,
     result: &SendChatResult,
 ) {
-    if activation.source != QueuedChatActivationSource::ActiveViewBinding {
-        eprintln!(
-            "[聊天推送] 跳过 round_completed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
-            conversation_id
-        );
-        emit_round_completed_event(state, conversation_id, result);
-        return;
-    }
     eprintln!(
-        "[聊天推送] 通过绑定通道发送 round_completed: conversation_id={}, event_id={}",
+        "[聊天推送] 通过激活通道发送 round_completed: conversation_id={}, event_id={}, source={:?}",
         conversation_id, activation.event_id
+        , activation.source
     );
     let payload_json = serde_json::to_string(result).unwrap_or_else(|_| {
         serde_json::json!({
@@ -1196,17 +1189,9 @@ fn send_round_failed_event(
     activation: &QueuedChatActivation,
     error_text: &str,
 ) {
-    if activation.source != QueuedChatActivationSource::ActiveViewBinding {
-        eprintln!(
-            "[聊天推送] 跳过 round_failed 通道发送: conversation_id={}, reason=activation_source_not_active_view",
-            conversation_id
-        );
-        emit_round_failed_event(state, conversation_id, error_text);
-        return;
-    }
     eprintln!(
-        "[聊天推送] 通过绑定通道发送 round_failed: conversation_id={}, event_id={}",
-        conversation_id, activation.event_id
+        "[聊天推送] 通过激活通道发送 round_failed: conversation_id={}, event_id={}, source={:?}",
+        conversation_id, activation.event_id, activation.source
     );
     let payload_json = serde_json::json!({
         "error": error_text,
