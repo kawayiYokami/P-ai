@@ -483,6 +483,72 @@ pub(crate) fn set_conversation_runtime_state(
     Ok(())
 }
 
+fn remote_im_activation_source_key(source: &RemoteImActivationSource) -> String {
+    format!(
+        "{}::{}::{}",
+        source.channel_id.trim(),
+        source.remote_contact_type.trim(),
+        source.remote_contact_id.trim()
+    )
+}
+
+fn remote_im_activation_source_from_sender(
+    sender: &RemoteImMessageSource,
+) -> RemoteImActivationSource {
+    RemoteImActivationSource {
+        channel_id: sender.channel_id.trim().to_string(),
+        platform: sender.platform.clone(),
+        remote_contact_type: sender.remote_contact_type.trim().to_string(),
+        remote_contact_id: sender.remote_contact_id.trim().to_string(),
+        remote_contact_name: sender.remote_contact_name.trim().to_string(),
+    }
+}
+
+pub(crate) fn set_conversation_remote_im_activation_sources(
+    state: &AppState,
+    conversation_id: &str,
+    sources: Vec<RemoteImActivationSource>,
+) -> Result<(), String> {
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, conversation_id);
+    slot.active_remote_im_activation_sources = sources;
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn get_conversation_remote_im_activation_sources(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Vec<RemoteImActivationSource>, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .map(|slot| slot.active_remote_im_activation_sources.clone())
+        .unwrap_or_default())
+}
+
+fn collect_activated_remote_im_sources(
+    events: &[ChatPendingEvent],
+    event_activate_flags: &[bool],
+) -> Vec<RemoteImActivationSource> {
+    let mut activated_remote_im_sources = Vec::<RemoteImActivationSource>::new();
+    let mut activated_remote_im_source_keys = std::collections::HashSet::<String>::new();
+    for (event, should_activate) in events.iter().zip(event_activate_flags.iter().copied()) {
+        if !should_activate || !matches!(event.source, ChatEventSource::RemoteIm) {
+            continue;
+        }
+        let Some(sender) = event.sender_info.as_ref() else {
+            continue;
+        };
+        let source = remote_im_activation_source_from_sender(sender);
+        let source_key = remote_im_activation_source_key(&source);
+        if activated_remote_im_source_keys.insert(source_key) {
+            activated_remote_im_sources.push(source);
+        }
+    }
+    activated_remote_im_sources
+}
+
 fn release_conversation_processing_claim(
     state: &AppState,
     conversation_id: &str,
@@ -728,15 +794,18 @@ async fn process_conversation_batch(
     // 2. 判断是否需要激活主助理。
     // 这一步故意放在“写历史之后”，避免出现前端先开流式、
     // 但本批消息还没正式落入历史的时序错乱。
+    let activated_remote_im_sources =
+        collect_activated_remote_im_sources(&events, &event_activate_flags);
     let should_activate = event_activate_flags.into_iter().any(|v| v);
     let activate_status = if should_activate { "开始" } else { "跳过" };
 
     let batch_message_count = events.iter().map(|e| e.messages.len()).sum::<usize>();
     eprintln!(
-        "[聊天调度] 批次写入完成: conversation_id={}, message_count={}, activate={}, oldest_queue_created_at={}",
+        "[聊天调度] 批次写入完成: conversation_id={}, message_count={}, activate={}, remote_im_activation_source_count={}, oldest_queue_created_at={}",
         conversation_id,
         batch_message_count,
         activate_status,
+        activated_remote_im_sources.len(),
         oldest_queue_created_at,
     );
     let mut activations = take_queued_chat_activations(state, &event_ids)?;
@@ -783,6 +852,7 @@ async fn process_conversation_batch(
                 &first_event.session_info,
                 conversation_id,
                 activation.clone(),
+                activated_remote_im_sources.clone(),
                 oldest_queue_created_at,
             ).await {
                 Ok(result) => {
@@ -797,6 +867,7 @@ async fn process_conversation_batch(
             }
         }
     } else {
+        set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new())?;
         // 不激活时，本批消息依然已经是正式历史的一部分。
         // 这里只回传一个“已落地但未开启新轮次”的结果，前端应刷新历史，
         // 但不应启动新的主助理流式显示。
@@ -834,13 +905,15 @@ async fn activate_main_assistant(
     session_info: &ChatSessionInfo,
     conversation_id: &str,
     activation: Option<QueuedChatActivation>,
+    remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
 ) -> Result<SendChatResult, String> {
     eprintln!(
-        "[聊天调度] 开始: 激活主助理, conversation_id={}, department_id={}, agent_id={}, oldest_queue_created_at={}",
+        "[聊天调度] 开始: 激活主助理, conversation_id={}, department_id={}, agent_id={}, remote_im_activation_source_count={}, oldest_queue_created_at={}",
         conversation_id,
         session_info.department_id,
         session_info.agent_id,
+        remote_im_activation_sources.len(),
         oldest_queue_created_at,
     );
 
@@ -854,6 +927,11 @@ async fn activate_main_assistant(
         state,
         conversation_id,
         MainSessionState::AssistantStreaming,
+    )?;
+    set_conversation_remote_im_activation_sources(
+        state,
+        conversation_id,
+        remote_im_activation_sources.clone(),
     )?;
 
     // 构造 trigger_only 请求
@@ -878,6 +956,7 @@ async fn activate_main_assistant(
         speaker_agent_id: None,
         trace_id: Some(trace_id),
         oldest_queue_created_at: Some(oldest_queue_created_at.to_string()),
+        remote_im_activation_sources,
     };
 
     // 使用 emit 作为远程激活轮次的流式主通道，避免前端窗口重绑定造成 channel 失联。
@@ -908,6 +987,13 @@ async fn activate_main_assistant(
 
     // 调用 send_chat_message_inner
     let result = send_chat_message_inner(request, state, &active_channel).await;
+
+    if let Err(err) = set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new()) {
+        eprintln!(
+            "[聊天调度] 清理远程IM激活来源失败: conversation_id={}, error={}",
+            conversation_id, err
+        );
+    }
 
     // 回复完成，切换回 Idle
     set_conversation_runtime_state(state, conversation_id, MainSessionState::Idle)?;

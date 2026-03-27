@@ -60,6 +60,25 @@ fn remote_im_contact_conversation_forces_send_tool(
     })
 }
 
+fn remote_im_activation_runtime_forces_send_tool(
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> bool {
+    let Some(state) = app_state else {
+        return false;
+    };
+    let Some((_, conversation_id)) = tool_session_id.split_once("::") else {
+        return false;
+    };
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return false;
+    }
+    get_conversation_remote_im_activation_sources(state, conversation_id)
+        .map(|sources| !sources.is_empty())
+        .unwrap_or(false)
+}
+
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -90,7 +109,8 @@ async fn assemble_runtime_tools(
     };
     let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
     let force_remote_im_send =
-        remote_im_contact_conversation_forces_send_tool(app_state, tool_session_id);
+        remote_im_contact_conversation_forces_send_tool(app_state, tool_session_id)
+        || remote_im_activation_runtime_forces_send_tool(app_state, tool_session_id);
     let has_remote_im_send =
         force_remote_im_send || tool_enabled(selected_api, agent, current_department, "remote_im_send");
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();

@@ -1137,11 +1137,48 @@ fn remote_im_sdk_for_platform(platform: &RemoteImPlatform) -> Box<dyn RemoteImSd
     }
 }
 
+#[cfg(test)]
+fn remote_im_mock_send_via_sdk(
+    channel: &RemoteImChannelConfig,
+    contact: &RemoteImContact,
+    payload: &Value,
+) -> Option<Result<String, String>> {
+    let mock_error = channel
+        .credentials
+        .get("mockSendError")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(err) = mock_error {
+        return Some(Err(err.to_string()));
+    }
+
+    let mock_send_enabled = channel
+        .credentials
+        .get("mockSend")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !mock_send_enabled {
+        return None;
+    }
+
+    let text_len = remote_im_payload_text(payload).chars().count();
+    Some(Ok(format!(
+        "mock:{}:{}:{}",
+        channel.id, contact.remote_contact_id, text_len
+    )))
+}
+
 async fn remote_im_send_via_sdk(
     channel: &RemoteImChannelConfig,
     contact: &RemoteImContact,
     payload: &Value,
 ) -> Result<String, String> {
+    #[cfg(test)]
+    if let Some(mock_result) = remote_im_mock_send_via_sdk(channel, contact, payload) {
+        return mock_result;
+    }
+
     let sdk = remote_im_sdk_for_platform(&channel.platform);
     sdk.validate_channel(channel)?;
     sdk.send_outbound(channel, contact, payload).await

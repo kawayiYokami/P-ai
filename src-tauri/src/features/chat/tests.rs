@@ -365,6 +365,400 @@
     }
 
     #[test]
+    fn build_remote_im_activation_runtime_block_should_require_explicit_send_for_multiple_sources() {
+        let sources = vec![
+            RemoteImActivationSource {
+                channel_id: "remote-im-a".to_string(),
+                platform: RemoteImPlatform::OnebotV11,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-a".to_string(),
+                remote_contact_name: "张三".to_string(),
+            },
+            RemoteImActivationSource {
+                channel_id: "remote-im-b".to_string(),
+                platform: RemoteImPlatform::Dingtalk,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-b".to_string(),
+                remote_contact_name: "李四".to_string(),
+            },
+        ];
+
+        let block =
+            build_remote_im_activation_runtime_block(&sources, "zh-CN").expect("runtime block");
+
+        assert!(block.contains("多个远程 IM 来源共同激活"));
+        assert!(block.contains("必须显式调用 `remote_im_send`"));
+        assert!(block.contains("channel_id=remote-im-a"));
+        assert!(block.contains("channel_id=remote-im-b"));
+    }
+
+    #[test]
+    fn resolve_remote_im_auto_send_target_should_only_allow_single_source() {
+        let single_source = RemoteImActivationSource {
+            channel_id: "remote-im-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+        };
+        let single_target = resolve_remote_im_auto_send_target(
+            "你好，这里是最终回复。",
+            &[single_source.clone()],
+            false,
+        )
+        .expect("single target");
+        assert_eq!(single_target, Some(single_source.clone()));
+
+        let err = resolve_remote_im_auto_send_target(
+            "你好，这里是最终回复。",
+            &[
+                single_source,
+                RemoteImActivationSource {
+                    channel_id: "remote-im-b".to_string(),
+                    platform: RemoteImPlatform::Dingtalk,
+                    remote_contact_type: "private".to_string(),
+                    remote_contact_id: "contact-b".to_string(),
+                    remote_contact_name: "李四".to_string(),
+                },
+            ],
+            false,
+        )
+        .expect_err("multiple sources should require explicit tool");
+        assert!(err.contains("多个远程IM来源"));
+
+        let explicit_decision = resolve_remote_im_auto_send_target(
+            "你好，这里是最终回复。",
+            &[RemoteImActivationSource {
+                channel_id: "remote-im-a".to_string(),
+                platform: RemoteImPlatform::OnebotV11,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-a".to_string(),
+                remote_contact_name: "张三".to_string(),
+            }],
+            true,
+        )
+        .expect("explicit decision bypass");
+        assert!(explicit_decision.is_none());
+    }
+
+    #[test]
+    fn runtime_remote_im_activation_sources_should_force_send_tool() {
+        let state = test_chat_runtime_state();
+        set_conversation_remote_im_activation_sources(
+            &state,
+            "conversation-a",
+            vec![RemoteImActivationSource {
+                channel_id: "remote-im-a".to_string(),
+                platform: RemoteImPlatform::OnebotV11,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-a".to_string(),
+                remote_contact_name: "张三".to_string(),
+            }],
+        )
+        .expect("set activation sources");
+
+        assert!(remote_im_activation_runtime_forces_send_tool(
+            Some(&state),
+            "chat::conversation-a"
+        ));
+        assert!(!remote_im_activation_runtime_forces_send_tool(
+            Some(&state),
+            "chat::conversation-b"
+        ));
+    }
+
+    #[test]
+    fn collect_activated_remote_im_sources_should_dedup_same_contact_and_ignore_inactive_events() {
+        let created_at = now_iso();
+        let remote_sender_a = RemoteImMessageSource {
+            channel_id: "remote-im-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            im_name: "QQ".to_string(),
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+            sender_id: "contact-a".to_string(),
+            sender_name: "张三".to_string(),
+            sender_avatar_url: None,
+            platform_message_id: None,
+        };
+        let remote_sender_b = RemoteImMessageSource {
+            channel_id: "remote-im-b".to_string(),
+            platform: RemoteImPlatform::Dingtalk,
+            im_name: "钉钉".to_string(),
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-b".to_string(),
+            remote_contact_name: "李四".to_string(),
+            sender_id: "contact-b".to_string(),
+            sender_name: "李四".to_string(),
+            sender_avatar_url: None,
+            platform_message_id: None,
+        };
+        let events = vec![
+            ChatPendingEvent {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: "conversation-a".to_string(),
+                created_at: created_at.clone(),
+                source: ChatEventSource::RemoteIm,
+                messages: vec![test_text_message("user", "来自张三的第一条消息", &created_at)],
+                activate_assistant: true,
+                session_info: ChatSessionInfo {
+                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                sender_info: Some(remote_sender_a.clone()),
+            },
+            ChatPendingEvent {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: "conversation-a".to_string(),
+                created_at: created_at.clone(),
+                source: ChatEventSource::RemoteIm,
+                messages: vec![test_text_message("user", "来自张三的第二条消息", &created_at)],
+                activate_assistant: true,
+                session_info: ChatSessionInfo {
+                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                sender_info: Some(remote_sender_a),
+            },
+            ChatPendingEvent {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: "conversation-a".to_string(),
+                created_at: created_at.clone(),
+                source: ChatEventSource::RemoteIm,
+                messages: vec![test_text_message("user", "来自李四的消息", &created_at)],
+                activate_assistant: true,
+                session_info: ChatSessionInfo {
+                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                sender_info: Some(remote_sender_b),
+            },
+            ChatPendingEvent {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: "conversation-a".to_string(),
+                created_at,
+                source: ChatEventSource::User,
+                messages: vec![test_text_message("user", "普通用户消息", &now_iso())],
+                activate_assistant: true,
+                session_info: ChatSessionInfo {
+                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                sender_info: None,
+            },
+        ];
+
+        let sources =
+            collect_activated_remote_im_sources(&events, &[true, true, false, true]);
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].channel_id, "remote-im-a");
+        assert_eq!(sources[0].remote_contact_id, "contact-a");
+
+        let all_sources =
+            collect_activated_remote_im_sources(&events, &[true, true, true, true]);
+        assert_eq!(all_sources.len(), 2);
+        assert_eq!(all_sources[0].channel_id, "remote-im-a");
+        assert_eq!(all_sources[1].channel_id, "remote-im-b");
+    }
+
+    fn seed_remote_im_auto_send_test_state(
+        channel_credentials: Value,
+    ) -> (AppState, RemoteImActivationSource, String, String, String) {
+        let state = test_chat_runtime_state();
+        let mut config = AppConfig::default();
+        config.remote_im_channels.push(RemoteImChannelConfig {
+            id: "remote-im-a".to_string(),
+            name: "测试渠道".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            enabled: true,
+            credentials: channel_credentials,
+            activate_assistant: true,
+            receive_files: true,
+            streaming_send: false,
+            show_tool_calls: false,
+            allow_send_files: false,
+        });
+        write_config(&state.config_path, &config).expect("write config");
+
+        let conversation_id = "conversation-a".to_string();
+        let assistant_message_id = Uuid::new_v4().to_string();
+        let assistant_text = "这里是自动发送回复".to_string();
+        let created_at = now_iso();
+
+        let mut conversation = test_chat_conversation(&conversation_id, "active", &created_at);
+        conversation.messages.push(ChatMessage {
+            id: assistant_message_id.clone(),
+            role: "assistant".to_string(),
+            created_at: created_at.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: assistant_text.clone(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "remoteImDecision": {
+                    "action": "send_async",
+                    "processingMode": "continuous",
+                    "conversationKind": "standard_conversation",
+                    "activationSourceCount": 1,
+                    "error": ""
+                }
+            })),
+            tool_call: None,
+            mcp_call: None,
+        });
+
+        let mut data = AppData::default();
+        data.conversations.push(conversation);
+        data.remote_im_contacts.push(RemoteImContact {
+            id: "contact-record-a".to_string(),
+            channel_id: "remote-im-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+            remark_name: String::new(),
+            allow_send: true,
+            allow_send_files: false,
+            allow_receive: true,
+            activation_mode: "always".to_string(),
+            activation_keywords: Vec::new(),
+            activation_cooldown_seconds: 0,
+            route_mode: "main_session".to_string(),
+            bound_department_id: None,
+            bound_conversation_id: Some(conversation_id.clone()),
+            processing_mode: "continuous".to_string(),
+            last_activated_at: None,
+            last_message_at: None,
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+        });
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        (
+            state,
+            RemoteImActivationSource {
+                channel_id: "remote-im-a".to_string(),
+                platform: RemoteImPlatform::OnebotV11,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-a".to_string(),
+                remote_contact_name: "张三".to_string(),
+            },
+            conversation_id,
+            assistant_message_id,
+            assistant_text,
+        )
+    }
+
+    fn read_remote_im_decision_for_message(
+        state: &AppState,
+        conversation_id: &str,
+        assistant_message_id: &str,
+    ) -> Value {
+        let data = state_read_app_data_cached(state).expect("read app data");
+        data.conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+            .and_then(|conversation| {
+                conversation
+                    .messages
+                    .iter()
+                    .find(|message| message.id == assistant_message_id)
+            })
+            .and_then(|message| message.provider_meta.as_ref())
+            .and_then(|meta| meta.get("remoteImDecision"))
+            .cloned()
+            .expect("remoteImDecision")
+    }
+
+    #[test]
+    fn remote_im_auto_send_and_record_decision_should_update_message_after_mock_send() {
+        let (state, activation_source, conversation_id, assistant_message_id, assistant_text) =
+            seed_remote_im_auto_send_test_state(serde_json::json!({
+                "mockSend": true
+            }));
+
+        let outcome = test_runtime()
+            .block_on(remote_im_auto_send_and_record_decision(
+                &state,
+                &activation_source,
+                &conversation_id,
+                &assistant_text,
+                Some(&assistant_message_id),
+            ))
+            .expect("auto send should succeed");
+
+        assert_eq!(
+            outcome,
+            RemoteImAutoSendExecutionOutcome::Sent {
+                action: "send".to_string()
+            }
+        );
+
+        let decision =
+            read_remote_im_decision_for_message(&state, &conversation_id, &assistant_message_id);
+        assert_eq!(decision.get("action").and_then(Value::as_str), Some("send"));
+        assert_eq!(
+            decision.get("processingMode").and_then(Value::as_str),
+            Some("continuous")
+        );
+        assert_eq!(
+            decision.get("conversationKind").and_then(Value::as_str),
+            Some("standard_conversation")
+        );
+        assert_eq!(
+            decision.get("activationSourceCount").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(decision.get("error").and_then(Value::as_str), Some(""));
+    }
+
+    #[test]
+    fn remote_im_auto_send_and_record_decision_should_mark_send_failed_after_mock_error() {
+        let (state, activation_source, conversation_id, assistant_message_id, assistant_text) =
+            seed_remote_im_auto_send_test_state(serde_json::json!({
+                "mockSendError": "mock remote send failed"
+            }));
+
+        let err = test_runtime()
+            .block_on(remote_im_auto_send_and_record_decision(
+                &state,
+                &activation_source,
+                &conversation_id,
+                &assistant_text,
+                Some(&assistant_message_id),
+            ))
+            .expect_err("auto send should fail");
+
+        assert!(err.contains("mock remote send failed"));
+
+        let decision =
+            read_remote_im_decision_for_message(&state, &conversation_id, &assistant_message_id);
+        assert_eq!(
+            decision.get("action").and_then(Value::as_str),
+            Some("send_failed")
+        );
+        assert_eq!(
+            decision.get("processingMode").and_then(Value::as_str),
+            Some("continuous")
+        );
+        assert_eq!(
+            decision.get("conversationKind").and_then(Value::as_str),
+            Some("standard_conversation")
+        );
+        assert_eq!(
+            decision.get("activationSourceCount").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            decision.get("error").and_then(Value::as_str),
+            Some("mock remote send failed")
+        );
+    }
+
+    #[test]
     fn archive_decision_should_force_when_usage_reaches_82pct() {
         let now = now_iso();
         let huge = "中".repeat(2000);

@@ -880,6 +880,8 @@ struct SendChatRequest {
     #[serde(default)]
     oldest_queue_created_at: Option<String>,
     #[serde(default)]
+    remote_im_activation_sources: Vec<RemoteImActivationSource>,
+    #[serde(default)]
     trigger_only: bool,
 }
 
@@ -1180,6 +1182,16 @@ struct RemoteImMessageSource {
     platform_message_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImActivationSource {
+    channel_id: String,
+    platform: RemoteImPlatform,
+    remote_contact_type: String,
+    remote_contact_id: String,
+    remote_contact_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Conversation {
@@ -1215,6 +1227,7 @@ struct Conversation {
 struct ConversationRuntimeSlot {
     state: MainSessionState,
     pending_queue: std::collections::VecDeque<ChatPendingEvent>,
+    active_remote_im_activation_sources: Vec<RemoteImActivationSource>,
     last_activity_at: String,
 }
 
@@ -1223,6 +1236,7 @@ impl Default for ConversationRuntimeSlot {
         Self {
             state: MainSessionState::Idle,
             pending_queue: std::collections::VecDeque::new(),
+            active_remote_im_activation_sources: Vec::new(),
             last_activity_at: String::new(),
         }
     }

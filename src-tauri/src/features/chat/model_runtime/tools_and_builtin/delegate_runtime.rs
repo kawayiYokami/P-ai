@@ -238,6 +238,7 @@ async fn delegate_execute_agent_run(
         speaker_agent_id: Some(delegate.source_agent_id.clone()),
         trace_id: Some(format!("delegate-{}", delegate.delegate_id)),
         oldest_queue_created_at: None,
+        remote_im_activation_sources: Vec::new(),
         trigger_only: false,
     };
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));

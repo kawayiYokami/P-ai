@@ -75,6 +75,84 @@ fn remote_im_message_has_reply_decision(message: &ChatMessage) -> bool {
         .is_some()
 }
 
+fn remote_im_activation_source_summary_line(source: &RemoteImActivationSource) -> String {
+    let mut parts = vec![
+        format!("channel_id={}", source.channel_id.trim()),
+        format!("contact_id={}", source.remote_contact_id.trim()),
+    ];
+    if !source.remote_contact_name.trim().is_empty() {
+        parts.push(format!("contact_name={}", source.remote_contact_name.trim()));
+    }
+    if !source.remote_contact_type.trim().is_empty() {
+        parts.push(format!("contact_type={}", source.remote_contact_type.trim()));
+    }
+    parts.join(" | ")
+}
+
+fn build_remote_im_activation_runtime_block(
+    sources: &[RemoteImActivationSource],
+    ui_language: &str,
+) -> Option<String> {
+    if sources.is_empty() {
+        return None;
+    }
+    let source_lines = sources
+        .iter()
+        .map(|source| format!("- {}", remote_im_activation_source_summary_line(source)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let block = match (ui_language.trim(), sources.len()) {
+        ("en-US", 1) => format!(
+            "## Remote IM Runtime Activation\n- This round was activated by exactly one remote IM source.\n{}\n- If you do not explicitly call `remote_im_send`, the system may automatically send your final assistant reply to that source.\n- If you need to reply to another target or choose not to send, you must explicitly call `remote_im_send`.",
+            source_lines
+        ),
+        ("en-US", _) => format!(
+            "## Remote IM Runtime Activation\n- This round was activated by multiple remote IM sources.\n{}\n- The system will not auto-send any final reply in this round.\n- If you need to send anything outward, you must explicitly call `remote_im_send` and specify the target `channel_id` + `contact_id`.",
+            source_lines
+        ),
+        ("zh-TW", 1) => format!(
+            "## 遠端 IM 執行期啟動來源\n- 本輪由唯一一個遠端 IM 來源啟動。\n{}\n- 若你未明確呼叫 `remote_im_send`，系統可能會在本輪結束後自動將最終回覆發送到該來源。\n- 若要改發其他目標，或決定不外發，必須明確呼叫 `remote_im_send`。",
+            source_lines
+        ),
+        ("zh-TW", _) => format!(
+            "## 遠端 IM 執行期啟動來源\n- 本輪由多個遠端 IM 來源共同啟動。\n{}\n- 系統不會自動外發本輪最終回覆。\n- 若需要對外發送，必須明確呼叫 `remote_im_send`，並指定目標 `channel_id` + `contact_id`。",
+            source_lines
+        ),
+        (_, 1) => format!(
+            "## 远程 IM 运行时激活来源\n- 本轮由唯一一个远程 IM 来源激活。\n{}\n- 如果你未显式调用 `remote_im_send`，系统可能会在本轮结束后自动将最终回复发送到该来源。\n- 如果需要改发其他目标，或决定不外发，必须显式调用 `remote_im_send`。",
+            source_lines
+        ),
+        _ => format!(
+            "## 远程 IM 运行时激活来源\n- 本轮由多个远程 IM 来源共同激活。\n{}\n- 系统不会自动外发本轮最终回复。\n- 如果需要对外发送，必须显式调用 `remote_im_send`，并指定目标 `channel_id` + `contact_id`。",
+            source_lines
+        ),
+    };
+    Some(block)
+}
+
+fn resolve_remote_im_auto_send_target(
+    assistant_text: &str,
+    activation_sources: &[RemoteImActivationSource],
+    has_explicit_reply_decision: bool,
+) -> Result<Option<RemoteImActivationSource>, String> {
+    if has_explicit_reply_decision || activation_sources.is_empty() {
+        return Ok(None);
+    }
+    if activation_sources.len() >= 2 {
+        return Err(
+            "本轮由多个远程IM来源共同激活，系统不会自动发送；如需外发，请显式调用 remote_im_send 指定目标。"
+                .to_string(),
+        );
+    }
+    if assistant_text.trim().is_empty() {
+        return Err(
+            "本轮由唯一远程IM来源激活，但未产生可自动发送的回复内容，也未调用 remote_im_send。"
+                .to_string(),
+        );
+    }
+    Ok(activation_sources.first().cloned())
+}
+
 fn remote_im_trim_conversation_for_qa_mode(conversation: &Conversation) -> Conversation {
     let last_processed_index = conversation
         .messages
@@ -152,23 +230,19 @@ fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: 
     ]
 }
 
-async fn remote_im_auto_send_contact_assistant_reply(
+async fn remote_im_auto_send_assistant_reply_to_source(
     state: &AppState,
-    conversation_id: &str,
+    source: &RemoteImActivationSource,
     assistant_text: &str,
 ) -> Result<Option<(String, Vec<Value>)>, String> {
     let trimmed_text = assistant_text.trim();
     if trimmed_text.is_empty() {
         return Ok(None);
     }
-    let data = state_read_app_data_cached(state)?;
-    let contact = remote_im_find_contact_by_conversation(&data, conversation_id)
-        .cloned()
-        .ok_or_else(|| format!("未找到联系人会话绑定: conversation_id={conversation_id}"))?;
     let args = RemoteImSendToolArgs {
         action: "send".to_string(),
-        channel_id: Some(contact.channel_id.clone()),
-        contact_id: Some(contact.remote_contact_id.clone()),
+        channel_id: Some(source.channel_id.clone()),
+        contact_id: Some(source.remote_contact_id.clone()),
         text: Some(trimmed_text.to_string()),
         status: "done".to_string(),
         file_paths: None,
@@ -183,8 +257,52 @@ async fn remote_im_auto_send_contact_assistant_reply(
     )))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RemoteImAutoSendExecutionOutcome {
+    SkippedEmptyReply,
+    Sent { action: String },
+}
+
+async fn remote_im_auto_send_and_record_decision(
+    state: &AppState,
+    activation_source: &RemoteImActivationSource,
+    conversation_id: &str,
+    assistant_text: &str,
+    assistant_message_id: Option<&str>,
+) -> Result<RemoteImAutoSendExecutionOutcome, String> {
+    match remote_im_auto_send_assistant_reply_to_source(state, activation_source, assistant_text).await {
+        Ok(Some((action, _))) => {
+            update_remote_im_reply_decision_for_message(
+                state,
+                conversation_id,
+                assistant_message_id,
+                &action,
+                None,
+            )
+            .map_err(|err| format!("远程IM自动发送成功，但回写回复决策失败: {err}"))?;
+            Ok(RemoteImAutoSendExecutionOutcome::Sent { action })
+        }
+        Ok(None) => Ok(RemoteImAutoSendExecutionOutcome::SkippedEmptyReply),
+        Err(err) => {
+            if let Err(update_err) = update_remote_im_reply_decision_for_message(
+                state,
+                conversation_id,
+                assistant_message_id,
+                "send_failed",
+                Some(err.as_str()),
+            ) {
+                return Err(format!(
+                    "远程IM自动发送失败：{err}；回写失败状态失败：{update_err}"
+                ));
+            }
+            Err(err)
+        }
+    }
+}
+
 fn spawn_remote_im_auto_send_contact_assistant_reply(
     state: AppState,
+    activation_source: RemoteImActivationSource,
     conversation_id: String,
     assistant_text: String,
     assistant_message_id: Option<String>,
@@ -192,44 +310,46 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
     tauri::async_runtime::spawn(async move {
         let started = std::time::Instant::now();
         eprintln!(
-            "[远程IM][自动发送] 开始: conversation_id={}, text_len={}",
+            "[远程IM][自动发送] 开始: conversation_id={}, channel_id={}, contact_id={}, text_len={}",
             conversation_id,
+            activation_source.channel_id,
+            activation_source.remote_contact_id,
             assistant_text.chars().count()
         );
-        match remote_im_auto_send_contact_assistant_reply(&state, &conversation_id, &assistant_text).await {
-            Ok(Some((action, _))) => {
-                let _ = update_remote_im_reply_decision_for_message(
-                    &state,
-                    &conversation_id,
-                    assistant_message_id.as_deref(),
-                    &action,
-                    None,
-                );
+        match remote_im_auto_send_and_record_decision(
+            &state,
+            &activation_source,
+            &conversation_id,
+            &assistant_text,
+            assistant_message_id.as_deref(),
+        )
+        .await
+        {
+            Ok(RemoteImAutoSendExecutionOutcome::Sent { action }) => {
                 eprintln!(
-                    "[远程IM][自动发送] 完成: conversation_id={}, action={}, elapsed_ms={}",
+                    "[远程IM][自动发送] 完成: conversation_id={}, channel_id={}, contact_id={}, action={}, elapsed_ms={}",
                     conversation_id,
+                    activation_source.channel_id,
+                    activation_source.remote_contact_id,
                     action,
                     started.elapsed().as_millis()
                 );
             }
-            Ok(None) => {
+            Ok(RemoteImAutoSendExecutionOutcome::SkippedEmptyReply) => {
                 eprintln!(
-                    "[远程IM][自动发送] 跳过: conversation_id={}, reason=empty_reply, elapsed_ms={}",
+                    "[远程IM][自动发送] 跳过: conversation_id={}, channel_id={}, contact_id={}, reason=empty_reply, elapsed_ms={}",
                     conversation_id,
+                    activation_source.channel_id,
+                    activation_source.remote_contact_id,
                     started.elapsed().as_millis()
                 );
             }
             Err(err) => {
-                let _ = update_remote_im_reply_decision_for_message(
-                    &state,
-                    &conversation_id,
-                    assistant_message_id.as_deref(),
-                    "send_failed",
-                    Some(err.as_str()),
-                );
                 eprintln!(
-                    "[远程IM][自动发送] 失败: conversation_id={}, error={}, elapsed_ms={}",
+                    "[远程IM][自动发送] 失败: conversation_id={}, channel_id={}, contact_id={}, error={}, elapsed_ms={}",
                     conversation_id,
+                    activation_source.channel_id,
+                    activation_source.remote_contact_id,
                     err,
                     started.elapsed().as_millis()
                 );
@@ -262,16 +382,25 @@ fn update_remote_im_reply_decision_for_message(
         if !meta.is_object() {
             meta = serde_json::json!({});
         }
+        let mut remote_im_decision = meta
+            .as_object()
+            .and_then(|obj| obj.get("remoteImDecision"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        remote_im_decision.insert("action".to_string(), serde_json::json!(action));
+        remote_im_decision.insert(
+            "error".to_string(),
+            serde_json::json!(error.unwrap_or("")),
+        );
+        remote_im_decision
+            .entry("processingMode".to_string())
+            .or_insert_with(|| serde_json::json!("continuous"));
+        remote_im_decision
+            .entry("conversationKind".to_string())
+            .or_insert_with(|| serde_json::json!("remote_im_contact"));
         if let Some(obj) = meta.as_object_mut() {
-            obj.insert(
-                "remoteImDecision".to_string(),
-                serde_json::json!({
-                    "action": action,
-                    "processingMode": "continuous",
-                    "conversationKind": "remote_im_contact",
-                    "error": error.unwrap_or("")
-                }),
-            );
+            obj.insert("remoteImDecision".to_string(), Value::Object(remote_im_decision));
         }
         message.provider_meta = Some(meta);
     };
@@ -420,6 +549,7 @@ async fn send_chat_message_inner(
         .filter(|ms| *ms > 0)
         .map(|ms| ms.min(i128::from(u64::MAX)) as u64);
     let session_for_log = input.session.clone();
+    let remote_im_activation_sources = input.remote_im_activation_sources.clone();
 
     let chat_started_at = std::time::Instant::now();
     let stage_timeline = std::sync::Arc::new(std::sync::Mutex::new(Vec::<LlmRoundLogStage>::new()));
@@ -1180,6 +1310,12 @@ async fn send_chat_message_inner(
         chat_overrides
             .system_preamble_blocks
             .push(build_hidden_skill_usage_block());
+        if let Some(runtime_block) = build_remote_im_activation_runtime_block(
+            &remote_im_activation_sources,
+            &app_config.ui_language,
+        ) {
+            chat_overrides.system_preamble_blocks.push(runtime_block);
+        }
         if !trigger_only {
             chat_overrides.latest_user_text = Some(latest_user_text.clone());
             if !is_delegate_conversation {
@@ -1423,23 +1559,13 @@ async fn send_chat_message_inner(
     let suppress_assistant_message = model_reply.suppress_assistant_message;
     let mut remote_im_reply_decision =
         remote_im_extract_reply_decision_from_tool_history(&tool_history_events);
-    let mut pending_remote_im_auto_send = false;
-    if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
-        if !assistant_text.trim().is_empty() {
-            // 联系人会话兜底自动发送改为后台异步派发，先标记为 send_async，完成后再回写最终状态。
-            remote_im_reply_decision = Some("send_async".to_string());
-            pending_remote_im_auto_send = true;
-        }
-    }
-    if is_remote_im_contact_conversation && remote_im_reply_decision.is_none() {
-        eprintln!(
-            "[远程IM] 联系人会话缺少回复工具决策，判定失败: conversation_id={}, processing_mode={}",
-            conversation_id, remote_im_contact_processing_mode
-        );
-        return Err(
-            "联系人会话本轮既未调用 remote_im_send，也未产生可自动发送的回复内容。"
-                .to_string(),
-        );
+    let pending_remote_im_auto_send_target = resolve_remote_im_auto_send_target(
+        &assistant_text,
+        &remote_im_activation_sources,
+        remote_im_reply_decision.is_some(),
+    )?;
+    if pending_remote_im_auto_send_target.is_some() && remote_im_reply_decision.is_none() {
+        remote_im_reply_decision = Some("send_async".to_string());
     }
     let trusted_input_tokens = model_reply.trusted_input_tokens;
     let (effective_prompt_tokens, effective_prompt_source) =
@@ -1449,6 +1575,11 @@ async fn send_chat_message_inner(
     let context_usage_percent = context_usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
 
     let assistant_text_for_storage = assistant_text.clone();
+    let remote_im_conversation_kind = if is_remote_im_contact_conversation {
+        "remote_im_contact"
+    } else {
+        "standard_conversation"
+    };
     let provider_meta = {
         let standard = reasoning_standard.trim();
         let inline = reasoning_inline.trim();
@@ -1477,7 +1608,8 @@ async fn send_chat_message_inner(
                         serde_json::json!({
                             "action": action,
                             "processingMode": remote_im_contact_processing_mode,
-                            "conversationKind": "remote_im_contact"
+                            "conversationKind": remote_im_conversation_kind,
+                            "activationSourceCount": remote_im_activation_sources.len()
                         }),
                     );
                 }
@@ -1566,9 +1698,10 @@ async fn send_chat_message_inner(
     }
     log_run_stage("assistant_message_persisted");
 
-    if pending_remote_im_auto_send {
+    if let Some(activation_source) = pending_remote_im_auto_send_target {
         spawn_remote_im_auto_send_contact_assistant_reply(
             state.clone(),
+            activation_source,
             conversation_id.clone(),
             assistant_text.clone(),
             persisted_assistant_message.as_ref().map(|message| message.id.clone()),

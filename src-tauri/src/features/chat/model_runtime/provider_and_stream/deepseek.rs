@@ -691,4 +691,42 @@ mod deepseek_tool_call_tests {
                 && m.get("tool_call_id").and_then(Value::as_str) == Some("call_1")
         }));
     }
+
+    #[test]
+    fn deepseek_messages_should_preserve_latest_user_text_and_meta_blocks() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "谢谢，这次你没有骗我，我觉得你做的很好".to_string(),
+            latest_user_meta_text:
+                "[遥酱] 2026-03-28T02:52 | channel_id=remote-im-1 | contact_id=contact-a"
+                    .to_string(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = deepseek_messages_from_prepared(&prepared);
+        let last_user = messages
+            .iter()
+            .rev()
+            .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+            .cloned()
+            .expect("latest user message");
+        let content = last_user
+            .get("content")
+            .and_then(Value::as_array)
+            .cloned()
+            .expect("user content array");
+
+        assert_eq!(content.len(), 2);
+        assert_eq!(
+            content[0].get("text").and_then(Value::as_str),
+            Some("谢谢，这次你没有骗我，我觉得你做的很好")
+        );
+        assert_eq!(
+            content[1].get("text").and_then(Value::as_str),
+            Some("[遥酱] 2026-03-28T02:52 | channel_id=remote-im-1 | contact_id=contact-a")
+        );
+    }
 }

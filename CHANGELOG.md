@@ -2,6 +2,21 @@
 
 ## 未发布
 
+## 发布（v0.8.4）：统一远程 IM 激活来源自动发送并补强消息链路回归
+
+- 前后端版本号统一升级到 `0.8.4`
+- 修复（remote-im-activation-source-unified-auto-send）：统一远程 IM 激活来源自动发送链路
+  - 本轮调度新增运行态 `remote_im_activation_sources`，统一记录触发本轮的远程 IM 来源，不再依赖会话类型猜测外发目标
+  - 当且仅当本轮由唯一一个远程 IM 来源激活，且模型未显式调用 `remote_im_send` 时，系统才会在回合结束后自动发送最终回复
+  - 当本轮存在多个远程 IM 激活来源时，系统明确禁止自动外发，并在运行时提示词中要求模型显式调用 `remote_im_send`
+  - 运行态存在远程 IM 激活来源时，会强制挂载 `remote_im_send` 工具，避免前台/后台链路遗漏外发能力
+
+- 修复（remote-im-auto-send-decision-writeback-and-prompt-payload-guard）：补强自动发送回写与消息组建回归验证
+  - 自动发送成功后会把 assistant 消息中的 `remoteImDecision.action` 从 `send_async` 回写为 `send`，失败时写为 `send_failed` 并保留错误信息
+  - 回写 `remoteImDecision` 时不再覆盖既有 `conversationKind`、`processingMode` 与 `activationSourceCount`，避免状态字段被自动发送流程抹掉
+  - 为远程 IM 发送适配器增加仅测试使用的 mock send/mock error 通道，补齐成功/失败两条无需外网的回归测试
+  - 补充 DeepSeek 实际发送路径测试，确认压缩后的首轮 latest user 正文与 metadata 会一起保留，不会被组装成空消息
+
 - 修复（prompt-preview-message-unification-and-dialog-resize）：统一请求预览消息构建并放大预览弹窗
   - 请求预览不再单独手拼 request body，改为复用与发送日志相同的 `messages` 构建入口，避免预览消息数组与实际发送链路不一致
   - 预览命令开始真正读取传入的 `apiConfigId`、`agentId` 与 `conversationId`，不再默认忽略当前上下文
