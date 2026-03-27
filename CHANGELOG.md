@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 发布（v0.8.3）：收口远程 IM、工作空间迁移与聊天前台同步修复
+  - 前后端版本号统一升级到 `0.8.3`
+  - 收口远程 IM snake_case 字段统一、联系人异步发送决策修正、默认工作空间迁移，以及聊天前台会话同步与路由保护
+
 - 修复（remote-im-snake-case-and-async-decision）：统一远程 IM 联系人字段命名并修正异步发送决策
   - 远程 IM 会话 origin、`remote_im_send` 工具结果与联系人列表统一收口为 `snake_case` 字段，避免 `channelId/contactId` 与实际远端标识混淆
   - 联系人会话 prompt 与工具规则明确要求发送时使用 `action=list` 返回的 `contact_id`，不再误用联系人记录 UUID
