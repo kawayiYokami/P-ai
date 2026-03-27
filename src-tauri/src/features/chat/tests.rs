@@ -221,24 +221,7 @@
     }
 
     #[test]
-    fn request_preview_should_keep_structured_tool_history_messages() {
-        let api = ApiConfig {
-            id: "api-a".to_string(),
-            name: "api-a".to_string(),
-            request_format: RequestFormat::OpenAI,
-            enable_text: true,
-            enable_image: false,
-            enable_audio: false,
-            enable_tools: true,
-            tools: default_api_tools(),
-            base_url: "https://example.com/v1".to_string(),
-            api_key: "k".to_string(),
-            model: "gpt-x".to_string(),
-            temperature: 0.7,
-            context_window_tokens: 128_000,
-            max_output_tokens: 4_096,
-            failure_retry_count: 0,
-        };
+    fn prepared_prompt_to_messages_json_should_keep_structured_tool_history_messages() {
         let prepared = PreparedPrompt {
             preamble: "sys".to_string(),
             history_messages: vec![
@@ -283,18 +266,7 @@
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
-        let preview = build_request_preview_value(
-            &api,
-            &prepared,
-            vec![
-                serde_json::json!({"type":"text","text":"继续"}),
-                serde_json::json!({"type":"text","text":prepared.latest_user_meta_text}),
-            ],
-        );
-        let messages = preview
-            .get("messages")
-            .and_then(Value::as_array)
-            .expect("messages array");
+        let messages = prepared_prompt_to_messages_json(&prepared);
         assert!(messages.iter().any(|m| {
             m.get("role").and_then(Value::as_str) == Some("assistant")
                 && m.get("tool_calls").and_then(Value::as_array).is_some()
