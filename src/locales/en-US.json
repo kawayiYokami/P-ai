@@ -403,6 +403,7 @@
       "title": "Contact Channels",
       "hint": "Manage OneBot v11 / Feishu / DingTalk channels and contact reply policies.",
       "addChannel": "Add Channel",
+      "choosePlatform": "Choose a platform for the new channel",
       "empty": "No channel yet. Add one first.",
       "enabled": "Enabled",
       "channelName": "Channel Name",
@@ -410,7 +411,8 @@
       "platformOptions": {
         "onebotV11": "OneBot v11",
         "feishu": "Feishu",
-        "dingtalk": "DingTalk"
+        "dingtalk": "DingTalk",
+        "weixinOc": "Personal WeChat"
       },
       "activateAssistant": "Activate Assistant",
       "receiveFiles": "Receive Files",

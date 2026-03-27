@@ -403,6 +403,7 @@
       "title": "渠道列表",
       "hint": "在这里维护 OneBot v11 / 飞书 / 钉钉 渠道配置与联系人回复策略。",
       "addChannel": "新增渠道",
+      "choosePlatform": "请选择要创建的渠道平台",
       "channelDetails": "渠道详情",
       "empty": "暂无渠道，请先新增一个。",
       "enabled": "启用",
@@ -411,7 +412,8 @@
       "platformOptions": {
         "onebotV11": "OneBot v11",
         "feishu": "飞书",
-        "dingtalk": "钉钉"
+        "dingtalk": "钉钉",
+        "weixinOc": "个人微信"
       },
       "activateAssistant": "激活助理",
       "receiveFiles": "接收文件",

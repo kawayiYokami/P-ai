@@ -5,7 +5,7 @@
       <div class="flex items-center justify-between px-3 py-2 shrink-0">
         <span class="font-semibold text-sm">{{ t("config.remoteIm.title") }}</span>
         <div class="flex gap-1">
-          <button class="btn btn-square btn-ghost" :title="t('config.remoteIm.addChannel')" @click="addChannel">
+          <button class="btn btn-square btn-ghost" :title="t('config.remoteIm.addChannel')" @click="openAddChannelModal">
             <Plus class="h-3.5 w-3.5" />
           </button>
         </div>
@@ -90,6 +90,33 @@
           </li>
         </template>
       </ul>
+    </div>
+
+    <div class="modal z-90" :class="{ 'modal-open': addChannelModalOpen }" @click.self="closeAddChannelModal">
+      <div class="modal-box max-w-md">
+        <div class="flex items-center justify-between">
+          <div class="font-semibold text-lg">{{ t("config.remoteIm.addChannel") }}</div>
+          <button class="btn btn-sm btn-circle btn-ghost" @click="closeAddChannelModal">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="mt-3 text-sm opacity-70">{{ t("config.remoteIm.choosePlatform") }}</div>
+        <div class="mt-4 grid grid-cols-1 gap-2">
+          <button
+            v-for="option in channelPlatformOptions"
+            :key="option.platform"
+            class="btn btn-outline justify-start h-auto min-h-0 py-3 px-4 normal-case"
+            @click="addChannel(option.platform)"
+          >
+            <span class="font-medium">{{ option.label }}</span>
+          </button>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-ghost" @click="closeAddChannelModal">{{ t("common.cancel") }}</button>
+        </div>
+      </div>
     </div>
 
     <div class="modal z-90" :class="{ 'modal-open': channelLogsModalOpen }" @click.self="closeChannelLogsModal">
@@ -459,7 +486,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-vue-next";
 import { invokeTauri } from "../../../../services/tauri-api";
-import type { AppConfig, RemoteImChannelConfig, RemoteImContact } from "../../../../types/app";
+import type { AppConfig, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform } from "../../../../types/app";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
 import {
   contactActivationHint,
@@ -505,6 +532,7 @@ const channelStatus = ref<ChannelConnectionStatus | null>(null);
 const channelLogs = ref<ChannelLogEntry[]>([]);
 const channelLogsModalOpen = ref(false);
 const channelLogsLoading = ref(false);
+const addChannelModalOpen = ref(false);
 const channelConfigModalOpen = ref(false);
 const contactConfigModalOpen = ref(false);
 const selectedContactId = ref<string>("");
@@ -600,6 +628,12 @@ const isWeixinLoggedIn = computed(() => {
   if (!!persistedWeixinCredentials.value.token) return true;
   return !!persistedWeixinCredentials.value.accountId;
 });
+const channelPlatformOptions = computed<Array<{ platform: RemoteImPlatform; label: string }>>(() => [
+  { platform: "onebot_v11", label: t("config.remoteIm.platformOptions.onebotV11") },
+  { platform: "feishu", label: t("config.remoteIm.platformOptions.feishu") },
+  { platform: "dingtalk", label: t("config.remoteIm.platformOptions.dingtalk") },
+  { platform: "weixin_oc", label: t("config.remoteIm.platformOptions.weixinOc") },
+]);
 
 const channelSnapshot = computed(() => {
   const ch = selectedChannel.value;
@@ -734,11 +768,18 @@ function validateChannelBeforeEnable(channel: RemoteImChannelConfig): string {
   return "";
 }
 
-function newChannel(): RemoteImChannelConfig {
+function defaultChannelName(platform: RemoteImPlatform): string {
+  if (platform === "feishu") return "Feishu";
+  if (platform === "dingtalk") return "DingTalk";
+  if (platform === "weixin_oc") return "个人微信";
+  return "OneBot v11";
+}
+
+function newChannel(platform: RemoteImPlatform = "onebot_v11"): RemoteImChannelConfig {
   return {
     id: `remote-im-${Date.now()}`,
-    name: "Remote IM",
-    platform: "onebot_v11",
+    name: defaultChannelName(platform),
+    platform,
     enabled: false,
     credentials: {},
     activateAssistant: true,
@@ -749,10 +790,20 @@ function newChannel(): RemoteImChannelConfig {
   };
 }
 
-function addChannel() {
-  const ch = newChannel();
+function openAddChannelModal() {
+  addChannelModalOpen.value = true;
+}
+
+function closeAddChannelModal() {
+  addChannelModalOpen.value = false;
+}
+
+function addChannel(platform: RemoteImPlatform) {
+  const ch = newChannel(platform);
   props.config.remoteImChannels.push(ch);
   selectedChannelId.value = ch.id;
+  channelConfigModalOpen.value = true;
+  addChannelModalOpen.value = false;
 }
 
 function removeChannelById(channelId: string) {
@@ -831,7 +882,7 @@ function resetNapcatCredentials() {
 }
 
 async function saveChannels() {
-  if (saving.value || !selectedChannel.value) return;
+  if (saving.value || !selectedChannel.value) return false;
   if (selectedChannel.value.platform === "feishu") {
     syncCredentialJson(selectedChannel.value);
   }
@@ -870,7 +921,9 @@ async function saveChannels() {
       }
       await nextTick();
       lastSavedChannelSnapshot.value = channelSnapshot.value;
+      return true;
     }
+    return false;
   } finally {
     saving.value = false;
   }
@@ -1160,6 +1213,14 @@ async function startWeixinLogin() {
 
 async function onWeixinLoginButtonClick() {
   if (weixinLoginBusy.value) return;
+  if (channelDirty.value) {
+    props.setStatusAction("正在保存微信渠道配置...");
+    const saved = await saveChannels();
+    if (!saved) {
+      props.setStatusAction("请先保存当前微信渠道配置，再进行扫码登录。");
+      return;
+    }
+  }
   if (isWeixinLoggedIn.value) {
     await logoutWeixin();
   }
