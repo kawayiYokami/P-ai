@@ -168,69 +168,65 @@ fn masked_auth_headers(api_key: &str) -> Vec<LlmRoundLogHeader> {
     ]
 }
 
-fn prepared_prompt_to_equivalent_request_json(
-    prepared: &PreparedPrompt,
-    model_name: &str,
-    temperature: f64,
-) -> Value {
-    fn openai_input_audio_format_from_mime(mime: &str) -> String {
-        let normalized = mime.trim().to_ascii_lowercase();
-        match normalized.as_str() {
-            "audio/wav" | "audio/wave" | "audio/x-wav" => "wav".to_string(),
-            "audio/mp3" | "audio/mpeg" => "mp3".to_string(),
-            _ => normalized
-                .split('/')
-                .nth(1)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .unwrap_or("wav")
-                .to_string(),
-        }
+fn openai_input_audio_format_from_mime(mime: &str) -> String {
+    let normalized = mime.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "audio/wav" | "audio/wave" | "audio/x-wav" => "wav".to_string(),
+        "audio/mp3" | "audio/mpeg" => "mp3".to_string(),
+        _ => normalized
+            .split('/')
+            .nth(1)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .unwrap_or("wav")
+            .to_string(),
     }
+}
 
-    fn normalize_user_content(content: &Value) -> Value {
-        let Value::Array(items) = content else {
+fn normalize_user_content(content: &Value) -> Value {
+    let Value::Array(items) = content else {
+        return content.clone();
+    };
+    if items.is_empty() {
+        return Value::String(String::new());
+    }
+    let mut texts = Vec::<String>::new();
+    for item in items {
+        let Value::Object(obj) = item else {
             return content.clone();
         };
-        if items.is_empty() {
-            return Value::String(String::new());
+        if obj.get("type").and_then(Value::as_str) != Some("text") {
+            return content.clone();
         }
-        let mut texts = Vec::<String>::new();
-        for item in items {
-            let Value::Object(obj) = item else {
-                return content.clone();
-            };
-            if obj.get("type").and_then(Value::as_str) != Some("text") {
-                return content.clone();
-            }
-            texts.push(
-                obj.get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-            );
-        }
-        if texts.len() == 1 {
-            return Value::String(texts.remove(0));
-        }
-        content.clone()
+        texts.push(
+            obj.get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        );
     }
-
-    fn normalize_messages(messages: &mut [Value]) {
-        for msg in messages.iter_mut() {
-            let Value::Object(obj) = msg else {
-                continue;
-            };
-            if obj.get("role").and_then(Value::as_str) != Some("user") {
-                continue;
-            }
-            let Some(content) = obj.get("content").cloned() else {
-                continue;
-            };
-            obj.insert("content".to_string(), normalize_user_content(&content));
-        }
+    if texts.len() == 1 {
+        return Value::String(texts.remove(0));
     }
+    content.clone()
+}
 
+fn normalize_prepared_prompt_messages(messages: &mut [Value]) {
+    for msg in messages.iter_mut() {
+        let Value::Object(obj) = msg else {
+            continue;
+        };
+        if obj.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        let Some(content) = obj.get("content").cloned() else {
+            continue;
+        };
+        obj.insert("content".to_string(), normalize_user_content(&content));
+    }
+}
+
+fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
     messages.push(serde_json::json!({
         "role": "system",
@@ -358,8 +354,16 @@ fn prepared_prompt_to_equivalent_request_json(
         "role": "user",
         "content": latest_user_content
     }));
-    normalize_messages(&mut messages);
+    normalize_prepared_prompt_messages(&mut messages);
+    messages
+}
 
+fn prepared_prompt_to_equivalent_request_json(
+    prepared: &PreparedPrompt,
+    model_name: &str,
+    temperature: f64,
+) -> Value {
+    let messages = prepared_prompt_to_messages_json(prepared);
     serde_json::json!({
         "model": model_name,
         "temperature": temperature,

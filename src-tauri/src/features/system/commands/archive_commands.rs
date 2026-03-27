@@ -1,6 +1,6 @@
 #[tauri::command]
 fn get_prompt_preview(
-    _input: SessionSelector,
+    input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<PromptPreview, String> {
     let guard = state
@@ -9,14 +9,22 @@ fn get_prompt_preview(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, None)
+    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
         .ok_or_else(|| "No API config available".to_string())?;
     let resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
 
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
-    let effective_agent_id = if data
+    let requested_agent_id = input.agent_id.trim();
+    let effective_agent_id = if !requested_agent_id.is_empty()
+        && data
+            .agents
+            .iter()
+            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
+    {
+        requested_agent_id.to_string()
+    } else if data
         .agents
         .iter()
         .any(|a| a.id == data.assistant_department_agent_id && !a.is_built_in_user)
@@ -37,8 +45,25 @@ fn get_prompt_preview(
         .cloned()
         .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-    let conversation = latest_active_conversation_index(&data, "", &effective_agent_id)
-        .and_then(|idx| data.conversations.get(idx).cloned())
+    let conversation = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|conversation_id| {
+            data.conversations
+                .iter()
+                .find(|item| {
+                    item.id == conversation_id
+                        && item.summary.trim().is_empty()
+                        && !conversation_is_delegate(item)
+                })
+                .cloned()
+        })
+        .or_else(|| {
+            latest_active_conversation_index(&data, "", &effective_agent_id)
+                .and_then(|idx| data.conversations.get(idx).cloned())
+        })
         .unwrap_or_else(|| Conversation {
             id: "preview".to_string(),
             title: "Preview".to_string(),
@@ -91,29 +116,7 @@ fn get_prompt_preview(
         Some(&resolved_api),
         Some(data.pdf_read_mode == "image" && api_config.enable_image),
     );
-    let mut user_content = Vec::<Value>::new();
-    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
-        user_content.push(serde_json::json!({
-            "type": "text",
-            "text": text_block,
-        }));
-    }
-    for (mime, bytes_base64) in &prepared.latest_images {
-        user_content.push(serde_json::json!({
-            "type": "image",
-            "mime": mime,
-            "bytesBase64Length": bytes_base64.len(),
-        }));
-    }
-    for (mime, bytes_base64) in &prepared.latest_audios {
-        user_content.push(serde_json::json!({
-            "type": "audio",
-            "mime": mime,
-            "bytesBase64Length": bytes_base64.len(),
-        }));
-    }
-    let request_preview = build_request_preview_value(&api_config, &prepared, user_content);
-    let request_body_json = serde_json::to_string_pretty(&request_preview)
+    let request_body_json = serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
         .map_err(|err| format!("Serialize request preview failed: {err}"))?;
     drop(guard);
 
@@ -123,83 +126,6 @@ fn get_prompt_preview(
         latest_images: prepared.latest_images.len(),
         latest_audios: prepared.latest_audios.len(),
         request_body_json,
-    })
-}
-
-fn build_request_preview_value(
-    api_config: &ApiConfig,
-    prepared: &PreparedPrompt,
-    user_content: Vec<Value>,
-) -> Value {
-    let mut preview_messages = Vec::<Value>::new();
-    preview_messages.push(serde_json::json!({
-        "role": "system",
-        "content": prepared.preamble.clone()
-    }));
-    for hm in &prepared.history_messages {
-        if hm.role == "assistant" && hm.tool_calls.is_some() {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("assistant".to_string()));
-            if hm.text.trim().is_empty() {
-                msg.insert("content".to_string(), Value::Null);
-            } else {
-                msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            }
-            if let Some(reasoning) = &hm.reasoning_content {
-                if !reasoning.trim().is_empty() {
-                    msg.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
-                }
-            }
-            if let Some(calls) = &hm.tool_calls {
-                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
-            }
-            preview_messages.push(Value::Object(msg));
-        } else if hm.role == "tool" {
-            let mut msg = serde_json::Map::new();
-            msg.insert("role".to_string(), Value::String("tool".to_string()));
-            msg.insert("content".to_string(), Value::String(hm.text.clone()));
-            if let Some(call_id) = &hm.tool_call_id {
-                msg.insert("tool_call_id".to_string(), Value::String(call_id.clone()));
-            }
-            preview_messages.push(Value::Object(msg));
-        } else {
-            if hm.role == "user" {
-                let mut content = vec![serde_json::json!({
-                    "type": "text",
-                    "text": hm.text,
-                })];
-                if let Some(time_text) = &hm.user_time_text {
-                    if !time_text.trim().is_empty() {
-                        content.push(serde_json::json!({
-                            "type": "text",
-                            "text": time_text,
-                        }));
-                    }
-                }
-                preview_messages.push(serde_json::json!({
-                    "role": "user",
-                    "content": content,
-                }));
-            } else {
-                preview_messages.push(serde_json::json!({
-                    "role": hm.role,
-                    "content": hm.text,
-                }));
-            }
-        }
-    }
-    preview_messages.push(serde_json::json!({
-        "role": "user",
-        "content": user_content
-    }));
-    serde_json::json!({
-        "requestFormat": api_config.request_format,
-        "baseUrl": api_config.base_url,
-        "model": api_config.model,
-        "temperature": api_config.temperature,
-        "enableTools": api_config.enable_tools,
-        "toolIds": api_config.tools.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
-        "messages": preview_messages
     })
 }
 
