@@ -264,58 +264,7 @@ fn archive_message_audio_count(message: &ChatMessage) -> usize {
 }
 
 fn tool_call_markdown_lines(message: &ChatMessage) -> Vec<String> {
-    let mut out = Vec::new();
-    let Some(events) = message.tool_call.as_ref() else {
-        return out;
-    };
-
-    for event in events {
-        let Some(role) = event.get("role").and_then(Value::as_str) else {
-            continue;
-        };
-        if role == "assistant" {
-            let calls = event
-                .get("tool_calls")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for call in calls {
-                let name = call
-                    .get("function")
-                    .and_then(Value::as_object)
-                    .and_then(|f| f.get("name"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                let args = call
-                    .get("function")
-                    .and_then(Value::as_object)
-                    .and_then(|f| f.get("arguments"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim();
-                if args.is_empty() {
-                    out.push(format!("- 工具调用: {name}"));
-                } else {
-                    out.push(format!("- 工具调用: {name} | 参数: {args}"));
-                }
-            }
-        } else if role == "tool" {
-            let content = event
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim();
-            if !content.is_empty() {
-                let snippet = if content.chars().count() > 300 {
-                    format!("{}...", content.chars().take(300).collect::<String>())
-                } else {
-                    content.to_string()
-                };
-                out.push(format!("- 工具结果: {snippet}"));
-            }
-        }
-    }
-    out
+    tool_history_markdown_lines_from_message(message)
 }
 
 fn archive_message_markdown_block(message: &ChatMessage) -> String {

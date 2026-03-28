@@ -429,6 +429,7 @@ import {
   messageText,
   removeBinaryPlaceholders,
 } from "./utils/chat-message";
+import { inspectUndoablePatchCalls } from "./utils/chat-message-semantics";
 import { formatI18nError } from "./utils/error";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
@@ -2318,80 +2319,10 @@ function isApplyPatchArgsUndoable(rawArgs: string): boolean {
   }
 }
 
-function isToolResultSuccess(rawContent: unknown): boolean {
-  const text = String(rawContent || "").trim();
-  if (!text) return false;
-  try {
-    const parsed = JSON.parse(text) as { ok?: unknown; approved?: unknown };
-    return parsed.ok === true && parsed.approved !== false;
-  } catch {
-    return false;
-  }
-}
-
 function getUndoAvailabilityForTurn(turnId: string): { canUndo: boolean; hint: string } {
-  const targetId = String(turnId || "").trim();
-  if (!targetId) {
-    return { canUndo: false, hint: "未找到有效消息 ID。" };
-  }
-  const messages = allMessages.value || [];
-  const directIndex = messages.findIndex((item) => String(item.id || "").trim() === targetId);
-  if (directIndex < 0) {
-    return { canUndo: false, hint: "未找到目标消息。" };
-  }
-  let removeFrom = directIndex;
-  if (String(messages[directIndex]?.role || "").trim() !== "user") {
-    removeFrom = -1;
-    for (let i = directIndex - 1; i >= 0; i -= 1) {
-      if (String(messages[i]?.role || "").trim() === "user") {
-        removeFrom = i;
-        break;
-      }
-    }
-    if (removeFrom < 0) {
-      return { canUndo: false, hint: "未找到可撤回的用户消息。" };
-    }
-  }
-  const removedMessages = messages.slice(removeFrom);
-  const pendingApplyPatchCalls = new Set<string>();
-  let sawApplyPatchCall = false;
-  let sawUndoableApplyPatchCall = false;
-  for (const message of removedMessages) {
-    const events = Array.isArray(message.toolCall) ? message.toolCall : [];
-    for (const event of events as Array<Record<string, unknown>>) {
-      const role = String(event?.role || "").trim();
-      if (role === "assistant") {
-        const calls = Array.isArray(event?.tool_calls) ? event.tool_calls : [];
-        for (const call of calls as Array<Record<string, unknown>>) {
-          const functionObj = (call?.function || {}) as Record<string, unknown>;
-          const name = String(functionObj?.name || "").trim();
-          const callId = String(call?.id || "").trim();
-          const argumentsRaw = String(functionObj?.arguments || "");
-          if (name === "apply_patch") {
-            sawApplyPatchCall = true;
-          }
-          if (name === "apply_patch" && callId && isApplyPatchArgsUndoable(argumentsRaw)) {
-            sawUndoableApplyPatchCall = true;
-            pendingApplyPatchCalls.add(callId);
-          }
-        }
-      } else if (role === "tool") {
-        const toolCallId = String(event?.tool_call_id || "").trim();
-        if (!toolCallId || !pendingApplyPatchCalls.has(toolCallId)) continue;
-        if (isToolResultSuccess(event?.content)) {
-          return { canUndo: true, hint: "" };
-        }
-        pendingApplyPatchCalls.delete(toolCallId);
-      }
-    }
-  }
-  if (!sawApplyPatchCall) {
-    return { canUndo: false, hint: "该范围内没有检测到可撤回的工具修改。" };
-  }
-  if (!sawUndoableApplyPatchCall) {
-    return { canUndo: false, hint: "检测到工具调用，但参数不完整，无法安全撤回修改。" };
-  }
-  return { canUndo: false, hint: "检测到 apply_patch，但执行未成功或结果不可逆，无法撤回修改。" };
+  return inspectUndoablePatchCalls(allMessages.value || [], turnId, {
+    isApplyPatchArgsUndoable,
+  });
 }
 
 function requestRecallMode(payload: { turnId: string }): Promise<"with_patch" | "message_only" | "cancel"> {

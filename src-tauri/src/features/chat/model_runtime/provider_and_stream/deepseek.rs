@@ -4,7 +4,8 @@ async fn call_model_deepseek_rig_style(
     prepared: PreparedPrompt,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String> {
-    let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared)?;
+    let (chat_history, current_prompt) =
+        build_openai_rig_prompt(&prepared, ToolCallProtocolFamily::OpenAiChatLike)?;
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
     if !api_config.base_url.trim().is_empty() {
@@ -134,24 +135,19 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
                 }
             }
             if let Some(calls) = &hm.tool_calls {
-                let normalized: Vec<Value> = calls
+                let normalized: Vec<Value> = normalize_prompt_tool_calls(calls)
                     .iter()
-                    .map(|call| {
-                        let mut c = call.clone();
-                        if let Some(func) = c.get_mut("function") {
-                            if let Some(args) = func.get("arguments") {
-                                if !args.is_string() {
-                                    let s = args.to_string();
-                                    if let Some(obj) = func.as_object_mut() {
-                                        obj.insert(
-                                            "arguments".to_string(),
-                                            Value::String(s),
-                                        );
-                                    }
-                                }
+                    .filter_map(|call| {
+                        let mut value = normalized_tool_call_to_history_value(call)?;
+                        if let Some(func) = value.get_mut("function") {
+                            if let Some(obj) = func.as_object_mut() {
+                                obj.insert(
+                                    "arguments".to_string(),
+                                    Value::String(call.arguments_text.clone()),
+                                );
                             }
                         }
-                        c
+                        Some(value)
                     })
                     .collect();
                 msg.insert("tool_calls".to_string(), Value::Array(normalized));

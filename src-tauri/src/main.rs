@@ -52,6 +52,7 @@ include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
 
 // ==================== 对话核心 ====================
+include!("features/chat/message_semantics.rs");
 include!("features/chat/conversation.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
@@ -618,4 +619,3 @@ fn main() {
 mod tests {
     include!("features/tests.rs");
 }
-

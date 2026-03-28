@@ -248,7 +248,15 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
                 }
             }
             if let Some(calls) = &hm.tool_calls {
-                msg.insert("tool_calls".to_string(), Value::Array(calls.clone()));
+                msg.insert(
+                    "tool_calls".to_string(),
+                    Value::Array(
+                        normalize_prompt_tool_calls(calls)
+                            .iter()
+                            .filter_map(normalized_tool_call_to_history_value)
+                            .collect(),
+                    ),
+                );
             }
             messages.push(Value::Object(msg));
             continue;

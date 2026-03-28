@@ -149,46 +149,48 @@ fn build_prepared_prompt_for_mode(
 }
 
 fn build_archive_history_messages(source_conversation: &Conversation) -> Vec<PreparedHistoryMessage> {
-    source_conversation
-        .messages
-        .iter()
-        .map(|msg| {
-            let mut text = archive_message_plain_text(msg);
-            if text.trim().is_empty() {
-                text = render_message_for_context(msg);
-            }
-            if msg.role == "user" {
-                text = strip_archive_role_prefix(&text, "USER:");
-            } else if msg.role == "assistant" {
-                text = strip_archive_role_prefix(&text, "ASSISTANT:");
-            }
-            let reasoning_content = msg
-                .provider_meta
-                .as_ref()
-                .and_then(Value::as_object)
-                .and_then(|obj| obj.get("reasoningStandard").and_then(Value::as_str))
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(ToOwned::to_owned);
-            PreparedHistoryMessage {
-                role: msg.role.clone(),
-                text,
-                user_time_text: if msg.role == "user" {
-                    Some(format_message_time_text(&msg.created_at))
-                } else {
-                    None
-                },
-                images: Vec::new(),
-                audios: Vec::new(),
-                tool_calls: msg
-                    .tool_call
-                    .as_ref()
-                    .map(|events| sanitize_tool_history_events(events)),
-                tool_call_id: None,
-                reasoning_content,
-            }
-        })
-        .collect::<Vec<_>>()
+    let mut history_messages = Vec::<PreparedHistoryMessage>::new();
+    for msg in &source_conversation.messages {
+        if msg.role == "assistant" {
+            history_messages.extend(build_prepared_history_messages_from_tool_history(
+                msg,
+                MessageToolHistoryView::PromptReplay,
+            ));
+        }
+
+        let mut text = archive_message_plain_text(msg);
+        if text.trim().is_empty() {
+            text = render_message_for_context(msg);
+        }
+        if msg.role == "user" {
+            text = strip_archive_role_prefix(&text, "USER:");
+        } else if msg.role == "assistant" {
+            text = strip_archive_role_prefix(&text, "ASSISTANT:");
+        }
+        let reasoning_content = msg
+            .provider_meta
+            .as_ref()
+            .and_then(Value::as_object)
+            .and_then(|obj| obj.get("reasoningStandard").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned);
+        history_messages.push(PreparedHistoryMessage {
+            role: msg.role.clone(),
+            text,
+            user_time_text: if msg.role == "user" {
+                Some(format_message_time_text(&msg.created_at))
+            } else {
+                None
+            },
+            images: Vec::new(),
+            audios: Vec::new(),
+            tool_calls: None,
+            tool_call_id: None,
+            reasoning_content,
+        });
+    }
+    history_messages
 }
 
 fn strip_archive_role_prefix(text: &str, prefix: &str) -> String {

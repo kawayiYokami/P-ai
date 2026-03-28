@@ -153,6 +153,7 @@ where
 async fn run_unified_tool_loop<M>(
     agent: rig::agent::Agent<M>,
     prepared: PreparedPrompt,
+    protocol_family: ToolCallProtocolFamily,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     include_reasoning_before_tool_calls: bool,
@@ -167,7 +168,8 @@ where
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut trusted_input_tokens: Option<u64> = None;
-    let (mut current_prompt, mut chat_history) = build_tool_loop_prompt(&prepared)?;
+    let (mut current_prompt, mut chat_history) =
+        build_tool_loop_prompt(&prepared, protocol_family)?;
 
     let max_rounds = std::cmp::max(1usize, max_tool_iterations);
     for _ in 0..max_rounds {

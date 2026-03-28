@@ -1,14 +1,11 @@
 import { computed, type ComputedRef, type Ref, type ShallowRef } from "vue";
-import type { ApiConfigItem, ChatMessage, ChatMessageBlock, TaskTriggerMessageCard } from "../../../types/app";
+import type { ApiConfigItem, ChatMessage, ChatMessageBlock } from "../../../types/app";
 import {
   estimateConversationTokens,
-  extractMessageAttachmentFiles,
-  extractMessageAudios,
-  extractMessageImages,
-  parseAssistantStoredText,
-  removeBinaryPlaceholders,
-  renderMessage,
 } from "../../../utils/chat-message";
+import {
+  projectMessageForDisplay,
+} from "../../../utils/chat-message-semantics";
 
 type UseChatMessageBlocksOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
@@ -50,83 +47,6 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return null;
   }
 
-  function resolveSpeakerAgentId(message: ChatMessage): string {
-    const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    const origin = meta.origin as Record<string, unknown> | undefined;
-    if (origin && origin.kind === "remote_im") {
-      return "";
-    }
-    const direct = String(message.speakerAgentId || "").trim();
-    if (direct) return direct;
-    for (const key of [
-      "speakerAgentId",
-      "speaker_agent_id",
-      "targetAgentId",
-      "target_agent_id",
-      "agentId",
-      "agent_id",
-      "sourceAgentId",
-      "source_agent_id",
-    ]) {
-      const value = String(meta[key] || "").trim();
-      if (value) return value;
-    }
-    return "";
-  }
-
-  function toolArgumentsPreview(raw: unknown): string {
-    const text = typeof raw === "string" ? raw.trim() : "";
-    if (!text) return "{}";
-    const compact = text.replace(/\s+/g, " ");
-    return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
-  }
-
-  function summarizeToolHistory(
-    toolHistory: ChatMessage["toolCall"],
-  ): { count: number; lastToolName: string; calls: Array<{ name: string; argsText: string }> } {
-    if (!Array.isArray(toolHistory) || toolHistory.length === 0) {
-      return { count: 0, lastToolName: "", calls: [] };
-    }
-    const calls = [] as Array<{ name: string; argsText: string }>;
-    let count = 0;
-    let lastToolName = "";
-    for (const event of toolHistory) {
-      if (!event || event.role !== "assistant" || !Array.isArray(event.tool_calls)) continue;
-      for (const call of event.tool_calls) {
-        const name = String(call?.function?.name || "").trim();
-        if (!name) continue;
-        const argsText = toolArgumentsPreview(call?.function?.arguments);
-        calls.push({ name, argsText });
-        count += 1;
-        lastToolName = name;
-      }
-    }
-    return { count, lastToolName, calls };
-  }
-
-  function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | undefined {
-    const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    if (String(meta.messageKind || "").trim() !== "task_trigger") return undefined;
-    const raw = meta.taskTrigger;
-    if (!raw || typeof raw !== "object") return undefined;
-    const card = raw as Record<string, unknown>;
-    const title = String(card.title || "").trim();
-    if (!title) return undefined;
-    return {
-      taskId: String(card.taskId || "").trim() || undefined,
-      title,
-      cause: String(card.cause || "").trim() || undefined,
-      goal: String(card.goal || "").trim() || undefined,
-      flow: String(card.flow || "").trim() || undefined,
-      statusSummary: String(card.statusSummary || "").trim() || undefined,
-      todos: Array.isArray(card.todos) ? card.todos.map((item) => String(item || "").trim()).filter(Boolean) : [],
-      runAt: String(card.runAt || "").trim() || undefined,
-      endAt: String(card.endAt || "").trim() || undefined,
-      nextRunAt: String(card.nextRunAt || "").trim() || undefined,
-      everyMinutes: Number.isFinite(Number(card.everyMinutes)) ? Number(card.everyMinutes) : undefined,
-    };
-  }
-
   function buildMessageBlock(message: ChatMessage): ChatMessageBlock | null {
     const signature = messageSignature(message);
     const cached = messageBlockCache.get(message);
@@ -134,10 +54,8 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       return cached.block;
     }
 
-    const rendered = removeBinaryPlaceholders(renderMessage(message));
-    const parsed = parseAssistantStoredText(rendered);
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    const toolSummary = summarizeToolHistory(message.toolCall);
+    const projection = projectMessageForDisplay(message);
     const streamSegments = Array.isArray(meta._streamSegments)
       ? (meta._streamSegments as unknown[])
         .map((item) => String(item ?? ""))
@@ -150,41 +68,19 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       isStreaming: !!meta._streaming,
       streamSegments,
       streamTail,
-      speakerAgentId: resolveSpeakerAgentId(message) || undefined,
+      speakerAgentId: projection.speakerAgentId,
       createdAt: String(message.createdAt || "").trim() || undefined,
-      text: message.role === "assistant" ? parsed.assistantText : rendered,
-      images: extractMessageImages(message),
-      audios: extractMessageAudios(message),
-      attachmentFiles: extractMessageAttachmentFiles(message),
-      taskTrigger: resolveTaskTrigger(message),
-      remoteImOrigin: (() => {
-        const origin = meta.origin as Record<string, unknown> | undefined;
-        if (!origin || origin.kind !== "remote_im") return undefined;
-        const senderName = String(origin.sender_name || "").trim();
-        const remoteContactName = String(origin.contact_name || "").trim();
-        const remoteContactType = String(origin.contact_type || "private").trim() || "private";
-        const channelId = String(origin.channel_id || "").trim();
-        const contactId = String(origin.contact_id || "").trim();
-        if (!senderName && !remoteContactName && !channelId && !contactId) {
-          return undefined;
-        }
-        return {
-          senderName,
-          remoteContactName: remoteContactName || undefined,
-          remoteContactType,
-          channelId,
-          contactId,
-        };
-      })(),
-      reasoningStandard:
-        parsed.reasoningStandard
-        || String(meta.reasoningStandard || "").trim(),
-      reasoningInline:
-        parsed.reasoningInline
-        || String(meta.reasoningInline || "").trim(),
-      toolCallCount: toolSummary.count,
-      lastToolName: toolSummary.lastToolName,
-      toolCalls: toolSummary.calls,
+      text: projection.text,
+      images: projection.images,
+      audios: projection.audios,
+      attachmentFiles: projection.attachmentFiles,
+      taskTrigger: projection.taskTrigger,
+      remoteImOrigin: projection.remoteImOrigin,
+      reasoningStandard: projection.reasoningStandard,
+      reasoningInline: projection.reasoningInline,
+      toolCallCount: projection.toolCallCount,
+      lastToolName: projection.lastToolName,
+      toolCalls: projection.toolCalls,
     } satisfies ChatMessageBlock;
 
     const normalized =

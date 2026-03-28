@@ -271,15 +271,21 @@ export type ChatRole = "user" | "assistant" | "tool" | "system";
 
 export type ToolCallFunction = {
   name: string;
-  arguments?: string;
+  arguments?: unknown;
 };
 
 export type ToolCallItem = {
+  id?: string;
+  type?: string;
+  call_id?: string;
   function?: ToolCallFunction;
 };
 
 export type ToolCallMessage = {
   role: "assistant" | "tool";
+  content?: string | null;
+  reasoning_content?: string;
+  tool_call_id?: string;
   tool_calls?: ToolCallItem[];
 };
 

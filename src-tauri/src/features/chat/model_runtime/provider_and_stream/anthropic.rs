@@ -29,6 +29,7 @@ async fn call_model_anthropic_with_tools(
     run_unified_tool_loop(
         agent,
         prepared,
+        ToolCallProtocolFamily::Anthropic,
         on_delta,
         max_tool_iterations,
         false,

@@ -365,6 +365,61 @@
     }
 
     #[test]
+    fn build_archive_history_messages_should_expand_tool_history_events_instead_of_nesting_them() {
+        let now = now_iso();
+        let mut assistant = test_text_message("assistant", "我查好了", &now);
+        assistant.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "remote_im_send",
+                        "arguments": "{\"action\":\"send\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "{\"ok\":true}"
+            }),
+        ]);
+        let conv = test_active_conversation_with_messages(vec![assistant], Some(now));
+
+        let history = build_archive_history_messages(&conv);
+
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].role, "assistant");
+        assert!(history[0].tool_calls.is_some());
+        assert_eq!(
+            history[0]
+                .tool_calls
+                .as_ref()
+                .and_then(|calls| calls.first())
+                .and_then(|call| call.get("id"))
+                .and_then(Value::as_str),
+            Some("call_1")
+        );
+        assert_eq!(
+            history[0]
+                .tool_calls
+                .as_ref()
+                .and_then(|calls| calls.first())
+                .and_then(|call| call.get("type"))
+                .and_then(Value::as_str),
+            Some("function")
+        );
+        assert_eq!(history[1].role, "tool");
+        assert_eq!(history[1].tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(history[2].role, "assistant");
+        assert!(history[2].tool_calls.is_none());
+        assert_eq!(history[2].text, "我查好了");
+    }
+
+    #[test]
     fn build_remote_im_activation_runtime_block_should_require_explicit_send_for_multiple_sources() {
         let sources = vec![
             RemoteImActivationSource {
