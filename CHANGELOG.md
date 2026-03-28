@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 调整（skill-setup-trigger-clarification）：收紧 skill-setup 的触发规则
+  - `skill-setup` 的描述与规则改为“显式 skill 查询触发 + 能力缺口触发”的双触发口径
+  - 当用户明确询问 skill/技能/插件/扩展/市场/热门 skill 等意图时，模型应优先读取 `skill-setup`，避免先直接搜索网页或直接回答
+
 - 修复（chat-auto-disable-image-on-unsupported-endpoint）：遇到明确不支持图片输入的模型端点时自动关闭图片模态
   - 当模型请求返回明确的 image input unsupported 错误时，聊天重试链路会自动将对应 API config 的 `enable_image` 持久化写回为 `false`
   - 自动关闭后，同一候选模型的后续重试会按无图能力继续请求，减少重复触发同类 404/不支持图片输入错误
