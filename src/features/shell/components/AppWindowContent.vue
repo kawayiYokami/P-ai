@@ -122,6 +122,7 @@
         :frozen="forcingArchive"
         :message-blocks="visibleMessageBlocks"
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
+        :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
         :current-workspace-name="currentChatWorkspaceName"
         :workspace-locked="chatWorkspaceLocked"
         :active-conversation-id="currentChatConversationId"
@@ -331,6 +332,7 @@ const props = defineProps<{
   forcingArchive: boolean;
   visibleMessageBlocks: ChatMessageBlock[];
   latestOwnMessageAlignRequest: number;
+  conversationScrollToBottomRequest: number;
   currentChatWorkspaceName: string;
   chatWorkspaceLocked: boolean;
   currentChatConversationId: string;

@@ -862,6 +862,12 @@ function isPdfMime(mime: string): boolean {
   --tw-prose-td-borders: hsl(var(--bc) / 0.15);
 }
 
+.assistant-markdown :deep(.ecall-markdown-content) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .assistant-markdown :deep(.ecall-markdown-content pre) {
   overflow-x: auto;
 }

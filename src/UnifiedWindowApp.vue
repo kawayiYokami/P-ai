@@ -101,6 +101,7 @@
       :forcing-archive="forcingArchive"
       :visible-message-blocks="displayMessageBlocks"
       :latest-own-message-align-request="latestOwnMessageAlignRequest"
+      :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
       :current-chat-conversation-id="currentChatConversationId"
       :chat-unarchived-conversation-items="chatUnarchivedConversationItems"
       :archives="archives"
@@ -1019,6 +1020,17 @@ const CONVERSATION_COLORS = [
 const conversationWorkspaceLabelMap = ref<Record<string, string>>({});
 let refreshConversationWorkspaceToken = 0;
 let workspaceLabelsFreshUntil = 0;
+const conversationScrollToBottomRequest = ref(0);
+let pendingConversationScrollToBottomConversationId = "";
+let pendingConversationScrollToBottomTimer = 0;
+
+type SwitchConversationSnapshot = {
+  conversationId: string;
+  messages: ChatMessage[];
+  hasMoreHistory: boolean;
+  unarchivedConversations: UnarchivedConversationSummary[];
+  workspaceLabels?: Record<string, string>;
+};
 
 async function refreshConversationWorkspaceLabels() {
   if (Date.now() < workspaceLabelsFreshUntil) {
@@ -1053,6 +1065,39 @@ async function refreshConversationWorkspaceLabels() {
   );
   if (token !== refreshConversationWorkspaceToken) return;
   conversationWorkspaceLabelMap.value = nextMap;
+}
+
+function clearPendingConversationScrollToBottomFallback() {
+  if (pendingConversationScrollToBottomTimer) {
+    window.clearTimeout(pendingConversationScrollToBottomTimer);
+    pendingConversationScrollToBottomTimer = 0;
+  }
+}
+
+function triggerConversationScrollToBottom(conversationId: string, reason: string) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  if (cid !== String(currentChatConversationId.value || "").trim()) return;
+  conversationScrollToBottomRequest.value += 1;
+  pendingConversationScrollToBottomConversationId = "";
+  clearPendingConversationScrollToBottomFallback();
+  console.info("[会话切换] 触发滚到底", {
+    conversationId: cid,
+    reason,
+    request: conversationScrollToBottomRequest.value,
+  });
+}
+
+function scheduleConversationScrollToBottomFallback(conversationId: string) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  pendingConversationScrollToBottomConversationId = cid;
+  clearPendingConversationScrollToBottomFallback();
+  pendingConversationScrollToBottomTimer = window.setTimeout(() => {
+    pendingConversationScrollToBottomTimer = 0;
+    if (pendingConversationScrollToBottomConversationId !== cid) return;
+    triggerConversationScrollToBottom(cid, "fallback_timeout");
+  }, 240);
 }
 
 const chatUnarchivedConversationItems = computed(() => {
@@ -1797,7 +1842,29 @@ async function applyConversationMessagesAfterSynced(payload: ConversationMessage
     }
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (pendingConversationScrollToBottomConversationId === conversationId) {
+      triggerConversationScrollToBottom(conversationId, "after_synced");
+    }
   }
+}
+
+function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
+  const nextConversationId = String(snapshot.conversationId || "").trim();
+  const nextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
+  currentChatConversationId.value = nextConversationId;
+  allMessages.value = nextMessages;
+  hasMoreBackendHistory.value = !!snapshot.hasMoreHistory;
+  cacheConversationMessages(nextConversationId, nextMessages);
+  clearConversationBadge(nextConversationId);
+  unarchivedConversations.value = Array.isArray(snapshot.unarchivedConversations)
+    ? snapshot.unarchivedConversations
+    : [];
+  conversationWorkspaceLabelMap.value =
+    snapshot.workspaceLabels && typeof snapshot.workspaceLabels === "object"
+      ? { ...snapshot.workspaceLabels }
+      : {};
+  workspaceLabelsFreshUntil = Date.now() + 1000;
+  scheduleConversationScrollToBottomFallback(nextConversationId);
 }
 
 async function switchUnarchivedConversation(conversationId: string) {
@@ -1825,6 +1892,14 @@ async function switchUnarchivedConversation(conversationId: string) {
       displayBlockCount: displayMessageBlocks.value.length,
       syncCostMs: Math.round((perfNow() - startedAt) * 10) / 10,
     });
+    const snapshot = await invokeTauri<SwitchConversationSnapshot>("switch_active_conversation_snapshot", {
+      input: {
+        conversationId: cid,
+        agentId: String(activeAssistantAgentId.value || "").trim() || null,
+      },
+    });
+    applyConversationSnapshot(snapshot);
+    await nextTick();
     void requestConversationMessagesAfterAsync(cid, trace).catch((error) => {
       setStatusError("status.loadMessagesFailed", error);
     });
@@ -1846,7 +1921,13 @@ async function createUnarchivedConversation() {
     });
     const conversationId = String(result?.conversationId || "").trim();
     if (!conversationId) return;
-    await switchUnarchivedConversation(conversationId);
+    const snapshot = await invokeTauri<SwitchConversationSnapshot>("switch_active_conversation_snapshot", {
+      input: {
+        conversationId,
+        agentId: String(activeAssistantAgentId.value || "").trim() || null,
+      },
+    });
+    applyConversationSnapshot(snapshot);
   } catch (error) {
     setStatusError("status.loadMessagesFailed", error);
   }

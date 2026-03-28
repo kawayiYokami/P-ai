@@ -10,7 +10,7 @@
     </div>
     <div
       ref="scrollContainer"
-      class="ecall-chat-scroll-container relative flex-1 min-h-0 overflow-y-auto p-3 flex flex-col scrollbar-gutter-stable"
+      class="ecall-chat-scroll-container relative flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-3 flex flex-col scrollbar-gutter-stable"
       @scroll="onScroll"
     >
       <!-- 历史对话 -->
@@ -369,6 +369,7 @@ const props = defineProps<{
   frozen: boolean;
   messageBlocks: ChatMessageBlock[];
   latestOwnMessageAlignRequest: number;
+  conversationScrollToBottomRequest: number;
   currentWorkspaceName: string;
   workspaceLocked: boolean;
   activeConversationId: string;
@@ -1082,6 +1083,18 @@ watch(
       updateJumpToBottomOffset();
       const el = scrollContainer.value;
       if (el) lastBottomState.value = isNearBottom(el);
+      requestAnimationFrame(() => {
+        scrollToBottom("smooth");
+      });
+    });
+  },
+);
+
+watch(
+  () => props.conversationScrollToBottomRequest,
+  (nextValue, prevValue) => {
+    if (!nextValue || nextValue === prevValue) return;
+    nextTick(() => {
       requestAnimationFrame(() => {
         scrollToBottom("smooth");
       });
