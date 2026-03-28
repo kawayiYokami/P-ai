@@ -1404,7 +1404,7 @@ async fn send_chat_message_inner(
             candidate_api_id
         );
         log_run_stage("model_candidate.start");
-        let candidate_selected_api = if candidate_api_id == &selected_api.id {
+        let mut candidate_selected_api = if candidate_api_id == &selected_api.id {
             selected_api.clone()
         } else {
             match resolve_selected_api_config(&app_config, Some(candidate_api_id.as_str())) {
@@ -1492,10 +1492,41 @@ async fn send_chat_message_inner(
                             .to_string(),
                     )
                 }
-                Err(error) => (
-                    "模型请求失败".to_string(),
-                    format!("模型请求重试后仍失败: {error}"),
-                ),
+                Err(error) => {
+                    if candidate_selected_api.enable_image
+                        && error_indicates_image_input_unsupported(&error)
+                    {
+                        match auto_disable_api_image_input(&state, &candidate_selected_api.id) {
+                            Ok(true) => {
+                                candidate_selected_api.enable_image = false;
+                                (
+                                    "检测到当前模型不支持图片输入，已自动关闭该模型的图片模态并重试"
+                                        .to_string(),
+                                    format!("模型请求重试后仍失败: {error}"),
+                                )
+                            }
+                            Ok(false) => (
+                                "模型请求失败".to_string(),
+                                format!("模型请求重试后仍失败: {error}"),
+                            ),
+                            Err(write_err) => {
+                                runtime_log_warn(format!(
+                                    "[聊天] 自动关闭图片模态失败: api_config_id={}, error={}",
+                                    candidate_selected_api.id, write_err
+                                ));
+                                (
+                                    "模型请求失败".to_string(),
+                                    format!("模型请求重试后仍失败: {error}"),
+                                )
+                            }
+                        }
+                    } else {
+                        (
+                            "模型请求失败".to_string(),
+                            format!("模型请求重试后仍失败: {error}"),
+                        )
+                    }
+                }
             };
 
             if attempt < max_failure_retries {
@@ -1925,4 +1956,33 @@ mod core_send_inner_tests {
 
         assert_eq!(candidate_api_ids, vec!["text-a".to_string()]);
     }
+}
+fn error_indicates_image_input_unsupported(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("no endpoints found that support image input")
+        || normalized.contains("does not support image input")
+        || normalized.contains("image input disabled")
+}
+
+fn auto_disable_api_image_input(
+    state: &AppState,
+    api_config_id: &str,
+) -> Result<bool, String> {
+    let mut config = read_config(&state.config_path)?;
+    let (api_id, api_name) = {
+        let Some(target) = config.api_configs.iter_mut().find(|item| item.id == api_config_id) else {
+            return Ok(false);
+        };
+        if !target.enable_image {
+            return Ok(false);
+        }
+        target.enable_image = false;
+        (target.id.clone(), target.name.clone())
+    };
+    state_write_config_cached(state, &config)?;
+    runtime_log_info(format!(
+        "[聊天] 自动关闭图片模态: api_config_id={}, api_name={}",
+        api_id, api_name
+    ));
+    Ok(true)
 }

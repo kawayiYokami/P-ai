@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 修复（chat-auto-disable-image-on-unsupported-endpoint）：遇到明确不支持图片输入的模型端点时自动关闭图片模态
+  - 当模型请求返回明确的 image input unsupported 错误时，聊天重试链路会自动将对应 API config 的 `enable_image` 持久化写回为 `false`
+  - 自动关闭后，同一候选模型的后续重试会按无图能力继续请求，减少重复触发同类 404/不支持图片输入错误
+
 - 调整（prompt-xml-blocks-and-skill-discovery-guidance）：统一提示词包裹格式并重写 skill 发现说明
   - 系统提示主路径新增统一 XML block 包裹函数，收口系统准则、部门上下文、技能索引、任务板、委托任务、终端工作区、远程 IM 规则等提示块格式
   - 聊天基础栏目不再混用 `#`、`##` 与 `[HIDDEN ...]` 标题，改为独立并列的 XML block，减少块内 markdown 与外层提示冲突
