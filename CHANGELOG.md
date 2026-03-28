@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 修复（read-file-pdf-image-pagination-and-multi-image-forwarding）：统一 `read_file` 的 PDF 图片分页与多图转发链路
+  - `read_file` 读取 PDF 时，改为跟随现有 `pdf_read_mode` 与当前聊天模型 `enable_image` 自动决定走文本提取还是图片提取，不再固定只走文本模式
+  - PDF 图片结果新增 `offset/limit` 分页支持，图片模式下按页偏移返回多页图片，并补齐 `nextOffset`、`returnedPageCount`、`returnedImageCount`、`totalPages` 等元信息
+  - `read_file` 工具描述同步更新：`offset/limit` 仍用于分页，文本结果延续现有文本续读语义，PDF 图片结果按页继续读取
+  - 工具结果缓存与转发链路补齐多图支持，避免 PDF 图片模式返回多页时只把首张图片继续转发给模型
+  - 补充 Rust 测试，覆盖 PDF 图片分页结果与多图工具结果转发
+
 - 修复（chat-stream-render-isolation-and-jump-button-anchor）：切分消息渲染热路径并修正滚到底按钮定位
   - 聊天消息列表改为由独立 `ChatMessageItem` 子组件承接单条消息渲染，配合父层 `v-memo`，避免流式输出时整列表陪跑重渲染
   - 单条消息渲染补齐时间格式化器复用与流式 Markdown 解析节流，显著降低长输出时的主线程压力

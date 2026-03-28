@@ -63,6 +63,7 @@ trait ReadFileReader {
         &self,
         state: &AppState,
         session_id: &str,
+        api_config_id: &str,
         request: &ReadFileRequest,
         detected: ReadFileDetectedType,
     ) -> Result<Value, String>;
@@ -161,6 +162,17 @@ fn paginate_lines(lines: &[String], offset: usize, limit: Option<usize>) -> (Vec
     (chunk, next_offset)
 }
 
+fn paginate_window(total: usize, offset: usize, limit: Option<usize>) -> (usize, usize, Option<usize>) {
+    if offset >= total {
+        return (offset, offset, None);
+    }
+    let end = limit
+        .map(|size| offset.saturating_add(size).min(total))
+        .unwrap_or(total);
+    let next_offset = if end < total { Some(end) } else { None };
+    (offset, end, next_offset)
+}
+
 fn truncate_text_for_read_file(text: &str) -> (String, bool) {
     let total = text.chars().count();
     if total <= READ_FILE_TEXT_LIMIT_CHARS {
@@ -245,6 +257,80 @@ fn build_text_read_result(
             "charLimit": READ_FILE_TEXT_LIMIT_CHARS,
             "fileName": path.file_name().and_then(|v| v.to_str()).unwrap_or_default(),
             "extra": extra_metadata
+        }
+    })
+}
+
+fn resolve_pdf_image_mode(state: &AppState, api_config_id: &str) -> Result<bool, String> {
+    let app_config = state_read_config_cached(state)?;
+    let data = state_read_app_data_cached(state)?;
+    let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
+        .or_else(|| resolve_selected_api_config(&app_config, None))
+        .ok_or_else(|| "当前未找到可用聊天模型配置。".to_string())?;
+    Ok(data.pdf_read_mode == "image" && selected_api.enable_image)
+}
+
+fn build_pdf_image_read_result(
+    path: &std::path::Path,
+    detected: ReadFileDetectedType,
+    structured: &PdfExtractStructuredResult,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Value {
+    let applied_offset = offset.unwrap_or(0);
+    let total_pages = structured.total_pages as usize;
+    let (start, end, next_offset) = paginate_window(total_pages, applied_offset, limit);
+    let selected_pages = if start >= total_pages {
+        Vec::new()
+    } else {
+        structured.pages[start..end].to_vec()
+    };
+    let parts = selected_pages
+        .iter()
+        .flat_map(|page| {
+            page.images.iter().map(move |image| {
+                serde_json::json!({
+                    "type": "image",
+                    "mimeType": image.mime,
+                    "data": image.bytes_base64,
+                    "pageIndex": page.page_index,
+                    "pageNumber": page.page_index + 1,
+                    "width": image.width,
+                    "height": image.height
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "absolutePath": path.to_string_lossy().to_string(),
+        "detectedType": detected.as_str(),
+        "readerKind": "pdf_image_direct",
+        "truncated": false,
+        "nextOffset": next_offset,
+        "parts": parts,
+        "response": {
+            "ok": true,
+            "absolutePath": path.to_string_lossy().to_string(),
+            "detectedType": detected.as_str(),
+            "readerKind": "pdf_image_direct",
+            "fileName": structured.file_name,
+            "pageOffset": applied_offset,
+            "pageLimit": limit,
+            "returnedPageCount": selected_pages.len(),
+            "returnedImageCount": selected_pages.iter().map(|page| page.images.len()).sum::<usize>(),
+            "totalPages": structured.total_pages,
+            "nextOffset": next_offset
+        },
+        "metadata": {
+            "kind": "image",
+            "fileName": structured.file_name,
+            "pageOffset": applied_offset,
+            "pageLimit": limit,
+            "returnedPageCount": selected_pages.len(),
+            "returnedImageCount": selected_pages.iter().map(|page| page.images.len()).sum::<usize>(),
+            "totalPages": structured.total_pages,
+            "includeImages": true
         }
     })
 }
@@ -449,6 +535,7 @@ impl ReadFileReader for TextFileReader {
         &self,
         _state: &AppState,
         _session_id: &str,
+        _api_config_id: &str,
         request: &ReadFileRequest,
         detected: ReadFileDetectedType,
     ) -> Result<Value, String> {
@@ -482,17 +569,28 @@ impl ReadFileReader for PdfFileReader {
         &self,
         state: &AppState,
         session_id: &str,
+        api_config_id: &str,
         request: &ReadFileRequest,
         detected: ReadFileDetectedType,
     ) -> Result<Value, String> {
         let path = ensure_absolute_file_path(request)?;
         let conversation_id = read_file_conversation_cache_key(session_id);
+        let include_images = resolve_pdf_image_mode(state, api_config_id)?;
         let structured = get_or_extract_pdf_structured(
             state,
             &conversation_id,
             &path.to_string_lossy(),
-            false,
+            include_images,
         )?;
+        if include_images {
+            return Ok(build_pdf_image_read_result(
+                &path,
+                detected,
+                &structured,
+                request.offset,
+                request.limit,
+            ));
+        }
         let text = structured
             .pages
             .iter()
@@ -544,6 +642,7 @@ impl ReadFileReader for OfficeLitchiReader {
         &self,
         _state: &AppState,
         _session_id: &str,
+        _api_config_id: &str,
         request: &ReadFileRequest,
         detected: ReadFileDetectedType,
     ) -> Result<Value, String> {
@@ -664,7 +763,7 @@ async fn builtin_read_file(
         .into_iter()
         .find(|item| item.supports(detected))
         .ok_or_else(|| format!("未找到可用读取器：{}", detected.as_str()))?;
-    let result = reader.read(state, session_id, &request, detected);
+    let result = reader.read(state, session_id, api_config_id, &request, detected);
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match &result {
         Ok(_) => eprintln!(
@@ -881,3 +980,63 @@ fn builtin_read_file_should_prefix_truncation_notice_only_when_truncated() {
         let text = value.get("content").and_then(Value::as_str).unwrap_or_default();
         assert!(text.starts_with("Content was truncated to fit within 30000 character limit.\nTo continue reading, use offset="));
     }
+
+#[cfg(test)]
+#[test]
+fn build_pdf_image_read_result_should_paginate_by_page_offset() {
+        let path = std::path::PathBuf::from("E:\\docs\\sample.pdf");
+        let structured = PdfExtractStructuredResult {
+            file_name: "sample.pdf".to_string(),
+            total_pages: 3,
+            include_images: true,
+            pages: vec![
+                PdfPageExtractBlock {
+                    page_index: 0,
+                    text: String::new(),
+                    images: vec![PdfRenderedImage {
+                        page_index: 0,
+                        width: 10,
+                        height: 20,
+                        bytes_base64: "img0".to_string(),
+                        mime: "image/webp".to_string(),
+                    }],
+                },
+                PdfPageExtractBlock {
+                    page_index: 1,
+                    text: String::new(),
+                    images: vec![PdfRenderedImage {
+                        page_index: 1,
+                        width: 11,
+                        height: 21,
+                        bytes_base64: "img1".to_string(),
+                        mime: "image/webp".to_string(),
+                    }],
+                },
+                PdfPageExtractBlock {
+                    page_index: 2,
+                    text: String::new(),
+                    images: vec![PdfRenderedImage {
+                        page_index: 2,
+                        width: 12,
+                        height: 22,
+                        bytes_base64: "img2".to_string(),
+                        mime: "image/webp".to_string(),
+                    }],
+                },
+            ],
+        };
+
+        let value = build_pdf_image_read_result(
+            &path,
+            ReadFileDetectedType::Pdf,
+            &structured,
+            Some(1),
+            Some(1),
+        );
+
+        assert_eq!(value.get("readerKind").and_then(Value::as_str), Some("pdf_image_direct"));
+        assert_eq!(value.get("nextOffset").and_then(Value::as_u64), Some(2));
+        let parts = value.get("parts").and_then(Value::as_array).expect("parts");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].get("pageIndex").and_then(Value::as_u64), Some(1));
+}

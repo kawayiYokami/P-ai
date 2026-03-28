@@ -14,10 +14,7 @@ fn next_screenshot_artifact_seq() -> u64 {
 fn screenshot_artifact_cache_put(payload: &ScreenshotForwardPayload) -> String {
     let artifact_id = Uuid::new_v4().to_string();
     let entry = ScreenshotArtifactEntry {
-        mime: payload.mime.clone(),
-        base64: payload.base64.clone(),
-        width: payload.width,
-        height: payload.height,
+        images: payload.images.clone(),
         created_seq: next_screenshot_artifact_seq(),
     };
     let cache = screenshot_artifact_cache();
@@ -48,82 +45,90 @@ fn clear_screenshot_artifact_cache() {
     }
 }
 
-fn extract_image_base64_from_value(value: &Value) -> Option<String> {
-    fn normalize_data_uri(raw: &str) -> String {
-        let s = raw.trim();
-        if let Some(idx) = s.find("base64,") {
-            return s[(idx + "base64,".len())..].to_string();
-        }
-        s.to_string()
+fn normalize_tool_image_data(raw: &str) -> String {
+    let s = raw.trim();
+    if let Some(idx) = s.find("base64,") {
+        return s[(idx + "base64,".len())..].to_string();
     }
+    s.to_string()
+}
 
-    value
+fn extract_forward_images_from_value(value: &Value) -> Vec<ScreenshotForwardImagePayload> {
+    let mut images = Vec::<ScreenshotForwardImagePayload>::new();
+
+    if let Some(image_b64) = value
         .get("imageBase64")
         .and_then(Value::as_str)
-        .map(normalize_data_uri)
-        .or_else(|| {
-            value
-                .get("image_base64")
-                .and_then(Value::as_str)
-                .map(normalize_data_uri)
-        })
-        .or_else(|| {
-            value
-                .get("parts")
-                .and_then(Value::as_array)
-                .and_then(|parts| {
-                    parts.iter().find_map(|part| {
-                        let is_image = part
-                            .get("type")
-                            .and_then(Value::as_str)
-                            .map(|t| t.eq_ignore_ascii_case("image"))
-                            .unwrap_or(false);
-                        if !is_image {
-                            return None;
-                        }
-                        part.get("data")
-                            .and_then(Value::as_str)
-                            .map(normalize_data_uri)
-                    })
-                })
-        })
-        .or_else(|| {
-            value
-                .get("content")
-                .and_then(Value::as_array)
-                .and_then(|parts| {
-                    parts.iter().find_map(|part| {
-                        let is_image = part
-                            .get("type")
-                            .and_then(Value::as_str)
-                            .map(|t| t.eq_ignore_ascii_case("image"))
-                            .unwrap_or(false);
-                        if !is_image {
-                            return None;
-                        }
-                        part.get("data")
-                            .and_then(Value::as_str)
-                            .map(normalize_data_uri)
-                    })
-                })
-        })
-        .or_else(|| {
-            value.as_array().and_then(|parts| {
-                parts.iter().find_map(|part| {
-                    let is_image = part
-                        .get("type")
+        .or_else(|| value.get("image_base64").and_then(Value::as_str))
+    {
+        images.push(ScreenshotForwardImagePayload {
+            mime: extract_image_mime_from_value(value).unwrap_or_else(|| "image/webp".to_string()),
+            base64: normalize_tool_image_data(image_b64),
+            width: value
+                .get("width")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32,
+            height: value
+                .get("height")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32,
+        });
+        return images;
+    }
+
+    let collect_parts = |parts: &[Value]| -> Vec<ScreenshotForwardImagePayload> {
+        parts
+            .iter()
+            .filter_map(|part| {
+                let is_image = part
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(|t| t.eq_ignore_ascii_case("image"))
+                    .unwrap_or(false);
+                if !is_image {
+                    return None;
+                }
+                let data = part.get("data").and_then(Value::as_str)?;
+                Some(ScreenshotForwardImagePayload {
+                    mime: part
+                        .get("mimeType")
                         .and_then(Value::as_str)
-                        .map(|t| t.eq_ignore_ascii_case("image"))
-                        .unwrap_or(false);
-                    if !is_image {
-                        return None;
-                    }
-                    part.get("data")
-                        .and_then(Value::as_str)
-                        .map(normalize_data_uri)
+                        .filter(|m| !m.trim().is_empty())
+                        .unwrap_or("image/webp")
+                        .to_string(),
+                    base64: normalize_tool_image_data(data),
+                    width: part
+                        .get("width")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0)
+                        .min(u32::MAX as u64) as u32,
+                    height: part
+                        .get("height")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0)
+                        .min(u32::MAX as u64) as u32,
                 })
             })
-        })
+            .collect()
+    };
+
+    if let Some(parts) = value.get("parts").and_then(Value::as_array) {
+        images.extend(collect_parts(parts));
+    }
+    if images.is_empty() {
+        if let Some(parts) = value.get("content").and_then(Value::as_array) {
+            images.extend(collect_parts(parts));
+        }
+    }
+    if images.is_empty() {
+        if let Some(parts) = value.as_array() {
+            images.extend(collect_parts(parts));
+        }
+    }
+
+    images
 }
 
 fn extract_image_mime_from_value(value: &Value) -> Option<String> {
@@ -216,16 +221,17 @@ fn compact_screenshot_tool_result(
         if obj.get("imageBase64").is_some() {
             obj.insert(
                 "imageBase64".to_string(),
-                Value::String(format!("<cached:{}>", artifact_id)),
+                Value::String(format!("<cached:{}:0>", artifact_id)),
             );
         }
         if obj.get("image_base64").is_some() {
             obj.insert(
                 "image_base64".to_string(),
-                Value::String(format!("<cached:{}>", artifact_id)),
+                Value::String(format!("<cached:{}:0>", artifact_id)),
             );
         }
         if let Some(parts) = obj.get_mut("parts").and_then(Value::as_array_mut) {
+            let mut image_idx = 0usize;
             for part in parts {
                 if let Some(map) = part.as_object_mut() {
                     let is_image = map
@@ -233,29 +239,31 @@ fn compact_screenshot_tool_result(
                         .and_then(Value::as_str)
                         .map(|t| t.eq_ignore_ascii_case("image"))
                         .unwrap_or(false);
-                    if is_image && map.get("data").is_some() {
-                        map.insert(
-                            "data".to_string(),
-                            Value::String(format!("<cached:{}>", artifact_id)),
-                        );
+                        if is_image && map.get("data").is_some() {
+                            map.insert(
+                                "data".to_string(),
+                                Value::String(format!("<cached:{}:{}>", artifact_id, image_idx)),
+                            );
+                            image_idx += 1;
+                        }
                     }
                 }
-            }
         }
         if let Some(data_obj) = obj.get_mut("data").and_then(Value::as_object_mut) {
             if data_obj.get("imageBase64").is_some() {
                 data_obj.insert(
                     "imageBase64".to_string(),
-                    Value::String(format!("<cached:{}>", artifact_id)),
+                    Value::String(format!("<cached:{}:0>", artifact_id)),
                 );
             }
             if data_obj.get("image_base64").is_some() {
                 data_obj.insert(
                     "image_base64".to_string(),
-                    Value::String(format!("<cached:{}>", artifact_id)),
+                    Value::String(format!("<cached:{}:0>", artifact_id)),
                 );
             }
             if let Some(parts) = data_obj.get_mut("parts").and_then(Value::as_array_mut) {
+                let mut image_idx = 0usize;
                 for part in parts {
                     if let Some(map) = part.as_object_mut() {
                         let is_image = map
@@ -266,8 +274,9 @@ fn compact_screenshot_tool_result(
                         if is_image && map.get("data").is_some() {
                             map.insert(
                                 "data".to_string(),
-                                Value::String(format!("<cached:{}>", artifact_id)),
+                                Value::String(format!("<cached:{}:{}>", artifact_id, image_idx)),
                             );
+                            image_idx += 1;
                         }
                     }
                 }
@@ -307,36 +316,28 @@ fn screenshot_forward_payload_from_tool_result(
 ) -> Option<ScreenshotForwardPayload> {
     let value = serde_json::from_str::<Value>(tool_result).ok()?;
     let payload_value = screenshot_payload_value(&value);
-    let image_base64 = extract_image_base64_from_value(payload_value)?;
-    if image_base64.is_empty() {
+    let images = extract_forward_images_from_value(payload_value);
+    if images.is_empty() {
         return None;
     }
-    let mime = extract_image_mime_from_value(payload_value)
-        .unwrap_or_else(|| "image/webp".to_string());
-    let width = payload_value
-        .get("width")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        .min(u32::MAX as u64) as u32;
-    let height = payload_value
-        .get("height")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        .min(u32::MAX as u64) as u32;
-    Some(ScreenshotForwardPayload {
-        mime,
-        base64: image_base64,
-        width,
-        height,
-    })
+    Some(ScreenshotForwardPayload { images })
 }
 
 fn screenshot_forward_notice(payload: &ScreenshotForwardPayload) -> String {
-    if payload.width > 0 && payload.height > 0 {
+    if payload.images.len() > 1 {
         format!(
-            "截图工具已执行，以下图片来自工具结果（{}x{}），将作为用户消息转发，请注意鉴别。",
-            payload.width, payload.height
+            "工具已执行，以下 {} 张图片来自工具结果，将作为用户消息转发，请注意鉴别。",
+            payload.images.len()
         )
+    } else if let Some(image) = payload.images.first() {
+        if image.width > 0 && image.height > 0 {
+            format!(
+                "截图工具已执行，以下图片来自工具结果（{}x{}），将作为用户消息转发，请注意鉴别。",
+                image.width, image.height
+            )
+        } else {
+            "截图工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
+        }
     } else {
         "截图工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
     }
@@ -402,4 +403,21 @@ fn sanitize_tool_result_for_history(tool_name: &str, tool_result: &str) -> Strin
         }
     }
     serde_json::to_string(&value).unwrap_or_else(|_| tool_result.to_string())
+}
+
+#[cfg(test)]
+#[test]
+fn screenshot_forward_payload_from_tool_result_should_support_multiple_images() {
+    let tool_result = serde_json::json!({
+        "parts": [
+            {"type": "image", "mimeType": "image/webp", "data": "aaa", "width": 100, "height": 80},
+            {"type": "image", "mimeType": "image/png", "data": "bbb", "width": 50, "height": 40}
+        ]
+    })
+    .to_string();
+
+    let payload = screenshot_forward_payload_from_tool_result(&tool_result).expect("payload");
+    assert_eq!(payload.images.len(), 2);
+    assert_eq!(payload.images[0].mime, "image/webp");
+    assert_eq!(payload.images[1].mime, "image/png");
 }

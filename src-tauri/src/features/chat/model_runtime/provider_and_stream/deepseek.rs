@@ -562,27 +562,27 @@ async fn call_model_deepseek_with_tools(
                 let notice = screenshot_forward_notice(&payload);
                 let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
                     ScreenshotArtifactEntry {
-                        mime: payload.mime.clone(),
-                        base64: payload.base64.clone(),
-                        width: payload.width,
-                        height: payload.height,
+                        images: payload.images.clone(),
                         created_seq: 0,
                     },
                 );
+                let mut content = vec![serde_json::json!({"type": "text", "text": notice})];
+                content.extend(cached.images.iter().map(|image| {
+                    serde_json::json!({
+                        "type": "image_url",
+                        "image_url": {"url": format!("data:{};base64,{}", image.mime, image.base64)}
+                    })
+                }));
                 messages.push(serde_json::json!({
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": notice},
-                        {"type": "image_url", "image_url": {"url": format!("data:{};base64,{}", cached.mime, cached.base64)}}
-                    ]
+                    "content": content
                 }));
                 tool_history_events.push(serde_json::json!({
                     "role": "user",
                     "content": "[desktop screenshot forwarded as user image]",
                     "screenshotArtifactId": artifact_id,
                     "screenshotArtifactMaxRetained": SCREENSHOT_ARTIFACT_MAX_ITEMS,
-                    "screenshotWidth": cached.width,
-                    "screenshotHeight": cached.height
+                    "screenshotImageCount": cached.images.len()
                 }));
             }
 

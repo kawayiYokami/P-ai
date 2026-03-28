@@ -36,13 +36,13 @@ fn frontend_read_file_tool_definition() -> FrontendToolDefinition {
         kind: "function".to_string(),
         function: FrontendToolFunctionDefinition {
             name: "read_file".to_string(),
-            description: "读取本地文件内容。自动识别文本、图片、PDF 与 Office 文件；absolute_path 必须是绝对路径，文本结果最多返回 30000 字符，超出时请继续使用 offset/limit 分页。".to_string(),
+            description: "读取本地文件内容。自动识别文本、图片、PDF 与 Office 文件；absolute_path 必须是绝对路径；offset/limit 用于分页，文本结果按现有文本续读语义处理，PDF 图片结果按页继续读取。".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "absolute_path": { "type": "string", "description": "文件绝对路径" },
-                    "offset": { "type": "integer", "minimum": 0, "description": "0-based 起始行号，用于分页读取大文件" },
-                    "limit": { "type": "integer", "minimum": 1, "description": "最多读取的行数，配合 offset 使用" }
+                    "offset": { "type": "integer", "minimum": 0, "description": "分页偏移量。文本结果按文本续读；PDF 图片结果按页偏移" },
+                    "limit": { "type": "integer", "minimum": 1, "description": "分页大小。文本结果控制续读范围；PDF 图片结果控制返回页数" }
                 },
                 "required": ["absolute_path"],
                 "additionalProperties": false

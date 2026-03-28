@@ -429,21 +429,19 @@ where
                 let notice = screenshot_forward_notice(&payload);
                 let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
                     ScreenshotArtifactEntry {
-                        mime: payload.mime.clone(),
-                        base64: payload.base64.clone(),
-                        width: payload.width,
-                        height: payload.height,
+                        images: payload.images.clone(),
                         created_seq: 0,
                     },
                 );
-                let forwarded = OneOrMany::many(vec![
-                    UserContent::text(notice),
+                let mut forwarded_items = vec![UserContent::text(notice)];
+                forwarded_items.extend(cached.images.iter().map(|image| {
                     UserContent::image_base64(
-                        cached.base64,
-                        image_media_type_from_mime(&cached.mime),
+                        image.base64.clone(),
+                        image_media_type_from_mime(&image.mime),
                         Some(ImageDetail::Auto),
-                    ),
-                ])
+                    )
+                }));
+                let forwarded = OneOrMany::many(forwarded_items)
                 .map_err(|_| "Failed to build screenshot forward user message".to_string())?;
                 chat_history.push(RigMessage::User { content: forwarded });
                 tool_history_events.push(serde_json::json!({
@@ -451,8 +449,7 @@ where
                     "content": "[desktop screenshot forwarded as user image]",
                     "screenshotArtifactId": artifact_id,
                     "screenshotArtifactMaxRetained": SCREENSHOT_ARTIFACT_MAX_ITEMS,
-                    "screenshotWidth": cached.width,
-                    "screenshotHeight": cached.height
+                    "screenshotImageCount": cached.images.len()
                 }));
             }
         }

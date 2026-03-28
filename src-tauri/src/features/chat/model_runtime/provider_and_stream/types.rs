@@ -1,17 +1,19 @@
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ScreenshotForwardPayload {
+struct ScreenshotForwardImagePayload {
     mime: String,
     base64: String,
     width: u32,
     height: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ScreenshotForwardPayload {
+    images: Vec<ScreenshotForwardImagePayload>,
+}
+
 #[derive(Debug, Clone)]
 struct ScreenshotArtifactEntry {
-    mime: String,
-    base64: String,
-    width: u32,
-    height: u32,
+    images: Vec<ScreenshotForwardImagePayload>,
     created_seq: u64,
 }
 
