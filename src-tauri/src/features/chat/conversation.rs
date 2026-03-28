@@ -1463,63 +1463,10 @@ fn build_prompt_with_mode(
             continue;
         }
         if is_self_message {
-            if let Some(events) = &message.tool_call {
-                for event in sanitize_tool_history_events(events) {
-                    let event_role = event
-                        .get("role")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .trim()
-                        .to_lowercase();
-                    if event_role == "assistant" {
-                        let text = event
-                            .get("content")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        let tool_calls = event
-                            .get("tool_calls")
-                            .and_then(Value::as_array)
-                            .cloned();
-                        let reasoning_content = event
-                            .get("reasoning_content")
-                            .and_then(Value::as_str)
-                            .map(ToOwned::to_owned);
-                        history_messages.push(PreparedHistoryMessage {
-                            role: "assistant".to_string(),
-                            text,
-                            user_time_text: None,
-                            images: Vec::new(),
-                            audios: Vec::new(),
-                            tool_calls,
-                            tool_call_id: None,
-                            reasoning_content,
-                        });
-                    } else if event_role == "tool" {
-                        let text = event
-                            .get("content")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        let tool_call_id = event
-                            .get("tool_call_id")
-                            .and_then(Value::as_str)
-                            .map(ToOwned::to_owned);
-                        if !text.trim().is_empty() || tool_call_id.is_some() {
-                            history_messages.push(PreparedHistoryMessage {
-                                role: "tool".to_string(),
-                                text,
-                                user_time_text: None,
-                                images: Vec::new(),
-                                audios: Vec::new(),
-                                tool_calls: None,
-                                tool_call_id,
-                                reasoning_content: None,
-                            });
-                        }
-                    }
-                }
-            }
+            history_messages.extend(build_prepared_history_messages_from_tool_history(
+                message,
+                MessageToolHistoryView::PromptReplay,
+            ));
         }
         let is_user = role == "user";
         let mut text = if is_user {

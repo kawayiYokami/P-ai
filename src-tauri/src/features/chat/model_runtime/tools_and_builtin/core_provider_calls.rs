@@ -8,7 +8,10 @@ struct ModelReply {
     trusted_input_tokens: Option<u64>,
 }
 
-fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<RigMessage>, String> {
+fn prepared_history_to_rig_messages(
+    prepared: &PreparedPrompt,
+    protocol_family: ToolCallProtocolFamily,
+) -> Result<Vec<RigMessage>, String> {
     let mut chat_history = Vec::<RigMessage>::new();
     let mut tool_call_id_to_call_id = std::collections::HashMap::<String, String>::new();
     for hm in &prepared.history_messages {
@@ -47,58 +50,34 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                 assistant_blocks.push(AssistantContent::text(hm.text.clone()));
             }
             if let Some(tool_calls) = &hm.tool_calls {
-                for raw in tool_calls {
-                    let Some(id) = raw.get("id").and_then(Value::as_str).map(str::trim) else {
+                for call in normalize_prompt_tool_calls(tool_calls) {
+                    let Some(id) = call.invocation_id.as_deref().map(str::trim) else {
                         continue;
                     };
-                    if id.is_empty() {
+                    let Some(name) = call.tool_name.as_deref().map(str::trim) else {
+                        continue;
+                    };
+                    if matches!(
+                        tool_call_replay_capability(protocol_family, &call),
+                        StructuredToolReplayCapability::Invalid | StructuredToolReplayCapability::TextOnly
+                    ) {
                         continue;
                     }
-                    let Some(name) = raw
-                        .get("function")
-                        .and_then(|f| f.get("name"))
-                        .and_then(Value::as_str)
+                    let call_id = call
+                        .provider_call_id
+                        .as_deref()
                         .map(str::trim)
-                    else {
-                        continue;
-                    };
-                    if name.is_empty() {
-                        continue;
-                    }
-                    let arguments = raw
-                        .get("function")
-                        .and_then(|f| f.get("arguments"))
-                        .cloned()
-                        .unwrap_or_else(|| Value::String("{}".to_string()));
-                    // Normalize: stored arguments may be a JSON string (e.g. "{\"query\":\"...\"}").
-                    // Gemini requires Value::Object (protobuf Struct); OpenAI's rig adapter
-                    // also accepts Value::Object and stringifies it internally.
-                    // Parse string→object so both providers work from the same history.
-                    let arguments = match &arguments {
-                        Value::String(s) => {
-                            serde_json::from_str::<Value>(s).unwrap_or(arguments)
-                        }
-                        _ => arguments,
-                    };
-                    let call_id = raw
-                        .get("call_id")
-                        .and_then(Value::as_str)
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty());
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned);
                     if let Some(call_id_value) = call_id.clone() {
                         tool_call_id_to_call_id.insert(id.to_string(), call_id_value);
-                    } else {
-                        // Older provider histories may only have a generic `call_*` id and no
-                        // Responses-style `call_id`. Replaying them as structured tool calls
-                        // breaks OpenAI Responses validation, so skip the structured block.
-                        continue;
                     }
                     let tool_call = rig::message::ToolCall {
                         id: id.to_string(),
                         call_id,
                         function: rig::message::ToolFunction {
                             name: name.to_string(),
-                            arguments,
+                            arguments: call.arguments_value.clone(),
                         },
                         signature: None,
                         additional_params: None,
@@ -121,23 +100,32 @@ fn prepared_history_to_rig_messages(prepared: &PreparedPrompt) -> Result<Vec<Rig
                 hm.text.clone()
             };
             let result_content = OneOrMany::one(ToolResultContent::text(safe_tool_text.clone()));
-            let tool_user_content = if let Some((tool_call_id, call_id)) = hm
+            let tool_user_content = if let Some(tool_call_id) = hm
                 .tool_call_id
                 .as_deref()
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
-                .and_then(|tool_call_id| {
-                    tool_call_id_to_call_id
-                        .get(tool_call_id)
-                        .cloned()
-                        .map(|call_id| (tool_call_id.to_string(), call_id))
-                })
             {
-                UserContent::tool_result_with_call_id(
+                let provider_call_id = tool_call_id_to_call_id.get(tool_call_id).cloned();
+                match tool_result_replay_capability(
+                    protocol_family,
                     tool_call_id,
-                    call_id,
-                    result_content,
-                )
+                    provider_call_id.as_deref(),
+                ) {
+                    StructuredToolReplayCapability::Structured => {
+                        if let Some(call_id) = provider_call_id {
+                            UserContent::tool_result_with_call_id(
+                                tool_call_id.to_string(),
+                                call_id,
+                                result_content,
+                            )
+                        } else {
+                            UserContent::tool_result(tool_call_id.to_string(), result_content)
+                        }
+                    }
+                    StructuredToolReplayCapability::TextOnly
+                    | StructuredToolReplayCapability::Invalid => UserContent::text(safe_tool_text),
+                }
             } else {
                 UserContent::text(safe_tool_text)
             };
@@ -201,7 +189,11 @@ mod prepared_history_to_rig_messages_tests {
             latest_audios: Vec::new(),
         };
 
-        let chat_history = prepared_history_to_rig_messages(&prepared).expect("history built");
+        let chat_history = prepared_history_to_rig_messages(
+            &prepared,
+            ToolCallProtocolFamily::OpenAiResponses,
+        )
+        .expect("history built");
         let mut saw_tool_result = false;
         let mut saw_assistant_tool_call = false;
 
@@ -284,7 +276,11 @@ mod prepared_history_to_rig_messages_tests {
             latest_audios: Vec::new(),
         };
 
-        let chat_history = prepared_history_to_rig_messages(&prepared).expect("history built");
+        let chat_history = prepared_history_to_rig_messages(
+            &prepared,
+            ToolCallProtocolFamily::OpenAiResponses,
+        )
+        .expect("history built");
         assert!(chat_history.iter().any(|message| {
             matches!(
                 message,
@@ -306,6 +302,79 @@ mod prepared_history_to_rig_messages_tests {
             )
         }));
     }
+
+    #[test]
+    fn should_keep_legacy_tool_history_structured_for_chat_like_protocols() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_legacy_1",
+                        "type": "function",
+                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_legacy_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let chat_history = prepared_history_to_rig_messages(
+            &prepared,
+            ToolCallProtocolFamily::OpenAiChatLike,
+        )
+        .expect("history built");
+        assert!(chat_history.iter().any(|message| {
+            matches!(
+                message,
+                RigMessage::Assistant { content, .. }
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            AssistantContent::ToolCall(call)
+                                if call.id == "call_legacy_1"
+                                    && call.call_id.is_none()
+                                    && call.function.name == "xcap"
+                        )
+                    })
+            )
+        }));
+        assert!(chat_history.iter().any(|message| {
+            matches!(
+                message,
+                RigMessage::User { content }
+                    if content.iter().any(|item| {
+                        matches!(
+                            item,
+                            UserContent::ToolResult(result)
+                                if result.id == "call_legacy_1"
+                                    && result.call_id.is_none()
+                        )
+                    })
+            )
+        }));
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -316,8 +385,9 @@ enum OpenAiRigApiKind {
 
 fn build_openai_rig_prompt(
     prepared: &PreparedPrompt,
+    protocol_family: ToolCallProtocolFamily,
 ) -> Result<(Vec<RigMessage>, RigMessage), String> {
-    let chat_history = prepared_history_to_rig_messages(prepared)?;
+    let chat_history = prepared_history_to_rig_messages(prepared, protocol_family)?;
     let mut content_items: Vec<UserContent> = Vec::new();
     for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
         content_items.push(UserContent::text(text_block));
@@ -350,7 +420,11 @@ async fn call_model_openai_rig_style_internal(
     kind: OpenAiRigApiKind,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String> {
-    let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared)?;
+    let protocol_family = match kind {
+        OpenAiRigApiKind::ChatCompletions => ToolCallProtocolFamily::OpenAiChatLike,
+        OpenAiRigApiKind::Responses => ToolCallProtocolFamily::OpenAiResponses,
+    };
+    let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared, protocol_family)?;
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
     if !api_config.base_url.is_empty() {
@@ -557,7 +631,8 @@ async fn call_model_gemini_rig_style(
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    let chat_history = prepared_history_to_rig_messages(&prepared)?;
+    let chat_history =
+        prepared_history_to_rig_messages(&prepared, ToolCallProtocolFamily::Gemini)?;
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
     let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
     if !normalized_base.is_empty() {
@@ -633,7 +708,8 @@ async fn call_model_anthropic_rig_style(
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    let chat_history = prepared_history_to_rig_messages(&prepared)?;
+    let chat_history =
+        prepared_history_to_rig_messages(&prepared, ToolCallProtocolFamily::Anthropic)?;
     let mut content_items: Vec<UserContent> = Vec::new();
     for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
         content_items.push(UserContent::text(text_block));

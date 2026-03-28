@@ -2,6 +2,19 @@
 
 ## 未发布
 
+- 重构（message-semantics-unification-and-tool-call-protocols）：统一消息语义层并收口多协议工具历史回放
+  - 后端新增统一消息语义层，集中解释 `ChatMessage` 中的 `tool_call` sidecar，并统一生成聊天/归档可复用的 Prompt 历史消息
+  - 聊天 Prompt、归档 Prompt 与归档 markdown 导出改为复用统一语义解释，不再分别手写工具历史展开逻辑
+  - 前端新增统一展示语义模块，聊天消息块、归档工具摘要与会话撤回 patch 判断改为消费统一投影结果
+  - 工具历史回放显式区分 `invocation_id` 与 `provider_call_id`，统一处理 OpenAI Chat、DeepSeek、OpenAI Responses、Gemini、Anthropic 四类协议差异
+  - OpenAI Responses 缺少必要 `call_id` 时统一降级为文本历史；其他 Chat-like 协议保留结构化回放，避免再次出现“一刀切”降级
+  - 补充 Rust 与前端测试，覆盖统一语义层、归档工具历史展开、多协议 tool replay 与前端展示/撤回辅助逻辑
+
+- 修复（archive-summary-tool-history-shape）：修正归档摘要请求中的工具历史结构
+  - `PromptBuildMode::Archive` 不再把整段 `tool_call` 事件列表误塞进 `PreparedHistoryMessage.tool_calls`
+  - 归档/上下文整理摘要会像聊天主链路一样展开为独立的 assistant/tool 历史消息，避免 OpenAI 兼容非流式请求携带非法 `tool_calls` 结构
+  - 补充归档历史组装测试，覆盖 `tool_calls.id/type` 必须存在的严格校验场景
+
 - 清理（active-chat-view-binding-unused-channel）：移除前台聊天流绑定中的未使用字段
   - 删除 `ActiveChatViewBinding` 中未被读取的 `on_delta` 字段，收敛活动会话绑定结构
   - 保留绑定命令入参兼容，避免仅为清理 warning 扩大前后端调用面变更

@@ -164,6 +164,7 @@
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
+import { summarizeToolActivityForDisplay } from "../../../utils/chat-message-semantics";
 import type {
   ArchiveSummary,
   ChatMessage,
@@ -301,19 +302,12 @@ function formatDate(value?: string): string {
 }
 
 function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string }> {
-  const entries = Array.isArray(msg.toolCall) ? msg.toolCall : [];
-  return entries
-    .map((item) => {
-      if (item.role !== "assistant") return null;
-      const first = item.tool_calls?.[0];
-      const name = first?.function?.name || "unknown";
-      const args = first?.function?.arguments || "";
-      return {
-        name,
-        content: args ? t("archives.toolArgs", { value: args }) : t("archives.toolNoArgs"),
-      };
-    })
-    .filter((v): v is { name: string; content: string } => !!v);
+  return summarizeToolActivityForDisplay(msg).calls.map((tool) => ({
+    name: tool.name,
+    content: tool.argsText && tool.argsText !== "{}"
+      ? t("archives.toolArgs", { value: tool.argsText })
+      : t("archives.toolNoArgs"),
+  }));
 }
 
 function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
