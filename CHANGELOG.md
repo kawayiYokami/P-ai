@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 调整（prompt-xml-blocks-and-skill-discovery-guidance）：统一提示词包裹格式并重写 skill 发现说明
+  - 系统提示主路径新增统一 XML block 包裹函数，收口系统准则、部门上下文、技能索引、任务板、委托任务、终端工作区、远程 IM 规则等提示块格式
+  - 聊天基础栏目不再混用 `#`、`##` 与 `[HIDDEN ...]` 标题，改为独立并列的 XML block，减少块内 markdown 与外层提示冲突
+  - skill 提示统一改用 `System skill directory path` 术语，不再把 skill 目录与工作空间概念混写
+  - `skill-setup` 重写为“发现 / 安装 / 自己制作”三段式说明，并补充实测可用的 `clawhub search / inspect / install --workdir` 用法
+  - 远程 IM 联系人规则收缩为身份边界与发送工具要求，不再在提示词中堆叠字段级细节
+
 - 重构（message-semantics-unification-and-tool-call-protocols）：统一消息语义层并收口多协议工具历史回放
   - 后端新增统一消息语义层，集中解释 `ChatMessage` 中的 `tool_call` sidecar，并统一生成聊天/归档可复用的 Prompt 历史消息
   - 聊天 Prompt、归档 Prompt 与归档 markdown 导出改为复用统一语义解释，不再分别手写工具历史展开逻辑

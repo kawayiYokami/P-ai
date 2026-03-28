@@ -55,13 +55,9 @@ fn append_unavailable_tool_notices_to_prepared(
     if merged.is_empty() {
         return;
     }
-    let block = format!(
-        "## 本轮不可用工具提醒\n{}",
-        merged
-            .iter()
-            .map(|item| format!("- {}", item))
-            .collect::<Vec<_>>()
-            .join("\n")
+    let block = prompt_xml_block(
+        "unavailable tool notices",
+        merged.iter().map(|item| item.to_string()).collect::<Vec<_>>().join("\n"),
     );
     if prepared.latest_user_extra_text.trim().is_empty() {
         prepared.latest_user_extra_text = block;

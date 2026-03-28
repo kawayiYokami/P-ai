@@ -260,26 +260,15 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
         return None;
     }
 
-    let workspaces = terminal_allowed_workspaces_canonical(state).ok()?;
-    if workspaces.is_empty() {
-        return None;
-    }
+    let current_root = terminal_default_session_root_canonical(state).ok()?;
+    let current_root_text = terminal_path_for_user(&current_root);
 
     let mut lines = Vec::<String>::new();
-    lines.push("[SHELL WORKSPACE 约束]".to_string());
-    lines.push("你只能在允许的工作空间根目录内执行命令。".to_string());
-    lines.push("禁止在命令中使用绝对路径。".to_string());
-    lines.push("禁止在命令中使用绝对路径。".to_string());
-    lines.push("禁止在命令中使用绝对路径。".to_string());
-    lines.push("允许的工作空间根目录：".to_string());
-    for (index, ws) in workspaces.iter().enumerate() {
-        lines.push(format!("{}. {}", index + 1, ws.name));
-    }
-    lines.push(
-        "切换请调用 shell_switch_workspace(workspaceName)；执行请调用 shell_exec(command)。"
-            .to_string(),
-    );
-    Some(lines.join("\n"))
+    lines.push(format!("当前工作路径: {}", current_root_text));
+    lines.push("当前 exec 工具默认在当前工作路径执行命令。".to_string());
+    lines.push("请不要在命令中使用绝对路径。".to_string());
+    lines.push("请不要脱离当前工作空间执行任务。".to_string());
+    Some(prompt_xml_block("shell workspace", lines.join("\n")))
 }
 
 fn terminal_default_session_root_canonical(state: &AppState) -> Result<PathBuf, String> {

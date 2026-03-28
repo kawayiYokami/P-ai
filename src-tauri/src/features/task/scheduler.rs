@@ -304,7 +304,6 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     let snapshot = task_build_board_snapshot(&state.data_path).ok()?;
     let tracked = snapshot.tracked_task?;
     let mut lines = Vec::<String>::new();
-    lines.push("[HIDDEN TASK BOARD]".to_string());
     lines.push(format!("currentLocalTime: {}", now_local_time_rfc3339()));
     lines.push("timeFormatNote: all task times below use local RFC3339 with timezone offset; copy the same format directly when writing runAt".to_string());
     lines.push(format!("trackedTaskId: {}", tracked.task_id));
@@ -342,7 +341,7 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     if !other_tasks.is_empty() {
         lines.push(format!("otherTasks: {}", other_tasks.join("; ")));
     }
-    Some(lines.join("\n"))
+    Some(prompt_xml_block("task board", lines.join("\n")))
 }
 
 fn build_task_trigger_hidden_prompt(task: &TaskEntry) -> String {

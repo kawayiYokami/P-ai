@@ -1,28 +1,51 @@
 ---
 name: skill-setup
-description: 当需要补齐、创建、整理当前工作区的 skill 时，必须立刻阅读我。我会告诉你 skill 应该放在哪里、最小结构是什么，以及安装和编写时该遵守哪些规则。
+description: 当你缺少某项能力、需要判断当前任务是否应该先找 skill、或需要去公开来源发现可复用 skill 时，必须立刻阅读我。我会告诉你去哪里找 skill、如何判断它是否适合当前任务，以及发现后如何安全迁移到当前工作区。
 ---
 
-# Skill Setup
+# Skill Discovery
 
 ## 规则
-- `<workspace>` 只是占位符，不是固定目录名；它表示你当前 shell 的启动工作空间。
-- 你只能在这个工作空间内工作；不要假设或访问工作空间外路径。
-- 自己查官方文档再安装或编写，不要空想格式。
-- 可以去 `https://clawhub.ai/` 搜索公开 skill，把它当作灵感来源、现成模板来源、GitHub 来源。
-- skill 放在 `<workspace>/skills/`。
+- 当你不确定当前任务是否已有现成 skill 可用时，先找 skill，不要直接硬做。
+- 自己查 skill 正文和来源信息再决定是否安装或迁移，不要空想格式。
+- 可以用 `clawhub` 搜索、查看、安装公开 skill；网页 `https://clawhub.ai/` 更适合做人工浏览和交叉确认。
+- skill 放在 system skill directory path 下；这个路径会在提示词中显式给出。
 - 每个 skill 一个目录，至少包含 `SKILL.md`。
 - 需要时再补 `scripts/`、`references/`、`assets/`。
+- 如果使用 `clawhub install`，必须显式指定安装目标，不要假设它会自动安装到当前应用的 skill 目录。
 - 完成后做一次最小验证，确认结构正确、内容可触发。
 
-## 如何使用 ClawHub
-- 打开 `https://clawhub.ai/`，搜索你要的能力关键词。
-- 进入 skill 详情页，先看说明、文件列表、更新时间、作者、下载量。
-- 优先查看 skill 的 `SKILL.md` 正文和关联 GitHub 仓库，理解它到底怎么工作。
-- 不要直接照搬别的生态的安装命令；这里更适合把它的说明、模板、脚本思路迁移到当前工作区。
-- 如果内容合适，就在 `<workspace>/skills/<skill-name>/` 下新建目录，把整理后的 `SKILL.md`、脚本、参考资料放进去。
+## 发现 Skill
+- 优先使用命令行搜索：
+  - `npx clawhub@latest search "<关键词>"`
+- 如果需要减少 `npx` 重复安装，也可以先安装本地或全局 CLI 再运行：
+  - `npm install clawhub@0.9.0`
+  - `.\node_modules\.bin\clawhub.cmd search "<关键词>"`
+- 找到候选 skill 后，先查看详情：
+  - `npx clawhub@latest inspect <skill-slug>`
+- 再去网页 `https://clawhub.ai/` 查看说明、文件列表、更新时间、作者等信息做人工确认。
+- 先判断这个 skill 是否真的匹配当前任务，再决定下一步是安装它，还是只借鉴它的一部分。
 - 如果只是借鉴其中一部分，也要按当前项目的格式重写，不要原封不动复制一大堆无关说明。
 - 最近公开 skill 市场出现过恶意内容争议，安装或迁移前先阅读全文，再看脚本和外链，确认没有危险命令。
+
+## 安装现成 Skill
+- 如果找到可直接复用的 skill，优先安装到当前 system skill directory path。
+- 实测可用命令：
+  - `npx clawhub@latest install <skill-slug> --workdir "<directory-that-contains-the-system-skill-directory>"`
+- 这里的 `--workdir` 应该传 System skill directory path 的上一级目录，而不是 skill 目录本身。
+- 安装结果会落到：
+  - `<System skill directory path>/<skill-slug>/`
+- 例如：
+  - `npx clawhub@latest install sonoscli --workdir "<directory-that-contains-the-system-skill-directory>"`
+- 安装完成后，skill 会出现在：
+  - `<System skill directory path>/sonoscli/SKILL.md`
+- 不要依赖默认目录；省略安装目标后可能会安装到错误位置。
+- 安装完成后，确认对应 skill 目录和 `SKILL.md` 已经真正出现在当前 system skill directory path 下。
+
+## 自己制作 Skill
+- 只有当没有合适的现成 skill，或你只想借鉴部分内容时，才自己制作 skill。
+- 自己制作时，在 system skill directory path 下新建 `<skill-name>/` 目录。
+- 把整理后的 `SKILL.md`、脚本、参考资料按当前项目格式放进去，不要原封不动复制无关内容。
 
 ## SKILL.md 格式
 - 文件必须以 YAML frontmatter 开头和结束。
@@ -33,7 +56,7 @@ description: 当需要补齐、创建、整理当前工作区的 skill 时，必
 
 ## 最小结构
 ```text
-<workspace>/skills/
+<system-skill-directory-path>/
   your-skill/
     SKILL.md
 ```

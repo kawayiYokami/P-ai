@@ -126,16 +126,15 @@ fn highest_instruction_markdown() -> String {
     } else {
         title
     };
-    let mut out = format!("# {}\n", title);
+    let mut out = String::new();
     for rule in &source.rules {
         let line = rule.trim();
         if !line.is_empty() {
-            out.push_str("- ");
             out.push_str(line);
             out.push('\n');
         }
     }
-    out
+    prompt_xml_block(title, out)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
