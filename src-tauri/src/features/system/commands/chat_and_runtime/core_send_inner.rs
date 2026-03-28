@@ -98,36 +98,36 @@ fn build_remote_im_activation_runtime_block(
     }
     let source_lines = sources
         .iter()
-        .map(|source| format!("- {}", remote_im_activation_source_summary_line(source)))
+        .map(|source| remote_im_activation_source_summary_line(source))
         .collect::<Vec<_>>()
         .join("\n");
     let block = match (ui_language.trim(), sources.len()) {
         ("en-US", 1) => format!(
-            "## Remote IM Runtime Activation\n- This round was activated by exactly one remote IM source.\n{}\n- If you do not explicitly call `remote_im_send`, the system may automatically send your final assistant reply to that source.\n- If you need to reply to another target or choose not to send, you must explicitly call `remote_im_send`.",
+            "This round was activated by exactly one remote IM source.\n{}\nIf you do not explicitly call `remote_im_send`, the system may automatically send your final assistant reply to that source.\nIf you need to reply to another target or choose not to send, you must explicitly call `remote_im_send`.",
             source_lines
         ),
         ("en-US", _) => format!(
-            "## Remote IM Runtime Activation\n- This round was activated by multiple remote IM sources.\n{}\n- The system will not auto-send any final reply in this round.\n- If you need to send anything outward, you must explicitly call `remote_im_send` and specify the target `channel_id` + `contact_id`.",
+            "This round was activated by multiple remote IM sources.\n{}\nThe system will not auto-send any final reply in this round.\nIf you need to send anything outward, you must explicitly call `remote_im_send` and specify the target `channel_id` + `contact_id`.",
             source_lines
         ),
         ("zh-TW", 1) => format!(
-            "## 遠端 IM 執行期啟動來源\n- 本輪由唯一一個遠端 IM 來源啟動。\n{}\n- 若你未明確呼叫 `remote_im_send`，系統可能會在本輪結束後自動將最終回覆發送到該來源。\n- 若要改發其他目標，或決定不外發，必須明確呼叫 `remote_im_send`。",
+            "本輪由唯一一個遠端 IM 來源啟動。\n{}\n若你未明確呼叫 `remote_im_send`，系統可能會在本輪結束後自動將最終回覆發送到該來源。\n若要改發其他目標，或決定不外發，必須明確呼叫 `remote_im_send`。",
             source_lines
         ),
         ("zh-TW", _) => format!(
-            "## 遠端 IM 執行期啟動來源\n- 本輪由多個遠端 IM 來源共同啟動。\n{}\n- 系統不會自動外發本輪最終回覆。\n- 若需要對外發送，必須明確呼叫 `remote_im_send`，並指定目標 `channel_id` + `contact_id`。",
+            "本輪由多個遠端 IM 來源共同啟動。\n{}\n系統不會自動外發本輪最終回覆。\n若需要對外發送，必須明確呼叫 `remote_im_send`，並指定目標 `channel_id` + `contact_id`。",
             source_lines
         ),
         (_, 1) => format!(
-            "## 远程 IM 运行时激活来源\n- 本轮由唯一一个远程 IM 来源激活。\n{}\n- 如果你未显式调用 `remote_im_send`，系统可能会在本轮结束后自动将最终回复发送到该来源。\n- 如果需要改发其他目标，或决定不外发，必须显式调用 `remote_im_send`。",
+            "本轮由唯一一个远程 IM 来源激活。\n{}\n如果你未显式调用 `remote_im_send`，系统可能会在本轮结束后自动将最终回复发送到该来源。\n如果需要改发其他目标，或决定不外发，必须显式调用 `remote_im_send`。",
             source_lines
         ),
         _ => format!(
-            "## 远程 IM 运行时激活来源\n- 本轮由多个远程 IM 来源共同激活。\n{}\n- 系统不会自动外发本轮最终回复。\n- 如果需要对外发送，必须显式调用 `remote_im_send`，并指定目标 `channel_id` + `contact_id`。",
+            "本轮由多个远程 IM 来源共同激活。\n{}\n系统不会自动外发本轮最终回复。\n如果需要对外发送，必须显式调用 `remote_im_send`，并指定目标 `channel_id` + `contact_id`。",
             source_lines
         ),
     };
-    Some(block)
+    Some(prompt_xml_block("remote im runtime activation", block))
 }
 
 fn resolve_remote_im_auto_send_target(
@@ -1307,9 +1307,6 @@ async fn send_chat_message_inner(
         chat_overrides
             .system_preamble_blocks
             .push(build_hidden_skill_snapshot_block(&state));
-        chat_overrides
-            .system_preamble_blocks
-            .push(build_hidden_skill_usage_block());
         if let Some(runtime_block) = build_remote_im_activation_runtime_block(
             &remote_im_activation_sources,
             &app_config.ui_language,

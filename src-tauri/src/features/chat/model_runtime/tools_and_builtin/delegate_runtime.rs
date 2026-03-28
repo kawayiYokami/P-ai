@@ -22,7 +22,7 @@ fn delegate_build_task_prompt_block(
     specific_goal: &str,
     deliverable_requirement: &str,
 ) -> String {
-    let mut lines = vec!["[DELEGATE TASK]".to_string(), format!("委托任务：{}", title.trim())];
+    let mut lines = vec![format!("委托任务：{}", title.trim())];
     lines.push(format!("核心指令：{}", instruction.trim()));
     if !background.trim().is_empty() {
         lines.push(format!("背景：{}", background.trim()));
@@ -33,7 +33,7 @@ fn delegate_build_task_prompt_block(
     if !deliverable_requirement.trim().is_empty() {
         lines.push(format!("交付要求：{}", deliverable_requirement.trim()));
     }
-    lines.join("\n")
+    prompt_xml_block("delegate task", lines.join("\n"))
 }
 
 fn delegate_build_trigger_provider_meta(

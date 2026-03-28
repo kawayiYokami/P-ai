@@ -160,7 +160,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
                     name,
                     description,
                     content,
-                    path: dir.to_string_lossy().to_string(),
+                    path: skill_md.to_string_lossy().to_string(),
                 });
             }
             Err(err) => errors.push(WorkspaceLoadError {
@@ -174,10 +174,9 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
 
 pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
     if skills.is_empty() {
-        return "No skills found in <workspace>/skills (where <workspace> is the current shell startup workspace).".to_string();
+        return "No skills found in current skills directory.".to_string();
     }
     let mut lines = Vec::<String>::new();
-    lines.push("Current skills snapshot:".to_string());
     for item in skills {
         let desc = if item.description.trim().is_empty() {
             "(no description)"
@@ -190,29 +189,42 @@ pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
 }
 
 pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
+    let skills_root_path = llm_workspace_skills_root(state);
+    let skills_root = skills_root_path.to_string_lossy();
     match load_workspace_skill_summaries_with_errors(state) {
         Ok((skills, _errors)) => {
+            let example_path = skills
+                .iter()
+                .find(|item| item.name.trim().eq_ignore_ascii_case("workspace-guide"))
+                .map(|item| item.path.trim().to_string())
+                .unwrap_or_else(|| {
+                    skills_root_path
+                        .join("workspace-guide")
+                        .join("SKILL.md")
+                        .to_string_lossy()
+                        .to_string()
+                });
             let summary = render_skill_summary(&skills);
-            format!("[HIDDEN SKILLS SNAPSHOT]\n{}", summary)
+            format!(
+                "{}\n\n{}",
+                prompt_xml_block(
+                    "skill usage",
+                    format!(
+                        "System skill directory path: {}\n\nhow to read skill:\nexample:\nworkspace-guide\nread this path: {}",
+                        skills_root, example_path
+                    ),
+                ),
+                prompt_xml_block("skill index", summary)
+            )
         }
-        Err(err) => format!("[HIDDEN SKILLS SNAPSHOT]\nscan failed: {err}"),
+        Err(err) => prompt_xml_block(
+            "skill usage",
+            format!(
+                "System skill directory path: {}\nscan failed: {}",
+                skills_root, err
+            ),
+        ),
     }
-}
-
-pub(crate) fn build_hidden_skill_usage_block() -> String {
-    "[HIDDEN SKILL USAGE]\n\
-`<workspace>` 在本提示中是占位符，不是固定目录名；它表示你当前 shell 的启动工作空间。\n\
-你只能在这个工作空间范围内工作，不要假设或访问该范围外路径。\n\
-Skill 位于工作区目录：<workspace>/skills/<skill-name>/SKILL.md。\n\
-Skill 是工作区内的本地能力说明（每个 skill 对应一个目录，至少包含 SKILL.md）。\n\
-当用户请求明显匹配某个 Skill 的描述时，你应优先按该 Skill 执行。\n\
-执行规则：\n\
-1) 先使用 shell 读取目标 Skill 的 SKILL.md，再按其中流程执行；不要凭空猜测步骤。\n\
-2) 仅加载完成当前任务所需的最小内容；不要一次性展开无关文件。\n\
-3) 若 SKILL.md 引用了 scripts/、references/、assets/，继续使用 shell 按需读取并优先复用现成内容，不要重复造轮子。\n\
-4) 若 Skill 缺失、不可读或说明冲突，先明确说明问题，再给出最小可行替代方案。\n\
-5) 不要把 snapshot 当作可执行命令列表；它只是当前可用技能的摘要索引。"
-        .to_string()
 }
 
 pub(crate) fn refresh_workspace_mcp_and_skills(state: &AppState) -> Result<RefreshMcpAndSkillsResult, String> {

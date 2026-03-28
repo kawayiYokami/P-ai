@@ -1,13 +1,12 @@
 fn build_memory_generation_instruction(agent: &AgentProfile, user_alias: &str) -> String {
-    format!(
-        "你要做记忆整理。输出严格 JSON，不要 markdown，不要代码块。\n\
-         ## 强制要求（MUST）\n\
-         A) 输出必须是合法 JSON，且仅包含 usefulMemoryIds/newMemories/mergeGroups 三个字段。\n\
+    let must_rules = format!(
+        "A) 输出必须是合法 JSON，且仅包含 usefulMemoryIds/newMemories/mergeGroups 三个字段。\n\
          B) 不得输出 markdown、代码块、解释性前后缀。\n\
-         C) 你是 {assistant_name}，用户称谓是 {user_name}。\n\
-         \n\
-         ## 记忆要求（仅约束 usefulMemoryIds/newMemories/mergeGroups）\n\
-         1) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event。\n\
+         C) 你是 {assistant_name}，用户称谓是 {user_name}。",
+        assistant_name = agent.name,
+        user_name = user_alias
+    );
+    let memory_rules = "1) newMemories 最多 7 条；非必要不生成；memoryType 只能是 knowledge/skill/emotion/event。\n\
          2) usefulMemoryIds 只能从“本次会话使用过的记忆”中选择。\n\
          3) mergeGroups 不是必须，默认输出 []；仅当语义等价或高度重复且合并后不丢信息时才允许填写。\n\
          4) mergeGroups.sourceIds 只能从“本次会话使用过的记忆”中选择，且每组至少 2 个；不确定时必须保持 []。\n\
@@ -20,9 +19,11 @@ fn build_memory_generation_instruction(agent: &AgentProfile, user_alias: &str) -
          11) tags/judgment/reasoning 必须使用当前用户本轮语言（专有名词除外）。\n\
          12) tags 中的每一项都必须是独立、紧凑、稳定、可检索的词元；不要写整句，不要写短语拼接，不要写“用户喜欢极简风格”这类带关系的长表达。\n\
          13) tags 只写检索锚点本身，例如 人名、项目名、偏好词、主题词、技能词、物品名；同一项里不要混入多个语义。\n\
-         14) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。",
-        assistant_name = agent.name,
-        user_name = user_alias
+         14) 不要记录高风险敏感信息（密码、密钥、身份证、银行卡等）。";
+    format!(
+        "你要做记忆整理。输出严格 JSON，不要 markdown，不要代码块。\n{}\n{}",
+        prompt_xml_block("memory curation must", must_rules),
+        prompt_xml_block("memory curation rules", memory_rules)
     )
 }
 

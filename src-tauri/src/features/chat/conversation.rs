@@ -1044,7 +1044,6 @@ struct PromptDepartmentContext {
 }
 
 struct DepartmentPromptLabels {
-    current_title: &'static str,
     current_name_label: &'static str,
     current_summary_label: &'static str,
     current_guide_label: &'static str,
@@ -1059,7 +1058,6 @@ struct DepartmentPromptLabels {
 fn department_prompt_labels(ui_language: &str) -> DepartmentPromptLabels {
     match ui_language.trim() {
         "en-US" => DepartmentPromptLabels {
-            current_title: "Current Department",
             current_name_label: "Department",
             current_summary_label: "Summary",
             current_guide_label: "Guide",
@@ -1071,7 +1069,6 @@ fn department_prompt_labels(ui_language: &str) -> DepartmentPromptLabels {
             empty_guide: "No guide configured.",
         },
         "zh-TW" => DepartmentPromptLabels {
-            current_title: "你當前所屬部門",
             current_name_label: "部門",
             current_summary_label: "部門概述",
             current_guide_label: "部門辦事指南",
@@ -1083,7 +1080,6 @@ fn department_prompt_labels(ui_language: &str) -> DepartmentPromptLabels {
             empty_guide: "尚未配置辦事指南。",
         },
         _ => DepartmentPromptLabels {
-            current_title: "你当前所属部门",
             current_name_label: "部门",
             current_summary_label: "部门概述",
             current_guide_label: "部门办事指南",
@@ -1217,22 +1213,21 @@ fn build_departments_prompt_block(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| labels.empty_guide.to_string());
     let mut lines = vec![
-        format!("## {}", labels.current_title),
-        format!("- {}：{}", labels.current_name_label, prompt_context.current.name),
+        format!("{}：{}", labels.current_name_label, prompt_context.current.name),
         format!(
-            "- {}：{}",
+            "{}：{}",
             labels.current_summary_label, prompt_context.current.summary
         ),
-        format!("- {}：{}", labels.current_guide_label, guide),
+        format!("{}：{}", labels.current_guide_label, guide),
         String::new(),
-        format!("## {}", labels.available_title),
+        format!("{}：", labels.available_title),
     ];
     if prompt_context.available.is_empty() {
-        lines.push(format!("- {}", labels.available_empty));
+        lines.push(labels.available_empty.to_string());
     } else {
         for department in prompt_context.available {
             lines.push(format!(
-                "- {}：{} | {}：{} | {}：{}",
+                "{}：{} | {}：{} | {}：{}",
                 labels.current_name_label,
                 department.name,
                 labels.available_id_label,
@@ -1243,7 +1238,7 @@ fn build_departments_prompt_block(
         }
     }
     lines.push(String::new());
-    lines.join("\n")
+    prompt_xml_block("department context", lines.join("\n"))
 }
 
 fn build_prompt(
@@ -1570,9 +1565,9 @@ fn build_prompt_with_mode(
         ),
     };
     let remote_im_rules_block = match ui_language.trim() {
-        "en-US" => "## Remote IM Contact Tool Rules\n- For messages from a remote contact, reply decisions must only be made through `remote_im_send`.\n- Do not output a direct reply message as a substitute for the tool.\n- If needed, first call `remote_im_send` with `action=list` to get available contacts.\n- For `action=send`, use exact `channel_id` + `contact_id` from list/context.\n- `contact_id` must be the `contact_id` returned by `action=list`; do not use internal record ids (UUID).\n- If you decide not to reply, you must still call `remote_im_send` with `action=no_reply`.\n- `status` must be lowercase `continue` or `done`.\n- Use `continue` for intermediate sends and `done` for the final decision in this round.",
-        "zh-TW" => "## 遠端 IM 聯絡人工具規則\n- 來自聯絡人的訊息，回覆決策必須且只能透過 `remote_im_send` 完成。\n- 不要直接輸出要發給聯絡人的回覆文字來取代工具呼叫。\n- 需要時先呼叫 `remote_im_send`，`action=list` 取得可用聯絡人。\n- `action=send` 時，必須使用上下文/清單中的精確 `channel_id` + `contact_id`。\n- `contact_id` 必須是 `action=list` 返回的 `contact_id`；不要使用內部記錄 id（UUID）。\n- 若決定不回覆，也必須呼叫 `remote_im_send`，`action=no_reply`。\n- `status` 必須是小寫 `continue` 或 `done`。\n- 中間調用 `continue`，本輪最後一個決策用 `done`。",
-        _ => "## 远程 IM 联系人工具规则\n- 来自联系人的消息，回复决策必须且只能通过 `remote_im_send` 完成。\n- 不要直接输出要发给联系人的回复文字来代替工具调用。\n- 需要时先调用 `remote_im_send`，`action=list` 获取可用联系人。\n- `action=send` 时，必须使用上下文/列表中的精确 `channel_id` + `contact_id`。\n- `contact_id` 必须是 `action=list` 返回的 `contact_id`；不要使用内部记录 id（UUID）。\n- 若决定不回复，也必须调用 `remote_im_send`，`action=no_reply`。\n- `status` 必须是小写 `continue` 或 `done`。\n- 中间调用 `continue`，本轮最后一个决策用 `done`。",
+        "en-US" => prompt_xml_block("remote im contact rules", "A remote IM contact is a special user, not the direct user in the current chat window.\nTheir messages come from a remote interface and should be treated as an independent external user.\nDo not confuse the remote contact with the current user, and do not confuse the reply target.\nIf you need to reply to a remote contact, you must call `remote_im_send`."),
+        "zh-TW" => prompt_xml_block("remote im contact rules", "聯絡人是特殊使用者，不是當前聊天視窗中的直接使用者。\n他們的訊息來自遠端介面接入，應視為獨立的外部使用者。\n不要把聯絡人和當前使用者混為一談，也不要混淆回覆目標。\n如果需要回覆遠端聯絡人，必須呼叫 `remote_im_send`。"),
+        _ => prompt_xml_block("remote im contact rules", "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。"),
     };
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
     let mut preamble = if let Some((user_name, user_intro)) = user_profile {
@@ -1587,45 +1582,39 @@ fn build_prompt_with_mode(
         format!(
             "{}\n\
 {}\n\
-## {}\n\
-{}\n\
-\n\
-## {}\n\
-- {}：{}\n\
-- {}：{}\n\
-\n\
-## {}\n\
 {}\n\
 {}\n\
-\n\
-## {}\n\
-- 当前风格：{}\n\
 {}\n\
-\n\
-## {}\n\
-- {}\n\
-- {}\n\
-- {}\n\
-\n",
+{}\n\
+{}\n",
             highest_instruction_md,
             departments_block,
-            assistant_settings_label,
-            agent.system_prompt,
-            user_settings_label,
-            user_nickname_label,
-            xml_escape_prompt(user_name),
-            user_intro_label,
-            xml_escape_prompt(&user_intro_display),
-            role_constraints_label,
-            role_identity_text,
-            role_confusion_line,
-            conversation_style_label,
-            response_style.name,
-            response_style.prompt,
-            language_settings_label,
-            language_instruction,
-            language_follow_user_line,
-            date_timezone_line
+            prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
+            prompt_xml_block(
+                user_settings_label,
+                format!(
+                    "{}：{}\n{}：{}",
+                    user_nickname_label,
+                    xml_escape_prompt(user_name),
+                    user_intro_label,
+                    xml_escape_prompt(&user_intro_display)
+                )
+            ),
+            prompt_xml_block(
+                role_constraints_label,
+                format!("{}\n{}", role_identity_text, role_confusion_line)
+            ),
+            prompt_xml_block(
+                conversation_style_label,
+                format!("当前风格：{}\n{}", response_style.name, response_style.prompt)
+            ),
+            prompt_xml_block(
+                language_settings_label,
+                format!(
+                    "{}\n{}\n{}",
+                    language_instruction, language_follow_user_line, date_timezone_line
+                )
+            )
         )
     } else {
         let delegate_role_line = match ui_language.trim() {
@@ -1641,34 +1630,25 @@ fn build_prompt_with_mode(
         format!(
             "{}\n\
 {}\n\
-## {}\n\
-{}\n\
-\n\
-## {}\n\
 {}\n\
 {}\n\
-\n\
-## {}\n\
-- 当前风格：{}\n\
 {}\n\
-\n\
-## {}\n\
-- {}\n\
-- {}\n\
-\n",
+{}\n",
             highest_instruction_md,
             departments_block,
-            assistant_settings_label,
-            agent.system_prompt,
-            role_constraints_label,
-            delegate_role_line,
-            delegate_scope_line,
-            conversation_style_label,
-            response_style.name,
-            response_style.prompt,
-            language_settings_label,
-            language_instruction,
-            date_timezone_line,
+            prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
+            prompt_xml_block(
+                role_constraints_label,
+                format!("{}\n{}", delegate_role_line, delegate_scope_line)
+            ),
+            prompt_xml_block(
+                conversation_style_label,
+                format!("当前风格：{}\n{}", response_style.name, response_style.prompt)
+            ),
+            prompt_xml_block(
+                language_settings_label,
+                format!("{}\n{}", language_instruction, date_timezone_line)
+            ),
         )
     };
     if !remote_im_rules_block.trim().is_empty() {
@@ -1676,7 +1656,7 @@ fn build_prompt_with_mode(
             preamble.push('\n');
         }
         preamble.push('\n');
-        preamble.push_str(remote_im_rules_block);
+        preamble.push_str(&remote_im_rules_block);
         preamble.push('\n');
     }
 

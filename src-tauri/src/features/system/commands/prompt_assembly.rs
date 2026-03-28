@@ -15,6 +15,15 @@ struct ChatPromptOverrides {
     latest_audios: Option<Vec<(String, String)>>,
 }
 
+pub(crate) fn prompt_xml_block(block_name: &str, body: impl AsRef<str>) -> String {
+    let name = block_name.trim();
+    let content = body.as_ref().trim();
+    if name.is_empty() || content.is_empty() {
+        return String::new();
+    }
+    format!("<{}>\n{}\n</{}>", name, content, name)
+}
+
 fn build_prepared_prompt_for_mode(
     mode: PromptBuildMode,
     conversation: &Conversation,
@@ -274,11 +283,10 @@ fn enrich_prepared_prompt_with_common_preamble(
     if let Some(summary) = last_archive_summary {
         let summary = summary.trim();
         if !summary.is_empty() {
-            prepared.preamble.push_str(
-                "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",
-            );
-            prepared.preamble.push_str(summary);
-            prepared.preamble.push('\n');
+            let recap = format!("USER: 上次我们聊到哪里？\nASSISTANT: {}", summary);
+            prepared
+                .preamble
+                .push_str(&format!("\n{}\n", prompt_xml_block("archive recap", recap)));
         }
     }
     if let Some(block) = terminal_block {
