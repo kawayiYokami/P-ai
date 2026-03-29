@@ -1801,7 +1801,7 @@ async fn send_chat_message_inner(
         effective_prompt_tokens: Some(effective_prompt_tokens),
         effective_prompt_source: Some(effective_prompt_source.to_string()),
         context_window_tokens: Some(active_selected_api.context_window_tokens),
-        max_output_tokens: Some(active_selected_api.max_output_tokens),
+        max_output_tokens: active_resolved_api.max_output_tokens,
         context_usage_percent: Some(context_usage_percent),
     })
     };
@@ -1906,8 +1906,10 @@ mod core_send_inner_tests {
             api_key: "k".to_string(),
             model: format!("model-{id}"),
             temperature: 0.7,
+            custom_temperature_enabled: false,
             context_window_tokens: 128_000,
             max_output_tokens: 4_096,
+            custom_max_output_tokens_enabled: false,
             failure_retry_count: 0,
         }
     }

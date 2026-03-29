@@ -46,6 +46,8 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 2_000_000);
         api.max_output_tokens = api.max_output_tokens.clamp(256, 32_768);
+        api.custom_max_output_tokens_enabled =
+            api.request_format.is_anthropic() || api.custom_max_output_tokens_enabled;
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
         let legacy_command_enabled = api.tools.iter().any(|tool| {
             matches!(
@@ -962,11 +964,8 @@ fn resolve_api_config(
                 base_url: debug_cfg.base_url.trim().to_string(),
                 api_key: debug_cfg.api_key.trim().to_string(),
                 model: debug_cfg.model.trim().to_string(),
-                temperature: debug_cfg
-                    .temperature
-                    .unwrap_or(default_api_temperature())
-                    .clamp(0.0, 2.0),
-                max_output_tokens: default_max_output_tokens(),
+                temperature: debug_cfg.temperature.map(|value| value.clamp(0.0, 2.0)),
+                max_output_tokens: None,
             });
         }
     }
@@ -986,8 +985,12 @@ fn resolve_api_config(
         base_url: selected.base_url.trim().to_string(),
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),
-        temperature: selected.temperature.clamp(0.0, 2.0),
-        max_output_tokens: selected.max_output_tokens.clamp(256, 32_768),
+        temperature: selected
+            .custom_temperature_enabled
+            .then_some(selected.temperature.clamp(0.0, 2.0)),
+        max_output_tokens: (selected.request_format.is_anthropic()
+            || selected.custom_max_output_tokens_enabled)
+            .then_some(selected.max_output_tokens.clamp(256, 32_768)),
     })
 }
 

@@ -148,27 +148,29 @@
               <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.model") }}</span>
               <div class="flex min-w-0 flex-1 gap-1">
                 <input v-model="props.selectedApiConfig.model" class="input input-bordered input-sm min-w-0 flex-1" placeholder="model" />
-                <div v-if="isTextMode" class="dropdown dropdown-end">
+                <div v-if="isTextMode" ref="modelPickerRef" class="dropdown dropdown-end" :class="{ 'dropdown-open': modelPickerOpen }">
                   <button
-                    tabindex="0"
+                    type="button"
                     class="btn btn-sm btn-square"
                     :class="props.modelRefreshOk ? 'btn-primary' : 'bg-base-200'"
                     :disabled="props.modelOptions.length === 0"
                     :title="t('config.api.pickModel')"
+                    @click.stop="toggleModelPicker"
                   >
                     <ChevronsUpDown class="h-3.5 w-3.5" />
                   </button>
-                  <div tabindex="0" class="dropdown-content z-1 flex max-h-72 min-w-70 flex-col overflow-hidden rounded-box bg-base-100 shadow">
+                  <div v-if="modelPickerOpen" class="dropdown-content z-1 flex max-h-72 min-w-70 flex-col overflow-hidden rounded-box bg-base-100 shadow" @click.stop>
                     <input
                       v-model="modelSearch"
                       type="text"
                       :placeholder="t('config.api.searchModel')"
                       class="input input-bordered input-sm h-8 min-h-8 w-full rounded-none border-x-0 border-t-0 focus:outline-none"
                       @click.stop
+                      @keydown.esc.stop.prevent="closeModelPicker()"
                     />
                     <ul class="menu flex-1 flex-col flex-nowrap overflow-auto p-1">
                       <li v-for="modelName in filteredModels" :key="modelName">
-                        <button class="break-words whitespace-normal text-left" @click="selectModel(modelName)">{{ modelName }}</button>
+                        <button class="wrap-break-word whitespace-normal text-left" @click="selectModel(modelName)">{{ modelName }}</button>
                       </li>
                       <li v-if="filteredModels.length === 0" class="py-2 text-center text-sm opacity-50">{{ t("config.api.noModelFound") }}</li>
                     </ul>
@@ -193,13 +195,27 @@
               <div class="mb-1 flex items-center justify-end">
                 <span class="text-sm opacity-70">{{ Number(props.selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
               </div>
-              <input v-model.number="props.selectedApiConfig.temperature" :disabled="modelControlsLocked" type="range" min="0" max="2" step="0.1" class="range range-sm w-full" />
+              <input
+                v-model.number="props.selectedApiConfig.temperature"
+                :disabled="modelControlsLocked || !props.selectedApiConfig.customTemperatureEnabled"
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                class="range range-sm w-full"
+              />
               <div class="mt-1 flex justify-between text-[10px] opacity-60">
                 <span>0.0</span>
                 <span>1.0</span>
                 <span>2.0</span>
               </div>
             </div>
+            <input
+              v-model="props.selectedApiConfig.customTemperatureEnabled"
+              :disabled="modelControlsLocked"
+              type="checkbox"
+              class="checkbox checkbox-sm shrink-0"
+            />
           </div>
 
           <div v-if="isTextMode" class="flex w-full items-center gap-2">
@@ -219,7 +235,7 @@
               />
               <div class="mt-1 flex justify-between text-[10px] opacity-60">
                 <span>16K</span>
-                <span>100K</span>
+                <span>{{ contextWindowMidLabel }}</span>
                 <span>{{ contextWindowMaxLabel }}</span>
               </div>
             </div>
@@ -229,11 +245,11 @@
             <span class="w-24 shrink-0 text-sm font-medium">{{ t("config.api.maxOutputTokens") }}</span>
             <div class="min-w-0 flex-1">
               <div class="mb-1 flex items-center justify-end">
-                <span class="text-sm opacity-70">{{ Math.round(Number(props.selectedApiConfig.maxOutputTokens ?? 4096)) }}</span>
+                <span class="text-sm opacity-70">{{ selectedMaxOutputTokens }}</span>
               </div>
               <input
                 v-model.number="props.selectedApiConfig.maxOutputTokens"
-                :disabled="modelControlsLocked"
+                :disabled="modelControlsLocked || !maxOutputTokensEnabled"
                 type="range"
                 min="256"
                 :max="maxOutputTokensMax"
@@ -242,11 +258,16 @@
               />
               <div class="mt-1 flex justify-between text-[10px] opacity-60">
                 <span>256</span>
-                <span>4K</span>
+                <span>{{ maxOutputTokensMidLabel }}</span>
                 <span>{{ maxOutputTokensMaxLabel }}</span>
               </div>
-              <div class="mt-1 text-[11px] opacity-70">{{ t("config.api.maxOutputTokensHint") }}</div>
             </div>
+            <input
+              v-model="props.selectedApiConfig.customMaxOutputTokensEnabled"
+              :disabled="modelControlsLocked || maxOutputTokensToggleLocked"
+              type="checkbox"
+              class="checkbox checkbox-sm shrink-0"
+            />
           </div>
         </div>
       </div>
@@ -275,7 +296,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ChevronsUpDown, ExternalLink, Eye, EyeOff, Link, Plus, RefreshCw, Save, Trash2, WandSparkles } from "lucide-vue-next";
 import type { ApiConfigItem, ApiRequestFormat, AppConfig } from "../../../../types/app";
@@ -317,14 +338,18 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const CONTEXT_WINDOW_DEFAULT_MAX = 200000;
 const CONTEXT_WINDOW_HARD_MAX = 2000000;
+const LEGACY_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 const baseUrlHelperOpen = ref(false);
 const showApiKey = ref(false);
 const selectedProviderId = ref("openai-official");
 const modelSearch = ref("");
+const modelPickerOpen = ref(false);
+const modelPickerRef = ref<HTMLElement | null>(null);
 const activeCapability = ref<ApiCapability>("text");
 const creatingCapabilityDefault = ref(false);
 const applyingModelMetadata = ref(false);
 const savedModelSignatureByApiId = ref<Record<string, string>>({});
+const metadataModelSignatureByApiId = ref<Record<string, string>>({});
 const modelCapabilityByApiId = ref<Record<string, {
   contextWindowMax?: number;
   maxOutputTokensMax?: number;
@@ -432,7 +457,21 @@ const maxOutputTokensMax = computed(() => {
   return Math.max(256, Math.min(32768, Math.round(raw)));
 });
 const contextWindowMaxLabel = computed(() => `${Math.round(contextWindowMax.value / 1000)}K`);
+const contextWindowMidLabel = computed(() => formatTokenLabel(Math.round(((16000 + contextWindowMax.value) / 2) / 1000) * 1000));
 const maxOutputTokensMaxLabel = computed(() => `${Math.round(maxOutputTokensMax.value / 1000)}K`);
+const maxOutputTokensMidLabel = computed(() => formatTokenLabel(Math.round(((256 + maxOutputTokensMax.value) / 2) / 256) * 256));
+const maxOutputTokensToggleLocked = computed(() => currentProtocol.value === "anthropic");
+const maxOutputTokensEnabled = computed(() => maxOutputTokensToggleLocked.value || !!props.selectedApiConfig?.customMaxOutputTokensEnabled);
+const selectedMaxOutputTokens = computed(() => {
+  const raw = Number(props.selectedApiConfig?.maxOutputTokens);
+  if (!Number.isFinite(raw)) return maxOutputTokensMax.value;
+  return Math.max(256, Math.min(maxOutputTokensMax.value, Math.round(raw)));
+});
+const selectedModelMetadataReady = computed(() => {
+  const id = selectedApiId.value;
+  if (!id) return false;
+  return metadataModelSignatureByApiId.value[id] === selectedModelSignature.value;
+});
 const imageToggleAvailable = computed(() => {
   const value = selectedModelCapability.value?.enableImage;
   return value === undefined ? true : !!value;
@@ -478,10 +517,15 @@ onMounted(() => {
   savedModelSignatureByApiId.value = Object.fromEntries(
     props.config.apiConfigs.map((item) => [item.id, String(item.model || "").trim()]),
   );
+  document.addEventListener("mousedown", handleDocumentMouseDown);
   const selected = props.selectedApiConfig;
   if (!selected) return;
   activeCapability.value = capabilityFromConfig(selected);
   ensureCapabilityConfig(activeCapability.value);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", handleDocumentMouseDown);
 });
 
 watch(
@@ -499,6 +543,7 @@ watch(
 );
 
 watch(activeCapability, (capability) => {
+  closeModelPicker(false);
   if (!ensureCapabilityConfig(capability)) {
     return;
   }
@@ -512,6 +557,7 @@ watch(activeCapability, (capability) => {
 watch(
   [activeCapability, capabilityScopedConfigs],
   () => {
+    closeModelPicker(false);
     if (!ensureCapabilityConfig(activeCapability.value)) {
       return;
     }
@@ -531,6 +577,9 @@ watch(
     if (capabilityFromConfig(cfg) === "text" && !cfg.enableText) {
       cfg.enableText = true;
     }
+    cfg.customMaxOutputTokensEnabled = cfg.requestFormat === "anthropic"
+      ? true
+      : !!cfg.customMaxOutputTokensEnabled;
   },
   { immediate: true, deep: true },
 );
@@ -553,12 +602,20 @@ watch(
   (value) => {
     const cfg = props.selectedApiConfig;
     if (!cfg || !isTextMode.value) return;
-    const next = Math.round(Number(value ?? 4096));
+    const next = Math.round(Number(value ?? maxOutputTokensMax.value));
     const clamped = Math.max(256, Math.min(maxOutputTokensMax.value, next));
     if (next !== clamped) {
       cfg.maxOutputTokens = clamped;
     }
   },
+);
+
+watch(
+  [selectedApiId, selectedModelSignature, activeCapability],
+  () => {
+    void syncSelectedModelMetadataIfNeeded();
+  },
+  { immediate: true },
 );
 
 const filteredModels = computed(() => {
@@ -571,12 +628,45 @@ function selectModel(modelName: string) {
   if (props.selectedApiConfig) {
     props.selectedApiConfig.model = modelName;
   }
-  modelSearch.value = "";
+  closeModelPicker();
+}
+
+function formatTokenLabel(value: number): string {
+  if (value >= 1000) {
+    return `${Math.round(value / 1000)}K`;
+  }
+  return String(Math.round(value));
+}
+
+function closeModelPicker(resetSearch = true) {
+  modelPickerOpen.value = false;
+  if (resetSearch) {
+    modelSearch.value = "";
+  }
+}
+
+function toggleModelPicker() {
+  if (props.modelOptions.length === 0) return;
+  if (modelPickerOpen.value) {
+    closeModelPicker();
+    return;
+  }
+  modelPickerOpen.value = true;
+}
+
+function handleDocumentMouseDown(event: MouseEvent) {
+  const root = modelPickerRef.value;
+  const target = event.target;
+  if (!root || !(target instanceof Node)) return;
+  if (!root.contains(target)) {
+    closeModelPicker(false);
+  }
 }
 
 async function applySavedModelMetadata(target: ApiConfigItem) {
   const model = String(target.model || "").trim();
   if (!model) return;
+  const hadMetadataForCurrentModel = metadataModelSignatureByApiId.value[target.id] === model;
   const metadata = await invokeTauri<FetchModelMetadataOutput>("fetch_model_metadata", {
     input: {
       requestFormat: target.requestFormat,
@@ -598,19 +688,43 @@ async function applySavedModelMetadata(target: ApiConfigItem) {
       enableAudio: typeof metadata.enableAudio === "boolean" ? metadata.enableAudio : undefined,
     },
   };
+  metadataModelSignatureByApiId.value = {
+    ...metadataModelSignatureByApiId.value,
+    [target.id]: model,
+  };
   const currentContext = Math.round(Number(target.contextWindowTokens ?? contextMax));
   if (!Number.isFinite(currentContext) || currentContext < 16000 || currentContext > contextMax) {
     target.contextWindowTokens = contextMax;
   }
-  const currentOutput = Math.round(Number(target.maxOutputTokens ?? outputMax));
-  if (!Number.isFinite(currentOutput) || currentOutput < 256 || currentOutput > outputMax) {
+  const rawCurrentOutput = Number(target.maxOutputTokens);
+  const currentOutput = Math.round(rawCurrentOutput);
+  const shouldAdoptMetadataDefault = !Number.isFinite(rawCurrentOutput)
+    || (!hadMetadataForCurrentModel && currentOutput === LEGACY_DEFAULT_MAX_OUTPUT_TOKENS);
+  if (shouldAdoptMetadataDefault) {
     target.maxOutputTokens = outputMax;
+  } else if (currentOutput < 256 || currentOutput > outputMax) {
+    target.maxOutputTokens = Math.max(256, Math.min(outputMax, currentOutput));
   }
   if (typeof metadata.enableImage === "boolean" && !metadata.enableImage) {
     target.enableImage = false;
   }
   if (typeof metadata.enableTools === "boolean" && !metadata.enableTools) {
     target.enableTools = false;
+  }
+}
+
+async function syncSelectedModelMetadataIfNeeded() {
+  const target = props.selectedApiConfig;
+  if (!target || capabilityFromConfig(target) !== "text") return;
+  if (applyingModelMetadata.value || modelChangedButUnsaved.value || selectedModelMetadataReady.value) return;
+  if (!String(target.id || "").trim() || !String(target.model || "").trim()) return;
+  applyingModelMetadata.value = true;
+  try {
+    await applySavedModelMetadata(target);
+  } catch (error) {
+    console.warn("[API] fetch_model_metadata failed:", error);
+  } finally {
+    applyingModelMetadata.value = false;
   }
 }
 

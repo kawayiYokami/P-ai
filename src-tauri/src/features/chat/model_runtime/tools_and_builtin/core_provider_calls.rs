@@ -442,10 +442,17 @@ async fn call_model_openai_rig_style_internal(
             } else {
                 agent_builder.preamble(&prepared.preamble)
             };
-            let agent = agent_builder
-                .temperature(api_config.temperature)
-                .max_tokens(api_config.max_output_tokens as u64)
-                .build();
+            let agent_builder = if let Some(temperature) = api_config.temperature {
+                agent_builder.temperature(temperature)
+            } else {
+                agent_builder
+            };
+            let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+                agent_builder.max_tokens(max_output_tokens as u64)
+            } else {
+                agent_builder
+            };
+            let agent = agent_builder.build();
             let mut stream = agent
                 .stream_completion(current_prompt, chat_history)
                 .await
@@ -463,10 +470,17 @@ async fn call_model_openai_rig_style_internal(
             } else {
                 agent_builder.preamble(&prepared.preamble)
             };
-            let agent = agent_builder
-                .temperature(api_config.temperature)
-                .max_tokens(api_config.max_output_tokens as u64)
-                .build();
+            let agent_builder = if let Some(temperature) = api_config.temperature {
+                agent_builder.temperature(temperature)
+            } else {
+                agent_builder
+            };
+            let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+                agent_builder.max_tokens(max_output_tokens as u64)
+            } else {
+                agent_builder
+            };
+            let agent = agent_builder.build();
             let mut stream = agent
                 .stream_completion(current_prompt, chat_history)
                 .await
@@ -538,7 +552,12 @@ async fn call_model_openai_non_stream_rig_style(
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
     let mut request =
-        prepared_prompt_to_equivalent_request_json(&prepared, model_name, api_config.temperature);
+        prepared_prompt_to_equivalent_request_json(
+            &prepared,
+            model_name,
+            api_config.temperature,
+            api_config.max_output_tokens,
+        );
     let request_obj = request
         .as_object_mut()
         .ok_or_else(|| "Invalid request payload".to_string())?;
@@ -666,11 +685,18 @@ async fn call_model_gemini_rig_style(
         ]
     });
 
-    let agent = client
-        .agent(model_name)
-        .preamble(&prepared.preamble)
-        .temperature(api_config.temperature)
-        .max_tokens(api_config.max_output_tokens as u64)
+    let agent_builder = client.agent(model_name).preamble(&prepared.preamble);
+    let agent_builder = if let Some(temperature) = api_config.temperature {
+        agent_builder.temperature(temperature)
+    } else {
+        agent_builder
+    };
+    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+        agent_builder.max_tokens(max_output_tokens as u64)
+    } else {
+        agent_builder
+    };
+    let agent = agent_builder
         .additional_params(gemini_safety_settings)
         .build();
 
@@ -749,12 +775,18 @@ async fn call_model_anthropic_rig_style(
         .build()
         .map_err(|err| format!("Failed to create Anthropic client via rig: {err}"))?;
 
-    let agent = client
-        .agent(model_name)
-        .preamble(&prepared.preamble)
-        .temperature(api_config.temperature)
-        .max_tokens(api_config.max_output_tokens as u64)
-        .build();
+    let agent_builder = client.agent(model_name).preamble(&prepared.preamble);
+    let agent_builder = if let Some(temperature) = api_config.temperature {
+        agent_builder.temperature(temperature)
+    } else {
+        agent_builder
+    };
+    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+        agent_builder.max_tokens(max_output_tokens as u64)
+    } else {
+        agent_builder
+    };
+    let agent = agent_builder.build();
     let mut stream = agent
         .stream_completion(current_prompt, chat_history)
         .await

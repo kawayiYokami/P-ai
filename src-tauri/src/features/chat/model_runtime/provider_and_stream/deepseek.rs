@@ -15,13 +15,21 @@ async fn call_model_deepseek_rig_style(
         .build()
         .map_err(|err| format!("Failed to create OpenAI-compatible client via rig: {err}"))?;
 
-    let agent = client
+    let agent_builder = client
         .completions_api()
         .agent(model_name)
-        .preamble(&prepared.preamble)
-        .temperature(api_config.temperature)
-        .max_tokens(api_config.max_output_tokens as u64)
-        .build();
+        .preamble(&prepared.preamble);
+    let agent_builder = if let Some(temperature) = api_config.temperature {
+        agent_builder.temperature(temperature)
+    } else {
+        agent_builder
+    };
+    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+        agent_builder.max_tokens(max_output_tokens as u64)
+    } else {
+        agent_builder
+    };
+    let agent = agent_builder.build();
     let mut stream = agent
         .stream_completion(current_prompt, chat_history)
         .await
@@ -287,16 +295,20 @@ async fn call_model_deepseek_with_tools(
     let mut trusted_input_tokens: Option<u64> = None;
 
     for _ in 0..max_rounds {
-        let req = serde_json::json!({
+        let mut req = serde_json::json!({
             "model": model_name,
             "messages": messages,
             "tools": tool_defs,
-            "temperature": api_config.temperature,
             "stream": true,
             "stream_options": {
                 "include_usage": true
             }
         });
+        if let Some(temperature) = api_config.temperature {
+            if let Some(obj) = req.as_object_mut() {
+                obj.insert("temperature".to_string(), serde_json::json!(temperature));
+            }
+        }
         let mut stream: std::pin::Pin<
             Box<
                 dyn futures_util::Stream<

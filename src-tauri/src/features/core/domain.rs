@@ -588,10 +588,14 @@ struct ApiConfig {
     model: String,
     #[serde(default = "default_api_temperature")]
     temperature: f64,
+    #[serde(default = "default_false")]
+    custom_temperature_enabled: bool,
     #[serde(default = "default_context_window_tokens")]
     context_window_tokens: u32,
     #[serde(default = "default_max_output_tokens")]
     max_output_tokens: u32,
+    #[serde(default = "default_false")]
+    custom_max_output_tokens_enabled: bool,
     #[serde(default = "default_failure_retry_count")]
     failure_retry_count: u32,
 }
@@ -674,8 +678,10 @@ impl Default for ApiConfig {
             api_key: String::new(),
             model: "gpt-4o-mini".to_string(),
             temperature: default_api_temperature(),
+            custom_temperature_enabled: false,
             context_window_tokens: default_context_window_tokens(),
             max_output_tokens: default_max_output_tokens(),
+            custom_max_output_tokens_enabled: false,
             failure_retry_count: default_failure_retry_count(),
         }
     }
@@ -1623,8 +1629,8 @@ struct ResolvedApiConfig {
     base_url: String,
     api_key: String,
     model: String,
-    temperature: f64,
-    max_output_tokens: u32,
+    temperature: Option<f64>,
+    max_output_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone)]

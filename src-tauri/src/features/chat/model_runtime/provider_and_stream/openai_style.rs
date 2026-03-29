@@ -23,11 +23,17 @@ async fn call_model_openai_with_tools(
     } else {
         agent_builder.preamble(&prepared.preamble)
     };
-    let agent = agent_builder
-        .temperature(api_config.temperature)
-        .max_tokens(api_config.max_output_tokens as u64)
-        .tools(tools)
-        .build();
+    let agent_builder = if let Some(temperature) = api_config.temperature {
+        agent_builder.temperature(temperature)
+    } else {
+        agent_builder
+    };
+    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+        agent_builder.max_tokens(max_output_tokens as u64)
+    } else {
+        agent_builder
+    };
+    let agent = agent_builder.tools(tools).build();
     run_unified_tool_loop(
         agent,
         prepared,
@@ -66,11 +72,17 @@ async fn call_model_openai_responses_with_tools(
     } else {
         agent_builder.preamble(&prepared.preamble)
     };
-    let agent = agent_builder
-        .temperature(api_config.temperature)
-        .max_tokens(api_config.max_output_tokens as u64)
-        .tools(tools)
-        .build();
+    let agent_builder = if let Some(temperature) = api_config.temperature {
+        agent_builder.temperature(temperature)
+    } else {
+        agent_builder
+    };
+    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
+        agent_builder.max_tokens(max_output_tokens as u64)
+    } else {
+        agent_builder
+    };
+    let agent = agent_builder.tools(tools).build();
     run_unified_tool_loop(
         agent,
         prepared,

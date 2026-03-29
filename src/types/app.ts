@@ -31,7 +31,9 @@ export type ApiConfigItem = {
   apiKey: string;
   model: string;
   temperature: number;
+  customTemperatureEnabled?: boolean;
   contextWindowTokens: number;
+  customMaxOutputTokensEnabled?: boolean;
   maxOutputTokens?: number;
 };
 

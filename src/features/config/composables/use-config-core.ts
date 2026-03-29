@@ -131,7 +131,9 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiKey: "",
       model: "gpt-4o-mini",
       temperature: 1,
+      customTemperatureEnabled: false,
       contextWindowTokens: 128000,
+      customMaxOutputTokensEnabled: false,
       maxOutputTokens: 4096,
     };
   }
@@ -152,10 +154,14 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       }
       api.enableAudio = false;
       api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
+      api.customTemperatureEnabled = !!api.customTemperatureEnabled;
       api.contextWindowTokens = Math.max(
         16000,
         Math.min(CONTEXT_WINDOW_HARD_MAX, Math.round(Number(api.contextWindowTokens ?? 128000))),
       );
+      api.customMaxOutputTokensEnabled = api.requestFormat === "anthropic"
+        ? true
+        : !!api.customMaxOutputTokensEnabled;
       api.maxOutputTokens = normalizeMaxOutputTokens(api.maxOutputTokens);
       normalizeApiToolBindings(api);
     }
@@ -494,7 +500,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         apiKey: a.apiKey,
         model: a.model,
         temperature: Number(a.temperature ?? 1),
+        customTemperatureEnabled: !!a.customTemperatureEnabled,
         contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
+        customMaxOutputTokensEnabled: a.requestFormat === "anthropic"
+          ? true
+          : !!a.customMaxOutputTokensEnabled,
         maxOutputTokens: normalizeMaxOutputTokens(a.maxOutputTokens),
       })),
     };
@@ -539,7 +549,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         apiKey: a.apiKey,
         model: a.model,
         temperature: a.temperature,
+        customTemperatureEnabled: !!a.customTemperatureEnabled,
         contextWindowTokens: a.contextWindowTokens,
+        customMaxOutputTokensEnabled: a.requestFormat === "anthropic"
+          ? true
+          : !!a.customMaxOutputTokensEnabled,
         maxOutputTokens: normalizeMaxOutputTokens(a.maxOutputTokens),
       })),
     });

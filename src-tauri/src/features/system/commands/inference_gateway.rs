@@ -222,6 +222,7 @@ async fn invoke_model_with_policy(
         &prepared,
         model_name,
         resolved_api.temperature,
+        resolved_api.max_output_tokens,
     );
     let headers = masked_auth_headers(&resolved_api.api_key);
     if policy.json_only {
@@ -281,6 +282,7 @@ async fn invoke_model_with_policy(
                     &fallback,
                     model_name,
                     resolved_api.temperature,
+                    resolved_api.max_output_tokens,
                 );
                 if let Some(timeout_secs) = policy.timeout_secs {
                     invoke_model_rig_by_format_with_timeout(

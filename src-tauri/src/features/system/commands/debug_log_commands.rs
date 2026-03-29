@@ -387,15 +387,26 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
 fn prepared_prompt_to_equivalent_request_json(
     prepared: &PreparedPrompt,
     model_name: &str,
-    temperature: f64,
+    temperature: Option<f64>,
+    max_output_tokens: Option<u32>,
 ) -> Value {
     let messages = prepared_prompt_to_messages_json(prepared);
-    serde_json::json!({
+    let mut request = serde_json::json!({
         "model": model_name,
-        "temperature": temperature,
         "stream": true,
         "messages": messages
-    })
+    });
+    if let Some(value) = temperature {
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("temperature".to_string(), serde_json::json!(value));
+        }
+    }
+    if let Some(value) = max_output_tokens {
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("max_tokens".to_string(), serde_json::json!(value));
+        }
+    }
+    request
 }
 
 fn model_reply_to_log_value(reply: &ModelReply) -> Value {

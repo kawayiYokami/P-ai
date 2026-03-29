@@ -922,8 +922,10 @@ fn builtin_read_file_should_return_root_image_payload_when_model_supports_image(
                 api_key: "k".to_string(),
                 model: "gpt-image".to_string(),
                 temperature: 0.7,
+                custom_temperature_enabled: false,
                 context_window_tokens: 128_000,
                 max_output_tokens: 4_096,
+                custom_max_output_tokens_enabled: false,
                 failure_retry_count: 0,
             }],
             ..AppConfig::default()

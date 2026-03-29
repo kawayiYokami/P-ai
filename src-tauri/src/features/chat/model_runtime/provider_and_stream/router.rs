@@ -117,8 +117,12 @@ async fn retry_openai_responses_with_system_message_user_fallback(
         "[聊天] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试: base_url={}, model={}, err={}",
         api_config.base_url, model_name, err
     ));
-    *request_log =
-        prepared_prompt_to_equivalent_request_json(&fallback, model_name, api_config.temperature);
+    *request_log = prepared_prompt_to_equivalent_request_json(
+        &fallback,
+        model_name,
+        api_config.temperature,
+        api_config.max_output_tokens,
+    );
     if allow_tools && selected_api.enable_tools {
         let tool_assembly = assemble_runtime_tools(
             app_config,
@@ -244,6 +248,7 @@ async fn call_model_openai_style(
         &prepared,
         model_name,
         api_config.temperature,
+        api_config.max_output_tokens,
     );
     let headers = masked_auth_headers(&api_config.api_key);
     let mut tool_manifest_for_log: Option<Value> = None;
@@ -462,6 +467,7 @@ async fn call_model_openai_style(
                         &fallback,
                         model_name,
                         api_config.temperature,
+                        api_config.max_output_tokens,
                     );
                     if selected_api.enable_tools {
                         let tool_assembly = assemble_runtime_tools(
