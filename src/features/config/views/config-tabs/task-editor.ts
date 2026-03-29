@@ -1,4 +1,4 @@
-export type TaskFilter = "" | "active" | "tracked" | "completed";
+export type TaskFilter = "" | "active" | "completed";
 
 export type TaskTrigger = {
   runAtLocal?: string;
@@ -27,7 +27,6 @@ export type TaskEntry = {
   updatedAtLocal: string;
   lastTriggeredAtLocal?: string;
   completedAtLocal?: string;
-  currentTracked: boolean;
 };
 
 export type TaskRunLogEntry = {

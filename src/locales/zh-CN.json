@@ -469,11 +469,9 @@
     },
     "task": {
       "title": "任务面板",
-      "subtitle": "查看当前追踪任务并维护长期任务。",
+      "subtitle": "查看并维护长期任务。",
       "refresh": "刷新",
-      "currentTracked": "当前追踪任务",
       "editTask": "编辑任务",
-      "trackedShort": "追踪中",
       "empty": "暂无任务。",
         "noTodo": "暂无当前待办",
       "detail": "任务详情",
@@ -532,7 +530,6 @@
         "todoPlaceholder": "写当前下一步要做什么",
       "filters": {
         "active": "进行中",
-        "tracked": "追踪中",
         "completed": "已完成",
         "all": "全部"
       },

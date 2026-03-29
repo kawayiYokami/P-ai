@@ -1,18 +1,5 @@
 <template>
   <div class="space-y-3">
-    <div v-if="trackedTask" class="card border border-primary/30 bg-base-100">
-      <div class="card-body space-y-2 p-3">
-        <div class="flex items-center justify-between gap-3">
-          <span class="text-sm font-medium text-primary">{{ t("config.task.currentTracked") }}</span>
-          <span class="badge badge-primary">#{{ trackedTask.orderIndex }}</span>
-        </div>
-        <div class="text-lg font-semibold wrap-break-word">{{ trackedTask.goal }}</div>
-        <div v-if="trackedTask.todo" class="text-sm opacity-70 whitespace-pre-wrap wrap-break-word">
-          {{ trackedTask.todo }}
-        </div>
-      </div>
-    </div>
-
     <div
       v-if="message"
       class="rounded-box border px-3 py-2 text-sm"
@@ -31,7 +18,6 @@
           <form class="filter" @reset.prevent="resetFilter">
             <input class="btn btn-sm btn-square" type="reset" value="×" :aria-label="t('common.reset')" :title="t('common.reset')" />
             <input class="btn btn-sm" type="radio" name="task-filter" value="active" :checked="filter === 'active'" :aria-label="t('config.task.filters.active')" @change="setFilter('active')" />
-            <input class="btn btn-sm" type="radio" name="task-filter" value="tracked" :checked="filter === 'tracked'" :aria-label="t('config.task.filters.tracked')" @change="setFilter('tracked')" />
             <input class="btn btn-sm" type="radio" name="task-filter" value="completed" :checked="filter === 'completed'" :aria-label="t('config.task.filters.completed')" @change="setFilter('completed')" />
           </form>
         </div>
@@ -56,11 +42,10 @@
           @click="openEditEditor(task.taskId)"
         >
           <div class="flex items-start gap-3">
-            <div class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="task.currentTracked ? 'bg-primary' : (task.completionState === 'completed' ? 'bg-success' : (task.completionState === 'failed_completed' ? 'bg-warning' : 'bg-base-300'))"></div>
+            <div class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="task.completionState === 'completed' ? 'bg-success' : (task.completionState === 'failed_completed' ? 'bg-warning' : 'bg-base-300')"></div>
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2">
                 <div class="font-medium text-sm wrap-break-word">{{ task.goal }}</div>
-                <span v-if="task.currentTracked" class="badge badge-primary">{{ t("config.task.trackedShort") }}</span>
                 <span class="badge badge-ghost">{{ completionStateLabel(task.completionState) }}</span>
               </div>
               <div class="mt-1 text-[11px] opacity-60 line-clamp-2">{{ task.todo || t("config.task.noTodo") }}</div>
@@ -182,10 +167,8 @@ const editorTask = ref<TaskEntry | null>(null);
 const editorForm = ref<TaskEditorForm>(createEmptyTaskEditorForm());
 const editorInitialSnapshot = ref(taskEditorSnapshot(editorForm.value));
 
-const trackedTask = computed(() => tasks.value.find((item) => item.currentTracked) ?? null);
 const filteredTasks = computed(() => {
   if (!filter.value) return tasks.value;
-  if (filter.value === "tracked") return tasks.value.filter((item) => item.currentTracked);
   if (filter.value === "completed") return tasks.value.filter((item) => item.completionState !== "active");
   return tasks.value.filter((item) => item.completionState === "active");
 });
@@ -389,7 +372,7 @@ async function loadTasks(options: { preferredTaskId?: string; keepMessage?: bool
     if (preferredTaskId && nextTasks.some((item) => item.taskId === preferredTaskId)) {
       selectedTaskId.value = preferredTaskId;
     } else if (nextTasks.length > 0) {
-      selectedTaskId.value = (nextTasks.find((item) => item.currentTracked) ?? nextTasks[0]).taskId;
+      selectedTaskId.value = nextTasks[0].taskId;
     } else {
       selectedTaskId.value = "";
     }

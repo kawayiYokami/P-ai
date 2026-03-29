@@ -956,7 +956,6 @@
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
-            task_dispatch_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -1155,6 +1154,7 @@
         let task = TaskRecordStored {
             task_id: "task-a".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "t".to_string(),
             cause: String::new(),
@@ -1177,13 +1177,14 @@
             updated_at_utc: now_utc_rfc3339(),
             last_triggered_at_utc: None,
             completed_at_utc: None,
-            current_tracked: false,
         };
 
-        let (_, _, _, conversation_id, _) =
-            task_resolve_dispatch_session(&state, &task).expect("resolve task session");
+        let session = task_resolve_dispatch_session(&state, &task)
+            .expect("resolve task session")
+            .expect("dispatch session");
 
-        assert_eq!(conversation_id, "conversation-sub");
+        assert_eq!(session.conversation_id, "conversation-sub");
+        assert_eq!(session.target_scope, TASK_TARGET_SCOPE_DESKTOP);
     }
 
     #[test]
@@ -1195,6 +1196,7 @@
         let task = TaskRecordStored {
             task_id: "task-b".to_string(),
             conversation_id: Some("conversation-missing".to_string()),
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "t".to_string(),
             cause: String::new(),
@@ -1217,14 +1219,15 @@
             updated_at_utc: now_utc_rfc3339(),
             last_triggered_at_utc: None,
             completed_at_utc: None,
-            current_tracked: false,
         };
 
-        let (_, _, _, conversation_id, _) =
-            task_resolve_dispatch_session(&state, &task).expect("resolve task session");
+        let session = task_resolve_dispatch_session(&state, &task)
+            .expect("resolve task session")
+            .expect("dispatch session");
         let updated = state_read_app_data_cached(&state).expect("read app data");
 
-        assert_eq!(conversation_id, "conversation-main");
+        assert_eq!(session.conversation_id, "conversation-main");
+        assert!(session.fallback_to_main);
         assert_eq!(updated.main_conversation_id.as_deref(), Some("conversation-main"));
         assert_eq!(
             updated
@@ -1234,6 +1237,235 @@
                 .map(|item| item.status.as_str()),
             Some("active")
         );
+    }
+
+    #[test]
+    fn task_resolve_dispatch_session_should_skip_missing_contact_conversation() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+
+        let mut data = test_user_switched_to_sub_conversation_data();
+        data.remote_im_contacts.push(RemoteImContact {
+            id: "contact-a".to_string(),
+            channel_id: "channel-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "group".to_string(),
+            remote_contact_id: "remote-a".to_string(),
+            remote_contact_name: "测试群".to_string(),
+            remark_name: String::new(),
+            allow_send: false,
+            allow_send_files: false,
+            allow_receive: true,
+            activation_mode: "never".to_string(),
+            activation_keywords: Vec::new(),
+            activation_cooldown_seconds: 0,
+            route_mode: "dedicated_contact_conversation".to_string(),
+            bound_department_id: Some(FRONT_DESK_DEPARTMENT_ID.to_string()),
+            bound_conversation_id: Some("conversation-contact-missing".to_string()),
+            processing_mode: "continuous".to_string(),
+            last_activated_at: None,
+            last_message_at: None,
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+        });
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        let task = TaskRecordStored {
+            task_id: "task-contact".to_string(),
+            conversation_id: Some("conversation-contact-missing".to_string()),
+            target_scope: TASK_TARGET_SCOPE_CONTACT.to_string(),
+            order_index: 1,
+            title: "t".to_string(),
+            cause: String::new(),
+            goal: String::new(),
+            flow: String::new(),
+            todos: Vec::new(),
+            status_summary: String::new(),
+            completion_state: TASK_STATE_ACTIVE.to_string(),
+            completion_conclusion: String::new(),
+            progress_notes: Vec::new(),
+            stage_key: String::new(),
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
+                every_minutes: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
+            },
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
+        };
+
+        let session = task_resolve_dispatch_session(&state, &task).expect("resolve task session");
+
+        assert!(session.is_none());
+    }
+
+    #[test]
+    fn task_conversation_last_message_is_system_persona_should_detect_system_message() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        data.conversations = vec![Conversation {
+            id: "conversation-main".to_string(),
+            title: "main".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            last_user_at: None,
+            last_assistant_at: Some(now.clone()),
+            last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
+            status: "active".to_string(),
+            summary: String::new(),
+            archived_at: None,
+            messages: vec![ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "任务提醒".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            }],
+            memory_recall_table: Vec::new(),
+        }];
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let blocked = task_conversation_last_message_is_system_persona(&state, "conversation-main")
+            .expect("check last system message");
+
+        assert!(blocked);
+    }
+
+    #[test]
+    fn task_build_dispatch_candidates_should_keep_oldest_due_task_per_conversation() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let tasks = vec![
+            TaskRecordStored {
+                task_id: "task-1".to_string(),
+                conversation_id: Some("conversation-main".to_string()),
+                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+                order_index: 1,
+                title: "t1".to_string(),
+                cause: String::new(),
+                goal: String::new(),
+                flow: String::new(),
+                todos: Vec::new(),
+                status_summary: String::new(),
+                completion_state: TASK_STATE_ACTIVE.to_string(),
+                completion_conclusion: String::new(),
+                progress_notes: Vec::new(),
+                stage_key: String::new(),
+                stage_updated_at_utc: None,
+                trigger: TaskTriggerStored {
+                    run_at_utc: None,
+                    every_minutes: None,
+                    end_at_utc: None,
+                    next_run_at_utc: None,
+                },
+                created_at_utc: now_utc_rfc3339(),
+                updated_at_utc: now_utc_rfc3339(),
+                last_triggered_at_utc: None,
+                completed_at_utc: None,
+            },
+            TaskRecordStored {
+                task_id: "task-2".to_string(),
+                conversation_id: Some("conversation-main".to_string()),
+                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+                order_index: 2,
+                title: "t2".to_string(),
+                cause: String::new(),
+                goal: String::new(),
+                flow: String::new(),
+                todos: Vec::new(),
+                status_summary: String::new(),
+                completion_state: TASK_STATE_ACTIVE.to_string(),
+                completion_conclusion: String::new(),
+                progress_notes: Vec::new(),
+                stage_key: String::new(),
+                stage_updated_at_utc: None,
+                trigger: TaskTriggerStored {
+                    run_at_utc: None,
+                    every_minutes: None,
+                    end_at_utc: None,
+                    next_run_at_utc: None,
+                },
+                created_at_utc: now_utc_rfc3339(),
+                updated_at_utc: now_utc_rfc3339(),
+                last_triggered_at_utc: None,
+                completed_at_utc: None,
+            },
+            TaskRecordStored {
+                task_id: "task-3".to_string(),
+                conversation_id: Some("conversation-sub".to_string()),
+                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+                order_index: 3,
+                title: "t3".to_string(),
+                cause: String::new(),
+                goal: String::new(),
+                flow: String::new(),
+                todos: Vec::new(),
+                status_summary: String::new(),
+                completion_state: TASK_STATE_ACTIVE.to_string(),
+                completion_conclusion: String::new(),
+                progress_notes: Vec::new(),
+                stage_key: String::new(),
+                stage_updated_at_utc: None,
+                trigger: TaskTriggerStored {
+                    run_at_utc: None,
+                    every_minutes: None,
+                    end_at_utc: None,
+                    next_run_at_utc: None,
+                },
+                created_at_utc: now_utc_rfc3339(),
+                updated_at_utc: now_utc_rfc3339(),
+                last_triggered_at_utc: None,
+                completed_at_utc: None,
+            },
+        ];
+
+        let candidates =
+            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].task.task_id, "task-1");
+        assert_eq!(candidates[0].session.conversation_id, "conversation-main");
+        assert_eq!(candidates[1].task.task_id, "task-3");
+        assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
+    }
+
+    #[test]
+    fn delegate_parse_session_parts_should_preserve_conversation_in_two_segment_session() {
+        let (api_config_id, agent_id, conversation_id) =
+            delegate_parse_session_parts("default-agent::conversation-sub");
+
+        assert_eq!(api_config_id, "");
+        assert_eq!(agent_id, "default-agent");
+        assert_eq!(conversation_id.as_deref(), Some("conversation-sub"));
+    }
+
+    #[test]
+    fn delegate_parse_session_parts_should_preserve_conversation_in_three_segment_session() {
+        let (api_config_id, agent_id, conversation_id) =
+            delegate_parse_session_parts("api-config-a::default-agent::conversation-sub");
+
+        assert_eq!(api_config_id, "api-config-a");
+        assert_eq!(agent_id, "default-agent");
+        assert_eq!(conversation_id.as_deref(), Some("conversation-sub"));
     }
 
     #[test]

@@ -8,6 +8,40 @@ where
         .map_err(|err| format!("task store worker join failed: {err}"))?
 }
 
+fn task_tool_target_scope_from_conversation(
+    app_state: &AppState,
+    conversation_id: Option<&str>,
+) -> Option<String> {
+    let conversation_id = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let data = state_read_app_data_cached(app_state).ok()?;
+    if let Some(conversation) = data
+        .conversations
+        .iter()
+        .find(|item| item.id == conversation_id)
+    {
+        return Some(if conversation_is_remote_im_contact(conversation) {
+            TASK_TARGET_SCOPE_CONTACT.to_string()
+        } else {
+            TASK_TARGET_SCOPE_DESKTOP.to_string()
+        });
+    }
+    Some(
+        if data.remote_im_contacts.iter().any(|contact| {
+            contact
+                .bound_conversation_id
+                .as_deref()
+                .map(str::trim)
+                == Some(conversation_id)
+        }) {
+            TASK_TARGET_SCOPE_CONTACT.to_string()
+        } else {
+            TASK_TARGET_SCOPE_DESKTOP.to_string()
+        },
+    )
+}
+
 fn task_tool_goal_from_args(args: &TaskToolArgsWire) -> Option<String> {
     args.goal
         .as_deref()
@@ -148,9 +182,14 @@ async fn builtin_task(
             serde_json::to_value(task).map_err(|err| format!("Serialize task get failed: {err}"))
         }
         "create" => {
+            let target_scope = task_tool_target_scope_from_conversation(
+                app_state,
+                bound_conversation_id.as_deref(),
+            );
             let create_input = TaskCreateInput {
                 goal: task_tool_goal_from_args(&args).unwrap_or_default(),
                 conversation_id: bound_conversation_id,
+                target_scope,
                 why: task_tool_why_from_args(&args).unwrap_or_default(),
                 todo: task_tool_todo_from_args(&args).unwrap_or_default(),
                 trigger: args
@@ -181,6 +220,7 @@ async fn builtin_task(
             let update_input = TaskUpdateInput {
                 task_id,
                 conversation_id: None,
+                target_scope: None,
                 goal: task_tool_goal_from_args(&args),
                 why: task_tool_why_from_args(&args),
                 todo: task_tool_todo_from_args(&args),

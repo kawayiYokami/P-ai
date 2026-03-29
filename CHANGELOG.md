@@ -1,5 +1,22 @@
 # 变更日志
 
+## 更新（v0.8.6）：简化任务追踪机制为按会话调度
+
+- 调整（task-dispatch-by-conversation-slot）：任务调度改为按目标会话分组逐个派发
+  - 不再维护全局 `current_tracked_task_id` 与复杂优先级竞争，改为“扫描到点任务后，按目标会话分组，每个会话只取最旧的一条未完成任务”
+  - 若目标会话当前正在对话，或最后一条消息来自系统人格，则本轮跳过，避免重复提醒或插入冲突轮次
+  - 联系人任务在原会话丢失时直接跳过；桌面任务在原副会话丢失时回退到桌面主会话
+
+- 调整（task-target-scope-and-session-binding）：补齐任务目标会话范围与来源绑定
+  - 任务数据层新增内部 `target_scope`，显式区分 `desktop` 与 `contact`，避免原会话丢失后无法判断是否应回主会话
+  - 聊天里通过 `task` 工具创建任务时会保留来源会话，并兼容两段式 `agent::conversation` 与三段式 `api::agent::conversation` 工具会话标识
+  - 修复副会话发起任务时会话 ID 被解析丢失、触发后误投主会话的问题
+
+- 调整（task-board-remove-tracked-concept）：前端任务面板同步移除追踪态概念
+  - 任务面板不再展示“当前追踪任务”，筛选项收敛为 `进行中 / 已完成 / 清空`
+  - 列表与编辑卡文案一并收口，不再暴露“追踪中”徽章和相关状态语义
+  - 隐藏任务板改为展示当前活跃任务摘要，而不是单个 tracked task
+
 ## 更新（v0.8.6）：任务字段瘦身为 goal / why / todo
 
 - 调整（task-goal-why-todo-field-slimming）：统一任务主字段为 `goal / why / todo`

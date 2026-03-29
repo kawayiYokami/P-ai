@@ -1637,7 +1637,6 @@ struct AppState {
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     llm_round_logs: Arc<Mutex<std::collections::VecDeque<LlmRoundLogEntry>>>,
-    task_dispatch_queue: Arc<Mutex<std::collections::VecDeque<TaskDispatchQueueItem>>>,
     // 主聊天会话级运行时
     conversation_runtime_slots:
         Arc<Mutex<std::collections::HashMap<String, ConversationRuntimeSlot>>>,
@@ -1792,7 +1791,6 @@ impl AppState {
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
-            task_dispatch_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),

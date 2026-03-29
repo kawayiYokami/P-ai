@@ -72,6 +72,7 @@ fn task_store_init(conn: &Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS task_record (
             task_id TEXT PRIMARY KEY,
             conversation_id TEXT,
+            target_scope TEXT NOT NULL DEFAULT 'desktop',
             order_index INTEGER NOT NULL,
             title TEXT NOT NULL,
             cause TEXT NOT NULL,
@@ -114,6 +115,12 @@ fn task_store_init(conn: &Connection) -> Result<(), String> {
 
     let migration_result = (|| -> Result<(), String> {
         task_store_add_column_if_missing(conn, "task_record", "conversation_id TEXT", "conversation_id")?;
+        task_store_add_column_if_missing(
+            conn,
+            "task_record",
+            "target_scope TEXT NOT NULL DEFAULT 'desktop'",
+            "target_scope",
+        )?;
         task_store_rename_column_if_needed(conn, "task_record", "stage_updated_at", "stage_updated_at_utc")?;
         task_store_rename_column_if_needed(conn, "task_record", "run_at", "run_at_utc")?;
         task_store_rename_column_if_needed(conn, "task_record", "end_at", "end_at_utc")?;
@@ -239,27 +246,6 @@ fn task_notes_from_json(raw: &str) -> Vec<TaskProgressNoteStored> {
     serde_json::from_str(raw).unwrap_or_default()
 }
 
-fn task_store_get_runtime_state(conn: &Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT state_value FROM task_runtime_state WHERE state_key = ?1",
-        params![key],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(|err| format!("Read task runtime state failed: {err}"))
-}
-
-fn task_store_set_runtime_state(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO task_runtime_state (state_key, state_value, updated_at_utc)
-         VALUES (?1, ?2, ?3)
-         ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value, updated_at_utc = excluded.updated_at_utc",
-        params![key, value, now_utc_rfc3339()],
-    )
-    .map_err(|err| format!("Write task runtime state failed: {err}"))?;
-    Ok(())
-}
-
 fn task_compute_next_run_at_utc_raw(
     run_at_utc: Option<&str>,
     every_minutes: Option<u32>,
@@ -296,19 +282,16 @@ fn task_compute_next_run_at_utc_raw(
     normalize_time_for_utc_storage(next).ok()
 }
 
-fn task_row_to_record_stored(
-    row: &rusqlite::Row<'_>,
-    current_tracked_task_id: Option<&str>,
-) -> rusqlite::Result<TaskRecordStored> {
-    let task_id: String = row.get("task_id")?;
+fn task_row_to_record_stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecordStored> {
     let completion_state: String = row.get("completion_state")?;
     let run_at_utc: Option<String> = row.get("run_at_utc")?;
     let every_minutes: Option<u32> = row.get("every_minutes")?;
     let end_at_utc: Option<String> = row.get("end_at_utc")?;
     let last_triggered_at_utc: Option<String> = row.get("last_triggered_at_utc")?;
     Ok(TaskRecordStored {
-        task_id: task_id.clone(),
+        task_id: row.get("task_id")?,
         conversation_id: row.get("conversation_id")?,
+        target_scope: task_target_scope_normalized(&row.get::<_, String>("target_scope")?).to_string(),
         order_index: row.get("order_index")?,
         title: row.get("title")?,
         cause: row.get("cause")?,
@@ -337,19 +320,17 @@ fn task_row_to_record_stored(
         updated_at_utc: row.get("updated_at_utc")?,
         last_triggered_at_utc,
         completed_at_utc: row.get("completed_at_utc")?,
-        current_tracked: current_tracked_task_id == Some(task_id.as_str()),
     })
 }
 
 // ========== 任务时间边界：读库 utc，对外输出 local ==========
 fn task_store_list_task_records(data_path: &PathBuf) -> Result<Vec<TaskRecordStored>, String> {
     let conn = task_store_open(data_path)?;
-    let current = task_store_get_runtime_state(&conn, TASK_RUNTIME_CURRENT_TRACKED_KEY)?;
     let mut stmt = conn
         .prepare("SELECT * FROM task_record ORDER BY order_index ASC")
         .map_err(|err| format!("Prepare list task records failed: {err}"))?;
     let rows = stmt
-        .query_map([], |row| task_row_to_record_stored(row, current.as_deref()))
+        .query_map([], task_row_to_record_stored)
         .map_err(|err| format!("Query list task records failed: {err}"))?;
     let mut tasks = Vec::new();
     for row in rows {
@@ -360,11 +341,10 @@ fn task_store_list_task_records(data_path: &PathBuf) -> Result<Vec<TaskRecordSto
 
 fn task_store_get_task_record(data_path: &PathBuf, task_id: &str) -> Result<TaskRecordStored, String> {
     let conn = task_store_open(data_path)?;
-    let current = task_store_get_runtime_state(&conn, TASK_RUNTIME_CURRENT_TRACKED_KEY)?;
     conn.query_row(
         "SELECT * FROM task_record WHERE task_id = ?1",
         params![task_id],
-        |row| task_row_to_record_stored(row, current.as_deref()),
+        task_row_to_record_stored,
     )
     .map_err(|err| format!("Get task record failed: {err}"))
 }
@@ -405,17 +385,24 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let target_scope = task_target_scope_normalized(
+        input
+            .target_scope
+            .as_deref()
+            .unwrap_or(TASK_TARGET_SCOPE_DESKTOP),
+    );
     let todos = task_legacy_todos_from_todo(&input.todo);
     conn.execute(
         "INSERT INTO task_record (
-            task_id, conversation_id, order_index, title, cause, goal, flow, todos_json, status_summary,
+            task_id, conversation_id, target_scope, order_index, title, cause, goal, flow, todos_json, status_summary,
             completion_state, completion_conclusion, progress_notes_json, stage_key, stage_updated_at_utc,
             trigger_kind, run_at_utc, every_minutes, end_at_utc, created_at_utc, updated_at_utc,
             last_triggered_at_utc, completed_at_utc
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, '', ?11, '', NULL, ?12, ?13, ?14, ?15, ?16, ?17, NULL, NULL)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', ?12, '', NULL, ?13, ?14, ?15, ?16, ?17, ?18, NULL, NULL)",
         params![
             task_id,
             conversation_id,
+            target_scope,
             order_index,
             task_legacy_title_from_goal(goal),
             task_legacy_cause_from_why(&input.why),
@@ -434,7 +421,6 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
         ],
     )
     .map_err(|err| format!("Create task failed: {err}"))?;
-    task_scheduler_refresh_current_tracked(data_path)?;
     task_store_get_task(data_path, &task_id)
 }
 
@@ -477,6 +463,12 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let target_scope = input
+        .target_scope
+        .as_deref()
+        .map(task_target_scope_normalized)
+        .unwrap_or_else(|| task_target_scope_normalized(&existing.target_scope))
+        .to_string();
     let existing_notes_json = task_notes_to_json(&existing.progress_notes)?;
     let existing_stage_key = existing.stage_key.clone();
     let existing_stage_updated_at_utc = existing.stage_updated_at_utc.clone();
@@ -484,24 +476,26 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
     conn.execute(
         "UPDATE task_record SET
             conversation_id = ?2,
-            title = ?3,
-            cause = ?4,
-            goal = ?5,
-            flow = ?6,
-            todos_json = ?7,
-            status_summary = ?8,
-            progress_notes_json = ?9,
-            stage_key = ?10,
-            stage_updated_at_utc = ?11,
-            trigger_kind = ?12,
-            run_at_utc = ?13,
-            every_minutes = ?14,
-            end_at_utc = ?15,
-            updated_at_utc = ?16
+            target_scope = ?3,
+            title = ?4,
+            cause = ?5,
+            goal = ?6,
+            flow = ?7,
+            todos_json = ?8,
+            status_summary = ?9,
+            progress_notes_json = ?10,
+            stage_key = ?11,
+            stage_updated_at_utc = ?12,
+            trigger_kind = ?13,
+            run_at_utc = ?14,
+            every_minutes = ?15,
+            end_at_utc = ?16,
+            updated_at_utc = ?17
          WHERE task_id = ?1",
         params![
             input.task_id,
             conversation_id,
+            target_scope,
             task_legacy_title_from_goal(&next_goal),
             task_legacy_cause_from_why(&next_why),
             task_legacy_goal_from_goal(&next_goal),
@@ -519,7 +513,6 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
         ],
     )
     .map_err(|err| format!("Update task failed: {err}"))?;
-    task_scheduler_refresh_current_tracked(data_path)?;
     task_store_get_task(data_path, &input.task_id)
 }
 
@@ -556,7 +549,6 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
         ],
     )
     .map_err(|err| format!("Complete task failed: {err}"))?;
-    task_scheduler_refresh_current_tracked(data_path)?;
     task_store_get_task(data_path, &input.task_id)
 }
 
@@ -602,7 +594,6 @@ fn task_store_delete_task(data_path: &PathBuf, task_id: &str) -> Result<(), Stri
         }
     }
 
-    task_scheduler_refresh_current_tracked(data_path)?;
     Ok(())
 }
 

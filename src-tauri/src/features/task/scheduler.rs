@@ -1,27 +1,60 @@
 fn task_conversation_available_for_dispatch(conversation: &Conversation) -> bool {
-    conversation.summary.trim().is_empty()
-        && conversation_visible_in_foreground_lists(conversation)
+    conversation.summary.trim().is_empty() && !conversation_is_delegate(conversation)
 }
 
-fn task_resolve_dispatch_conversation_id(
+#[derive(Debug, Clone)]
+struct TaskResolvedConversation {
+    conversation_id: String,
+    target_scope: String,
+    fallback_to_main: bool,
+}
+
+#[derive(Debug, Clone)]
+struct TaskDispatchSessionResolved {
+    department_id: String,
+    agent_id: String,
+    conversation_id: String,
+    target_scope: String,
+    fallback_to_main: bool,
+}
+
+#[derive(Debug, Clone)]
+struct TaskDispatchCandidate {
+    task: TaskRecordStored,
+    session: TaskDispatchSessionResolved,
+}
+
+fn task_scope_for_conversation(conversation: &Conversation) -> &'static str {
+    if conversation_is_remote_im_contact(conversation) {
+        TASK_TARGET_SCOPE_CONTACT
+    } else {
+        TASK_TARGET_SCOPE_DESKTOP
+    }
+}
+
+fn task_scope_for_missing_conversation(
+    data: &AppData,
+    requested_conversation_id: &str,
+    stored_target_scope: &str,
+) -> &'static str {
+    if data.remote_im_contacts.iter().any(|contact| {
+        contact
+            .bound_conversation_id
+            .as_deref()
+            .map(str::trim)
+            == Some(requested_conversation_id)
+    }) {
+        return TASK_TARGET_SCOPE_CONTACT;
+    }
+    task_target_scope_normalized(stored_target_scope)
+}
+
+fn task_resolve_main_dispatch_conversation_id(
     data: &mut AppData,
     api_config_id: &str,
     agent_id: &str,
-    requested_conversation_id: Option<&str>,
-) -> Result<(String, bool), String> {
-    if let Some(requested) = requested_conversation_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if let Some(conversation) = data
-            .conversations
-            .iter()
-            .find(|item| item.id == requested && task_conversation_available_for_dispatch(item))
-        {
-            return Ok((conversation.id.clone(), false));
-        }
-    }
-
+    fallback_to_main: bool,
+) -> Result<TaskResolvedConversation, String> {
     let conversation_idx = ensure_main_conversation_index(data, api_config_id, agent_id);
     let conversation_id = data
         .conversations
@@ -29,13 +62,52 @@ fn task_resolve_dispatch_conversation_id(
         .map(|item| item.id.clone())
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "No active main conversation configured for task dispatch.".to_string())?;
-    Ok((conversation_id, true))
+    Ok(TaskResolvedConversation {
+        conversation_id,
+        target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+        fallback_to_main,
+    })
+}
+
+fn task_resolve_dispatch_conversation(
+    data: &mut AppData,
+    api_config_id: &str,
+    agent_id: &str,
+    requested_conversation_id: Option<&str>,
+    stored_target_scope: &str,
+) -> Result<Option<TaskResolvedConversation>, String> {
+    if let Some(requested) = requested_conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let requested_scope = task_scope_for_missing_conversation(data, requested, stored_target_scope);
+        if let Some(conversation) = data
+            .conversations
+            .iter()
+            .find(|item| item.id == requested && task_conversation_available_for_dispatch(item))
+        {
+            return Ok(Some(TaskResolvedConversation {
+                conversation_id: conversation.id.clone(),
+                target_scope: task_scope_for_conversation(conversation).to_string(),
+                fallback_to_main: false,
+            }));
+        }
+        if requested_scope == TASK_TARGET_SCOPE_CONTACT {
+            return Ok(None);
+        }
+        return task_resolve_main_dispatch_conversation_id(data, api_config_id, agent_id, true).map(Some);
+    }
+
+    if task_target_scope_normalized(stored_target_scope) == TASK_TARGET_SCOPE_CONTACT {
+        return Ok(None);
+    }
+    task_resolve_main_dispatch_conversation_id(data, api_config_id, agent_id, false).map(Some)
 }
 
 fn task_resolve_dispatch_session(
     state: &AppState,
     task: &TaskRecordStored,
-) -> Result<(String, String, String, String, String), String> {
+) -> Result<Option<TaskDispatchSessionResolved>, String> {
     let guard = state
         .state_lock
         .lock()
@@ -64,11 +136,12 @@ fn task_resolve_dispatch_session(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let (conversation_id, fallback_to_main) = task_resolve_dispatch_conversation_id(
+    let resolved = task_resolve_dispatch_conversation(
         &mut data,
         &selected_api.id,
         &agent_id,
         requested_conversation_id,
+        &task.target_scope,
     )?;
     changed = changed || data.conversations.len() != before_conversation_count;
     let department_id = department_for_agent_id(&app_config, &agent_id)
@@ -78,128 +151,51 @@ fn task_resolve_dispatch_session(
         state_write_app_data_cached(state, &data)?;
     }
     drop(guard);
+    let Some(resolved) = resolved else {
+        return Ok(None);
+    };
     if let Some(requested) = requested_conversation_id {
-        if fallback_to_main {
+        if resolved.fallback_to_main {
             eprintln!(
                 "[任务调度] 原会话不可用，回退到主会话: task_id={}, requested_conversation_id={}, fallback_conversation_id={}",
                 task.task_id,
                 requested,
-                conversation_id
+                resolved.conversation_id
             );
         } else {
             eprintln!(
                 "[任务调度] 使用任务绑定会话: task_id={}, conversation_id={}",
                 task.task_id,
-                conversation_id
+                resolved.conversation_id
             );
         }
     }
-    Ok((
-        selected_api.id.clone(),
+    Ok(Some(TaskDispatchSessionResolved {
         department_id,
-        agent_id.clone(),
-        conversation_id.clone(),
-        inflight_chat_key(&agent_id, Some(&conversation_id)),
-    ))
+        agent_id,
+        conversation_id: resolved.conversation_id,
+        target_scope: resolved.target_scope,
+        fallback_to_main: resolved.fallback_to_main,
+    }))
 }
 
-fn task_is_chat_busy(state: &AppState, chat_key: &str) -> Result<bool, String> {
-    let inflight = state
-        .inflight_chat_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-    Ok(inflight.contains_key(chat_key))
+fn task_conversation_is_busy(state: &AppState, conversation_id: &str) -> Result<bool, String> {
+    Ok(get_conversation_runtime_state(state, conversation_id)? != MainSessionState::Idle)
 }
 
-fn task_enqueue_dispatch(state: &AppState, task_id: &str) -> Result<bool, String> {
-    let mut queue = state
-        .task_dispatch_queue
-        .lock()
-        .map_err(|_| "Failed to lock task dispatch queue".to_string())?;
-    if queue.iter().any(|item| item.task_id == task_id) {
-        return Ok(false);
-    }
-    queue.push_back(TaskDispatchQueueItem {
-        task_id: task_id.to_string(),
-        queued_at_local: now_local_rfc3339(),
-    });
-    Ok(true)
-}
-
-fn task_dequeue_dispatch(state: &AppState, chat_key: &str) -> Result<Option<TaskDispatchQueueItem>, String> {
-    let mut queue = state
-        .task_dispatch_queue
-        .lock()
-        .map_err(|_| "Failed to lock task dispatch queue".to_string())?;
-    if task_is_chat_busy(state, chat_key)? {
-        return Ok(None);
-    }
-    Ok(queue.pop_front())
-}
-
-async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskRecordStored) -> Result<(), String> {
-    let (_api_id, _department_id, _agent_id, _conversation_id, chat_key) =
-        task_resolve_dispatch_session(state, task)?;
-    let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-    if task_is_chat_busy(state, &chat_key)? {
-        let queued = task_enqueue_dispatch(state, &task.task_id)?;
-        if queued {
-            task_store_insert_run_log(
-                &state.data_path,
-                &task.task_id,
-                "queued",
-                &format!(
-                    "聊天繁忙，已排队等待分发，taskId={}，goal={}，chatKey={}",
-                    task.task_id,
-                    task_goal.trim(),
-                    chat_key
-                ),
-            )?;
-        }
-        return Ok(());
-    }
-    task_dispatch_due_task(state, task).await
-}
-
-pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), String> {
-    let head = {
-        let queue = state
-            .task_dispatch_queue
-            .lock()
-            .map_err(|err| format!("Failed to lock task dispatch queue: {err:?}"))?;
-        queue.front().cloned()
-    };
-    let Some(item) = head else {
-        return Ok(());
-    };
-    let task = task_store_get_task_record(&state.data_path, &item.task_id)?;
-    if task.completion_state != TASK_STATE_ACTIVE {
-        let mut queue = state
-            .task_dispatch_queue
-            .lock()
-            .map_err(|err| format!("Failed to lock task dispatch queue: {err:?}"))?;
-        if queue.front().map(|queued| queued.task_id.as_str()) == Some(task.task_id.as_str()) {
-            queue.pop_front();
-        }
-        return Ok(());
-    }
-    let (_api_id, _department_id, _agent_id, _conversation_id, chat_key) =
-        task_resolve_dispatch_session(state, &task)?;
-    let Some(item) = task_dequeue_dispatch(state, &chat_key)? else {
-        return Ok(());
-    };
-    task_store_insert_run_log(
-        &state.data_path,
-        &task.task_id,
-        "dequeued",
-        &format!(
-            "从队列恢复分发，queuedAt={}，taskId={}，goal={}",
-            item.queued_at_local,
-            task.task_id,
-            task_goal_from_legacy_fields(&task.title, &task.goal).trim()
-        ),
-    )?;
-    task_dispatch_due_task(state, &task).await
+fn task_conversation_last_message_is_system_persona(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let data = state_read_app_data_cached(state)?;
+    Ok(data
+        .conversations
+        .iter()
+        .find(|conversation| conversation.id == conversation_id)
+        .and_then(|conversation| conversation.messages.last())
+        .and_then(|message| message.speaker_agent_id.as_deref())
+        .map(str::trim)
+        == Some(SYSTEM_PERSONA_ID))
 }
 
 fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
@@ -246,94 +242,45 @@ fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
     }
 }
 
-fn task_priority_time_rank(entry: &TaskRecordStored) -> i128 {
-    if entry.trigger.run_at_utc.is_none() {
-        return i128::MIN;
-    }
-    entry
-        .trigger
-        .run_at_utc
-        .as_deref()
-        .and_then(parse_rfc3339_time)
-        .map(|value| value.unix_timestamp_nanos())
-        .unwrap_or(i128::MAX)
-}
-
-fn task_priority_rank(entry: &TaskRecordStored, now: OffsetDateTime) -> (i32, i128, i64) {
-    let due_weight = if task_is_due(entry, now) { 0 } else { 1 };
-    (due_weight, task_priority_time_rank(entry), entry.order_index)
-}
-
-fn task_scheduler_refresh_current_tracked(data_path: &PathBuf) -> Result<Option<String>, String> {
-    let conn = task_store_open(data_path)?;
-    let mut stmt = conn
-        .prepare("SELECT * FROM task_record WHERE completion_state = ?1 ORDER BY order_index ASC")
-        .map_err(|err| format!("Prepare tracked task query failed: {err}"))?;
-    let rows = stmt
-        .query_map(params![TASK_STATE_ACTIVE], |row| task_row_to_record_stored(row, None))
-        .map_err(|err| format!("Query tracked tasks failed: {err}"))?;
-    let mut active = Vec::new();
-    for row in rows {
-        active.push(row.map_err(|err| format!("Read tracked task failed: {err}"))?);
-    }
-    let now = now_utc();
-    active.sort_by_key(|item| task_priority_rank(item, now));
-    let tracked = active.first().map(|item| item.task_id.clone());
-    task_store_set_runtime_state(
-        &conn,
-        TASK_RUNTIME_CURRENT_TRACKED_KEY,
-        tracked.as_deref().unwrap_or(""),
-    )?;
-    Ok(tracked)
-}
-
 fn task_build_board_snapshot(data_path: &PathBuf) -> Result<TaskBoardSnapshot, String> {
-    let tracked = task_scheduler_refresh_current_tracked(data_path)?;
     let tasks = task_store_list_tasks(data_path)?;
-    let tracked_task = tracked
-        .as_deref()
-        .filter(|task_id| !task_id.trim().is_empty())
-        .and_then(|task_id| tasks.iter().find(|item| item.task_id == task_id).cloned());
     Ok(TaskBoardSnapshot {
-        current_tracked_task_id: tracked_task.as_ref().map(|item| item.task_id.clone()),
-        tracked_task,
-        tasks: tasks.into_iter().take(TASK_MAX_BOARD_ITEMS).collect(),
+        tasks: tasks
+            .into_iter()
+            .filter(|item| item.completion_state == TASK_STATE_ACTIVE)
+            .take(TASK_MAX_BOARD_ITEMS)
+            .collect(),
     })
 }
 
 fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     let snapshot = task_build_board_snapshot(&state.data_path).ok()?;
-    let tracked = snapshot.tracked_task?;
+    if snapshot.tasks.is_empty() {
+        return None;
+    }
     let mut lines = Vec::<String>::new();
     lines.push(format!("currentLocalTime: {}", now_local_rfc3339()));
     lines.push("timeFormatNote: all task times below use local RFC3339 with timezone offset; copy the same format directly when writing runAtLocal".to_string());
-    lines.push(format!("trackedTaskId: {}", tracked.task_id));
-    if !tracked.goal.trim().is_empty() {
-        lines.push(format!("goal: {}", tracked.goal.trim()));
-    }
-    if !tracked.why.trim().is_empty() {
-        lines.push(format!("why: {}", tracked.why.trim()));
-    }
-    if !tracked.todo.trim().is_empty() {
-        lines.push(format!("todo: {}", tracked.todo.trim()));
-    }
-    if let Some(run_at_local) = tracked.trigger.run_at_local.as_deref() {
-        lines.push(format!("runAtLocal: {}", run_at_local));
-    }
-    if let Some(end_at_local) = tracked.trigger.end_at_local.as_deref() {
-        lines.push(format!("endAtLocal: {}", end_at_local));
-    }
-    if let Some(next_run_at_local) = tracked.trigger.next_run_at_local.as_deref() {
-        lines.push(format!("nextRunAtLocal: {}", next_run_at_local));
-    }
-    let other_tasks = snapshot
-        .tasks
-        .iter()
-        .filter(|item| item.task_id != tracked.task_id)
-        .map(|item| format!("{} ({})", item.goal.trim(), item.completion_state))
-        .collect::<Vec<_>>();
-    if !other_tasks.is_empty() {
-        lines.push(format!("otherTasks: {}", other_tasks.join("; ")));
+    lines.push(format!("activeTaskCount: {}", snapshot.tasks.len()));
+    for (idx, task) in snapshot.tasks.iter().enumerate() {
+        let task_no = idx + 1;
+        lines.push(format!("task[{task_no}].id: {}", task.task_id));
+        lines.push(format!("task[{task_no}].goal: {}", task.goal.trim()));
+        if !task.why.trim().is_empty() {
+            lines.push(format!("task[{task_no}].why: {}", task.why.trim()));
+        }
+        if !task.todo.trim().is_empty() {
+            lines.push(format!("task[{task_no}].todo: {}", task.todo.trim()));
+        }
+        if let Some(run_at_local) = task.trigger.run_at_local.as_deref() {
+            lines.push(format!("task[{task_no}].runAtLocal: {}", run_at_local));
+        }
+        if let Some(end_at_local) = task.trigger.end_at_local.as_deref() {
+            lines.push(format!("task[{task_no}].endAtLocal: {}", end_at_local));
+        }
+        if let Some(next_run_at_local) = task.trigger.next_run_at_local.as_deref() {
+            lines.push(format!("task[{task_no}].nextRunAtLocal: {}", next_run_at_local));
+        }
     }
     Some(prompt_xml_block("task board", lines.join("\n")))
 }
@@ -375,13 +322,13 @@ fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
     })
 }
 
-async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Result<(), String> {
+async fn task_dispatch_due_task(
+    state: &AppState,
+    task: &TaskRecordStored,
+    session: &TaskDispatchSessionResolved,
+) -> Result<(), String> {
     let started_at = std::time::Instant::now();
     task_store_mark_triggered(&state.data_path, &task.task_id)?;
-
-    // 获取会话信息
-    let (_api_id, department_id, agent_id, conversation_id, _) =
-        task_resolve_dispatch_session(state, task)?;
 
     // 构造任务消息
     let task_message = ChatMessage {
@@ -401,14 +348,14 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Re
     // 创建事件并入队
     let event = ChatPendingEvent {
         id: Uuid::new_v4().to_string(),
-        conversation_id: conversation_id.clone(),
+        conversation_id: session.conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::Task,
         messages: vec![task_message],
         activate_assistant: true,
         session_info: ChatSessionInfo {
-            department_id,
-            agent_id,
+            department_id: session.department_id.clone(),
+            agent_id: session.agent_id.clone(),
         },
         sender_info: None,
     };
@@ -427,22 +374,30 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Re
     match ingress_chat_event(state, event) {
         Ok(ingress) => {
             // 异步触发处理：直写或排队由 ingress 判定，排队仅在确实滞留时通知前端。
+            let (outcome, note_prefix) = match &ingress {
+                ChatEventIngress::Direct(_) => ("sent", "任务已发送"),
+                ChatEventIngress::Queued { .. } => ("queued", "任务已入队"),
+            };
             trigger_chat_event_after_ingress(state, ingress);
 
             let duration_ms = started_at.elapsed().as_millis();
             task_store_insert_run_log(
                 &state.data_path,
                 &task.task_id,
-                "queued",
+                outcome,
                 &format!(
-                    "任务已入队，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}",
+                    "{}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}",
+                    note_prefix,
                     task_goal.trim(),
-                    conversation_id,
+                    session.conversation_id,
                     trigger_label,
                     todo_count,
                     task.trigger.run_at_utc.is_some(),
                     task.trigger.every_minutes.unwrap_or(0),
                     duration_ms
+                    ,
+                    session.target_scope,
+                    session.fallback_to_main
                 ),
             )?;
             Ok(())
@@ -454,14 +409,16 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Re
                 &task.task_id,
                 "failed",
                 &format!(
-                    "任务入队失败，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，error={}",
+                    "任务发送失败，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}，error={}",
                     task_goal.trim(),
-                    conversation_id,
+                    session.conversation_id,
                     trigger_label,
                     todo_count,
                     task.trigger.run_at_utc.is_some(),
                     task.trigger.every_minutes.unwrap_or(0),
                     duration_ms,
+                    session.target_scope,
+                    session.fallback_to_main,
                     err
                 ),
             )?;
@@ -470,18 +427,42 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Re
     }
 }
 
-async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
-    task_process_dispatch_queue(state).await?;
-    let _ = task_scheduler_refresh_current_tracked(&state.data_path)?;
-    let tasks = task_store_list_task_records(&state.data_path)?;
-    let now = now_utc();
+fn task_build_dispatch_candidates(
+    state: &AppState,
+    tasks: Vec<TaskRecordStored>,
+    now: OffsetDateTime,
+) -> Result<Vec<TaskDispatchCandidate>, String> {
     let mut due_tasks = tasks
         .into_iter()
         .filter(|item| task_is_due(item, now))
         .collect::<Vec<_>>();
-    due_tasks.sort_by_key(|item| task_priority_rank(item, now));
-    if let Some(task) = due_tasks.into_iter().next() {
-        task_try_dispatch_or_enqueue(state, &task).await?;
+    due_tasks.sort_by_key(|item| item.order_index);
+
+    let mut used_conversation_ids = std::collections::HashSet::<String>::new();
+    let mut candidates = Vec::<TaskDispatchCandidate>::new();
+    for task in due_tasks {
+        let Some(session) = task_resolve_dispatch_session(state, &task)? else {
+            continue;
+        };
+        if used_conversation_ids.insert(session.conversation_id.clone()) {
+            candidates.push(TaskDispatchCandidate { task, session });
+        }
+    }
+    Ok(candidates)
+}
+
+async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
+    let tasks = task_store_list_task_records(&state.data_path)?;
+    let now = now_utc();
+    let candidates = task_build_dispatch_candidates(state, tasks, now)?;
+    for candidate in candidates {
+        if task_conversation_is_busy(state, &candidate.session.conversation_id)? {
+            continue;
+        }
+        if task_conversation_last_message_is_system_persona(state, &candidate.session.conversation_id)? {
+            continue;
+        }
+        task_dispatch_due_task(state, &candidate.task, &candidate.session).await?;
     }
     Ok(())
 }
@@ -491,16 +472,10 @@ fn start_task_scheduler(state: AppState) {
         loop {
             let tick_started_at = std::time::Instant::now();
             if let Err(err) = task_scheduler_tick(&state).await {
-                let queue_len = state
-                    .task_dispatch_queue
-                    .lock()
-                    .map(|queue| queue.len())
-                    .unwrap_or(0);
                 eprintln!(
-                    "[任务调度] 调度轮询失败，error={}，durationMs={}，queueLen={}，dataPath={}",
+                    "[任务调度] 调度轮询失败，error={}，durationMs={}，dataPath={}",
                     err,
                     tick_started_at.elapsed().as_millis(),
-                    queue_len,
                     state.data_path.to_string_lossy()
                 );
             }

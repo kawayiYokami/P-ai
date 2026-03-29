@@ -398,7 +398,6 @@ mod terminal_workspace_tests {
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(VecDeque::new())),
-            task_dispatch_queue: Arc::new(Mutex::new(VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),

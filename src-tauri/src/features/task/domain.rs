@@ -1,11 +1,12 @@
 const TASK_DB_FILE_NAME: &str = "task_store.db";
-const TASK_RUNTIME_CURRENT_TRACKED_KEY: &str = "current_tracked_task_id";
 const TASK_STATE_ACTIVE: &str = "active";
 const TASK_STATE_COMPLETED: &str = "completed";
 const TASK_STATE_FAILED_COMPLETED: &str = "failed_completed";
 const TASK_IMMEDIATE_RETRY_SECONDS: i64 = 60;
 const TASK_SCHEDULER_INTERVAL_SECONDS: u64 = 30;
 const TASK_MAX_BOARD_ITEMS: usize = 4;
+const TASK_TARGET_SCOPE_DESKTOP: &str = "desktop";
+const TASK_TARGET_SCOPE_CONTACT: &str = "contact";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,13 +77,13 @@ struct TaskEntry {
     last_triggered_at_local: Option<String>,
     #[serde(default)]
     completed_at_local: Option<String>,
-    current_tracked: bool,
 }
 
 #[derive(Debug, Clone)]
 struct TaskRecordStored {
     task_id: String,
     conversation_id: Option<String>,
+    target_scope: String,
     order_index: i64,
     title: String,
     cause: String,
@@ -100,16 +101,11 @@ struct TaskRecordStored {
     updated_at_utc: String,
     last_triggered_at_utc: Option<String>,
     completed_at_utc: Option<String>,
-    current_tracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskBoardSnapshot {
-    #[serde(default)]
-    current_tracked_task_id: Option<String>,
-    #[serde(default)]
-    tracked_task: Option<TaskEntry>,
     tasks: Vec<TaskEntry>,
 }
 
@@ -132,12 +128,6 @@ struct TaskRunLogStored {
     note: String,
 }
 
-#[derive(Debug, Clone)]
-struct TaskDispatchQueueItem {
-    task_id: String,
-    queued_at_local: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskRunLogListInput {
@@ -154,6 +144,8 @@ struct TaskCreateInput {
     #[serde(default)]
     conversation_id: Option<String>,
     #[serde(default)]
+    target_scope: Option<String>,
+    #[serde(default)]
     why: String,
     #[serde(default)]
     todo: String,
@@ -166,6 +158,8 @@ struct TaskUpdateInput {
     task_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
+    #[serde(default)]
+    target_scope: Option<String>,
     #[serde(default)]
     goal: Option<String>,
     #[serde(default)]
@@ -299,6 +293,13 @@ fn task_legacy_status_summary_from_todo(todo: &str) -> String {
     todo.trim().to_string()
 }
 
+fn task_target_scope_normalized(value: &str) -> &'static str {
+    match value.trim() {
+        TASK_TARGET_SCOPE_CONTACT => TASK_TARGET_SCOPE_CONTACT,
+        _ => TASK_TARGET_SCOPE_DESKTOP,
+    }
+}
+
 fn task_entry_view_from_stored(record: &TaskRecordStored) -> TaskEntry {
     TaskEntry {
         task_id: record.task_id.clone(),
@@ -325,7 +326,6 @@ fn task_entry_view_from_stored(record: &TaskRecordStored) -> TaskEntry {
             .completed_at_utc
             .as_deref()
             .map(format_utc_storage_time_to_local_rfc3339),
-        current_tracked: record.current_tracked,
     }
 }
 

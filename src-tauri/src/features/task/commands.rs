@@ -1,12 +1,10 @@
 #[tauri::command]
 fn task_list_tasks(state: State<'_, AppState>) -> Result<Vec<TaskEntry>, String> {
-    task_scheduler_refresh_current_tracked(&state.data_path)?;
     task_store_list_tasks(&state.data_path)
 }
 
 #[tauri::command]
 fn task_get_task(input: TaskGetInput, state: State<'_, AppState>) -> Result<TaskEntry, String> {
-    task_scheduler_refresh_current_tracked(&state.data_path)?;
     task_store_get_task(&state.data_path, input.task_id.trim())
 }
 

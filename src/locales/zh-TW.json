@@ -468,11 +468,9 @@
     },
     "task": {
       "title": "任務面板",
-      "subtitle": "查看當前追蹤任務並維護長期任務。",
+      "subtitle": "查看並維護長期任務。",
       "refresh": "刷新",
-      "currentTracked": "當前追蹤任務",
       "editTask": "編輯任務",
-      "trackedShort": "追蹤中",
       "empty": "暫無任務。",
         "noTodo": "暫無當前待辦",
       "detail": "任務詳情",
@@ -531,7 +529,6 @@
         "todoPlaceholder": "寫當前下一步要做什麼",
       "filters": {
         "active": "進行中",
-        "tracked": "追蹤中",
         "completed": "已完成",
         "all": "全部"
       },

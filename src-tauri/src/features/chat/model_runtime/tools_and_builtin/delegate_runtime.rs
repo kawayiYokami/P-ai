@@ -1,18 +1,46 @@
 fn delegate_parse_session_parts(session_id: &str) -> (String, String, Option<String>) {
-    let mut parts = session_id.split("::");
-    let api_config_id = parts.next().unwrap_or("").trim().to_string();
-    let agent_id = parts
-        .next()
+    let parts = session_id
+        .split("::")
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(DEFAULT_AGENT_ID)
-        .to_string();
-    let conversation_id = parts
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    (api_config_id, agent_id, conversation_id)
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        [agent_id, conversation_id] => (
+            String::new(),
+            if agent_id.is_empty() {
+                DEFAULT_AGENT_ID.to_string()
+            } else {
+                (*agent_id).to_string()
+            },
+            if conversation_id.is_empty() {
+                None
+            } else {
+                Some((*conversation_id).to_string())
+            },
+        ),
+        [api_config_id, agent_id, conversation_id, ..] => (
+            (*api_config_id).to_string(),
+            if agent_id.is_empty() {
+                DEFAULT_AGENT_ID.to_string()
+            } else {
+                (*agent_id).to_string()
+            },
+            if conversation_id.is_empty() {
+                None
+            } else {
+                Some((*conversation_id).to_string())
+            },
+        ),
+        [agent_id] => (
+            String::new(),
+            if agent_id.is_empty() {
+                DEFAULT_AGENT_ID.to_string()
+            } else {
+                (*agent_id).to_string()
+            },
+            None,
+        ),
+        _ => (String::new(), DEFAULT_AGENT_ID.to_string(), None),
+    }
 }
 
 fn delegate_build_task_prompt_block(

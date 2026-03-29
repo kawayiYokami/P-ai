@@ -813,7 +813,6 @@ fn test_read_file_state() -> AppState {
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
-            task_dispatch_queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),

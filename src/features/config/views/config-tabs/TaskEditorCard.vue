@@ -104,7 +104,6 @@
               <div class="space-y-2 text-sm">
                 <div v-if="task"><span class="font-medium">ID:</span> <span class="font-mono text-xs">{{ task.taskId }}</span></div>
                 <div v-if="task"><span class="font-medium">#</span>{{ task.orderIndex }}</div>
-                <div v-if="task?.currentTracked"><span class="font-medium">{{ t("config.task.currentTracked") }}:</span> {{ t("config.task.trackedShort") }}</div>
                 <div v-if="task?.completionState"><span class="font-medium">{{ t("config.task.fields.completionState") }}:</span> {{ completionStateLabel(task.completionState) }}</div>
                 <div v-if="task"><span class="font-medium">{{ t("config.task.fields.updatedAt") }}:</span> {{ formatTaskTime(task.updatedAtLocal) }}</div>
                 <div v-if="task?.createdAtLocal"><span class="font-medium">{{ t("config.task.createdAt") }}:</span> {{ formatTaskTime(task.createdAtLocal) }}</div>

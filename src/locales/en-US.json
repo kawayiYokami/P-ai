@@ -468,11 +468,9 @@
     },
     "task": {
       "title": "Task Board",
-      "subtitle": "Inspect the tracked task and maintain long-running tasks.",
+      "subtitle": "Inspect and maintain long-running tasks.",
       "refresh": "Refresh",
-      "currentTracked": "Tracked Task",
       "editTask": "Edit Task",
-      "trackedShort": "Tracked",
       "empty": "No tasks yet.",
         "noTodo": "No current to-do",
       "detail": "Task Detail",
@@ -531,7 +529,6 @@
         "todoPlaceholder": "Describe the current next step",
       "filters": {
         "active": "Active",
-        "tracked": "Tracked",
         "completed": "Completed",
         "all": "All"
       },
