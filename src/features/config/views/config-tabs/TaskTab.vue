@@ -1,10 +1,10 @@
 <template>
   <div class="space-y-3">
-    <!-- 当前追踪任务 -->
-    <div v-if="trackedTask" class="card bg-base-100 border border-primary/30">
-      <div class="card-body p-3 space-y-2">
-        <div class="flex items-center justify-between">
+    <div v-if="trackedTask" class="card border border-primary/30 bg-base-100">
+      <div class="card-body space-y-2 p-3">
+        <div class="flex items-center justify-between gap-3">
           <span class="text-sm font-medium text-primary">{{ t("config.task.currentTracked") }}</span>
+          <span class="badge badge-primary">#{{ trackedTask.orderIndex }}</span>
         </div>
         <div class="text-lg font-semibold wrap-break-word">{{ trackedTask.title }}</div>
         <div v-if="trackedTask.statusSummary" class="text-sm opacity-70 whitespace-pre-wrap wrap-break-word">
@@ -13,263 +13,189 @@
       </div>
     </div>
 
-    <!-- 任务列表 -->
-    <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300/70">
-        <div class="font-medium">{{ t("config.task.title") }}<span v-if="filteredTasks.length">（{{ filteredTasks.length }}）</span></div>
-        <div class="ml-auto flex items-center gap-2">
-          <div class="join">
-            <button class="btn btn-xs join-item" :class="filter === 'active' ? 'btn-primary' : 'btn-ghost'" @click="filter = 'active'">
-              {{ t("config.task.filters.active") }}
-            </button>
-            <button class="btn btn-xs join-item" :class="filter === 'tracked' ? 'btn-primary' : 'btn-ghost'" @click="filter = 'tracked'">
-              {{ t("config.task.filters.tracked") }}
-            </button>
-            <button class="btn btn-xs join-item" :class="filter === 'completed' ? 'btn-primary' : 'btn-ghost'" @click="filter = 'completed'">
-              {{ t("config.task.filters.completed") }}
-            </button>
-            <button class="btn btn-xs join-item" :class="filter === 'all' ? 'btn-primary' : 'btn-ghost'" @click="filter = 'all'">
-              {{ t("config.task.filters.all") }}
-            </button>
-          </div>
-          <button class="btn btn-sm" :disabled="loading" @click="loadTasks">
+    <div
+      v-if="message"
+      class="rounded-box border px-3 py-2 text-sm"
+      :class="messageError ? 'border-error/40 bg-error/10 text-error' : 'border-base-300 bg-base-200/50'"
+    >
+      {{ message }}
+    </div>
+
+    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+      <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-base-300/70 px-3 py-2">
+        <div class="font-medium">
+          {{ t("config.task.title") }}
+          <span v-if="filteredTasks.length">（{{ filteredTasks.length }}）</span>
+        </div>
+        <div class="flex justify-center">
+          <form class="filter" @reset.prevent="resetFilter">
+            <input class="btn btn-sm btn-square" type="reset" value="×" :aria-label="t('common.reset')" :title="t('common.reset')" />
+            <input class="btn btn-sm" type="radio" name="task-filter" value="active" :checked="filter === 'active'" :aria-label="t('config.task.filters.active')" @change="setFilter('active')" />
+            <input class="btn btn-sm" type="radio" name="task-filter" value="tracked" :checked="filter === 'tracked'" :aria-label="t('config.task.filters.tracked')" @change="setFilter('tracked')" />
+            <input class="btn btn-sm" type="radio" name="task-filter" value="completed" :checked="filter === 'completed'" :aria-label="t('config.task.filters.completed')" @change="setFilter('completed')" />
+          </form>
+        </div>
+        <div class="flex items-center justify-end gap-2">
+          <button class="btn btn-sm btn-ghost" :disabled="listLoading" @click="openCreateEditor">
+            {{ t("config.task.newTask") }}
+          </button>
+          <button class="btn btn-sm btn-ghost" :disabled="listLoading" @click="loadTasks()">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
           </button>
         </div>
       </div>
 
-      <div v-if="pagedTasks.length" class="divide-y divide-base-300/60">
-        <div
+      <div v-if="listLoading && !tasks.length" class="py-8 text-center text-sm opacity-60">{{ t("common.loading") }}</div>
+
+      <div v-else-if="pagedTasks.length" class="divide-y divide-base-300/60">
+        <button
           v-for="task in pagedTasks"
           :key="task.taskId"
-          class="px-3 py-2 cursor-pointer transition-colors"
+          class="block w-full px-3 py-3 text-left transition-colors"
           :class="selectedTaskId === task.taskId ? 'bg-primary/10' : 'hover:bg-base-200/50'"
-          @click="selectTask(task.taskId)"
+          @click="openEditEditor(task.taskId)"
         >
           <div class="flex items-start gap-3">
-            <div class="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" :class="task.currentTracked ? 'bg-primary' : (task.completionState === 'completed' ? 'bg-success' : 'bg-base-300')"></div>
+            <div class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="task.currentTracked ? 'bg-primary' : (task.completionState === 'completed' ? 'bg-success' : (task.completionState === 'failed_completed' ? 'bg-warning' : 'bg-base-300'))"></div>
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <div class="font-medium text-sm wrap-break-word">{{ task.title }}</div>
                 <span v-if="task.currentTracked" class="badge badge-primary">{{ t("config.task.trackedShort") }}</span>
+                <span class="badge badge-ghost">{{ completionStateLabel(task.completionState) }}</span>
               </div>
-              <div class="text-[11px] opacity-60 line-clamp-1 mt-0.5">{{ task.statusSummary || t("config.task.noStatus") }}</div>
-              <div class="flex items-center gap-2 mt-1 text-[11px] opacity-50">
+              <div class="mt-1 text-[11px] opacity-60 line-clamp-2">{{ task.statusSummary || t("config.task.noStatus") }}</div>
+              <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] opacity-50">
                 <span>#{{ task.orderIndex }}</span>
-                <span>{{ task.completionState }}</span>
+                <span v-if="task.trigger.nextRunAtLocal">{{ formatTaskTime(task.trigger.nextRunAtLocal) }}</span>
+                <span v-else>{{ formatTaskTime(task.updatedAtLocal) }}</span>
               </div>
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
-      <div v-else class="text-sm opacity-50 text-center py-4">{{ t("config.task.empty") }}</div>
+      <div v-else class="py-6 text-center text-sm opacity-50">{{ t("config.task.empty") }}</div>
 
-      <!-- 分页 -->
       <div v-if="totalPages > 1" class="flex justify-center border-t border-base-300/70 px-3 py-2">
         <div class="join">
-          <button class="btn btn-xs join-item" :disabled="page <= 1" @click="page--">‹</button>
-          <button class="btn btn-xs join-item btn-active">{{ page }} / {{ totalPages }}</button>
-          <button class="btn btn-xs join-item" :disabled="page >= totalPages" @click="page++">›</button>
+          <button class="btn btn-sm join-item" :disabled="page <= 1" @click="page -= 1">‹</button>
+          <button class="btn btn-sm join-item btn-active">{{ page }} / {{ totalPages }}</button>
+          <button class="btn btn-sm join-item" :disabled="page >= totalPages" @click="page += 1">›</button>
         </div>
       </div>
     </div>
 
-    <!-- 任务详情 -->
-    <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300/70">
-        <div class="font-medium">{{ t("config.task.detail") }}</div>
-        <div class="ml-auto flex items-center gap-2">
-          <span class="text-xs opacity-50">{{ t("config.task.readonlyHint") }}</span>
-          <button v-if="selectedTask" class="btn btn-sm" :disabled="loading" @click="reloadSelected">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div v-if="message" class="text-sm px-3 py-2 border-b border-base-300/70" :class="messageError ? 'bg-error/10 text-error' : 'bg-base-200/50'">
-        {{ message }}
-      </div>
-
-      <div v-if="selectedTask">
-        <!-- 标题行 -->
-        <div class="px-3 py-2 border-b border-base-300/70">
-          <div class="text-lg font-semibold wrap-break-word">{{ selectedTask.title }}</div>
-          <div class="flex flex-wrap gap-2 mt-1">
-            <span class="badge" :class="selectedTask.currentTracked ? 'badge-primary' : 'badge-ghost'">
-              {{ selectedTask.currentTracked ? t("config.task.currentTracked") : selectedTask.completionState }}
-            </span>
-            <span v-if="selectedTask.stageKey" class="badge badge-outline">{{ selectedTask.stageKey }}</span>
-          </div>
-        </div>
-
-        <!-- 内容列表 -->
-        <div class="divide-y divide-base-300/60">
-          <!-- 状态摘要 -->
-          <div class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.statusSummary") }}</div>
-            <div class="text-sm whitespace-pre-wrap wrap-break-word">{{ selectedTask.statusSummary || '-' }}</div>
-          </div>
-
-          <!-- 目标 -->
-          <div class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.goal") }}</div>
-            <div class="text-sm whitespace-pre-wrap wrap-break-word">{{ selectedTask.goal || '-' }}</div>
-          </div>
-
-          <!-- 起因 -->
-          <div class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.cause") }}</div>
-            <div class="text-sm whitespace-pre-wrap wrap-break-word">{{ selectedTask.cause || '-' }}</div>
-          </div>
-
-          <!-- 流程 -->
-          <div class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.flow") }}</div>
-            <div class="text-sm whitespace-pre-wrap wrap-break-word">{{ selectedTask.flow || '-' }}</div>
-          </div>
-
-          <!-- Todo 列表 -->
-          <div class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.todos") }}</div>
-            <div v-if="selectedTask.todos.length" class="space-y-1">
-              <div v-for="(todo, idx) in selectedTask.todos" :key="idx" class="text-sm wrap-break-word">- {{ todo }}</div>
-            </div>
-            <div v-else class="text-sm opacity-50">-</div>
-          </div>
-
-          <!-- 完成结论 -->
-          <div v-if="selectedTask.completionConclusion" class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.fields.completionConclusion") }}</div>
-            <div class="text-sm whitespace-pre-wrap wrap-break-word">{{ selectedTask.completionConclusion }}</div>
-          </div>
-
-          <!-- 进度笔记 -->
-          <div v-if="selectedTask.progressNotes.length" class="px-3 py-2">
-            <div class="text-[11px] opacity-50 uppercase tracking-wide mb-1">{{ t("config.task.notes") }}</div>
-            <div class="space-y-2 max-h-48 overflow-y-auto">
-              <div
-                v-for="note in selectedTask.progressNotes.slice().reverse()"
-                :key="`${note.atLocal}-${note.note}`"
-                class="bg-base-200/50 rounded px-2 py-1.5 text-sm"
-              >
-                <div class="text-[10px] opacity-50 mb-0.5">{{ formatTaskTime(note.atLocal) }}</div>
-                <div class="whitespace-pre-wrap wrap-break-word">{{ note.note }}</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 元信息 -->
-          <div class="px-3 py-2 bg-base-200/30">
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
-              <div><span class="opacity-50">{{ t("config.task.fields.runAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.runAtLocal) }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.endAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.endAtLocal) }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.nextRunAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.nextRunAtLocal) }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.everyMinutes") }}:</span> {{ selectedTask.trigger.everyMinutes ?? '-' }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.updatedAt") }}:</span> {{ formatTaskTime(selectedTask.updatedAtLocal) }}</div>
-              <div class="col-span-2"><span class="opacity-50">ID:</span> <span class="font-mono">{{ selectedTask.taskId }}</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="text-sm opacity-50 text-center py-8">{{ t("config.task.selectHint") }}</div>
-    </div>
-
-    <!-- 运行日志 -->
-    <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300/70">
-        <div class="font-medium">{{ t("config.task.runLogs") }}</div>
-        <div class="ml-auto">
-          <button class="btn btn-sm" :disabled="loading" @click="refreshLogs">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div v-if="runLogs.length" class="divide-y divide-base-300/60 max-h-48 overflow-y-auto">
-        <div
-          v-for="log in runLogs"
-          :key="log.id"
-          class="px-3 py-2"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <span class="badge" :class="runLogBadgeClass(log.outcome)">{{ runLogLabel(log.outcome) }}</span>
-            <span class="text-[11px] opacity-50">{{ formatTaskTime(log.triggeredAtLocal) }}</span>
-          </div>
-          <div v-if="log.note" class="text-sm whitespace-pre-wrap wrap-break-word opacity-70 mt-1">{{ log.note }}</div>
-        </div>
-      </div>
-
-      <div v-else class="text-sm opacity-50 text-center py-4">{{ t("config.task.noLogs") }}</div>
-    </div>
+    <dialog ref="editorDialog" class="modal" @cancel.prevent="onEditorDialogCancel">
+      <TaskEditorCard
+        :mode="editorMode"
+        :loading="editorLoading"
+        :saving="editorSaving"
+        :error-text="editorError"
+        :form="editorForm"
+        :task="editorTask"
+        :logs="runLogs"
+        :can-complete="editorCanComplete"
+        :editable="editorEditable"
+        @close="requestCloseEditor"
+        @save="saveEditor"
+        @complete="completeEditorTask"
+        @delete="deleteEditorTask"
+        @reload="reloadEditorTask"
+        @refresh-logs="refreshLogs"
+      />
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click.prevent="requestCloseEditor">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
+import TaskEditorCard from "./TaskEditorCard.vue";
+import {
+  createEmptyTaskEditorForm,
+  taskEditorFormFromEntry,
+  taskEditorSnapshot,
+  taskEditorTodosFromText,
+  taskUpsertEntry,
+  type TaskEditorForm,
+  type TaskEditorMode,
+  type TaskEntry,
+  type TaskFilter,
+  type TaskRunLogEntry,
+} from "./task-editor";
 
-type TaskTrigger = {
+type TaskTriggerInputLocalWire = {
   runAtLocal?: string;
-  endAtLocal?: string;
   everyMinutes?: number;
-  nextRunAtLocal?: string;
+  endAtLocal?: string;
 };
 
-type TaskProgressNote = {
-  atLocal: string;
-  note: string;
-};
-
-type TaskEntry = {
-  taskId: string;
-  orderIndex: number;
+type TaskCreateInputWire = {
   title: string;
   cause: string;
   goal: string;
   flow: string;
   todos: string[];
   statusSummary: string;
+  trigger: TaskTriggerInputLocalWire;
+};
+
+type TaskUpdateInputWire = {
+  taskId: string;
+  title?: string;
+  cause?: string;
+  goal?: string;
+  flow?: string;
+  todos?: string[];
+  statusSummary?: string;
+  stageKey?: string;
+  appendNote?: string;
+  trigger?: TaskTriggerInputLocalWire;
+};
+
+type TaskCompleteInputWire = {
+  taskId: string;
   completionState: string;
   completionConclusion: string;
-  progressNotes: TaskProgressNote[];
-  stageKey: string;
-  stageUpdatedAtLocal?: string;
-  trigger: TaskTrigger;
-  createdAtLocal: string;
-  updatedAtLocal: string;
-  lastTriggeredAtLocal?: string;
-  completedAtLocal?: string;
-  currentTracked: boolean;
+  statusSummary: string;
+  appendNote?: string;
 };
 
-type TaskRunLogEntry = {
-  id: number;
+type TaskDeleteInputWire = {
   taskId: string;
-  triggeredAtLocal: string;
-  outcome: string;
-  note: string;
 };
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 5;
 
 const { t } = useI18n();
-const loading = ref(false);
 const message = ref("");
 const messageError = ref(false);
+const listLoading = ref(false);
+const logsLoading = ref(false);
 const tasks = ref<TaskEntry[]>([]);
 const runLogs = ref<TaskRunLogEntry[]>([]);
 const selectedTaskId = ref("");
-const filter = ref<"active" | "tracked" | "completed" | "all">("active");
+const filter = ref<TaskFilter>("active");
 const page = ref(1);
 
+const editorDialog = ref<HTMLDialogElement | null>(null);
+const editorOpen = ref(false);
+const editorMode = ref<TaskEditorMode>("create");
+const editorLoading = ref(false);
+const editorSaving = ref(false);
+const editorError = ref("");
+const editorTask = ref<TaskEntry | null>(null);
+const editorForm = ref<TaskEditorForm>(createEmptyTaskEditorForm());
+const editorInitialSnapshot = ref(taskEditorSnapshot(editorForm.value));
+
 const trackedTask = computed(() => tasks.value.find((item) => item.currentTracked) ?? null);
-const selectedTask = computed(() => tasks.value.find((item) => item.taskId === selectedTaskId.value) ?? null);
 const filteredTasks = computed(() => {
-  if (filter.value === "all") return tasks.value;
+  if (!filter.value) return tasks.value;
   if (filter.value === "tracked") return tasks.value.filter((item) => item.currentTracked);
   if (filter.value === "completed") return tasks.value.filter((item) => item.completionState !== "active");
   return tasks.value.filter((item) => item.completionState === "active");
@@ -279,10 +205,22 @@ const pagedTasks = computed(() => {
   const start = (page.value - 1) * PAGE_SIZE;
   return filteredTasks.value.slice(start, start + PAGE_SIZE);
 });
+const editorDirty = computed(() => taskEditorSnapshot(editorForm.value) !== editorInitialSnapshot.value);
+const editorCanComplete = computed(
+  () => editorMode.value === "edit" && !!editorTask.value && editorTask.value.completionState === "active",
+);
+const editorEditable = computed(
+  () => editorMode.value === "create" || (!!editorTask.value && editorTask.value.completionState === "active"),
+);
 
-// 过滤器变化时重置页码
 watch(filter, () => {
   page.value = 1;
+});
+
+watch(totalPages, (next) => {
+  if (page.value > next) {
+    page.value = next;
+  }
 });
 
 function setMessage(text: string, isError = false) {
@@ -290,15 +228,34 @@ function setMessage(text: string, isError = false) {
   messageError.value = isError;
 }
 
+function clearMessage() {
+  message.value = "";
+  messageError.value = false;
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error || "");
+}
+
 function formatTaskTime(value?: string | null): string {
   return formatIsoToLocalDateTime(value, "-");
 }
 
+function completionStateLabel(value: string): string {
+  if (value === "completed") return t("config.task.completionStates.completed");
+  if (value === "failed_completed") return t("config.task.completionStates.failedCompleted");
+  if (value === "active") return t("config.task.filters.active");
+  return value || "-";
+}
+
 function runLogLabel(outcome: string): string {
-  if (outcome === "sent") return "已发送";
-  if (outcome === "queued") return "已排队";
-  if (outcome === "dequeued") return "已恢复";
-  if (outcome === "failed") return "失败";
+  if (outcome === "sent") return t("config.task.runLogOutcomes.sent");
+  if (outcome === "queued") return t("config.task.runLogOutcomes.queued");
+  if (outcome === "dequeued") return t("config.task.runLogOutcomes.dequeued");
+  if (outcome === "failed") return t("config.task.runLogOutcomes.failed");
   return outcome || "-";
 }
 
@@ -310,51 +267,308 @@ function runLogBadgeClass(outcome: string): string {
   return "badge-ghost";
 }
 
-async function loadRunLogs(taskId?: string) {
+function resetFilter() {
+  filter.value = "";
+}
+
+function setFilter(value: Exclude<TaskFilter, "">) {
+  filter.value = value;
+}
+
+function resetEditorForm(mode: TaskEditorMode, task: TaskEntry | null) {
+  editorMode.value = mode;
+  editorTask.value = task;
+  editorForm.value = task ? taskEditorFormFromEntry(task) : createEmptyTaskEditorForm();
+  editorInitialSnapshot.value = taskEditorSnapshot(editorForm.value);
+}
+
+async function ensureEditorDialogOpen() {
+  await nextTick();
+  if (editorDialog.value && !editorDialog.value.open) {
+    editorDialog.value.showModal();
+  }
+  editorOpen.value = true;
+}
+
+function closeEditorDialogDirect() {
+  if (editorDialog.value?.open) {
+    editorDialog.value.close();
+  }
+  editorOpen.value = false;
+  editorLoading.value = false;
+  editorSaving.value = false;
+  editorError.value = "";
+}
+
+async function confirmDiscardIfNeeded(): Promise<boolean> {
+  if (!editorOpen.value || editorSaving.value || !editorDirty.value) {
+    return true;
+  }
+  return window.confirm(t("config.task.discardConfirm"));
+}
+
+function buildTriggerInputFromForm(): TaskTriggerInputLocalWire | null {
+  const everyMinutesText = String(editorForm.value.everyMinutesText || "").trim();
+  let everyMinutes: number | undefined;
+  if (everyMinutesText) {
+    const parsed = Number(everyMinutesText);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      editorError.value = t("config.task.validation.everyMinutesPositive");
+      return null;
+    }
+    everyMinutes = parsed;
+  }
+  const runAtLocal = String(editorForm.value.runAtLocal || "").trim();
+  const endAtLocal = String(editorForm.value.endAtLocal || "").trim();
+  return {
+    runAtLocal: runAtLocal || undefined,
+    everyMinutes,
+    endAtLocal: endAtLocal || undefined,
+  };
+}
+
+function editorCreatePayload(): TaskCreateInputWire | null {
+  if (!String(editorForm.value.title || "").trim()) {
+    editorError.value = t("config.task.validation.titleRequired");
+    return null;
+  }
+  const trigger = buildTriggerInputFromForm();
+  if (!trigger) return null;
+  return {
+    title: editorForm.value.title.trim(),
+    cause: editorForm.value.cause.trim(),
+    goal: editorForm.value.goal.trim(),
+    flow: editorForm.value.flow.trim(),
+    todos: taskEditorTodosFromText(editorForm.value.todosText),
+    statusSummary: editorForm.value.statusSummary.trim(),
+    trigger,
+  };
+}
+
+function editorUpdatePayload(): TaskUpdateInputWire | null {
+  if (!String(editorForm.value.taskId || "").trim()) {
+    editorError.value = t("config.task.detailLoadFailed");
+    return null;
+  }
+  if (!String(editorForm.value.title || "").trim()) {
+    editorError.value = t("config.task.validation.titleRequired");
+    return null;
+  }
+  const trigger = buildTriggerInputFromForm();
+  if (!trigger) return null;
+  return {
+    taskId: editorForm.value.taskId.trim(),
+    title: editorForm.value.title.trim(),
+    cause: editorForm.value.cause.trim(),
+    goal: editorForm.value.goal.trim(),
+    flow: editorForm.value.flow.trim(),
+    todos: taskEditorTodosFromText(editorForm.value.todosText),
+    statusSummary: editorForm.value.statusSummary.trim(),
+    stageKey: editorForm.value.stageKey.trim() || undefined,
+    appendNote: editorForm.value.appendNote.trim() || undefined,
+    trigger,
+  };
+}
+
+function editorCompletePayload(): TaskCompleteInputWire | null {
+  if (!String(editorForm.value.taskId || "").trim()) {
+    editorError.value = t("config.task.detailLoadFailed");
+    return null;
+  }
+  return {
+    taskId: editorForm.value.taskId.trim(),
+    completionState: editorForm.value.completionState,
+    completionConclusion: editorForm.value.completionConclusion.trim(),
+    statusSummary: editorForm.value.statusSummary.trim(),
+    appendNote: editorForm.value.appendNote.trim() || undefined,
+  };
+}
+
+function editorDeletePayload(): TaskDeleteInputWire | null {
+  if (!String(editorForm.value.taskId || "").trim()) {
+    editorError.value = t("config.task.detailLoadFailed");
+    return null;
+  }
+  return {
+    taskId: editorForm.value.taskId.trim(),
+  };
+}
+
+async function loadRunLogs(taskId = selectedTaskId.value, silent = false) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!normalizedTaskId) {
+    runLogs.value = [];
+    return;
+  }
+  logsLoading.value = true;
   try {
     runLogs.value = await invokeTauri<TaskRunLogEntry[]>("task_list_run_logs", {
-      input: { taskId: (taskId ?? selectedTaskId.value) || undefined, limit: 50 },
+      input: { taskId: normalizedTaskId, limit: 50 },
     });
   } catch (error) {
-    setMessage(String(error), true);
-  }
-}
-
-async function loadTasks() {
-  loading.value = true;
-  try {
-    tasks.value = await invokeTauri<TaskEntry[]>("task_list_tasks");
-    if (!selectedTaskId.value && tasks.value.length > 0) {
-      selectedTaskId.value = (trackedTask.value ?? tasks.value[0]).taskId;
+    if (!silent) {
+      setMessage(`${t("config.task.runLogsLoadFailed")}: ${describeError(error)}`, true);
     }
-    await loadRunLogs();
-  } catch (error) {
-    setMessage(String(error), true);
   } finally {
-    loading.value = false;
+    logsLoading.value = false;
   }
 }
 
-async function selectTask(taskId: string) {
+async function loadTasks(options: { preferredTaskId?: string; keepMessage?: boolean } = {}) {
+  listLoading.value = true;
+  if (!options.keepMessage) {
+    clearMessage();
+  }
+  try {
+    const nextTasks = await invokeTauri<TaskEntry[]>("task_list_tasks");
+    tasks.value = nextTasks;
+    const preferredTaskId = String(options.preferredTaskId || selectedTaskId.value || "").trim();
+    if (preferredTaskId && nextTasks.some((item) => item.taskId === preferredTaskId)) {
+      selectedTaskId.value = preferredTaskId;
+    } else if (nextTasks.length > 0) {
+      selectedTaskId.value = (nextTasks.find((item) => item.currentTracked) ?? nextTasks[0]).taskId;
+    } else {
+      selectedTaskId.value = "";
+    }
+  } catch (error) {
+    setMessage(`${t("config.task.listLoadFailed")}: ${describeError(error)}`, true);
+  } finally {
+    listLoading.value = false;
+  }
+}
+
+async function loadEditorTask(taskId = selectedTaskId.value) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!normalizedTaskId) return;
+  editorLoading.value = true;
+  editorError.value = "";
+  try {
+    const detail = await invokeTauri<TaskEntry>("task_get_task", { input: { taskId: normalizedTaskId } });
+    tasks.value = taskUpsertEntry(tasks.value, detail);
+    selectedTaskId.value = detail.taskId;
+    resetEditorForm("edit", detail);
+    await loadRunLogs(detail.taskId, true);
+  } catch (error) {
+    editorTask.value = null;
+    editorError.value = `${t("config.task.detailLoadFailed")}: ${describeError(error)}`;
+  } finally {
+    editorLoading.value = false;
+  }
+}
+
+async function openCreateEditor() {
+  if (!(await confirmDiscardIfNeeded())) return;
+  editorError.value = "";
+  runLogs.value = [];
+  resetEditorForm("create", null);
+  await ensureEditorDialogOpen();
+}
+
+async function openEditEditor(taskId: string) {
+  if (!(await confirmDiscardIfNeeded())) return;
   selectedTaskId.value = taskId;
-  await reloadSelected();
+  editorError.value = "";
+  editorTask.value = null;
+  editorLoading.value = true;
+  editorMode.value = "edit";
+  editorForm.value = createEmptyTaskEditorForm();
+  editorInitialSnapshot.value = taskEditorSnapshot(editorForm.value);
+  await ensureEditorDialogOpen();
+  await loadEditorTask(taskId);
 }
 
-async function reloadSelected() {
-  if (!selectedTaskId.value) return;
-  loading.value = true;
+async function requestCloseEditor() {
+  if (!(await confirmDiscardIfNeeded())) return;
+  closeEditorDialogDirect();
+}
+
+function onEditorDialogCancel(event: Event) {
+  event.preventDefault();
+  void requestCloseEditor();
+}
+
+async function saveEditor() {
+  if (editorSaving.value) return;
+  if (!editorEditable.value && editorMode.value === "edit") return;
+  editorError.value = "";
+  editorSaving.value = true;
   try {
-    const detail = await invokeTauri<TaskEntry>("task_get_task", { input: { taskId: selectedTaskId.value } });
-    tasks.value = tasks.value.map((item) => (item.taskId === detail.taskId ? detail : item));
-    if (!tasks.value.some((item) => item.taskId === detail.taskId)) {
-      tasks.value.unshift(detail);
+    if (editorMode.value === "create") {
+      const payload = editorCreatePayload();
+      if (!payload) return;
+      const created = await invokeTauri<TaskEntry>("task_create_task", { input: payload });
+      tasks.value = taskUpsertEntry(tasks.value, created);
+      selectedTaskId.value = created.taskId;
+      closeEditorDialogDirect();
+      setMessage(t("config.task.created"));
+      await loadTasks({ preferredTaskId: created.taskId, keepMessage: true });
+      return;
     }
-    await loadRunLogs(detail.taskId);
+
+    const payload = editorUpdatePayload();
+    if (!payload) return;
+    const updated = await invokeTauri<TaskEntry>("task_update_task", { input: payload });
+    tasks.value = taskUpsertEntry(tasks.value, updated);
+    selectedTaskId.value = updated.taskId;
+    closeEditorDialogDirect();
+    setMessage(t("config.task.updated"));
+    await loadTasks({ preferredTaskId: updated.taskId, keepMessage: true });
   } catch (error) {
-    setMessage(String(error), true);
+    editorError.value = `${editorMode.value === "create" ? t("config.task.createFailed") : t("config.task.updateFailed")}: ${describeError(error)}`;
   } finally {
-    loading.value = false;
+    editorSaving.value = false;
   }
+}
+
+async function completeEditorTask() {
+  if (editorSaving.value) return;
+  editorError.value = "";
+  editorSaving.value = true;
+  try {
+    const payload = editorCompletePayload();
+    if (!payload) return;
+    const completed = await invokeTauri<TaskEntry>("task_complete_task", { input: payload });
+    tasks.value = taskUpsertEntry(tasks.value, completed);
+    selectedTaskId.value = completed.taskId;
+    closeEditorDialogDirect();
+    setMessage(t("config.task.completed"));
+    await loadTasks({ preferredTaskId: completed.taskId, keepMessage: true });
+  } catch (error) {
+    editorError.value = `${t("config.task.completeFailed")}: ${describeError(error)}`;
+  } finally {
+    editorSaving.value = false;
+  }
+}
+
+async function deleteEditorTask() {
+  if (editorSaving.value || editorMode.value !== "edit") return;
+  const payload = editorDeletePayload();
+  if (!payload) return;
+  if (!window.confirm(t("config.task.deleteConfirm"))) {
+    return;
+  }
+
+  editorError.value = "";
+  editorSaving.value = true;
+  try {
+    await invokeTauri("task_delete_task", { input: payload });
+    tasks.value = tasks.value.filter((item) => item.taskId !== payload.taskId);
+    if (selectedTaskId.value === payload.taskId) {
+      selectedTaskId.value = "";
+    }
+    closeEditorDialogDirect();
+    setMessage(t("config.task.deleted"));
+    await loadTasks({ keepMessage: true });
+  } catch (error) {
+    editorError.value = `${t("config.task.deleteFailed")}: ${describeError(error)}`;
+  } finally {
+    editorSaving.value = false;
+  }
+}
+
+async function reloadEditorTask() {
+  if (editorMode.value !== "edit") return;
+  await loadEditorTask(editorForm.value.taskId || selectedTaskId.value);
 }
 
 async function refreshLogs() {

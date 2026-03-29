@@ -25,6 +25,10 @@ fn task_complete_task(input: TaskCompleteInput, state: State<'_, AppState>) -> R
     task_store_complete_task(&state.data_path, &input)
 }
 
+#[tauri::command]
+fn task_delete_task(input: TaskDeleteInput, state: State<'_, AppState>) -> Result<(), String> {
+    task_store_delete_task(&state.data_path, input.task_id.trim())
+}
 
 #[tauri::command]
 fn task_list_run_logs(

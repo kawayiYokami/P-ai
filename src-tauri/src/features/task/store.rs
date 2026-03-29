@@ -585,6 +585,52 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
     task_store_get_task(data_path, &input.task_id)
 }
 
+fn task_store_delete_task(data_path: &PathBuf, task_id: &str) -> Result<(), String> {
+    let normalized_task_id = task_id.trim();
+    if normalized_task_id.is_empty() {
+        return Err("task.taskId is required".to_string());
+    }
+
+    task_store_get_task_record(data_path, normalized_task_id)?;
+
+    let conn = task_store_open(data_path)?;
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|err| format!("Begin task delete transaction failed: {err}"))?;
+
+    let delete_result = (|| -> Result<(), String> {
+        conn.execute(
+            "DELETE FROM task_run_log WHERE task_id = ?1",
+            params![normalized_task_id],
+        )
+        .map_err(|err| format!("Delete task run logs failed: {err}"))?;
+
+        let affected = conn
+            .execute(
+                "DELETE FROM task_record WHERE task_id = ?1",
+                params![normalized_task_id],
+            )
+            .map_err(|err| format!("Delete task failed: {err}"))?;
+
+        if affected == 0 {
+            return Err("Task not found".to_string());
+        }
+        Ok(())
+    })();
+
+    match delete_result {
+        Ok(()) => conn
+            .execute_batch("COMMIT;")
+            .map_err(|err| format!("Commit task delete transaction failed: {err}"))?,
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(err);
+        }
+    }
+
+    task_scheduler_refresh_current_tracked(data_path)?;
+    Ok(())
+}
+
 fn task_store_mark_triggered(data_path: &PathBuf, task_id: &str) -> Result<(), String> {
     let conn = task_store_open(data_path)?;
     let now_utc = now_utc_rfc3339();

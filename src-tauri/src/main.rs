@@ -597,6 +597,7 @@ fn main() {
             task_create_task,
             task_update_task,
             task_complete_task,
+            task_delete_task,
             task_list_run_logs,
             lock_chat_shell_workspace,
             unlock_chat_shell_workspace,

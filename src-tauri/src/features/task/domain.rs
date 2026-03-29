@@ -214,6 +214,12 @@ struct TaskCompleteInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TaskDeleteInput {
+    task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TaskGetInput {
     task_id: String,
 }
