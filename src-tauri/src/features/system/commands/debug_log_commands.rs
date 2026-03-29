@@ -228,10 +228,12 @@ fn normalize_prepared_prompt_messages(messages: &mut [Value]) {
 
 fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
-    messages.push(serde_json::json!({
-        "role": "system",
-        "content": prepared.preamble
-    }));
+    if !prepared.preamble.trim().is_empty() {
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": prepared.preamble
+        }));
+    }
 
     for hm in &prepared.history_messages {
         if hm.role == "assistant" && hm.tool_calls.is_some() {

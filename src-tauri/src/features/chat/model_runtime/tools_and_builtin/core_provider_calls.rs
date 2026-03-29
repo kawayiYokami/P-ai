@@ -436,10 +436,13 @@ async fn call_model_openai_rig_style_internal(
 
     match kind {
         OpenAiRigApiKind::ChatCompletions => {
-            let agent = client
-                .completions_api()
-                .agent(model_name)
-                .preamble(&prepared.preamble)
+            let agent_builder = client.completions_api().agent(model_name);
+            let agent_builder = if prepared.preamble.trim().is_empty() {
+                agent_builder
+            } else {
+                agent_builder.preamble(&prepared.preamble)
+            };
+            let agent = agent_builder
                 .temperature(api_config.temperature)
                 .max_tokens(api_config.max_output_tokens as u64)
                 .build();
@@ -454,9 +457,13 @@ async fn call_model_openai_rig_style_internal(
         }
         OpenAiRigApiKind::Responses => {
             // IMPORTANT: do NOT call .completions_api() here; keep default Responses API.
-            let agent = client
-                .agent(model_name)
-                .preamble(&prepared.preamble)
+            let agent_builder = client.agent(model_name);
+            let agent_builder = if prepared.preamble.trim().is_empty() {
+                agent_builder
+            } else {
+                agent_builder.preamble(&prepared.preamble)
+            };
+            let agent = agent_builder
                 .temperature(api_config.temperature)
                 .max_tokens(api_config.max_output_tokens as u64)
                 .build();

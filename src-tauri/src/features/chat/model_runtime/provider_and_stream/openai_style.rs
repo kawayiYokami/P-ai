@@ -17,11 +17,13 @@ async fn call_model_openai_with_tools(
         .build()
         .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
     let tools = std::mem::take(&mut tool_assembly.tools);
-    let agent = client
-        .clone()
-        .completions_api()
-        .agent(model_name)
-        .preamble(&prepared.preamble)
+    let agent_builder = client.clone().completions_api().agent(model_name);
+    let agent_builder = if prepared.preamble.trim().is_empty() {
+        agent_builder
+    } else {
+        agent_builder.preamble(&prepared.preamble)
+    };
+    let agent = agent_builder
         .temperature(api_config.temperature)
         .max_tokens(api_config.max_output_tokens as u64)
         .tools(tools)
@@ -58,9 +60,13 @@ async fn call_model_openai_responses_with_tools(
         .build()
         .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
     let tools = std::mem::take(&mut tool_assembly.tools);
-    let agent = client
-        .agent(model_name)
-        .preamble(&prepared.preamble)
+    let agent_builder = client.agent(model_name);
+    let agent_builder = if prepared.preamble.trim().is_empty() {
+        agent_builder
+    } else {
+        agent_builder.preamble(&prepared.preamble)
+    };
+    let agent = agent_builder
         .temperature(api_config.temperature)
         .max_tokens(api_config.max_output_tokens as u64)
         .tools(tools)

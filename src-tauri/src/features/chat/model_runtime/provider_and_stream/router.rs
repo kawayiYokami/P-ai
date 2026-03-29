@@ -70,6 +70,82 @@ fn append_unavailable_tool_notices_to_prepared(
     }
 }
 
+fn apply_cached_system_message_user_fallback_to_prepared(
+    prepared: &mut PreparedPrompt,
+    base_url: &str,
+    app_state: Option<&AppState>,
+) {
+    if provider_system_message_user_fallback(app_state, base_url)
+        && move_system_preamble_to_user_prompt(prepared)
+    {
+        runtime_log_info(format!(
+            "[聊天] base_url={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
+            base_url
+        ));
+    }
+}
+
+async fn retry_openai_responses_with_system_message_user_fallback(
+    api_config: &ResolvedApiConfig,
+    app_config: &AppConfig,
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    model_name: &str,
+    err: String,
+    prepared: PreparedPrompt,
+    app_state: Option<&AppState>,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
+    chat_session_key: &str,
+    request_log: &mut Value,
+    tool_manifest_for_log: &mut Option<Value>,
+    allow_tools: bool,
+) -> Result<ModelReply, String> {
+    if let Err(mark_err) =
+        provider_mark_system_message_user_fallback(app_state, &api_config.base_url)
+    {
+        runtime_log_warn(format!(
+            "[聊天] 标记本次运行内 system->user 降级失败: base_url={}, err={}",
+            api_config.base_url, mark_err
+        ));
+    }
+    let mut fallback = prepared;
+    if !move_system_preamble_to_user_prompt(&mut fallback) {
+        return Err(err);
+    }
+    runtime_log_info(format!(
+        "[聊天] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试: base_url={}, model={}, err={}",
+        api_config.base_url, model_name, err
+    ));
+    *request_log =
+        prepared_prompt_to_equivalent_request_json(&fallback, model_name, api_config.temperature);
+    if allow_tools && selected_api.enable_tools {
+        let tool_assembly = assemble_runtime_tools(
+            app_config,
+            selected_api,
+            agent,
+            app_state,
+            chat_session_key,
+        )
+        .await?;
+        *tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+        dispatch_openai_style_call(
+            api_config,
+            selected_api,
+            model_name,
+            fallback,
+            tool_assembly,
+            on_delta,
+            max_tool_iterations,
+            app_state,
+            chat_session_key,
+        )
+        .await
+    } else {
+        call_model_openai_responses_rig_style(api_config, model_name, fallback, Some(on_delta)).await
+    }
+}
+
 async fn dispatch_openai_style_call(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -157,6 +233,13 @@ async fn call_model_openai_style(
         selected_api.enable_audio,
     );
     let started_at = std::time::Instant::now();
+    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+        apply_cached_system_message_user_fallback_to_prepared(
+            &mut prepared,
+            &api_config.base_url,
+            app_state,
+        );
+    }
     let mut request_log = prepared_prompt_to_equivalent_request_json(
         &prepared,
         model_name,
@@ -276,6 +359,28 @@ async fn call_model_openai_style(
             };
             match stream_result {
                 Ok(reply) => Ok(reply),
+                Err(err)
+                    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses)
+                        && is_system_message_not_allowed_error(&err) =>
+                {
+                    retry_openai_responses_with_system_message_user_fallback(
+                        api_config,
+                        app_config,
+                        selected_api,
+                        agent,
+                        model_name,
+                        err,
+                        prepared,
+                        app_state,
+                        on_delta,
+                        max_tool_iterations,
+                        chat_session_key,
+                        &mut request_log,
+                        &mut tool_manifest_for_log,
+                        true,
+                    )
+                    .await
+                }
                 Err(err) if supports_non_stream_fallback => {
                     if let Err(mark_err) =
                         provider_mark_streaming_disabled(app_state, &api_config.base_url)
@@ -321,6 +426,28 @@ async fn call_model_openai_style(
             };
             match rig_result {
                 Ok(reply) => Ok(reply),
+                Err(err)
+                    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses)
+                        && is_system_message_not_allowed_error(&err) =>
+                {
+                    retry_openai_responses_with_system_message_user_fallback(
+                        api_config,
+                        app_config,
+                        selected_api,
+                        agent,
+                        model_name,
+                        err,
+                        prepared,
+                        app_state,
+                        on_delta,
+                        max_tool_iterations,
+                        chat_session_key,
+                        &mut request_log,
+                        &mut tool_manifest_for_log,
+                        false,
+                    )
+                    .await
+                }
                 Err(err)
                     if (!original.latest_images.is_empty() || prepared_has_any_history_image(&original))
                         && is_image_unsupported_error(&err) =>

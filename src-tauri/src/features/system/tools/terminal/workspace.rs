@@ -408,6 +408,7 @@ mod terminal_workspace_tests {
             delegate_runtime_threads: Arc::new(Mutex::new(HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(HashSet::new())),
+            provider_system_message_user_fallback_keys: Arc::new(Mutex::new(HashSet::new())),
             preferred_release_source: Arc::new(Mutex::new(String::new())),
         }
     }

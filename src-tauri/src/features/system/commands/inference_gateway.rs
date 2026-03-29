@@ -47,6 +47,61 @@ fn provider_mark_streaming_disabled(state: Option<&AppState>, base_url: &str) ->
     Ok(())
 }
 
+fn provider_system_message_user_fallback_cached(state: Option<&AppState>, base_url: &str) -> bool {
+    let Some(app_state) = state else {
+        return false;
+    };
+    let key = provider_streaming_cache_key(base_url);
+    let Ok(cache) = app_state.provider_system_message_user_fallback_keys.lock() else {
+        return false;
+    };
+    cache.contains(&key)
+}
+
+fn provider_system_message_user_fallback(state: Option<&AppState>, base_url: &str) -> bool {
+    provider_system_message_user_fallback_cached(state, base_url)
+}
+
+fn provider_mark_system_message_user_fallback(
+    state: Option<&AppState>,
+    base_url: &str,
+) -> Result<(), String> {
+    let Some(app_state) = state else {
+        return Ok(());
+    };
+    let key = provider_streaming_cache_key(base_url);
+    let Ok(mut cache) = app_state.provider_system_message_user_fallback_keys.lock() else {
+        return Err("Failed to lock provider system message fallback cache".to_string());
+    };
+    cache.insert(key);
+    Ok(())
+}
+
+fn is_system_message_not_allowed_error(err: &str) -> bool {
+    let normalized = err.to_ascii_lowercase();
+    normalized.contains("system messages are not allowed")
+        || normalized.contains("system message is not allowed")
+}
+
+fn move_system_preamble_to_user_prompt(prepared: &mut PreparedPrompt) -> bool {
+    let preamble = prepared.preamble.trim().to_string();
+    if preamble.is_empty() {
+        return false;
+    }
+    let block = prompt_xml_block("system prompt", preamble);
+    prepared.preamble.clear();
+    if prepared.latest_user_extra_text.trim().is_empty() {
+        prepared.latest_user_extra_text = block;
+    } else {
+        prepared.latest_user_extra_text = format!(
+            "{}\n\n{}",
+            block,
+            prepared.latest_user_extra_text.trim()
+        );
+    }
+    true
+}
+
 #[cfg(test)]
 fn is_streaming_format_error(err: &str) -> bool {
     err.contains("missing field `role`")
@@ -152,7 +207,18 @@ async fn invoke_model_with_policy(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     let started_at = std::time::Instant::now();
-    let request_log = prepared_prompt_to_equivalent_request_json(
+    let mut prepared = prepared;
+    let stream_cache_key = provider_streaming_cache_key(&resolved_api.base_url);
+    if matches!(resolved_api.request_format, RequestFormat::OpenAIResponses)
+        && provider_system_message_user_fallback(app_state, &resolved_api.base_url)
+        && move_system_preamble_to_user_prompt(&mut prepared)
+    {
+        runtime_log_info(format!(
+            "[推理] key={}, scene={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
+            stream_cache_key, policy.scene
+        ));
+    }
+    let mut request_log = prepared_prompt_to_equivalent_request_json(
         &prepared,
         model_name,
         resolved_api.temperature,
@@ -161,7 +227,6 @@ async fn invoke_model_with_policy(
     if policy.json_only {
         // json_only is enforced by prompt contract + caller-side JSON parse.
     }
-    let stream_cache_key = provider_streaming_cache_key(&resolved_api.base_url);
     let prefer_non_stream = provider_streaming_disabled(app_state, &resolved_api.base_url);
     let first_result = if prefer_non_stream {
         if let Some(timeout_secs) = policy.timeout_secs {
@@ -192,6 +257,45 @@ async fn invoke_model_with_policy(
     };
     let result = match first_result {
         Ok(reply) => Ok(reply),
+        Err(err)
+            if matches!(resolved_api.request_format, RequestFormat::OpenAIResponses)
+                && is_system_message_not_allowed_error(&err) =>
+        {
+            if let Err(mark_err) =
+                provider_mark_system_message_user_fallback(app_state, &resolved_api.base_url)
+            {
+                runtime_log_warn(format!(
+                    "[推理] 标记本次运行内 system->user 降级失败: key={}, scene={}, err={}",
+                    stream_cache_key, policy.scene, mark_err
+                ));
+            }
+            let mut fallback = prepared;
+            if !move_system_preamble_to_user_prompt(&mut fallback) {
+                Err(err)
+            } else {
+                runtime_log_info(format!(
+                    "[推理] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试: key={}, scene={}, err={}",
+                    stream_cache_key, policy.scene, err
+                ));
+                request_log = prepared_prompt_to_equivalent_request_json(
+                    &fallback,
+                    model_name,
+                    resolved_api.temperature,
+                );
+                if let Some(timeout_secs) = policy.timeout_secs {
+                    invoke_model_rig_by_format_with_timeout(
+                        resolved_api,
+                        model_name,
+                        fallback,
+                        timeout_secs,
+                        policy.scene,
+                    )
+                    .await
+                } else {
+                    invoke_model_rig_by_format(resolved_api, model_name, fallback).await
+                }
+            }
+        }
         Err(err)
             if !prefer_non_stream
                 && request_format_supports_non_stream_fallback(resolved_api.request_format) =>
@@ -299,5 +403,35 @@ mod inference_gateway_tests {
     fn provider_cache_key_should_keep_raw_base_url() {
         let key = provider_streaming_cache_key("https://api.moonshot.cn/v1/");
         assert_eq!(key, "https://api.moonshot.cn/v1");
+    }
+
+    #[test]
+    fn system_message_error_detector_should_match_known_patterns() {
+        assert!(is_system_message_not_allowed_error(
+            "ProviderError: Invalid status code 400 Bad Request with message: {\"detail\":\"System messages are not allowed\"}"
+        ));
+        assert!(is_system_message_not_allowed_error(
+            "system message is not allowed for this upstream"
+        ));
+        assert!(!is_system_message_not_allowed_error("streaming failed"));
+    }
+
+    #[test]
+    fn move_system_preamble_to_user_prompt_should_clear_preamble_and_prepend_extra() {
+        let mut prepared = PreparedPrompt {
+            preamble: "你是严谨助手".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "你好".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: "原有补充".to_string(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        assert!(move_system_preamble_to_user_prompt(&mut prepared));
+        assert!(prepared.preamble.is_empty());
+        assert!(prepared.latest_user_extra_text.contains("你是严谨助手"));
+        assert!(prepared.latest_user_extra_text.starts_with("<system prompt>"));
+        assert!(prepared.latest_user_extra_text.ends_with("原有补充"));
     }
 }

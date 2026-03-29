@@ -2,6 +2,12 @@
 
 ## 发布（v0.8.6）：统一 PDF 图片分页、后台归档与多图转发
 
+- 修复（openai-responses-system-message-user-fallback）：修正 OpenAI Responses 在上游拒绝 system message 时的降级链路
+  - 运行态新增按 `base_url` 记忆的 `system -> user` 降级缓存，命中 `System messages are not allowed` 后同次运行内后续请求会直接改写提示词
+  - Responses 聊天主链路提取公共重试逻辑，统一处理标记降级、移动 system prompt、刷新请求日志与重试发送
+  - 请求预览与调试日志不再为已清空的 `preamble` 生成空的 `system` 消息，避免排查时误判降级未生效
+  - OpenAI / OpenAI Responses 的 rig builder 在 `preamble` 为空时不再调用 `.preamble(...)`，避免空 system prompt 继续被上游识别为 system message
+
 - 修复（background-force-archive-and-organizing-session-guard）：强制归档改为后台执行并禁用归档中的会话切换
   - 强制归档入口改为先切出当前会话，再后台启动归档任务，不再长时间占用前台聊天窗口
   - 未归档会话列表新增运行态字段，当前处于 `organizing_context` 的会话会在聊天视图与归档视图中显示为禁用，避免归档过程中误切回
