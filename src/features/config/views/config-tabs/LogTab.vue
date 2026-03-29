@@ -1,17 +1,22 @@
 <template>
-  <div class="space-y-3">
-    <div class="flex items-center justify-between">
-      <div class="text-sm font-medium">调用日志（内存）</div>
-      <div class="join">
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" @click="props.openRuntimeLogs">
-          后台日志
-        </button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading" @click="reload">刷新</button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 join-item" :disabled="loading || logs.length === 0" @click="clearAll">清空</button>
+  <div class="grid gap-3">
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div class="text-sm font-medium">调用日志（内存）</div>
+            <div class="join">
+              <button class="btn btn-sm bg-base-200 join-item" @click="props.openRuntimeLogs">
+                后台日志
+              </button>
+              <button class="btn btn-sm bg-base-200 join-item" :disabled="loading" @click="reload">刷新</button>
+              <button class="btn btn-sm bg-base-200 join-item" :disabled="loading || logs.length === 0" @click="clearAll">清空</button>
+            </div>
+          </div>
+          <div class="text-sm opacity-60">仅保留最近 10 轮发送-接收日志，进程退出后自动清空。</div>
+        </div>
       </div>
     </div>
-
-    <div class="text-sm opacity-60">仅保留最近 10 轮发送-接收日志，进程退出后自动清空。</div>
 
     <div v-if="loading" class="text-sm opacity-70">加载中...</div>
     <div v-else-if="logs.length === 0" class="text-sm opacity-50">暂无日志</div>

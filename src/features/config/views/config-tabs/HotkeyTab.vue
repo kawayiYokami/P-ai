@@ -1,97 +1,110 @@
 <template>
-  <label class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.label") }}</span></div>
-    <div class="flex items-center gap-2">
-      <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
-      <button
-        class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 shrink-0"
-        :class="{ 'btn-primary': hotkeyCapturing }"
-        @click="toggleHotkeyCapture"
-      >
-        {{ hotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
-      </button>
-    </div>
-    <div class="flex items-center justify-between py-1">
-      <span class="text-[11px] opacity-70">{{ hotkeyCaptureHint }}</span>
-    </div>
-    <div class="py-1">
-      <button class="btn btn-sm btn-primary shrink-0" @click="$emit('summonChatNow')">
-        {{ t("config.hotkey.callNowButton") }}
-      </button>
-    </div>
-    <div class="py-1 text-[11px] opacity-60">{{ t("config.hotkey.callNowHint") }}</div>
-  </label>
-  <div class="grid grid-cols-1 gap-2">
-    <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.recordKey") }}</span></div>
-      <div class="flex items-center gap-1">
-        <input :value="config.recordHotkey" class="input input-bordered input-sm flex-1" readonly />
-        <button
-          class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 shrink-0"
-          :class="{ 'btn-primary': recordHotkeyCapturing }"
-          @click="toggleRecordHotkeyCapture"
-        >
-          {{ recordHotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm shrink-0"
-          :class="config.recordBackgroundWakeEnabled ? 'btn-success text-success-content' : 'btn-ghost border border-base-300'"
-          :title="t('config.hotkey.backgroundWakeHint')"
-          :aria-pressed="config.recordBackgroundWakeEnabled ? 'true' : 'false'"
-          @click="$emit('update:recordBackgroundWakeEnabled', !config.recordBackgroundWakeEnabled)"
-        >
-          {{ config.recordBackgroundWakeEnabled ? t("config.hotkey.backgroundWakeOn") : t("config.hotkey.backgroundWakeOff") }}
-        </button>
+  <div class="grid gap-3">
+    <!-- 唤出对话快捷键 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base mb-3">{{ t("config.hotkey.label") }}</h3>
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center gap-2">
+            <input :value="config.hotkey" class="input input-bordered input-sm flex-1" placeholder="Alt+·" readonly />
+            <button
+              class="btn btn-sm bg-base-200 shrink-0"
+              :class="{ 'btn-primary': hotkeyCapturing }"
+              @click="toggleHotkeyCapture"
+            >
+              {{ hotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
+            </button>
+          </div>
+          <div class="text-[11px] opacity-70">{{ hotkeyCaptureHint }}</div>
+          <div>
+            <button class="btn btn-sm btn-primary shrink-0" @click="$emit('summonChatNow')">
+              {{ t("config.hotkey.callNowButton") }}
+            </button>
+          </div>
+          <div class="text-[11px] opacity-60">{{ t("config.hotkey.callNowHint") }}</div>
+        </div>
       </div>
-    </label>
-    <div class="grid grid-cols-2 gap-2">
-      <label class="flex min-w-0 flex-col gap-1">
-        <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
-        <input
-          :value="config.minRecordSeconds"
-          type="number"
-          min="1"
-          max="30"
-          class="input input-bordered input-sm w-full"
-          @input="onMinRecordSecondsInput"
-        />
-      </label>
-      <label class="flex min-w-0 flex-col gap-1">
-        <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
-        <input
-          :value="config.maxRecordSeconds"
-          type="number"
-          min="1"
-          max="600"
-          class="input input-bordered input-sm w-full"
-          @input="onMaxRecordSecondsInput"
-        />
-      </label>
     </div>
-  </div>
-  <div class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.recordTest") }}</span></div>
-    <div class="flex flex-wrap items-center gap-2">
-      <button
-        class="btn btn-sm bg-base-100 shrink-0"
-        :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
-        :title="hotkeyTestRecording ? t('config.hotkey.releaseToStop') : t('config.hotkey.holdToRecord')"
-        @mousedown.prevent="$emit('startHotkeyRecordTest')"
-        @mouseup.prevent="$emit('stopHotkeyRecordTest')"
-        @mouseleave.prevent="hotkeyTestRecording && $emit('stopHotkeyRecordTest')"
-        @touchstart.prevent="$emit('startHotkeyRecordTest')"
-        @touchend.prevent="$emit('stopHotkeyRecordTest')"
-      >
-        {{ hotkeyTestRecording ? t("chat.recording", { seconds: Math.max(1, Math.round(hotkeyTestRecordingMs / 1000)) }) : t("config.hotkey.holdRecordButton") }}
-      </button>
-      <button
-        class="btn btn-sm bg-base-100 shrink-0"
-        :disabled="!hotkeyTestAudioReady"
-        @click="$emit('playHotkeyRecordTest')"
-      >
-        {{ t("config.hotkey.playRecord") }}
-      </button>
+
+    <!-- 录音快捷键 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base mb-3">{{ t("config.hotkey.recordKey") }}</h3>
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center gap-1">
+            <input :value="config.recordHotkey" class="input input-bordered input-sm flex-1" readonly />
+            <button
+              class="btn btn-sm bg-base-200 shrink-0"
+              :class="{ 'btn-primary': recordHotkeyCapturing }"
+              @click="toggleRecordHotkeyCapture"
+            >
+              {{ recordHotkeyCapturing ? t("config.hotkey.recording") : t("config.hotkey.recordButton") }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm shrink-0"
+              :class="config.recordBackgroundWakeEnabled ? 'btn-success text-success-content' : 'bg-base-200'"
+              :title="t('config.hotkey.backgroundWakeHint')"
+              :aria-pressed="config.recordBackgroundWakeEnabled ? 'true' : 'false'"
+              @click="$emit('update:recordBackgroundWakeEnabled', !config.recordBackgroundWakeEnabled)"
+            >
+              {{ config.recordBackgroundWakeEnabled ? t("config.hotkey.backgroundWakeOn") : t("config.hotkey.backgroundWakeOff") }}
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="flex min-w-0 flex-col gap-1">
+              <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.minRecordSeconds") }}</span></div>
+              <input
+                :value="config.minRecordSeconds"
+                type="number"
+                min="1"
+                max="30"
+                class="input input-bordered input-sm w-full"
+                @input="onMinRecordSecondsInput"
+              />
+            </label>
+            <label class="flex min-w-0 flex-col gap-1">
+              <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.hotkey.maxRecordSeconds") }}</span></div>
+              <input
+                :value="config.maxRecordSeconds"
+                type="number"
+                min="1"
+                max="600"
+                class="input input-bordered input-sm w-full"
+                @input="onMaxRecordSecondsInput"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 录音测试 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base mb-3">{{ t("config.hotkey.recordTest") }}</h3>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            class="btn btn-sm bg-base-200 shrink-0"
+            :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
+            :title="hotkeyTestRecording ? t('config.hotkey.releaseToStop') : t('config.hotkey.holdToRecord')"
+            @mousedown.prevent="$emit('startHotkeyRecordTest')"
+            @mouseup.prevent="$emit('stopHotkeyRecordTest')"
+            @mouseleave.prevent="hotkeyTestRecording && $emit('stopHotkeyRecordTest')"
+            @touchstart.prevent="$emit('startHotkeyRecordTest')"
+            @touchend.prevent="$emit('stopHotkeyRecordTest')"
+          >
+            {{ hotkeyTestRecording ? t("chat.recording", { seconds: Math.max(1, Math.round(hotkeyTestRecordingMs / 1000)) }) : t("config.hotkey.holdRecordButton") }}
+          </button>
+          <button
+            class="btn btn-sm bg-base-200 shrink-0"
+            :disabled="!hotkeyTestAudioReady"
+            @click="$emit('playHotkeyRecordTest')"
+          >
+            {{ t("config.hotkey.playRecord") }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

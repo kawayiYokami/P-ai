@@ -1,126 +1,138 @@
 <template>
-  <label class="flex w-full flex-col gap-1">
-    <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.title") }}</span></div>
-    <div class="flex gap-1">
-      <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-        <option v-for="p in personas" :key="p.id" :value="p.id">
-          {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
-        </option>
-      </select>
-      <button class="btn btn-sm btn-square bg-base-100" :title="t('config.persona.add')" @click="$emit('addPersona')">
-        <Plus class="h-3.5 w-3.5" />
-      </button>
-      <button
-        class="btn btn-sm btn-square"
-        :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'bg-base-100'"
-        :title="t('config.persona.remove')"
-        :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1"
-        @click="$emit('removeSelectedPersona')"
-      >
-        <Trash2 class="h-3.5 w-3.5" />
-      </button>
-      <button
-        class="btn btn-sm btn-square"
-        :class="personaDirty ? 'btn-primary' : 'bg-base-100'"
-        :disabled="!selectedPersona || selectedPersonaIsPrivateWorkspace || !personaDirty || personaSaving"
-        :title="personaSaving ? t('config.api.saving') : personaDirty ? t('common.save') : t('status.personaSaved')"
-        @click="$emit('savePersonas')"
-      >
-        <Save v-if="!personaSaving" class="h-3.5 w-3.5" />
-        <span v-else class="loading loading-spinner loading-sm"></span>
-      </button>
-    </div>
-  </label>
-  <div class="divider my-0"></div>
-
-  <div v-if="selectedPersona" class="grid gap-2">
-    <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.name") }}</span></div>
-      <div class="flex items-center gap-2">
-        <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :disabled="selectedPersonaIsPrivateWorkspace" :placeholder="t('config.persona.name')" />
-        <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
-        <button
-          class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
-          :disabled="avatarSaving || selectedPersonaIsPrivateWorkspace"
-          :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
-          @click="$emit('openAvatarEditor')"
-        >
-          <div v-if="selectedPersonaAvatarUrl" class="avatar">
-            <div class="w-10 rounded-full">
-              <img :src="selectedPersonaAvatarUrl" :alt="selectedPersona.name" :title="selectedPersona.name" />
-            </div>
-          </div>
-          <div v-else class="avatar placeholder">
-            <div class="bg-neutral text-neutral-content w-10 rounded-full">
-              <span>{{ avatarInitial(selectedPersona.name) }}</span>
-            </div>
-          </div>
-        </button>
-      </div>
-      <div v-if="selectedPersonaIsPrivateWorkspace" class="flex items-center justify-between py-1">
-        <span class="text-xs opacity-70">{{ t("config.persona.privateWorkspaceAvatarReadonly") }}</span>
-      </div>
-      <div v-if="avatarError" class="flex items-center justify-between py-1"><span class="text-error break-all">{{ avatarError }}</span></div>
-    </label>
-    <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.persona.prompt") }}</span></div>
-      <textarea
-        v-model="selectedPersona.systemPrompt"
-        class="textarea textarea-bordered textarea-sm w-full"
-        rows="12"
-        :disabled="selectedPersonaIsPrivateWorkspace"
-        :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.isBuiltInSystem ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
-      ></textarea>
-    </label>
-
-    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="text-sm font-medium">{{ t('config.persona.privateMemory') }}</div>
-    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="card bg-base-100 border border-base-300">
-      <div class="card-body gap-3 p-3">
-        <div class="flex items-center justify-between">
-          <div class="text-sm">
-            <div class="opacity-60">{{ t('config.persona.privateMemoryHint') }}</div>
-            <div class="mt-1 font-medium">
-              {{ t('config.persona.currentStatus') }}{{ selectedPersona.privateMemoryEnabled ? t('config.persona.private') : t('config.persona.public') }}
-            </div>
-          </div>
-          <div class="flex gap-1">
-            <button
-              class="badge badge-sm cursor-pointer"
-              :class="!selectedPersona.privateMemoryEnabled ? 'badge-primary' : 'badge-ghost'"
-              :disabled="privateMemoryCounting || privateMemorySwitching"
-              @click="setPrivateMemoryMode(false)"
-            >
-              {{ t('config.persona.global') }}
-            </button>
-            <button
-              class="badge badge-sm cursor-pointer"
-              :class="selectedPersona.privateMemoryEnabled ? 'badge-primary' : 'badge-ghost'"
-              :disabled="privateMemoryCounting || privateMemorySwitching"
-              @click="setPrivateMemoryMode(true)"
-            >
-              {{ t('config.persona.private') }}
-            </button>
-          </div>
-        </div>
-        <div class="flex justify-end">
-          <button class="btn btn-sm btn-ghost" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-            {{ t('config.persona.import') }}
+  <div class="grid gap-3">
+    <!-- 人格选择器 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <div class="flex gap-1">
+          <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
+            <option v-for="p in personas" :key="p.id" :value="p.id">
+              {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
+            </option>
+          </select>
+          <button class="btn btn-sm btn-square bg-base-200" :title="t('config.persona.add')" @click="$emit('addPersona')">
+            <Plus class="h-3.5 w-3.5" />
+          </button>
+          <button
+            class="btn btn-sm btn-square"
+            :class="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1 ? 'text-base-content/30 bg-base-200 cursor-not-allowed' : 'bg-base-200'"
+            :title="t('config.persona.remove')"
+            :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || selectedPersonaIsPrivateWorkspace || assistantPersonas.length <= 1"
+            @click="$emit('removeSelectedPersona')"
+          >
+            <Trash2 class="h-3.5 w-3.5" />
+          </button>
+          <button
+            class="btn btn-sm btn-square"
+            :class="personaDirty ? 'btn-primary' : 'bg-base-200'"
+            :disabled="!selectedPersona || selectedPersonaIsPrivateWorkspace || !personaDirty || personaSaving"
+            :title="personaSaving ? t('config.api.saving') : personaDirty ? t('common.save') : t('status.personaSaved')"
+            @click="$emit('savePersonas')"
+          >
+            <Save v-if="!personaSaving" class="h-3.5 w-3.5" />
+            <span v-else class="loading loading-spinner loading-sm"></span>
           </button>
         </div>
       </div>
     </div>
-    <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
-      {{ privateMemoryError }}
-    </div>
 
-    <input
-      ref="personaMemoryImportInput"
-      type="file"
-      accept=".json,application/json"
-      class="hidden"
-      @change="onPersonaMemoryImportFile"
-    />
+    <!-- 人格详情 -->
+    <div v-if="selectedPersona" class="grid gap-3">
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <h3 class="card-title text-base mb-3">{{ t("config.persona.name") }}</h3>
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center gap-2">
+              <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :disabled="selectedPersonaIsPrivateWorkspace" :placeholder="t('config.persona.name')" />
+              <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
+              <button
+                class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
+                :disabled="avatarSaving || selectedPersonaIsPrivateWorkspace"
+                :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
+                @click="$emit('openAvatarEditor')"
+              >
+                <div v-if="selectedPersonaAvatarUrl" class="avatar">
+                  <div class="w-10 rounded-full">
+                    <img :src="selectedPersonaAvatarUrl" :alt="selectedPersona.name" :title="selectedPersona.name" />
+                  </div>
+                </div>
+                <div v-else class="avatar placeholder">
+                  <div class="bg-neutral text-neutral-content w-10 rounded-full">
+                    <span>{{ avatarInitial(selectedPersona.name) }}</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+            <div v-if="selectedPersonaIsPrivateWorkspace" class="text-xs opacity-70">
+              {{ t("config.persona.privateWorkspaceAvatarReadonly") }}
+            </div>
+            <div v-if="avatarError" class="text-error break-all">{{ avatarError }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <h3 class="card-title text-base mb-3">{{ t("config.persona.prompt") }}</h3>
+          <textarea
+            v-model="selectedPersona.systemPrompt"
+            class="textarea textarea-bordered textarea-sm w-full"
+            rows="12"
+            :disabled="selectedPersonaIsPrivateWorkspace"
+            :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.isBuiltInSystem ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- 私有记忆配置 -->
+      <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="card bg-base-100 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <h3 class="card-title text-base mb-0">{{ t('config.persona.privateMemory') }}</h3>
+          <div class="flex items-center justify-between">
+            <div class="text-sm">
+              <div class="opacity-60">{{ t('config.persona.privateMemoryHint') }}</div>
+              <div class="mt-1 font-medium">
+                {{ t('config.persona.currentStatus') }}{{ selectedPersona.privateMemoryEnabled ? t('config.persona.private') : t('config.persona.public') }}
+              </div>
+            </div>
+            <div class="flex gap-1">
+              <button
+                class="badge badge-sm cursor-pointer"
+                :class="!selectedPersona.privateMemoryEnabled ? 'badge-primary' : 'badge-ghost'"
+                :disabled="privateMemoryCounting || privateMemorySwitching"
+                @click="setPrivateMemoryMode(false)"
+              >
+                {{ t('config.persona.global') }}
+              </button>
+              <button
+                class="badge badge-sm cursor-pointer"
+                :class="selectedPersona.privateMemoryEnabled ? 'badge-primary' : 'badge-ghost'"
+                :disabled="privateMemoryCounting || privateMemorySwitching"
+                @click="setPrivateMemoryMode(true)"
+              >
+                {{ t('config.persona.private') }}
+              </button>
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <button class="btn btn-sm btn-ghost" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+              {{ t('config.persona.import') }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
+        {{ privateMemoryError }}
+      </div>
+
+      <input
+        ref="personaMemoryImportInput"
+        type="file"
+        accept=".json,application/json"
+        class="hidden"
+        @change="onPersonaMemoryImportFile"
+      />
+    </div>
   </div>
 
   <dialog ref="privateMemoryDialog" class="modal">

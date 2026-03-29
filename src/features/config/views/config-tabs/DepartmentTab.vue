@@ -1,38 +1,42 @@
 <template>
-  <div class="grid gap-2">
-    <label class="flex w-full flex-col gap-1">
-      <div class="flex items-center justify-between py-1"><span class="text-sm">{{ t("config.department.title") }}</span></div>
-      <div class="flex gap-1">
-        <select :value="selectedDepartmentId" class="select select-bordered select-sm flex-1" @change="switchSelectedDepartment(($event.target as HTMLSelectElement).value)">
-          <option v-for="department in sortedDepartments" :key="department.id" :value="department.id">
-            {{ department.name }}{{ department.isBuiltInAssistant ? `（${t("config.department.assistantBadge")}）` : (department.source === "private_workspace" ? `（${t("config.department.privateWorkspaceBadge")}）` : "") }}
-          </option>
-        </select>
-        <button class="btn btn-sm btn-square bg-base-100" :title="t('config.department.add')" :disabled="savingConfig" @click="addDepartment">
-          <Plus class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-sm btn-square"
-          :class="!selectedDepartment || isNonRemovableDepartment(selectedDepartment) || selectedDepartmentIsPrivateWorkspace ? 'text-base-content/30 bg-base-100 cursor-not-allowed' : 'bg-base-100'"
-          :title="t('config.department.remove')"
-          :disabled="!selectedDepartment || isNonRemovableDepartment(selectedDepartment) || selectedDepartmentIsPrivateWorkspace || savingConfig"
-          @click="removeSelectedDepartment"
-        >
-          <Trash2 class="h-3.5 w-3.5" />
-        </button>
-        <button
-          class="btn btn-sm btn-square"
-          :class="departmentDirty ? 'btn-primary' : 'bg-base-100'"
-          :disabled="!selectedDepartment || selectedDepartmentIsPrivateWorkspace || !!departmentValidationMessage || !departmentDirty || savingConfig"
-          :title="savingConfig ? t('config.api.saving') : departmentDirty ? t('common.save') : t('status.configSaved')"
-          @click="saveDepartments"
-        >
-          <Save v-if="!savingConfig" class="h-3.5 w-3.5" />
-          <span v-else class="loading loading-spinner loading-sm"></span>
-        </button>
+  <div class="grid gap-3">
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <div class="flex w-full flex-col gap-3">
+          <div class="flex items-center justify-between"><span class="text-sm">{{ t("config.department.title") }}</span></div>
+          <div class="flex gap-1">
+            <select :value="selectedDepartmentId" class="select select-bordered select-sm flex-1" @change="switchSelectedDepartment(($event.target as HTMLSelectElement).value)">
+              <option v-for="department in sortedDepartments" :key="department.id" :value="department.id">
+                {{ department.name }}{{ department.isBuiltInAssistant ? `（${t("config.department.assistantBadge")}）` : (department.source === "private_workspace" ? `（${t("config.department.privateWorkspaceBadge")}）` : "") }}
+              </option>
+            </select>
+            <button class="btn btn-sm btn-square bg-base-200" :title="t('config.department.add')" :disabled="savingConfig" @click="addDepartment">
+              <Plus class="h-3.5 w-3.5" />
+            </button>
+            <button
+              class="btn btn-sm btn-square"
+              :class="!selectedDepartment || isNonRemovableDepartment(selectedDepartment) || selectedDepartmentIsPrivateWorkspace ? 'text-base-content/30 bg-base-200 cursor-not-allowed' : 'bg-base-200'"
+              :title="t('config.department.remove')"
+              :disabled="!selectedDepartment || isNonRemovableDepartment(selectedDepartment) || selectedDepartmentIsPrivateWorkspace || savingConfig"
+              @click="removeSelectedDepartment"
+            >
+              <Trash2 class="h-3.5 w-3.5" />
+            </button>
+            <button
+              class="btn btn-sm btn-square"
+              :class="departmentDirty ? 'btn-primary' : 'bg-base-200'"
+              :disabled="!selectedDepartment || selectedDepartmentIsPrivateWorkspace || !!departmentValidationMessage || !departmentDirty || savingConfig"
+              :title="savingConfig ? t('config.api.saving') : departmentDirty ? t('common.save') : t('status.configSaved')"
+              @click="saveDepartments"
+            >
+              <Save v-if="!savingConfig" class="h-3.5 w-3.5" />
+              <span v-else class="loading loading-spinner loading-sm"></span>
+            </button>
+          </div>
+          <div class="text-sm opacity-60">{{ t("config.department.hint") }}</div>
+        </div>
       </div>
-    </label>
-    <div class="text-sm opacity-60">{{ t("config.department.hint") }}</div>
+    </div>
     <div v-if="selectedDepartment" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
         <div v-if="departmentValidationMessage" class="border-b border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-content">
           {{ departmentValidationMessage }}

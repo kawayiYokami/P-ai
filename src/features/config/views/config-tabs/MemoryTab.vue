@@ -88,13 +88,13 @@
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{{ t('config.memory.list') }}</span>
           <div class="join">
-            <button class="btn btn-sm join-item" :disabled="loading" @click="refreshMemories" title="刷新">
+            <button class="btn btn-sm join-item btn-ghost" :disabled="loading" @click="refreshMemories" title="刷新">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
             </button>
-            <button class="btn btn-sm join-item" :disabled="loading" @click="exportMemories" title="导出">
+            <button class="btn btn-sm join-item btn-ghost" :disabled="loading" @click="exportMemories" title="导出">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             </button>
-            <button class="btn btn-sm join-item" :disabled="loading" @click="triggerImport" title="导入">
+            <button class="btn btn-sm join-item btn-ghost" :disabled="loading" @click="triggerImport" title="导入">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
             </button>
           </div>
@@ -115,7 +115,7 @@
             <span v-if="isSearchMode" class="indicator-item badge badge-secondary badge-sm">结果</span>
             <button
               class="btn btn-sm join-item"
-              :class="searchQuery ? 'btn-primary' : 'btn-ghost'"
+              :class="searchQuery ? 'btn-primary' : 'bg-base-200'"
               :disabled="loading || !searchQuery"
               @click="searchMemories"
             >
@@ -126,7 +126,7 @@
         <div class="flex items-center gap-2">
           <button
             v-if="isSearchMode"
-            class="btn btn-sm btn-ghost"
+            class="btn btn-sm bg-base-200"
             :disabled="loading"
             @click="clearSearch"
           >
@@ -209,11 +209,11 @@
         <!-- 分页 -->
         <div v-if="memoryList.length > 0" class="flex justify-center border-t border-base-300 pt-3">
           <div class="join">
-            <button class="btn btn-sm join-item" :disabled="memoryPage <= 1" @click="memoryPage--">
+            <button class="btn btn-sm join-item bg-base-200" :disabled="memoryPage <= 1" @click="memoryPage--">
               ‹
             </button>
             <button class="btn btn-sm join-item btn-active">{{ memoryPage }} / {{ memoryPageCount }}</button>
-            <button class="btn btn-sm join-item" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">
+            <button class="btn btn-sm join-item bg-base-200" :disabled="memoryPage >= memoryPageCount" @click="memoryPage++">
               ›
             </button>
           </div>
