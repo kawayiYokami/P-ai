@@ -1,5 +1,11 @@
 # 变更日志
 
+## 更新（v0.8.6）：移除发布构建中的常驻 devtools feature
+
+- 调整（tauri-release-devtools-feature-cleanup）：收紧 Tauri devtools 编译范围
+  - `src-tauri/Cargo.toml` 移除 `tauri/devtools` 常驻 feature，避免 release 构建继续编入生产环境 devtools 支持
+  - 保留现有开发态控制逻辑，`pnpm tauri dev` 下仍可按需通过开发环境开关打开 devtools
+
 ## 更新（v0.8.6）：内置抓取切换为静态网页正文提取
 
 - 调整（builtin-fetch-static-trafilatura）：内置 `fetch` 改为静态网页正文抓取

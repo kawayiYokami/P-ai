@@ -19,7 +19,7 @@ chardetng = "0.1"
 encoding_rs = "0.8"
 toml = "0.8"
 directories = "5"
-tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
