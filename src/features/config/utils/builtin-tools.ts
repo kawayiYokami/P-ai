@@ -5,7 +5,7 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "websearch", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
   { id: "remember", command: "builtin", args: ["remember"], enabled: true, values: {} },
   { id: "recall", command: "builtin", args: ["recall"], enabled: true, values: {} },
-  { id: "screenshot", command: "builtin", args: ["screenshot"], enabled: false, values: {} },
+  { id: "operate", command: "builtin", args: ["operate"], enabled: true, values: {} },
   { id: "wait", command: "builtin", args: ["wait"], enabled: false, values: {} },
   { id: "exec", command: "builtin", args: ["exec"], enabled: true, values: {} },
   { id: "read_file", command: "builtin", args: ["read_file"], enabled: true, values: {} },

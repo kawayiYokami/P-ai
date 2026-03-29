@@ -297,10 +297,10 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "screenshot".to_string(),
+            id: "operate".to_string(),
             command: "builtin".to_string(),
-            args: vec!["screenshot".to_string()],
-            enabled: false,
+            args: vec!["operate".to_string()],
+            enabled: true,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
@@ -1529,7 +1529,7 @@ fn tool_restricted_by_department(
     }
     if !matches!(
         tool_id,
-        "command" | "screenshot" | "task" | "delegate" | "remote_im_send"
+        "command" | "screenshot" | "operate" | "task" | "delegate" | "remote_im_send"
     ) {
         return None;
     }

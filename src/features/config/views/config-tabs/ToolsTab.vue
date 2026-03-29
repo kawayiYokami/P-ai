@@ -125,7 +125,7 @@
                 <div class="font-medium">{{ item.name }}</div>
                 <span v-if="item.running" class="loading loading-spinner loading-sm"></span>
               </div>
-              <div class="text-[11px] opacity-60">{{ item.description || t("config.mcpToolList.noDescription") }}</div>
+              <div class="text-[11px] opacity-60 whitespace-pre-wrap">{{ item.description || t("config.mcpToolList.noDescription") }}</div>
               <div v-if="toolParameterSummary(item.id).length" class="mt-1 flex flex-wrap gap-1">
                 <span
                   v-for="paramText in toolParameterSummary(item.id)"
@@ -134,6 +134,13 @@
                 >
                   {{ paramText }}
                 </span>
+              </div>
+              <div v-if="toolParameterExamples(item.id).length" class="mt-1 grid gap-1">
+                <pre
+                  v-for="example in toolParameterExamples(item.id)"
+                  :key="`${item.id}-example-${example}`"
+                  class="text-[10px] leading-4 px-2 py-1 rounded bg-base-200 border border-base-300/70 opacity-90 whitespace-pre-wrap overflow-x-auto"
+                >{{ example }}</pre>
               </div>
               <div v-if="statusDetail(item.id)" class="text-[11px] mt-1 rounded px-2 py-1" :class="statusMessageClass(item.id)">
                 {{ statusDetail(item.id) }}
@@ -406,6 +413,31 @@ function toolParameterSummary(id: string): string[] {
     const base = `${required}${name}: ${typeValue}${rangeText ? ` ${rangeText}` : ""}`;
     return desc ? `${base} (${desc})` : base;
   });
+}
+
+function toolParameterExamples(id: string): string[] {
+  const definition = definitionById(id);
+  const parameters = definition?.function?.parameters;
+  if (!parameters || typeof parameters !== "object") return [];
+  const root = parameters as Record<string, unknown>;
+  const propertiesRaw = root.properties;
+  if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+  const properties = propertiesRaw as Record<string, unknown>;
+  const examples: string[] = [];
+  for (const [name, schema] of Object.entries(properties)) {
+    const shape = schema && typeof schema === "object" ? (schema as Record<string, unknown>) : {};
+    const singleExample = shape.example;
+    if (typeof singleExample === "string" && singleExample.trim()) {
+      examples.push(`${name} 示例:\n${singleExample.trim()}`);
+    }
+    const exampleList = Array.isArray(shape.examples) ? shape.examples : [];
+    for (const rawExample of exampleList) {
+      if (typeof rawExample === "string" && rawExample.trim()) {
+        examples.push(`${name} 示例:\n${rawExample.trim()}`);
+      }
+    }
+  }
+  return Array.from(new Set(examples));
 }
 
 const toolListItems = computed<ToolListItem[]>(() =>

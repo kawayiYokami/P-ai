@@ -35,7 +35,7 @@ impl ReadFileMcpServer {
 impl ReadFileMcpServer {
     #[rmcp::tool(
         name = "read_file",
-        description = "Read a local file by absolute path. Automatically handles text, image, PDF and Office files."
+        description = "读取本地文件内容。自动识别文本、图片、PDF 与 Office 文件；absolute_path 必须是绝对路径；offset/limit 用于分页，文本结果按现有文本续读语义处理，PDF 图片结果按页继续读取。"
     )]
     async fn read_file(
         &self,

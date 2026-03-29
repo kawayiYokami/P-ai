@@ -95,7 +95,7 @@ async fn assemble_runtime_tools(
     let has_websearch = tool_enabled(selected_api, agent, current_department, "websearch");
     let has_remember = tool_enabled(selected_api, agent, current_department, "remember");
     let has_recall = tool_enabled(selected_api, agent, current_department, "recall");
-    let has_screenshot = tool_enabled(selected_api, agent, current_department, "screenshot");
+    let has_operate = tool_enabled(selected_api, agent, current_department, "operate");
     let has_command = tool_enabled(selected_api, agent, current_department, "command");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_read_file = tool_enabled(selected_api, agent, current_department, "read_file");
@@ -116,8 +116,8 @@ async fn assemble_runtime_tools(
     let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
     let mut unavailable_tool_notices = Vec::<String>::new();
-    let mut mcp_screenshot_client: Option<ScreenshotMcpClient> = None;
     let mut mcp_read_file_client: Option<ReadFileMcpClient> = None;
+    let mut mcp_operate_client: Option<OperateMcpClient> = None;
 
     tool_manifest.push(tool_manifest_item(
         "builtin",
@@ -181,21 +181,21 @@ async fn assemble_runtime_tools(
         ));
     }
 
-    if has_screenshot {
-        match try_attach_desktop_screenshot_mcp_tool(&mut tools).await {
+    if has_operate {
+        match try_attach_operate_mcp_tool(&mut tools).await {
             Ok(client) => {
-                mcp_screenshot_client = Some(client);
-                tool_manifest.push(tool_manifest_item("builtin_mcp", "screenshot", true, true, None));
+                mcp_operate_client = Some(client);
+                tool_manifest.push(tool_manifest_item("builtin_mcp", "operate", true, true, None));
             }
             Err(err) => {
-                eprintln!("[MCP] screenshot degraded to disabled: {err}");
+                eprintln!("[MCP] operate degraded to disabled: {err}");
                 unavailable_tool_notices.push(format!(
-                    "工具 `screenshot` MCP 挂载失败：{}。",
+                    "工具 `operate` MCP 挂载失败：{}。",
                     err
                 ));
                 tool_manifest.push(tool_manifest_item(
                     "builtin_mcp",
-                    "screenshot",
+                    "operate",
                     true,
                     false,
                     Some(format!("MCP attach failed: {err}")),
@@ -205,10 +205,10 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin_mcp",
-            "screenshot",
+            "operate",
             false,
             false,
-            department_reason("screenshot").or_else(|| Some("当前人格未启用该工具".to_string())),
+            department_reason("operate").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
@@ -414,47 +414,9 @@ async fn assemble_runtime_tools(
         tools,
         tool_manifest,
         unavailable_tool_notices,
-        _mcp_screenshot_client: mcp_screenshot_client,
         _mcp_read_file_client: mcp_read_file_client,
+        _mcp_operate_client: mcp_operate_client,
     })
-}
-
-async fn try_attach_desktop_screenshot_mcp_tool(
-    tools: &mut Vec<Box<dyn ToolDyn>>,
-) -> Result<ScreenshotMcpClient, String> {
-    let exe = std::env::current_exe()
-        .map_err(|err| format!("Resolve current executable for MCP screenshot failed: {err}"))?;
-    let mut cmd = tokio::process::Command::new(exe);
-    cmd.arg(MCP_SCREENSHOT_SERVER_FLAG);
-    let transport = rmcp::transport::TokioChildProcess::new(cmd)
-        .map_err(|err| format!("Start MCP screenshot child process failed: {err}"))?;
-
-    let client = ().serve(transport).await.map_err(|err| {
-        format!("Connect to MCP screenshot server failed: {err}")
-    })?;
-    let sink = client.peer().clone();
-    let defs = client
-        .list_all_tools()
-        .await
-        .map_err(|err| format!("List MCP screenshot tools failed: {err}"))?;
-
-    let mut attached = false;
-    for def in defs {
-        if def.name.as_ref() != MCP_SCREENSHOT_TOOL_NAME {
-            continue;
-        }
-        tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
-            def,
-            sink.clone(),
-        )));
-        attached = true;
-        break;
-    }
-
-    if !attached {
-        return Err("MCP screenshot server did not expose desktop_screenshot tool".to_string());
-    }
-    Ok(client)
 }
 
 async fn try_attach_read_file_mcp_tool(
@@ -495,6 +457,45 @@ async fn try_attach_read_file_mcp_tool(
 
     if !attached {
         return Err("MCP read_file server did not expose read_file tool".to_string());
+    }
+    Ok(client)
+}
+
+async fn try_attach_operate_mcp_tool(
+    tools: &mut Vec<Box<dyn ToolDyn>>,
+) -> Result<OperateMcpClient, String> {
+    let exe = std::env::current_exe()
+        .map_err(|err| format!("Resolve current executable for MCP operate failed: {err}"))?;
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.arg(MCP_OPERATE_SERVER_FLAG);
+    let transport = rmcp::transport::TokioChildProcess::new(cmd)
+        .map_err(|err| format!("Start MCP operate child process failed: {err}"))?;
+
+    let client = ()
+        .serve(transport)
+        .await
+        .map_err(|err| format!("Connect to MCP operate server failed: {err}"))?;
+    let sink = client.peer().clone();
+    let defs = client
+        .list_all_tools()
+        .await
+        .map_err(|err| format!("List MCP operate tools failed: {err}"))?;
+
+    let mut attached = false;
+    for def in defs {
+        if def.name.as_ref() != MCP_OPERATE_TOOL_NAME {
+            continue;
+        }
+        tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
+            def,
+            sink.clone(),
+        )));
+        attached = true;
+        break;
+    }
+
+    if !attached {
+        return Err("MCP operate server did not expose operate tool".to_string());
     }
     Ok(client)
 }

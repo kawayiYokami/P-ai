@@ -19,13 +19,13 @@ struct ScreenshotArtifactEntry {
 
 const SCREENSHOT_ARTIFACT_MAX_ITEMS: usize = 24;
 
-type ScreenshotMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 type ReadFileMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
+type OperateMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 
 struct RuntimeToolAssembly {
     tools: Vec<Box<dyn ToolDyn>>,
     tool_manifest: Vec<Value>,
     unavailable_tool_notices: Vec<String>,
-    _mcp_screenshot_client: Option<ScreenshotMcpClient>,
     _mcp_read_file_client: Option<ReadFileMcpClient>,
+    _mcp_operate_client: Option<OperateMcpClient>,
 }

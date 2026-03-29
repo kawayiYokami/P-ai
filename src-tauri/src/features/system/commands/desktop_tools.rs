@@ -12,6 +12,7 @@ async fn desktop_wait(input: WaitRequest) -> Result<WaitResponse, String> {
         .map_err(|err| to_tool_err_string(&err))
 }
 
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct XcapToolInput {

@@ -218,6 +218,12 @@ fn main() {
         }
         return;
     }
+    if std::env::args().any(|arg| arg == MCP_OPERATE_SERVER_FLAG) {
+        if let Err(err) = run_operate_mcp_server() {
+            eprintln!("{err}");
+        }
+        return;
+    }
 
     let state = match AppState::new() {
         Ok(state) => state,

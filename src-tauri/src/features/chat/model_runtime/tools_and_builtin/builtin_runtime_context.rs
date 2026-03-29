@@ -8,6 +8,7 @@ async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {
     serde_json::to_value(res).map_err(|err| format!("serialize desktop wait result failed: {err}"))
 }
 
+
 async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
     let mut result = {
         let guard = app_state
@@ -127,4 +128,3 @@ async fn builtin_organize_context(
         })
         .map_err(|err| format!("Serialize organize context result failed: {err}"))
 }
-

@@ -1,5 +1,9 @@
 include!("tools/types.rs");
 include!("tools/xcap_screenshot.rs");
+include!("tools/operate_parser.rs");
+include!("tools/operate_actions.rs");
+include!("tools/operate_runner.rs");
+include!("tools/operate_mcp.rs");
 include!("tools/screenshot_mcp.rs");
 include!("tools/wait.rs");
 include!("tools/terminal.rs");

@@ -58,9 +58,8 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 "bing-search" => {
                     tool.id = "websearch".to_string();
                 }
-                "desktop-screenshot" => {
-                    tool.id = "screenshot".to_string();
-                    tool.args = vec!["screenshot".to_string()];
+                "desktop-screenshot" | "screenshot" => {
+                    tool.id = "__merged_into_operate__".to_string();
                 }
                 "desktop-wait" | "wait" | "reload" | "organize_context" => {
                     tool.id = "__merged_into_command__".to_string();
@@ -78,7 +77,9 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.tools.retain(|tool| {
             !matches!(
                 tool.id.as_str(),
-                "__merged_into_command__" | "__removed_shell_switch_workspace__"
+                "__merged_into_command__"
+                    | "__removed_shell_switch_workspace__"
+                    | "__merged_into_operate__"
             )
         });
         api.tools.sort_by(|a, b| a.id.cmp(&b.id));

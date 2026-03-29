@@ -54,7 +54,7 @@ fn check_tools_status(
                 let detail = if let Some(reason) = restricted_reason.clone() {
                     reason
                 } else if tool.id == "screenshot" {
-                    "当前人格尚未委任部门，需绑定支持图像的部门模型后才能运行。".to_string()
+                    "旧 screenshot 工具已并入 operate，请改用 operate。".to_string()
                 } else if tool.enabled {
                     "当前人格已启用该工具，但尚未委任部门，暂不校验运行模型。".to_string()
                 } else {
@@ -65,11 +65,7 @@ fn check_tools_status(
                     status: if restricted_reason.is_some() {
                         "unavailable".to_string()
                     } else if tool.enabled {
-                        if tool.id == "screenshot" {
-                            "unavailable".to_string()
-                        } else {
-                            "loaded".to_string()
-                        }
+                        if tool.id == "screenshot" { "unavailable".to_string() } else { "loaded".to_string() }
                     } else {
                         "disabled".to_string()
                     },
@@ -110,20 +106,16 @@ fn check_tools_status(
             });
             continue;
         }
-        if tool.id == "screenshot" && !selected.enable_image {
-            statuses.push(ToolLoadStatus {
-                id: tool.id,
-                status: "unavailable".to_string(),
-                detail: "已启用，但当前模型不支持图像，运行时将跳过。".to_string(),
-            });
-            continue;
-        }
         let (status, detail) = match tool.id.as_str() {
             "fetch" => ("loaded".to_string(), "内置网页抓取工具可用".to_string()),
             "websearch" => ("loaded".to_string(), "内置网页搜索工具可用".to_string()),
             "remember" => ("loaded".to_string(), "记住工具可用".to_string()),
             "recall" => ("loaded".to_string(), "回忆工具可用".to_string()),
-            "screenshot" => ("loaded".to_string(), "截图工具可用".to_string()),
+            "screenshot" => (
+                "unavailable".to_string(),
+                "旧 screenshot 工具已并入 operate，请改用 operate 脚本中的 screenshot 动作。".to_string(),
+            ),
+            "operate" => ("loaded".to_string(), "桌面输入工具可用（鼠标/键盘/文本）".to_string()),
             "command" => ("loaded".to_string(), "统一命令工具可用".to_string()),
             "task" => ("loaded".to_string(), "任务工具可用".to_string()),
             "delegate" => ("loaded".to_string(), "委托工具可用".to_string()),

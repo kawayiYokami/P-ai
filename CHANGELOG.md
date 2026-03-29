@@ -1,5 +1,28 @@
 # 变更日志
 
+## 更新（v0.8.6）：统一桌面脚本工具与 MCP 定义对齐
+
+- 新增（desktop-script-operate-mcp）：将桌面操作统一收敛为 MCP 版 `operate` 脚本工具
+  - `operate` 改为一次接收 `script` 多行脚本，统一支持 `mouse`、`key`、`text`、`wait`、`screenshot`
+  - 鼠标与截图区域统一使用 `0~1` 百分比坐标，截图只向模型保留最新一张，可用 `save="绝对路径"` 额外落盘
+  - 桌面脚本解析、原子动作执行、结果汇总拆分为独立模块，补齐脚本参数校验与结构化错误提示
+
+- 调整（desktop-tools-merge-and-mcp-only-exposure）：收口桌面工具暴露策略
+  - 模型侧不再单独暴露旧 `screenshot` 工具，统一并入 `operate`
+  - `operate` 与 `read_file` 均通过 MCP 形态挂载，前台工具目录不再手写第二套说明
+  - 前台工具目录改为直接读取真实 MCP `list_all_tools()` 定义，确保用户看到的说明与模型拿到的定义完全一致
+
+- 修复（operate-catalog-logging-and-multi-monitor-region）：补强目录日志与多显示器区域截图
+  - 前台工具目录补齐 MCP client 取消失败与定义加载失败日志，避免 `.ok()` / 丢弃 `Result` 导致排障信息丢失
+  - `operate` MCP 服务与执行层补齐中文 INFO 日志，统一记录开始、逐步完成、完成统计与关键计数
+  - 区域截图坐标换算补齐显示器偏移，修正多显示器场景下 `region` 截图位置错误
+  - `Enigo` 初始化失败等核心错误文案改为中文，保持日志口径一致
+
+- 测试（operate-script-and-mcp-catalog-regression）：补齐桌面脚本与目录一致性回归
+  - 新增脚本解析测试，覆盖键盘、文本、归一化坐标、截图区域与绝对路径校验
+  - 新增多显示器区域偏移测试，覆盖 `normalized_region_to_screen`
+  - 新增前台工具目录与真实 MCP 定义完全一致的回归测试，防止说明文案再次漂移
+
 ## 发布（v0.8.6）：统一 PDF 图片分页、后台归档与多图转发
 
 - 修复（openai-responses-system-message-user-fallback）：修正 OpenAI Responses 在上游拒绝 system message 时的降级链路

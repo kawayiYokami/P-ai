@@ -1,5 +1,4 @@
 const MCP_SCREENSHOT_SERVER_FLAG: &str = "--mcp-screenshot-server";
-const MCP_SCREENSHOT_TOOL_NAME: &str = "desktop_screenshot";
 
 #[derive(Debug, Clone, serde::Deserialize, rmcp::schemars::JsonSchema)]
 struct McpDesktopScreenshotArgs {
