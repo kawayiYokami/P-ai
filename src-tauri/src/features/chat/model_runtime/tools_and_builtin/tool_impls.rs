@@ -10,7 +10,7 @@ impl Tool for BuiltinFetchTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "fetch".to_string(),
-            description: "抓取网页文本内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。".to_string(),
+            description: "静态网页抓取工具。抓取网页内容并提取正文。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {

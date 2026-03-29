@@ -167,18 +167,41 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
           "content": fallback_content
         }));
     }
-    let document = Html::parse_document(&html);
-    let body_selector = Selector::parse("body");
-    let raw = if let Ok(selector) = body_selector {
-        document
-            .select(&selector)
-            .next()
-            .map(|n| n.text().collect::<Vec<_>>().join(" "))
-            .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "))
-    } else {
-        document.root_element().text().collect::<Vec<_>>().join(" ")
+    let extracted = rs_trafilatura::extract_with_options(
+        &html,
+        &rs_trafilatura::Options {
+            url: Some(normalized_url.to_string()),
+            output_markdown: false,
+            include_tables: true,
+            include_images: false,
+            include_links: false,
+            include_comments: false,
+            favor_precision: true,
+            favor_recall: false,
+            deduplicate: true,
+            ..rs_trafilatura::Options::default()
+        },
+    )
+    .ok()
+    .map(|result| result.content_text)
+    .filter(|content| !content.trim().is_empty());
+    let cleaned = match extracted {
+        Some(content) => clean_text(&content),
+        None => {
+            let document = Html::parse_document(&html);
+            let body_selector = Selector::parse("body");
+            let raw = if let Ok(selector) = body_selector {
+                document
+                    .select(&selector)
+                    .next()
+                    .map(|n| n.text().collect::<Vec<_>>().join(" "))
+                    .unwrap_or_else(|| document.root_element().text().collect::<Vec<_>>().join(" "))
+            } else {
+                document.root_element().text().collect::<Vec<_>>().join(" ")
+            };
+            clean_text(&raw)
+        }
     };
-    let cleaned = clean_text(&raw);
     let truncated = truncate_by_chars(&cleaned, max_length);
     Ok(serde_json::json!({
       "ok": true,

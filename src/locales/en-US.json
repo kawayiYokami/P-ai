@@ -241,7 +241,7 @@
       "terminalSelfCheckDesc": "Run a terminal self-check (pwd / git --version / bash --version).",
       "lastResult": "Last Result",
       "statusUnknown": "Unknown",
-      "descFetch": "Fetch webpage content and extract readable text.",
+      "descFetch": "Static webpage fetch tool. Fetch webpage content and extract readable text.",
       "descBingSearch": "Run web search and return candidate results.",
       "descRemember": "Remember key facts as long-term memory.",
       "descRecall": "Recall related memory and return a memory board.",

@@ -241,7 +241,7 @@
       "terminalSelfCheckDesc": "执行终端基础自检（pwd / git --version / bash --version）。",
       "lastResult": "最近结果",
       "statusUnknown": "未知状态",
-      "descFetch": "抓取网页内容并提取正文。",
+      "descFetch": "靜態網頁抓取工具。抓取網頁內容並提取正文。",
       "descBingSearch": "执行网络搜索并返回候选结果。",
       "descRemember": "把關鍵資訊記住為長期記憶。",
       "descRecall": "按查詢回憶相關記憶，並返回記憶板。",
