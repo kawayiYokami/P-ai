@@ -149,8 +149,17 @@ fn delegate_enqueue_result_message(
     };
 
     // 创建事件并入队
+    let event_id = Uuid::new_v4().to_string();
+    let mut runtime_context = runtime_context_new("delegate_result", "delegate_publish");
+    runtime_context.request_id = Some(format!("delegate-result-{}", Uuid::new_v4()));
+    runtime_context.dispatch_id = Some(event_id.clone());
+    runtime_context.origin_conversation_id = Some(root_conversation_id.to_string());
+    runtime_context.target_conversation_id = Some(target_conversation_id.clone());
+    runtime_context.root_conversation_id = Some(root_conversation_id.to_string());
+    runtime_context.executor_agent_id = Some(agent_id.clone());
+    runtime_context.executor_department_id = Some(department_id.clone());
     let event = ChatPendingEvent {
-        id: Uuid::new_v4().to_string(),
+        id: event_id,
         conversation_id: target_conversation_id,
         created_at: now_iso(),
         source: ChatEventSource::Delegate,
@@ -160,6 +169,7 @@ fn delegate_enqueue_result_message(
             department_id,
             agent_id,
         },
+        runtime_context: Some(runtime_context),
         sender_info: None,
     };
 
@@ -267,6 +277,18 @@ async fn delegate_execute_agent_run(
         trace_id: Some(format!("delegate-{}", delegate.delegate_id)),
         oldest_queue_created_at: None,
         remote_im_activation_sources: Vec::new(),
+        runtime_context: Some(RuntimeContext {
+            request_id: Some(format!("delegate-request-{}", delegate.delegate_id)),
+            dispatch_id: Some(format!("delegate-dispatch-{}", delegate.delegate_id)),
+            origin_conversation_id: Some(root_conversation_id.to_string()),
+            target_conversation_id: Some(delegate_conversation_id.to_string()),
+            root_conversation_id: Some(root_conversation_id.to_string()),
+            executor_agent_id: Some(delegate.target_agent_id.clone()),
+            executor_department_id: Some(delegate.target_department_id.clone()),
+            model_config_id: Some(target_api_config_id.to_string()),
+            event_source: runtime_context_trimmed(Some("delegate_trigger")),
+            dispatch_reason: runtime_context_trimmed(Some("delegate_send")),
+        }),
         trigger_only: false,
     };
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));

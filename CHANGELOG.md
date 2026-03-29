@@ -1,5 +1,21 @@
 # 变更日志
 
+## 更新（v0.8.6）：新增全局运行上下文并开始渐进接入
+
+- 新增（runtime-context-foundation）：新增统一运行上下文 `RuntimeContext`
+  - Rust 侧新增 `RuntimeContext`，统一承载 `request_id`、`dispatch_id`、`origin_conversation_id`、`target_conversation_id`、`root_conversation_id`、`executor_agent_id`、`executor_department_id`、`model_config_id`、`event_source`、`dispatch_reason`
+  - 新增最小 helper，用于统一生成 `request_id` 与基础上下文字段，避免不同链路继续各自猜测来源和目标 ID
+  - `SendChatRequest` 与 `ChatPendingEvent` 均已支持携带 `RuntimeContext`，为后续渐进接入提供统一挂点
+
+- 调整（runtime-context-key-paths）：优先接入高风险 ID 漂移链路
+  - 用户 `send_chat` 入口会创建并向下游传递 `RuntimeContext`
+  - 任务创建、任务调度投递、委托触发与委托结果回发已开始挂载 `RuntimeContext`
+  - 聊天触发轮次与 LLM round log 会优先沿用已有上下文，不再只依赖散落的 `trace_id` / `conversation_id`
+
+- 测试（runtime-context-regression）：补齐基础回归
+  - 新增 `RuntimeContext` helper 单测，锁定 request id 选择规则与默认 `event_source / dispatch_reason`
+  - 保留并验证“副会话发起任务仍回副会话”的回归测试，确保引入统一上下文后不破坏现有任务绑定链路
+
 ## 更新（v0.8.6）：简化任务追踪机制为按会话调度
 
 - 调整（task-dispatch-by-conversation-slot）：任务调度改为按目标会话分组逐个派发

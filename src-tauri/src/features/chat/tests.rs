@@ -632,6 +632,7 @@
                     department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
+                runtime_context: None,
                 sender_info: Some(remote_sender_a.clone()),
             },
             ChatPendingEvent {
@@ -645,6 +646,7 @@
                     department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
+                runtime_context: None,
                 sender_info: Some(remote_sender_a),
             },
             ChatPendingEvent {
@@ -658,6 +660,7 @@
                     department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
+                runtime_context: None,
                 sender_info: Some(remote_sender_b),
             },
             ChatPendingEvent {
@@ -671,6 +674,7 @@
                     department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
+                runtime_context: None,
                 sender_info: None,
             },
         ];
@@ -987,6 +991,7 @@
                 department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
             },
+            runtime_context: None,
             sender_info: None,
         }
     }
@@ -1466,6 +1471,30 @@
         assert_eq!(api_config_id, "api-config-a");
         assert_eq!(agent_id, "default-agent");
         assert_eq!(conversation_id.as_deref(), Some("conversation-sub"));
+    }
+
+    #[test]
+    fn runtime_context_request_id_or_new_should_prefer_runtime_context() {
+        let runtime_context = RuntimeContext {
+            request_id: Some("request-from-context".to_string()),
+            ..RuntimeContext::default()
+        };
+
+        let request_id = runtime_context_request_id_or_new(
+            Some(&runtime_context),
+            Some("trace-from-input"),
+            "chat",
+        );
+
+        assert_eq!(request_id, "request-from-context");
+    }
+
+    #[test]
+    fn runtime_context_new_should_seed_event_source_and_dispatch_reason() {
+        let runtime_context = runtime_context_new("task_trigger", "task_due");
+
+        assert_eq!(runtime_context.event_source.as_deref(), Some("task_trigger"));
+        assert_eq!(runtime_context.dispatch_reason.as_deref(), Some("task_due"));
     }
 
     #[test]

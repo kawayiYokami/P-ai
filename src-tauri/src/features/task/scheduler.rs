@@ -11,6 +11,7 @@ struct TaskResolvedConversation {
 
 #[derive(Debug, Clone)]
 struct TaskDispatchSessionResolved {
+    model_config_id: String,
     department_id: String,
     agent_id: String,
     conversation_id: String,
@@ -171,6 +172,7 @@ fn task_resolve_dispatch_session(
         }
     }
     Ok(Some(TaskDispatchSessionResolved {
+        model_config_id: selected_api.id.clone(),
         department_id,
         agent_id,
         conversation_id: resolved.conversation_id,
@@ -346,8 +348,34 @@ async fn task_dispatch_due_task(
     };
 
     // 创建事件并入队
+    let event_id = Uuid::new_v4().to_string();
+    let request_id = format!("task-dispatch-{}", Uuid::new_v4());
+    let mut runtime_context = runtime_context_new(
+        "task_trigger",
+        if session.fallback_to_main {
+            "task_due_fallback_to_main"
+        } else {
+            "task_due"
+        },
+    );
+    runtime_context.request_id = Some(request_id.clone());
+    runtime_context.dispatch_id = Some(event_id.clone());
+    runtime_context.origin_conversation_id = task
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    runtime_context.target_conversation_id = Some(session.conversation_id.clone());
+    runtime_context.root_conversation_id = runtime_context
+        .origin_conversation_id
+        .clone()
+        .or_else(|| Some(session.conversation_id.clone()));
+    runtime_context.executor_agent_id = Some(session.agent_id.clone());
+    runtime_context.executor_department_id = Some(session.department_id.clone());
+    runtime_context.model_config_id = Some(session.model_config_id.clone());
     let event = ChatPendingEvent {
-        id: Uuid::new_v4().to_string(),
+        id: event_id.clone(),
         conversation_id: session.conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::Task,
@@ -357,6 +385,7 @@ async fn task_dispatch_due_task(
             department_id: session.department_id.clone(),
             agent_id: session.agent_id.clone(),
         },
+        runtime_context: Some(runtime_context.clone()),
         sender_info: None,
     };
 
@@ -386,8 +415,10 @@ async fn task_dispatch_due_task(
                 &task.task_id,
                 outcome,
                 &format!(
-                    "{}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}",
+                    "{}，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}",
                     note_prefix,
+                    request_id,
+                    event_id,
                     task_goal.trim(),
                     session.conversation_id,
                     trigger_label,
@@ -409,7 +440,9 @@ async fn task_dispatch_due_task(
                 &task.task_id,
                 "failed",
                 &format!(
-                    "任务发送失败，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}，error={}",
+                    "任务发送失败，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}，error={}",
+                    request_id,
+                    event_id,
                     task_goal.trim(),
                     session.conversation_id,
                     trigger_label,

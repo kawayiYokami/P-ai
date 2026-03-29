@@ -737,6 +737,7 @@ fn create_pending_event(
         messages,
         activate_assistant,
         session_info,
+        runtime_context: None,
         sender_info: Some(sender_info),
     }
 }

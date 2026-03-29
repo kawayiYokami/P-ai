@@ -881,6 +881,8 @@ struct SendChatRequest {
     #[serde(default)]
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     #[serde(default)]
+    runtime_context: Option<RuntimeContext>,
+    #[serde(default)]
     trigger_only: bool,
 }
 
@@ -947,6 +949,60 @@ struct SessionSelector {
     agent_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dispatch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin_conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    executor_agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    executor_department_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_config_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    event_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dispatch_reason: Option<String>,
+}
+
+fn runtime_context_trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn runtime_context_new(event_source: &str, dispatch_reason: &str) -> RuntimeContext {
+    RuntimeContext {
+        event_source: runtime_context_trimmed(Some(event_source)),
+        dispatch_reason: runtime_context_trimmed(Some(dispatch_reason)),
+        ..RuntimeContext::default()
+    }
+}
+
+fn runtime_context_request_id_or_new(
+    runtime_context: Option<&RuntimeContext>,
+    trace_id: Option<&str>,
+    prefix: &str,
+) -> String {
+    runtime_context
+        .and_then(|value| value.request_id.as_deref())
+        .or(trace_id)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("{}-{}", prefix.trim(), Uuid::new_v4()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

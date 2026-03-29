@@ -529,13 +529,15 @@ async fn send_chat_message_inner(
     const FIXED_MODEL_RETRY_COUNT: usize = 3;
     const FIXED_MODEL_RETRY_WAIT_SECONDS: u64 = 5;
 
-    let trace_id = input
-        .trace_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("chat-{}", Uuid::new_v4()));
+    let mut runtime_context = input.runtime_context.clone().unwrap_or_default();
+    let trace_id = runtime_context_request_id_or_new(
+        Some(&runtime_context),
+        input.trace_id.as_deref(),
+        "chat",
+    );
+    if runtime_context.request_id.is_none() {
+        runtime_context.request_id = Some(trace_id.clone());
+    }
     let oldest_queue_created_at = input
         .oldest_queue_created_at
         .as_deref()
@@ -1857,6 +1859,7 @@ async fn send_chat_message_inner(
             "chatSessionKey": chat_session_key_for_log,
             "effectiveDepartmentId": effective_department_id,
             "session": session_for_log,
+            "runtimeContext": runtime_context,
         }),
         final_result
             .as_ref()

@@ -38,7 +38,7 @@ async fn send_chat_message(
     }
 
     // 获取或创建会话ID
-    let (conversation_id, department_id) = {
+    let (conversation_id, department_id, model_config_id) = {
         let guard = state.state_lock.lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let app_config = state_read_config_cached(&state)?;
@@ -108,7 +108,7 @@ async fn send_chat_message(
         state_write_app_data_cached(&state, &data)?;
 
         drop(guard);
-        (conversation_id, department.id.clone())
+        (conversation_id, department.id.clone(), api_config_id)
     };
 
     // 构造用户消息
@@ -142,6 +142,16 @@ async fn send_chat_message(
 
     // 构造队列事件
     let event_id = Uuid::new_v4().to_string();
+    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
+    let mut runtime_context = runtime_context_new("user_message", "user_send");
+    runtime_context.request_id = Some(request_id.clone());
+    runtime_context.dispatch_id = Some(event_id.clone());
+    runtime_context.origin_conversation_id = Some(conversation_id.clone());
+    runtime_context.target_conversation_id = Some(conversation_id.clone());
+    runtime_context.root_conversation_id = Some(conversation_id.clone());
+    runtime_context.executor_agent_id = Some(agent_id.clone());
+    runtime_context.executor_department_id = Some(department_id.clone());
+    runtime_context.model_config_id = Some(model_config_id.clone());
     let event = ChatPendingEvent {
         id: event_id.clone(),
         conversation_id: conversation_id.clone(),
@@ -153,6 +163,7 @@ async fn send_chat_message(
             department_id: department_id.clone(),
             agent_id: agent_id.clone(),
         },
+        runtime_context: Some(runtime_context.clone()),
         sender_info: None,
     };
 
@@ -189,9 +200,10 @@ async fn send_chat_message(
         ChatEventIngress::Queued { .. } => "queued",
     };
     eprintln!(
-        "[聊天调度] 用户消息已接入调度: mode={}, event_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
+        "[聊天调度] 用户消息已接入调度: mode={}, event_id={}, request_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
         ingress_mode,
         event_id,
+        request_id,
         conversation_id,
         department_id,
         agent_id,

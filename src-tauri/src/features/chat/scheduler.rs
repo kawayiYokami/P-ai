@@ -83,6 +83,9 @@ pub(crate) struct ChatPendingEvent {
     pub activate_assistant: bool,
     /// 会话信息
     pub session_info: ChatSessionInfo,
+    /// 运行上下文（渐进接入）
+    #[serde(default)]
+    pub runtime_context: Option<RuntimeContext>,
     /// 远程消息来源（仅 source=RemoteIm 时使用）
     #[serde(default)]
     pub sender_info: Option<RemoteImMessageSource>,
@@ -806,8 +809,19 @@ async fn process_conversation_batch(
     // 但本批消息还没正式落入历史的时序错乱。
     let activated_remote_im_sources =
         collect_activated_remote_im_sources(&events, &event_activate_flags);
-    let should_activate = event_activate_flags.into_iter().any(|v| v);
+    let should_activate = event_activate_flags.iter().copied().any(|v| v);
     let activate_status = if should_activate { "开始" } else { "跳过" };
+    let activating_runtime_context = events
+        .iter()
+        .zip(event_activate_flags.iter().copied())
+        .rev()
+        .find_map(|(event, should_activate)| {
+            if should_activate {
+                event.runtime_context.clone()
+            } else {
+                None
+            }
+        });
 
     let batch_message_count = events.iter().map(|e| e.messages.len()).sum::<usize>();
     eprintln!(
@@ -862,6 +876,7 @@ async fn process_conversation_batch(
                 &first_event.session_info,
                 conversation_id,
                 activation.clone(),
+                activating_runtime_context.clone(),
                 activated_remote_im_sources.clone(),
                 oldest_queue_created_at,
             ).await {
@@ -915,6 +930,7 @@ async fn activate_main_assistant(
     session_info: &ChatSessionInfo,
     conversation_id: &str,
     activation: Option<QueuedChatActivation>,
+    runtime_context: Option<RuntimeContext>,
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
 ) -> Result<SendChatResult, String> {
@@ -927,10 +943,27 @@ async fn activate_main_assistant(
         oldest_queue_created_at,
     );
 
-    let trace_id = activation
+    let mut runtime_context = runtime_context.unwrap_or_default();
+    let activation_trace_id = activation
         .as_ref()
-        .map(|item| format!("queue-{}", item.event_id))
-        .unwrap_or_else(|| format!("queue-{}", Uuid::new_v4()));
+        .map(|item| format!("queue-{}", item.event_id));
+    let trace_id = runtime_context_request_id_or_new(
+        Some(&runtime_context),
+        activation_trace_id.as_deref(),
+        "queue",
+    );
+    if runtime_context.request_id.is_none() {
+        runtime_context.request_id = Some(trace_id.clone());
+    }
+    if runtime_context.target_conversation_id.is_none() {
+        runtime_context.target_conversation_id = Some(conversation_id.to_string());
+    }
+    if runtime_context.executor_agent_id.is_none() {
+        runtime_context.executor_agent_id = Some(session_info.agent_id.clone());
+    }
+    if runtime_context.executor_department_id.is_none() {
+        runtime_context.executor_department_id = Some(session_info.department_id.clone());
+    }
 
     // 设置状态为 AssistantStreaming
     set_conversation_runtime_state(
@@ -967,6 +1000,7 @@ async fn activate_main_assistant(
         trace_id: Some(trace_id),
         oldest_queue_created_at: Some(oldest_queue_created_at.to_string()),
         remote_im_activation_sources,
+        runtime_context: Some(runtime_context),
     };
 
     // 使用 emit 作为远程激活轮次的流式主通道，避免前端窗口重绑定造成 channel 失联。

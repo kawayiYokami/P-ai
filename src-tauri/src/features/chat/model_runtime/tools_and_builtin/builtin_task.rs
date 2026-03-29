@@ -164,7 +164,8 @@ async fn builtin_task(
     session_id: &str,
     args: TaskToolArgsWire,
 ) -> Result<Value, String> {
-    let (_, _, bound_conversation_id) = delegate_parse_session_parts(session_id);
+    let (model_config_id, executor_agent_id, bound_conversation_id) =
+        delegate_parse_session_parts(session_id);
     match args.action.trim() {
         "list" => {
             let data_path = app_state.data_path.clone();
@@ -182,6 +183,12 @@ async fn builtin_task(
             serde_json::to_value(task).map_err(|err| format!("Serialize task get failed: {err}"))
         }
         "create" => {
+            let mut runtime_context = runtime_context_new("task_tool", "task_create");
+            runtime_context.request_id = Some(format!("task-create-{}", Uuid::new_v4()));
+            runtime_context.origin_conversation_id = bound_conversation_id.clone();
+            runtime_context.root_conversation_id = bound_conversation_id.clone();
+            runtime_context.executor_agent_id = runtime_context_trimmed(Some(&executor_agent_id));
+            runtime_context.model_config_id = runtime_context_trimmed(Some(&model_config_id));
             let target_scope = task_tool_target_scope_from_conversation(
                 app_state,
                 bound_conversation_id.as_deref(),
@@ -197,7 +204,8 @@ async fn builtin_task(
                     .ok_or_else(|| "task.trigger is required for action=create".to_string())?,
             };
             eprintln!(
-                "[任务] 状态=开始 action=create goal={} conversation_id={} trigger={} todo_present={}",
+                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} todo_present={}",
+                runtime_context.request_id.as_deref().unwrap_or(""),
                 create_input.goal.trim(),
                 create_input.conversation_id.as_deref().unwrap_or(""),
                 serde_json::to_string(&create_input.trigger)
