@@ -285,5 +285,5 @@ struct TaskToolArgsWire {
     #[serde(default)]
     completion_conclusion: Option<String>,
     #[serde(default)]
-    trigger: Option<TaskTriggerInput>,
+    trigger: Option<TaskTriggerInputLocal>,
 }

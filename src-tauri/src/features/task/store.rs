@@ -14,6 +14,58 @@ fn task_store_open(data_path: &PathBuf) -> Result<Connection, String> {
     Ok(conn)
 }
 
+fn task_store_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|err| format!("Prepare table info failed: {table}, {err}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| format!("Read table info failed: {table}, {err}"))?;
+    for row in rows {
+        let name = row.map_err(|err| format!("Read table info row failed: {table}, {err}"))?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn task_store_rename_column_if_needed(
+    conn: &Connection,
+    table: &str,
+    legacy_column: &str,
+    next_column: &str,
+) -> Result<(), String> {
+    if !task_store_has_column(conn, table, legacy_column)? || task_store_has_column(conn, table, next_column)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} RENAME COLUMN {legacy_column} TO {next_column}"),
+        [],
+    )
+    .map_err(|err| {
+        format!(
+            "Rename task column failed: table={table}, from={legacy_column}, to={next_column}, {err}"
+        )
+    })?;
+    Ok(())
+}
+
+fn task_store_add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    definition: &str,
+    column: &str,
+) -> Result<(), String> {
+    if task_store_has_column(conn, table, column)? {
+        return Ok(());
+    }
+    conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), [])
+        .map_err(|err| format!("Add task column failed: table={table}, column={column}, {err}"))?;
+    Ok(())
+}
+
 fn task_store_init(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "BEGIN;
@@ -31,118 +83,130 @@ fn task_store_init(conn: &Connection) -> Result<(), String> {
             completion_conclusion TEXT NOT NULL,
             progress_notes_json TEXT NOT NULL,
             stage_key TEXT NOT NULL,
-            stage_updated_at TEXT,
+            stage_updated_at_utc TEXT,
             trigger_kind TEXT NOT NULL,
-            run_at TEXT,
+            run_at_utc TEXT,
             every_minutes INTEGER,
-            end_at TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            last_triggered_at TEXT,
-            completed_at TEXT
+            end_at_utc TEXT,
+            created_at_utc TEXT NOT NULL,
+            updated_at_utc TEXT NOT NULL,
+            last_triggered_at_utc TEXT,
+            completed_at_utc TEXT
         );
         CREATE TABLE IF NOT EXISTS task_runtime_state (
             state_key TEXT PRIMARY KEY,
             state_value TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at_utc TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS task_run_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
-            triggered_at TEXT NOT NULL,
+            triggered_at_utc TEXT NOT NULL,
             outcome TEXT NOT NULL,
             note TEXT NOT NULL
         );
         COMMIT;",
     )
     .map_err(|err| format!("Init task db failed: {err}"))?;
-    let _ = conn.execute(
-        "ALTER TABLE task_record ADD COLUMN end_at TEXT",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE task_record ADD COLUMN conversation_id TEXT",
-        [],
-    );
+
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|err| format!("Begin task migration transaction failed: {err}"))?;
+
+    let migration_result = (|| -> Result<(), String> {
+        task_store_add_column_if_missing(conn, "task_record", "conversation_id TEXT", "conversation_id")?;
+        task_store_rename_column_if_needed(conn, "task_record", "stage_updated_at", "stage_updated_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "run_at", "run_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "end_at", "end_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "created_at", "created_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "updated_at", "updated_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "last_triggered_at", "last_triggered_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_record", "completed_at", "completed_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_runtime_state", "updated_at", "updated_at_utc")?;
+        task_store_rename_column_if_needed(conn, "task_run_log", "triggered_at", "triggered_at_utc")?;
+        Ok(())
+    })();
+
+    match migration_result {
+        Ok(()) => conn
+            .execute_batch("COMMIT;")
+            .map_err(|err| format!("Commit task migration transaction failed: {err}"))?,
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(err);
+        }
+    }
+
     Ok(())
 }
 
-fn task_normalize_run_at(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("task.trigger.runAt must not be empty".to_string());
-    }
-    let parsed = parse_iso(trimmed)
-        .ok_or_else(|| "task.trigger.runAt must be RFC3339 with timezone offset, for example 2026-03-10T09:30:00+08:00".to_string())?;
-    parsed
-        .replace_nanosecond(0)
-        .map_err(|err| format!("Normalize task.trigger.runAt failed: {err}"))?
-        .format(&Rfc3339)
-        .map_err(|err| format!("Format task.trigger.runAt failed: {err}"))
+fn task_normalize_run_at_local(value: &str) -> Result<String, String> {
+    normalize_rfc3339_to_utc_storage("task.trigger.runAtLocal", value)
 }
 
-fn task_normalize_end_at(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("task.trigger.endAt must not be empty".to_string());
-    }
-    let parsed = parse_iso(trimmed)
-        .ok_or_else(|| "task.trigger.endAt must be RFC3339 with timezone offset, for example 2026-03-10T10:30:00+08:00".to_string())?;
-    parsed
-        .replace_nanosecond(0)
-        .map_err(|err| format!("Normalize task.trigger.endAt failed: {err}"))?
-        .format(&Rfc3339)
-        .map_err(|err| format!("Format task.trigger.endAt failed: {err}"))
+fn task_normalize_end_at_local(value: &str) -> Result<String, String> {
+    normalize_rfc3339_to_utc_storage("task.trigger.endAtLocal", value)
 }
 
-fn task_trigger_from_input(input: &TaskTriggerInput) -> Result<TaskTriggerInput, String> {
-    let run_at = input.run_at.as_deref().map(str::trim).unwrap_or("");
+// ========== 任务时间边界：输入 local，入库 utc ==========
+fn task_trigger_from_local_input(input: &TaskTriggerInputLocal) -> Result<TaskTriggerStored, String> {
+    let run_at_local = input
+        .run_at_local
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
     let every_minutes = input.every_minutes.unwrap_or(0);
-    let end_at = input.end_at.as_deref().map(str::trim).unwrap_or("");
-    if run_at.is_empty() {
+    let end_at_local = input
+        .end_at_local
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    if run_at_local.is_empty() {
         if every_minutes > 0 {
-            return Err("task.trigger.runAt is required when task.trigger.everyMinutes is set".to_string());
+            return Err("task.trigger.runAtLocal is required when task.trigger.everyMinutes is set".to_string());
         }
-        if !end_at.is_empty() {
-            return Err("task.trigger.endAt requires task.trigger.runAt".to_string());
+        if !end_at_local.is_empty() {
+            return Err("task.trigger.endAtLocal requires task.trigger.runAtLocal".to_string());
         }
-        return Ok(TaskTriggerInput {
-            run_at: None,
+        return Ok(TaskTriggerStored {
+            run_at_utc: None,
             every_minutes: None,
-            end_at: None,
+            end_at_utc: None,
+            next_run_at_utc: None,
         });
     }
-    let normalized_run_at = task_normalize_run_at(run_at)?;
+    let normalized_run_at_utc = task_normalize_run_at_local(run_at_local)?;
     if every_minutes == 0 {
-        if !end_at.is_empty() {
-            return Err("task.trigger.endAt is only supported when task.trigger.everyMinutes is set".to_string());
+        if !end_at_local.is_empty() {
+            return Err("task.trigger.endAtLocal is only supported when task.trigger.everyMinutes is set".to_string());
         }
-        return Ok(TaskTriggerInput {
-            run_at: Some(normalized_run_at),
+        return Ok(TaskTriggerStored {
+            run_at_utc: Some(normalized_run_at_utc),
             every_minutes: None,
-            end_at: None,
+            end_at_utc: None,
+            next_run_at_utc: None,
         });
     }
-    if end_at.is_empty() {
-        return Err("task.trigger.endAt is required when task.trigger.everyMinutes is set".to_string());
+    if end_at_local.is_empty() {
+        return Err("task.trigger.endAtLocal is required when task.trigger.everyMinutes is set".to_string());
     }
-    let normalized_end_at = task_normalize_end_at(end_at)?;
-    let run_dt = parse_iso(&normalized_run_at)
-        .ok_or_else(|| "task.trigger.runAt normalization failed".to_string())?;
-    let end_dt = parse_iso(&normalized_end_at)
-        .ok_or_else(|| "task.trigger.endAt normalization failed".to_string())?;
+    let normalized_end_at_utc = task_normalize_end_at_local(end_at_local)?;
+    let run_dt = parse_rfc3339_time(&normalized_run_at_utc)
+        .ok_or_else(|| "task.trigger.runAtLocal normalization failed".to_string())?;
+    let end_dt = parse_rfc3339_time(&normalized_end_at_utc)
+        .ok_or_else(|| "task.trigger.endAtLocal normalization failed".to_string())?;
     if end_dt <= run_dt {
-        return Err("task.trigger.endAt must be later than task.trigger.runAt".to_string());
+        return Err("task.trigger.endAtLocal must be later than task.trigger.runAtLocal".to_string());
     }
-    Ok(TaskTriggerInput {
-        run_at: Some(normalized_run_at),
+    Ok(TaskTriggerStored {
+        run_at_utc: Some(normalized_run_at_utc),
         every_minutes: Some(every_minutes),
-        end_at: Some(normalized_end_at),
+        end_at_utc: Some(normalized_end_at_utc),
+        next_run_at_utc: None,
     })
 }
 
-fn task_trigger_kind_from_fields(run_at: Option<&str>, every_minutes: Option<u32>) -> &'static str {
-    if run_at.is_none() {
+fn task_trigger_kind_from_fields(run_at_utc: Option<&str>, every_minutes: Option<u32>) -> &'static str {
+    if run_at_utc.is_none() {
         "immediate"
     } else if every_minutes.unwrap_or(0) > 0 {
         "every"
@@ -163,7 +227,7 @@ fn task_list_to_json(items: &[String]) -> Result<String, String> {
     serde_json::to_string(items).map_err(|err| format!("Serialize task todos failed: {err}"))
 }
 
-fn task_notes_to_json(items: &[TaskProgressNote]) -> Result<String, String> {
+fn task_notes_to_json(items: &[TaskProgressNoteStored]) -> Result<String, String> {
     serde_json::to_string(items).map_err(|err| format!("Serialize task notes failed: {err}"))
 }
 
@@ -171,16 +235,19 @@ fn task_list_from_json(raw: &str) -> Vec<String> {
     serde_json::from_str(raw).unwrap_or_default()
 }
 
-fn task_notes_from_json(raw: &str) -> Vec<TaskProgressNote> {
+fn task_notes_from_json(raw: &str) -> Vec<TaskProgressNoteStored> {
     serde_json::from_str(raw).unwrap_or_default()
 }
 
-fn task_append_progress_note(notes: &mut Vec<TaskProgressNote>, note: &str) {
+fn task_append_progress_note_utc(notes: &mut Vec<TaskProgressNoteStored>, note: &str) {
     let trimmed = note.trim();
     if trimmed.is_empty() {
         return;
     }
-    notes.push(TaskProgressNote { at: now_iso(), note: trimmed.to_string() });
+    notes.push(TaskProgressNoteStored {
+        at_utc: now_utc_rfc3339(),
+        note: trimmed.to_string(),
+    });
 }
 
 fn task_store_get_runtime_state(conn: &Connection, key: &str) -> Result<Option<String>, String> {
@@ -195,34 +262,34 @@ fn task_store_get_runtime_state(conn: &Connection, key: &str) -> Result<Option<S
 
 fn task_store_set_runtime_state(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO task_runtime_state (state_key, state_value, updated_at)
+        "INSERT INTO task_runtime_state (state_key, state_value, updated_at_utc)
          VALUES (?1, ?2, ?3)
-         ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value, updated_at = excluded.updated_at",
-        params![key, value, now_iso()],
+         ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value, updated_at_utc = excluded.updated_at_utc",
+        params![key, value, now_utc_rfc3339()],
     )
     .map_err(|err| format!("Write task runtime state failed: {err}"))?;
     Ok(())
 }
 
-fn task_compute_next_run_at_raw(
-    run_at: Option<&str>,
+fn task_compute_next_run_at_utc_raw(
+    run_at_utc: Option<&str>,
     every_minutes: Option<u32>,
-    end_at: Option<&str>,
-    last_triggered_at: Option<&str>,
+    end_at_utc: Option<&str>,
+    last_triggered_at_utc: Option<&str>,
     completion_state: &str,
 ) -> Option<String> {
     if completion_state != TASK_STATE_ACTIVE {
         return None;
     }
-    if run_at.is_none() {
-        return Some(now_iso());
+    if run_at_utc.is_none() {
+        return Some(now_utc_rfc3339());
     }
     if every_minutes.unwrap_or(0) == 0 {
-        return run_at.map(ToOwned::to_owned);
+        return run_at_utc.map(ToOwned::to_owned);
     }
-    let base = if let Some(last) = last_triggered_at.and_then(parse_iso) {
+    let base = if let Some(last) = last_triggered_at_utc.and_then(parse_rfc3339_time) {
         last
-    } else if let Some(start) = run_at.and_then(parse_iso) {
+    } else if let Some(start) = run_at_utc.and_then(parse_rfc3339_time) {
         start
     } else {
         return None;
@@ -232,22 +299,25 @@ fn task_compute_next_run_at_raw(
         return None;
     }
     let next = base + time::Duration::minutes(every);
-    if let Some(end_dt) = end_at.and_then(parse_iso) {
+    if let Some(end_dt) = end_at_utc.and_then(parse_rfc3339_time) {
         if next > end_dt {
             return None;
         }
     }
-    next.format(&Rfc3339).ok()
+    normalize_time_for_utc_storage(next).ok()
 }
 
-fn task_row_to_entry(row: &rusqlite::Row<'_>, current_tracked_task_id: Option<&str>) -> rusqlite::Result<TaskEntry> {
+fn task_row_to_record_stored(
+    row: &rusqlite::Row<'_>,
+    current_tracked_task_id: Option<&str>,
+) -> rusqlite::Result<TaskRecordStored> {
     let task_id: String = row.get("task_id")?;
     let completion_state: String = row.get("completion_state")?;
-    let run_at: Option<String> = row.get("run_at")?;
+    let run_at_utc: Option<String> = row.get("run_at_utc")?;
     let every_minutes: Option<u32> = row.get("every_minutes")?;
-    let end_at: Option<String> = row.get("end_at")?;
-    let last_triggered_at: Option<String> = row.get("last_triggered_at")?;
-    Ok(TaskEntry {
+    let end_at_utc: Option<String> = row.get("end_at_utc")?;
+    let last_triggered_at_utc: Option<String> = row.get("last_triggered_at_utc")?;
+    Ok(TaskRecordStored {
         task_id: task_id.clone(),
         conversation_id: row.get("conversation_id")?,
         order_index: row.get("order_index")?,
@@ -261,52 +331,63 @@ fn task_row_to_entry(row: &rusqlite::Row<'_>, current_tracked_task_id: Option<&s
         completion_conclusion: row.get("completion_conclusion")?,
         progress_notes: task_notes_from_json(&row.get::<_, String>("progress_notes_json")?),
         stage_key: row.get("stage_key")?,
-        stage_updated_at: row.get("stage_updated_at")?,
-        trigger: TaskTrigger {
-            run_at: run_at.clone(),
+        stage_updated_at_utc: row.get("stage_updated_at_utc")?,
+        trigger: TaskTriggerStored {
+            run_at_utc: run_at_utc.clone(),
             every_minutes,
-            end_at: end_at.clone(),
-            next_run_at: task_compute_next_run_at_raw(
-                run_at.as_deref(),
+            end_at_utc: end_at_utc.clone(),
+            next_run_at_utc: task_compute_next_run_at_utc_raw(
+                run_at_utc.as_deref(),
                 every_minutes,
-                end_at.as_deref(),
-                last_triggered_at.as_deref(),
+                end_at_utc.as_deref(),
+                last_triggered_at_utc.as_deref(),
                 &completion_state,
             ),
         },
-        created_at: row.get("created_at")?,
-        updated_at: row.get("updated_at")?,
-        last_triggered_at,
-        completed_at: row.get("completed_at")?,
+        created_at_utc: row.get("created_at_utc")?,
+        updated_at_utc: row.get("updated_at_utc")?,
+        last_triggered_at_utc,
+        completed_at_utc: row.get("completed_at_utc")?,
         current_tracked: current_tracked_task_id == Some(task_id.as_str()),
     })
 }
 
-fn task_store_list_tasks(data_path: &PathBuf) -> Result<Vec<TaskEntry>, String> {
+// ========== 任务时间边界：读库 utc，对外输出 local ==========
+fn task_store_list_task_records(data_path: &PathBuf) -> Result<Vec<TaskRecordStored>, String> {
     let conn = task_store_open(data_path)?;
     let current = task_store_get_runtime_state(&conn, TASK_RUNTIME_CURRENT_TRACKED_KEY)?;
     let mut stmt = conn
         .prepare("SELECT * FROM task_record ORDER BY order_index ASC")
-        .map_err(|err| format!("Prepare list tasks failed: {err}"))?;
+        .map_err(|err| format!("Prepare list task records failed: {err}"))?;
     let rows = stmt
-        .query_map([], |row| task_row_to_entry(row, current.as_deref()))
-        .map_err(|err| format!("Query list tasks failed: {err}"))?;
+        .query_map([], |row| task_row_to_record_stored(row, current.as_deref()))
+        .map_err(|err| format!("Query list task records failed: {err}"))?;
     let mut tasks = Vec::new();
     for row in rows {
-        tasks.push(row.map_err(|err| format!("Read task row failed: {err}"))?);
+        tasks.push(row.map_err(|err| format!("Read task record row failed: {err}"))?);
     }
     Ok(tasks)
 }
 
-fn task_store_get_task(data_path: &PathBuf, task_id: &str) -> Result<TaskEntry, String> {
+fn task_store_get_task_record(data_path: &PathBuf, task_id: &str) -> Result<TaskRecordStored, String> {
     let conn = task_store_open(data_path)?;
     let current = task_store_get_runtime_state(&conn, TASK_RUNTIME_CURRENT_TRACKED_KEY)?;
     conn.query_row(
         "SELECT * FROM task_record WHERE task_id = ?1",
         params![task_id],
-        |row| task_row_to_entry(row, current.as_deref()),
+        |row| task_row_to_record_stored(row, current.as_deref()),
     )
-    .map_err(|err| format!("Get task failed: {err}"))
+    .map_err(|err| format!("Get task record failed: {err}"))
+}
+
+fn task_store_list_tasks(data_path: &PathBuf) -> Result<Vec<TaskEntry>, String> {
+    let tasks = task_store_list_task_records(data_path)?;
+    Ok(tasks.iter().map(task_entry_view_from_stored).collect())
+}
+
+fn task_store_get_task(data_path: &PathBuf, task_id: &str) -> Result<TaskEntry, String> {
+    let task = task_store_get_task_record(data_path, task_id)?;
+    Ok(task_entry_view_from_stored(&task))
 }
 
 fn task_store_next_order_index(conn: &Connection) -> Result<i64, String> {
@@ -324,10 +405,10 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
     if title.is_empty() {
         return Err("task.title is required".to_string());
     }
-    let trigger = task_trigger_from_input(&input.trigger)?;
+    let trigger = task_trigger_from_local_input(&input.trigger)?;
     let conn = task_store_open(data_path)?;
     let task_id = format!("task-{}", Uuid::new_v4());
-    let now = now_iso();
+    let now_utc = now_utc_rfc3339();
     let order_index = task_store_next_order_index(&conn)?;
     let conversation_id = input
         .conversation_id
@@ -344,8 +425,9 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
     conn.execute(
         "INSERT INTO task_record (
             task_id, conversation_id, order_index, title, cause, goal, flow, todos_json, status_summary,
-            completion_state, completion_conclusion, progress_notes_json, stage_key, stage_updated_at,
-            trigger_kind, run_at, every_minutes, end_at, created_at, updated_at, last_triggered_at, completed_at
+            completion_state, completion_conclusion, progress_notes_json, stage_key, stage_updated_at_utc,
+            trigger_kind, run_at_utc, every_minutes, end_at_utc, created_at_utc, updated_at_utc,
+            last_triggered_at_utc, completed_at_utc
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, '', ?11, '', NULL, ?12, ?13, ?14, ?15, ?16, ?17, NULL, NULL)",
         params![
             task_id,
@@ -358,13 +440,13 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
             task_list_to_json(&todos)?,
             input.status_summary.trim(),
             TASK_STATE_ACTIVE,
-            task_notes_to_json(&Vec::<TaskProgressNote>::new())?,
-            task_trigger_kind_from_fields(trigger.run_at.as_deref(), trigger.every_minutes),
-            trigger.run_at.as_deref(),
+            task_notes_to_json(&Vec::<TaskProgressNoteStored>::new())?,
+            task_trigger_kind_from_fields(trigger.run_at_utc.as_deref(), trigger.every_minutes),
+            trigger.run_at_utc.as_deref(),
             trigger.every_minutes,
-            trigger.end_at.as_deref(),
-            now,
-            now,
+            trigger.end_at_utc.as_deref(),
+            now_utc,
+            now_utc,
         ],
     )
     .map_err(|err| format!("Create task failed: {err}"))?;
@@ -373,22 +455,18 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
 }
 
 fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Result<TaskEntry, String> {
-    let existing = task_store_get_task(data_path, &input.task_id)?;
+    let existing = task_store_get_task_record(data_path, &input.task_id)?;
     if existing.completion_state != TASK_STATE_ACTIVE {
         return Err("Only active tasks can be updated".to_string());
     }
-    let trigger = if let Some(trigger) = &input.trigger {
-        task_trigger_from_input(trigger)?
+    let trigger = if let Some(trigger_input) = &input.trigger {
+        task_trigger_from_local_input(trigger_input)?
     } else {
-        TaskTriggerInput {
-            run_at: existing.trigger.run_at.clone(),
-            every_minutes: existing.trigger.every_minutes,
-            end_at: existing.trigger.end_at.clone(),
-        }
+        existing.trigger.clone()
     };
     let mut notes = existing.progress_notes.clone();
     if let Some(note) = &input.append_note {
-        task_append_progress_note(&mut notes, note);
+        task_append_progress_note_utc(&mut notes, note);
     }
     let title = input.title.as_deref().unwrap_or(&existing.title).trim().to_string();
     if title.is_empty() {
@@ -402,11 +480,16 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
         .collect::<Vec<_>>();
-    let stage_key = input.stage_key.as_deref().unwrap_or(&existing.stage_key).trim().to_string();
-    let stage_updated_at = if input.stage_key.is_some() || input.append_note.is_some() {
-        Some(now_iso())
+    let stage_key = input
+        .stage_key
+        .as_deref()
+        .unwrap_or(&existing.stage_key)
+        .trim()
+        .to_string();
+    let stage_updated_at_utc = if input.stage_key.is_some() || input.append_note.is_some() {
+        Some(now_utc_rfc3339())
     } else {
-        existing.stage_updated_at.clone()
+        existing.stage_updated_at_utc.clone()
     };
     let conversation_id = input
         .conversation_id
@@ -427,12 +510,12 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
             status_summary = ?8,
             progress_notes_json = ?9,
             stage_key = ?10,
-            stage_updated_at = ?11,
+            stage_updated_at_utc = ?11,
             trigger_kind = ?12,
-            run_at = ?13,
+            run_at_utc = ?13,
             every_minutes = ?14,
-            end_at = ?15,
-            updated_at = ?16
+            end_at_utc = ?15,
+            updated_at_utc = ?16
          WHERE task_id = ?1",
         params![
             input.task_id,
@@ -445,12 +528,12 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
             input.status_summary.as_deref().unwrap_or(&existing.status_summary).trim(),
             task_notes_to_json(&notes)?,
             stage_key,
-            stage_updated_at,
-            task_trigger_kind_from_fields(trigger.run_at.as_deref(), trigger.every_minutes),
-            trigger.run_at.as_deref(),
+            stage_updated_at_utc,
+            task_trigger_kind_from_fields(trigger.run_at_utc.as_deref(), trigger.every_minutes),
+            trigger.run_at_utc.as_deref(),
             trigger.every_minutes,
-            trigger.end_at.as_deref(),
-            now_iso(),
+            trigger.end_at_utc.as_deref(),
+            now_utc_rfc3339(),
         ],
     )
     .map_err(|err| format!("Update task failed: {err}"))?;
@@ -459,7 +542,7 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
 }
 
 fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> Result<TaskEntry, String> {
-    let existing = task_store_get_task(data_path, &input.task_id)?;
+    let existing = task_store_get_task_record(data_path, &input.task_id)?;
     if existing.completion_state != TASK_STATE_ACTIVE {
         return Err("Task is already completed".to_string());
     }
@@ -469,14 +552,14 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
     }
     let mut notes = existing.progress_notes.clone();
     if let Some(note) = &input.append_note {
-        task_append_progress_note(&mut notes, note);
+        task_append_progress_note_utc(&mut notes, note);
     }
     let final_status = if input.status_summary.trim().is_empty() {
         existing.status_summary.trim().to_string()
     } else {
         input.status_summary.trim().to_string()
     };
-    let now = now_iso();
+    let now_utc = now_utc_rfc3339();
     let conn = task_store_open(data_path)?;
     conn.execute(
         "UPDATE task_record SET
@@ -484,8 +567,8 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
             completion_conclusion = ?3,
             status_summary = ?4,
             progress_notes_json = ?5,
-            completed_at = ?6,
-            updated_at = ?7
+            completed_at_utc = ?6,
+            updated_at_utc = ?7
          WHERE task_id = ?1",
         params![
             input.task_id,
@@ -493,8 +576,8 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
             input.completion_conclusion.trim(),
             final_status,
             task_notes_to_json(&notes)?,
-            now,
-            now,
+            now_utc,
+            now_utc,
         ],
     )
     .map_err(|err| format!("Complete task failed: {err}"))?;
@@ -504,10 +587,10 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
 
 fn task_store_mark_triggered(data_path: &PathBuf, task_id: &str) -> Result<(), String> {
     let conn = task_store_open(data_path)?;
-    let now = now_iso();
+    let now_utc = now_utc_rfc3339();
     conn.execute(
-        "UPDATE task_record SET last_triggered_at = ?2, updated_at = ?2 WHERE task_id = ?1",
-        params![task_id, now],
+        "UPDATE task_record SET last_triggered_at_utc = ?2, updated_at_utc = ?2 WHERE task_id = ?1",
+        params![task_id, now_utc],
     )
     .map_err(|err| format!("Mark task triggered failed: {err}"))?;
     Ok(())
@@ -516,32 +599,34 @@ fn task_store_mark_triggered(data_path: &PathBuf, task_id: &str) -> Result<(), S
 fn task_store_insert_run_log(data_path: &PathBuf, task_id: &str, outcome: &str, note: &str) -> Result<(), String> {
     let conn = task_store_open(data_path)?;
     conn.execute(
-        "INSERT INTO task_run_log (task_id, triggered_at, outcome, note) VALUES (?1, ?2, ?3, ?4)",
-        params![task_id, now_iso(), outcome, note],
+        "INSERT INTO task_run_log (task_id, triggered_at_utc, outcome, note) VALUES (?1, ?2, ?3, ?4)",
+        params![task_id, now_utc_rfc3339(), outcome, note],
     )
     .map_err(|err| format!("Insert task run log failed: {err}"))?;
     Ok(())
 }
 
-
-fn task_store_list_run_logs(
+fn task_store_list_run_log_records(
     data_path: &PathBuf,
     task_id: Option<&str>,
     limit: usize,
-) -> Result<Vec<TaskRunLogEntry>, String> {
+) -> Result<Vec<TaskRunLogStored>, String> {
     let conn = task_store_open(data_path)?;
     let capped = limit.clamp(1, 200);
-    let sql_all = "SELECT id, task_id, triggered_at, outcome, note FROM task_run_log ORDER BY id DESC LIMIT ?1";
-    let sql_task = "SELECT id, task_id, triggered_at, outcome, note FROM task_run_log WHERE task_id = ?1 ORDER BY id DESC LIMIT ?2";
+    let sql_all =
+        "SELECT id, task_id, triggered_at_utc, outcome, note FROM task_run_log ORDER BY id DESC LIMIT ?1";
+    let sql_task = "SELECT id, task_id, triggered_at_utc, outcome, note FROM task_run_log WHERE task_id = ?1 ORDER BY id DESC LIMIT ?2";
     let mut out = Vec::new();
-    if let Some(task_id) = task_id.filter(|v| !v.trim().is_empty()) {
-        let mut stmt = conn.prepare(sql_task).map_err(|err| format!("Prepare task run logs failed: {err}"))?;
+    if let Some(task_id) = task_id.filter(|value| !value.trim().is_empty()) {
+        let mut stmt = conn
+            .prepare(sql_task)
+            .map_err(|err| format!("Prepare task run logs failed: {err}"))?;
         let rows = stmt
             .query_map(params![task_id.trim(), capped as i64], |row| {
-                Ok(TaskRunLogEntry {
+                Ok(TaskRunLogStored {
                     id: row.get(0)?,
                     task_id: row.get(1)?,
-                    triggered_at: row.get(2)?,
+                    triggered_at_utc: row.get(2)?,
                     outcome: row.get(3)?,
                     note: row.get(4)?,
                 })
@@ -552,13 +637,15 @@ fn task_store_list_run_logs(
         }
         return Ok(out);
     }
-    let mut stmt = conn.prepare(sql_all).map_err(|err| format!("Prepare task run logs failed: {err}"))?;
+    let mut stmt = conn
+        .prepare(sql_all)
+        .map_err(|err| format!("Prepare task run logs failed: {err}"))?;
     let rows = stmt
         .query_map(params![capped as i64], |row| {
-            Ok(TaskRunLogEntry {
+            Ok(TaskRunLogStored {
                 id: row.get(0)?,
                 task_id: row.get(1)?,
-                triggered_at: row.get(2)?,
+                triggered_at_utc: row.get(2)?,
                 outcome: row.get(3)?,
                 note: row.get(4)?,
             })
@@ -568,4 +655,13 @@ fn task_store_list_run_logs(
         out.push(row.map_err(|err| format!("Read task run log failed: {err}"))?);
     }
     Ok(out)
+}
+
+fn task_store_list_run_logs(
+    data_path: &PathBuf,
+    task_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<TaskRunLogEntry>, String> {
+    let logs = task_store_list_run_log_records(data_path, task_id, limit)?;
+    Ok(logs.iter().map(task_run_log_view_from_stored).collect())
 }

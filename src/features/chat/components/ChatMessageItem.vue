@@ -69,14 +69,14 @@
           <div class="text-[11px] opacity-55">{{ t("config.task.fields.statusSummary") }}</div>
           <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.statusSummary }}</div>
         </div>
-        <div v-if="block.taskTrigger.runAt || block.taskTrigger.endAt || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
-          <div v-if="block.taskTrigger.runAt">
+        <div v-if="block.taskTrigger.runAtLocal || block.taskTrigger.endAtLocal || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
+          <div v-if="block.taskTrigger.runAtLocal">
             <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
-            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAt) }}</span>
+            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAtLocal) }}</span>
           </div>
-          <div v-if="block.taskTrigger.endAt">
+          <div v-if="block.taskTrigger.endAtLocal">
             <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>
-            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAt) }}</span>
+            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAtLocal) }}</span>
           </div>
           <div v-if="block.taskTrigger.everyMinutes">
             <span class="text-[11px] opacity-55">{{ t("config.task.fields.everyMinutes") }}</span>
@@ -314,14 +314,14 @@
             <div class="text-[11px] opacity-55">{{ t("config.task.fields.statusSummary") }}</div>
             <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.statusSummary }}</div>
           </div>
-          <div v-if="block.taskTrigger.runAt || block.taskTrigger.endAt || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
-            <div v-if="block.taskTrigger.runAt">
+          <div v-if="block.taskTrigger.runAtLocal || block.taskTrigger.endAtLocal || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
+            <div v-if="block.taskTrigger.runAtLocal">
               <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
-              <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAt) }}</span>
+              <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAtLocal) }}</span>
             </div>
-            <div v-if="block.taskTrigger.endAt">
+            <div v-if="block.taskTrigger.endAtLocal">
               <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>
-              <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAt) }}</span>
+              <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAtLocal) }}</span>
             </div>
             <div v-if="block.taskTrigger.everyMinutes">
               <span class="text-[11px] opacity-55">{{ t("config.task.fields.everyMinutes") }}</span>
@@ -503,17 +503,13 @@ import { useI18n } from "vue-i18n";
 import { Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import type { ChatMessageBlock } from "../../../types/app";
+import { formatIsoToLocalHourMinute } from "../../../utils/time";
 
 enableMermaid();
 enableKatex();
 
 const STREAM_MARKDOWN_PARSE_THROTTLE_MS = 100;
 const MARKDOWN_NODE_CACHE_LIMIT = 100;
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
 const markstreamMarkdown = getMarkdown();
 const markdownNodeCache = new Map<string, { text: string; final: boolean; nodes: any[]; lastParseTime: number }>();
 const markdownCodeBlockProps = {
@@ -640,13 +636,7 @@ function toolNamesLabel(block: ChatMessageBlock): string {
 }
 
 function formattedBlockTime(value?: string): string {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  const parts = timeFormatter.formatToParts(parsed);
-  const pick = (type: string) => parts.find((part) => part.type === type)?.value || "00";
-  return `${pick("hour")}:${pick("minute")}`;
+  return formatIsoToLocalHourMinute(value, "");
 }
 
 function splitThinkText(raw: string): { visible: string; inline: string } {

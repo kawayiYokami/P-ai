@@ -499,7 +499,7 @@ impl Tool for BuiltinTaskTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "task".to_string(),
-            description: "管理持久化任务板。支持 list、get、create、update、complete 五种动作。若未填写 trigger.run_at，任务会立即生效；若填写 trigger.run_at，则在该本地时间执行一次；若同时填写 trigger.every_minutes，则会从 trigger.run_at 开始按分钟重复执行，并且必须同时填写 trigger.end_at 作为停止时间。trigger.run_at 与 trigger.end_at 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒。".to_string(),
+            description: "管理持久化任务板。支持 list、get、create、update、complete 五种动作。若未填写 trigger.runAtLocal，任务会立即生效；若填写 trigger.runAtLocal，则在该本地时间执行一次；若同时填写 trigger.everyMinutes，则会从 trigger.runAtLocal 开始按分钟重复执行，并且必须同时填写 trigger.endAtLocal 作为停止时间。trigger.runAtLocal 与 trigger.endAtLocal 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒；系统会在数据层自动转成 UTC 真实时间存储与调度。".to_string(),
             parameters: serde_json::json!({
               "type": "object",
               "properties": {
@@ -518,9 +518,9 @@ impl Tool for BuiltinTaskTool {
                 "trigger": {
                   "type": "object",
                   "properties": {
-                    "run_at": { "type": "string", "description": "可选。本地 RFC3339 执行时间；需保留时区偏移与秒级精度，不要包含毫秒。未填写时任务立即生效" },
-                    "every_minutes": { "type": "integer", "minimum": 1, "description": "可选。按分钟重复执行间隔；填写后必须同时提供 trigger.run_at 与 trigger.end_at" },
-                    "end_at": { "type": "string", "description": "可选；当填写 trigger.every_minutes 时必填。表示重复任务的停止时间，且必须晚于 trigger.run_at" }
+                    "runAtLocal": { "type": "string", "description": "可选。本地 RFC3339 执行时间；需保留时区偏移与秒级精度，不要包含毫秒。未填写时任务立即生效" },
+                    "everyMinutes": { "type": "integer", "minimum": 1, "description": "可选。按分钟重复执行间隔；填写后必须同时提供 trigger.runAtLocal 与 trigger.endAtLocal" },
+                    "endAtLocal": { "type": "string", "description": "可选；当填写 trigger.everyMinutes 时必填。表示重复任务的停止时间，且必须晚于 trigger.runAtLocal" }
                   }
                 }
               },

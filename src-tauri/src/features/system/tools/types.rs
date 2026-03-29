@@ -124,6 +124,6 @@ struct WaitResponse {
     waited_ms: u64,
     elapsed_ms: u64,
     elapsed_seconds: u64,
-    started_at: String,
-    finished_at: String,
+    started_at_local: String,
+    finished_at_local: String,
 }

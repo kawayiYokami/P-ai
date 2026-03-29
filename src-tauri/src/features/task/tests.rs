@@ -19,10 +19,10 @@
             flow: String::new(),
             todos: vec!["检查调度".to_string()],
             status_summary: "待处理".to_string(),
-            trigger: TaskTriggerInput {
-                run_at: None,
+            trigger: TaskTriggerInputLocal {
+                run_at_local: None,
                 every_minutes: None,
-                end_at: None,
+                end_at_local: None,
             },
         };
 

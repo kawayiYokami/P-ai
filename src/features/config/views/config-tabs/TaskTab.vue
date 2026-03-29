@@ -150,10 +150,10 @@
             <div class="space-y-2 max-h-48 overflow-y-auto">
               <div
                 v-for="note in selectedTask.progressNotes.slice().reverse()"
-                :key="`${note.at}-${note.note}`"
+                :key="`${note.atLocal}-${note.note}`"
                 class="bg-base-200/50 rounded px-2 py-1.5 text-sm"
               >
-                <div class="text-[10px] opacity-50 mb-0.5">{{ formatTaskTime(note.at) }}</div>
+                <div class="text-[10px] opacity-50 mb-0.5">{{ formatTaskTime(note.atLocal) }}</div>
                 <div class="whitespace-pre-wrap wrap-break-word">{{ note.note }}</div>
               </div>
             </div>
@@ -162,11 +162,11 @@
           <!-- 元信息 -->
           <div class="px-3 py-2 bg-base-200/30">
             <div class="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
-              <div><span class="opacity-50">{{ t("config.task.fields.runAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.runAt) }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.endAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.endAt) }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.nextRunAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.nextRunAt) }}</div>
+              <div><span class="opacity-50">{{ t("config.task.fields.runAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.runAtLocal) }}</div>
+              <div><span class="opacity-50">{{ t("config.task.fields.endAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.endAtLocal) }}</div>
+              <div><span class="opacity-50">{{ t("config.task.fields.nextRunAt") }}:</span> {{ formatTaskTime(selectedTask.trigger.nextRunAtLocal) }}</div>
               <div><span class="opacity-50">{{ t("config.task.fields.everyMinutes") }}:</span> {{ selectedTask.trigger.everyMinutes ?? '-' }}</div>
-              <div><span class="opacity-50">{{ t("config.task.fields.updatedAt") }}:</span> {{ formatTaskTime(selectedTask.updatedAt) }}</div>
+              <div><span class="opacity-50">{{ t("config.task.fields.updatedAt") }}:</span> {{ formatTaskTime(selectedTask.updatedAtLocal) }}</div>
               <div class="col-span-2"><span class="opacity-50">ID:</span> <span class="font-mono">{{ selectedTask.taskId }}</span></div>
             </div>
           </div>
@@ -195,7 +195,7 @@
         >
           <div class="flex items-center justify-between gap-2">
             <span class="badge" :class="runLogBadgeClass(log.outcome)">{{ runLogLabel(log.outcome) }}</span>
-            <span class="text-[11px] opacity-50">{{ formatTaskTime(log.triggeredAt) }}</span>
+            <span class="text-[11px] opacity-50">{{ formatTaskTime(log.triggeredAtLocal) }}</span>
           </div>
           <div v-if="log.note" class="text-sm whitespace-pre-wrap wrap-break-word opacity-70 mt-1">{{ log.note }}</div>
         </div>
@@ -210,16 +210,17 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
+import { formatIsoToLocalDateTime } from "../../../../utils/time";
 
 type TaskTrigger = {
-  runAt?: string;
-  endAt?: string;
+  runAtLocal?: string;
+  endAtLocal?: string;
   everyMinutes?: number;
-  nextRunAt?: string;
+  nextRunAtLocal?: string;
 };
 
 type TaskProgressNote = {
-  at: string;
+  atLocal: string;
   note: string;
 };
 
@@ -236,19 +237,19 @@ type TaskEntry = {
   completionConclusion: string;
   progressNotes: TaskProgressNote[];
   stageKey: string;
-  stageUpdatedAt?: string;
+  stageUpdatedAtLocal?: string;
   trigger: TaskTrigger;
-  createdAt: string;
-  updatedAt: string;
-  lastTriggeredAt?: string;
-  completedAt?: string;
+  createdAtLocal: string;
+  updatedAtLocal: string;
+  lastTriggeredAtLocal?: string;
+  completedAtLocal?: string;
   currentTracked: boolean;
 };
 
 type TaskRunLogEntry = {
   id: number;
   taskId: string;
-  triggeredAt: string;
+  triggeredAtLocal: string;
   outcome: string;
   note: string;
 };
@@ -290,21 +291,7 @@ function setMessage(text: string, isError = false) {
 }
 
 function formatTaskTime(value?: string | null): string {
-  const raw = String(value || '').trim();
-  if (!raw) return '-';
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  const parts = new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(parsed);
-  const pick = (type: string) => parts.find((part) => part.type === type)?.value || '00';
-  return `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}:${pick('second')}`;
+  return formatIsoToLocalDateTime(value, "-");
 }
 
 function runLogLabel(outcome: string): string {

@@ -1930,25 +1930,11 @@ fn now_utc() -> OffsetDateTime {
 }
 
 fn now_iso() -> String {
-    now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+    now_utc_rfc3339()
 }
 
 fn parse_iso(value: &str) -> Option<OffsetDateTime> {
-    OffsetDateTime::parse(value, &Rfc3339).ok()
-}
-
-fn local_utc_offset() -> Option<UtcOffset> {
-    UtcOffset::current_local_offset().ok()
-}
-
-fn to_local_datetime(dt: OffsetDateTime) -> OffsetDateTime {
-    if let Some(offset) = local_utc_offset() {
-        dt.to_offset(offset)
-    } else {
-        dt
-    }
+    parse_rfc3339_time(value)
 }
 
 static LAST_PANIC_SNAPSHOT_SLOT: OnceLock<Arc<Mutex<Option<String>>>> = OnceLock::new();
@@ -1983,75 +1969,12 @@ fn state_lock_error_with_panic(
     )
 }
 
-fn format_local_datetime_to_seconds(dt: OffsetDateTime) -> String {
-    let local = to_local_datetime(dt);
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-        local.year(),
-        local.month() as u8,
-        local.day(),
-        local.hour(),
-        local.minute(),
-        local.second()
-    )
-}
-
-fn format_local_datetime_to_rfc3339(dt: OffsetDateTime) -> String {
-    to_local_datetime(dt)
-        .replace_nanosecond(0)
-        .ok()
-        .and_then(|value| value.format(&Rfc3339).ok())
-        .unwrap_or_else(|| format_local_datetime_to_seconds(dt))
-}
-
-fn now_local_time_text_seconds() -> String {
-    format_local_datetime_to_seconds(now_utc())
-}
-
-fn now_local_time_rfc3339() -> String {
-    format_local_datetime_to_rfc3339(now_utc())
-}
-
 fn format_message_time_rfc3339_local(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if let Some(dt) = parse_iso(trimmed) {
-        return format_local_datetime_to_rfc3339(dt);
-    }
-    trimmed.to_string()
+    format_utc_storage_time_to_local_rfc3339(raw)
 }
 
 fn format_message_time_text(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if let Some(dt) = parse_iso(trimmed) {
-        let local = to_local_datetime(dt);
-        return format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            local.year(),
-            local.month() as u8,
-            local.day(),
-            local.hour(),
-            local.minute(),
-            local.second()
-        );
-    }
-    let mut normalized = trimmed.replace('T', " ");
-    if let Some((head, _)) = normalized.split_once('.') {
-        normalized = head.to_string();
-    }
-    if normalized.ends_with('Z') {
-        normalized.pop();
-    }
-    if normalized.chars().count() > 19 {
-        normalized.chars().take(19).collect::<String>()
-    } else {
-        normalized
-    }
+    format_utc_storage_time_to_local_text(raw)
 }
 
 fn default_agent() -> AgentProfile {

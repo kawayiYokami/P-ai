@@ -1,5 +1,22 @@
 # 变更日志
 
+## 更新（v0.8.6）：统一任务时间口径与 local/utc 语义
+
+- 新增（task-time-semantics-local-utc-unification）：统一任务、计时与提示词时间语义
+  - 后端新增统一时间语义模块，集中收口 UTC 存储、本地时间展示与 RFC3339 归一化转换
+  - `task` 工具、任务提示板、provider meta、任务卡片与 `wait` 回执统一改为“参数用当地时间、反馈用当地时间、数据层与调度用 UTC”
+  - 时间相关命名统一收敛到 `local / utc` 词汇体系，减少 `run_at`、`triggered_at`、`now_iso` 一类裸命名继续扩散
+
+- 调整（task-time-storage-schema-and-compat-migration）：统一任务存储字段与兼容迁移
+  - 任务存储模型、运行日志与进度注记显式拆分为 `*_local` 输出模型与 `*_utc` 存储模型，避免同一结构混装两层语义
+  - `task_record`、`task_runtime_state`、`task_run_log` 的时间列统一收敛为 `_utc` 命名，旧列名继续兼容读取并在后续写入时收敛
+  - 任务触发时间统一要求先从本地 RFC3339 转成 UTC 再入库，保证跨时区移动后仍能对齐同一真实时刻
+
+- 调整（task-time-ui-skill-and-schema-alignment）：统一前端展示、Skill 文案与工具字段名
+  - 前端新增统一时间展示 helper，任务页、聊天任务卡片与等待回执改为复用同一套本地时间格式化逻辑
+  - `task` 工具 schema、前端类型与消息语义统一显式使用 `runAtLocal`、`endAtLocal`、`nextRunAtLocal`、`startedAtLocal`、`finishedAtLocal`
+  - `task-guide` 与时间统一计划文档同步更新，统一 local/utc 命名、章节编号与 RFC3339 表述
+
 ## 更新（v0.8.6）：统一桌面脚本工具与 MCP 定义对齐
 
 - 新增（desktop-script-operate-mcp）：将桌面操作统一收敛为 MCP 版 `operate` 脚本工具

@@ -46,6 +46,7 @@ macro_rules! eprintln {
 
 // ==================== 核心领域模型 ====================
 include!("features/core/domain.rs");
+include!("features/core/time_semantics.rs");
 
 // ==================== 配置与存储 ====================
 include!("features/config/storage_and_stt.rs");

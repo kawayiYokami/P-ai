@@ -297,9 +297,9 @@ export type TaskTriggerMessageCard = {
   flow?: string;
   statusSummary?: string;
   todos: string[];
-  runAt?: string;
-  endAt?: string;
-  nextRunAt?: string;
+  runAtLocal?: string;
+  endAtLocal?: string;
+  nextRunAtLocal?: string;
   everyMinutes?: number;
 };
 

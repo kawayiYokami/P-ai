@@ -34,7 +34,7 @@ fn task_resolve_dispatch_conversation_id(
 
 fn task_resolve_dispatch_session(
     state: &AppState,
-    task: &TaskEntry,
+    task: &TaskRecordStored,
 ) -> Result<(String, String, String, String, String), String> {
     let guard = state
         .state_lock
@@ -121,7 +121,7 @@ fn task_enqueue_dispatch(state: &AppState, task_id: &str) -> Result<bool, String
     }
     queue.push_back(TaskDispatchQueueItem {
         task_id: task_id.to_string(),
-        queued_at: now_iso(),
+        queued_at_local: now_local_rfc3339(),
     });
     Ok(true)
 }
@@ -137,7 +137,7 @@ fn task_dequeue_dispatch(state: &AppState, chat_key: &str) -> Result<Option<Task
     Ok(queue.pop_front())
 }
 
-async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskEntry) -> Result<(), String> {
+async fn task_try_dispatch_or_enqueue(state: &AppState, task: &TaskRecordStored) -> Result<(), String> {
     let (_api_id, _department_id, _agent_id, _conversation_id, chat_key) =
         task_resolve_dispatch_session(state, task)?;
     if task_is_chat_busy(state, &chat_key)? {
@@ -171,7 +171,7 @@ pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), 
     let Some(item) = head else {
         return Ok(());
     };
-    let task = task_store_get_task(&state.data_path, &item.task_id)?;
+    let task = task_store_get_task_record(&state.data_path, &item.task_id)?;
     if task.completion_state != TASK_STATE_ACTIVE {
         let mut queue = state
             .task_dispatch_queue
@@ -193,7 +193,7 @@ pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), 
         "dequeued",
         &format!(
             "从队列恢复分发，queuedAt={}，taskId={}，title={}",
-            item.queued_at,
+            item.queued_at_local,
             task.task_id,
             task.title.trim()
         ),
@@ -201,12 +201,12 @@ pub(crate) async fn task_process_dispatch_queue(state: &AppState) -> Result<(), 
     task_dispatch_due_task(state, &task).await
 }
 
-fn task_is_due(entry: &TaskEntry, now: OffsetDateTime) -> bool {
+fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
     if entry.completion_state != TASK_STATE_ACTIVE {
         return false;
     }
-    if entry.trigger.run_at.is_none() {
-        return if let Some(last) = entry.last_triggered_at.as_deref().and_then(parse_iso) {
+    if entry.trigger.run_at_utc.is_none() {
+        return if let Some(last) = entry.last_triggered_at_utc.as_deref().and_then(parse_rfc3339_time) {
             now >= last + time::Duration::seconds(TASK_IMMEDIATE_RETRY_SECONDS)
         } else {
             true
@@ -215,50 +215,50 @@ fn task_is_due(entry: &TaskEntry, now: OffsetDateTime) -> bool {
     if entry.trigger.every_minutes.unwrap_or(0) == 0 {
         return entry
             .trigger
-            .run_at
+            .run_at_utc
             .as_deref()
-            .and_then(parse_iso)
-            .map(|run_at| now >= run_at && entry.last_triggered_at.is_none())
+            .and_then(parse_rfc3339_time)
+            .map(|run_at_utc| now >= run_at_utc && entry.last_triggered_at_utc.is_none())
             .unwrap_or(false);
     }
-    let Some(run_at) = entry.trigger.run_at.as_deref().and_then(parse_iso) else {
+    let Some(run_at_utc) = entry.trigger.run_at_utc.as_deref().and_then(parse_rfc3339_time) else {
         return false;
     };
-    if now < run_at {
+    if now < run_at_utc {
         return false;
     }
-    let Some(end_at) = entry.trigger.end_at.as_deref().and_then(parse_iso) else {
+    let Some(end_at_utc) = entry.trigger.end_at_utc.as_deref().and_then(parse_rfc3339_time) else {
         return false;
     };
-    if now > end_at {
+    if now > end_at_utc {
         return false;
     }
     let every = i64::from(entry.trigger.every_minutes.unwrap_or(0));
     if every <= 0 {
         return false;
     }
-    if let Some(last) = entry.last_triggered_at.as_deref().and_then(parse_iso) {
+    if let Some(last) = entry.last_triggered_at_utc.as_deref().and_then(parse_rfc3339_time) {
         let next = last + time::Duration::minutes(every);
-        next <= end_at && now >= next
+        next <= end_at_utc && now >= next
     } else {
         true
     }
 }
 
-fn task_priority_time_rank(entry: &TaskEntry) -> i128 {
-    if entry.trigger.run_at.is_none() {
+fn task_priority_time_rank(entry: &TaskRecordStored) -> i128 {
+    if entry.trigger.run_at_utc.is_none() {
         return i128::MIN;
     }
     entry
         .trigger
-        .run_at
+        .run_at_utc
         .as_deref()
-        .and_then(parse_iso)
+        .and_then(parse_rfc3339_time)
         .map(|value| value.unix_timestamp_nanos())
         .unwrap_or(i128::MAX)
 }
 
-fn task_priority_rank(entry: &TaskEntry, now: OffsetDateTime) -> (i32, i128, i64) {
+fn task_priority_rank(entry: &TaskRecordStored, now: OffsetDateTime) -> (i32, i128, i64) {
     let due_weight = if task_is_due(entry, now) { 0 } else { 1 };
     (due_weight, task_priority_time_rank(entry), entry.order_index)
 }
@@ -269,7 +269,7 @@ fn task_scheduler_refresh_current_tracked(data_path: &PathBuf) -> Result<Option<
         .prepare("SELECT * FROM task_record WHERE completion_state = ?1 ORDER BY order_index ASC")
         .map_err(|err| format!("Prepare tracked task query failed: {err}"))?;
     let rows = stmt
-        .query_map(params![TASK_STATE_ACTIVE], |row| task_row_to_entry(row, None))
+        .query_map(params![TASK_STATE_ACTIVE], |row| task_row_to_record_stored(row, None))
         .map_err(|err| format!("Query tracked tasks failed: {err}"))?;
     let mut active = Vec::new();
     for row in rows {
@@ -304,8 +304,8 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     let snapshot = task_build_board_snapshot(&state.data_path).ok()?;
     let tracked = snapshot.tracked_task?;
     let mut lines = Vec::<String>::new();
-    lines.push(format!("currentLocalTime: {}", now_local_time_rfc3339()));
-    lines.push("timeFormatNote: all task times below use local RFC3339 with timezone offset; copy the same format directly when writing runAt".to_string());
+    lines.push(format!("currentLocalTime: {}", now_local_rfc3339()));
+    lines.push("timeFormatNote: all task times below use local RFC3339 with timezone offset; copy the same format directly when writing runAtLocal".to_string());
     lines.push(format!("trackedTaskId: {}", tracked.task_id));
     lines.push(format!("title: {}", tracked.title.trim()));
     if !tracked.goal.trim().is_empty() {
@@ -323,14 +323,14 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     if !tracked.todos.is_empty() {
         lines.push(format!("todos: {}", tracked.todos.join(" | ")));
     }
-    if let Some(run_at) = tracked.trigger.run_at.as_deref() {
-        lines.push(format!("runAt: {}", format_message_time_rfc3339_local(run_at)));
+    if let Some(run_at_local) = tracked.trigger.run_at_local.as_deref() {
+        lines.push(format!("runAtLocal: {}", run_at_local));
     }
-    if let Some(end_at) = tracked.trigger.end_at.as_deref() {
-        lines.push(format!("endAt: {}", format_message_time_rfc3339_local(end_at)));
+    if let Some(end_at_local) = tracked.trigger.end_at_local.as_deref() {
+        lines.push(format!("endAtLocal: {}", end_at_local));
     }
-    if let Some(next_run_at) = tracked.trigger.next_run_at.as_deref() {
-        lines.push(format!("nextRunAt: {}", format_message_time_rfc3339_local(next_run_at)));
+    if let Some(next_run_at_local) = tracked.trigger.next_run_at_local.as_deref() {
+        lines.push(format!("nextRunAtLocal: {}", next_run_at_local));
     }
     let other_tasks = snapshot
         .tasks
@@ -344,7 +344,7 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     Some(prompt_xml_block("task board", lines.join("\n")))
 }
 
-fn build_task_trigger_hidden_prompt(task: &TaskEntry) -> String {
+fn build_task_trigger_hidden_prompt(task: &TaskRecordStored) -> String {
     let mut lines = Vec::<String>::new();
     lines.push(format!("任务提醒：{}", task.title.trim()));
     if !task.cause.trim().is_empty() {
@@ -366,7 +366,8 @@ fn build_task_trigger_hidden_prompt(task: &TaskEntry) -> String {
     lines.join("\n")
 }
 
-fn build_task_trigger_provider_meta(task: &TaskEntry) -> Value {
+fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
+    let trigger_view = task_trigger_view_from_stored(&task.trigger);
     serde_json::json!({
         "messageKind": "task_trigger",
         "hiddenPromptText": build_task_trigger_hidden_prompt(task),
@@ -378,15 +379,15 @@ fn build_task_trigger_provider_meta(task: &TaskEntry) -> Value {
             "flow": task.flow.trim(),
             "statusSummary": task.status_summary.trim(),
             "todos": task.todos,
-            "runAt": task.trigger.run_at,
-            "endAt": task.trigger.end_at,
-            "nextRunAt": task.trigger.next_run_at,
-            "everyMinutes": task.trigger.every_minutes,
+            "runAtLocal": trigger_view.run_at_local,
+            "endAtLocal": trigger_view.end_at_local,
+            "nextRunAtLocal": trigger_view.next_run_at_local,
+            "everyMinutes": trigger_view.every_minutes,
         }
     })
 }
 
-async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<(), String> {
+async fn task_dispatch_due_task(state: &AppState, task: &TaskRecordStored) -> Result<(), String> {
     let started_at = std::time::Instant::now();
     task_store_mark_triggered(&state.data_path, &task.task_id)?;
 
@@ -424,7 +425,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
         sender_info: None,
     };
 
-    let trigger_label = if task.trigger.run_at.is_none() {
+    let trigger_label = if task.trigger.run_at_utc.is_none() {
         "immediate"
     } else if task.trigger.every_minutes.unwrap_or(0) > 0 {
         "repeat"
@@ -450,7 +451,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
                     conversation_id,
                     trigger_label,
                     todo_count,
-                    task.trigger.run_at.is_some(),
+                    task.trigger.run_at_utc.is_some(),
                     task.trigger.every_minutes.unwrap_or(0),
                     duration_ms
                 ),
@@ -469,7 +470,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
                     conversation_id,
                     trigger_label,
                     todo_count,
-                    task.trigger.run_at.is_some(),
+                    task.trigger.run_at_utc.is_some(),
                     task.trigger.every_minutes.unwrap_or(0),
                     duration_ms,
                     err
@@ -483,7 +484,7 @@ async fn task_dispatch_due_task(state: &AppState, task: &TaskEntry) -> Result<()
 async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
     task_process_dispatch_queue(state).await?;
     let _ = task_scheduler_refresh_current_tracked(&state.data_path)?;
-    let tasks = task_store_list_tasks(&state.data_path)?;
+    let tasks = task_store_list_task_records(&state.data_path)?;
     let now = now_utc();
     let mut due_tasks = tasks
         .into_iter()

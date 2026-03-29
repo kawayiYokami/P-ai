@@ -12,20 +12,20 @@ async fn run_wait_tool(input: WaitRequest) -> DesktopToolResult<WaitResponse> {
         ));
     }
 
-    let started_at = now_local_time_text_seconds();
+    let started_at_local = now_local_text_seconds();
     let started = std::time::Instant::now();
     tokio::time::sleep(std::time::Duration::from_millis(input.ms)).await;
     let elapsed = started.elapsed();
     let elapsed_ms = elapsed.as_millis() as u64;
     let elapsed_seconds = elapsed.as_secs();
-    let finished_at = now_local_time_text_seconds();
+    let finished_at_local = now_local_text_seconds();
 
     Ok(WaitResponse {
         ok: true,
         waited_ms: input.ms,
         elapsed_ms,
         elapsed_seconds,
-        started_at,
-        finished_at,
+        started_at_local,
+        finished_at_local,
     })
 }

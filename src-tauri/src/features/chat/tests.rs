@@ -1081,7 +1081,7 @@
 
         let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskEntry {
+        let task = TaskRecordStored {
             task_id: "task-a".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
             order_index: 1,
@@ -1095,17 +1095,17 @@
             completion_conclusion: String::new(),
             progress_notes: Vec::new(),
             stage_key: String::new(),
-            stage_updated_at: None,
-            trigger: TaskTrigger {
-                run_at: None,
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
                 every_minutes: None,
-                end_at: None,
-                next_run_at: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
             },
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            last_triggered_at: None,
-            completed_at: None,
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
             current_tracked: false,
         };
 
@@ -1121,7 +1121,7 @@
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskEntry {
+        let task = TaskRecordStored {
             task_id: "task-b".to_string(),
             conversation_id: Some("conversation-missing".to_string()),
             order_index: 1,
@@ -1135,17 +1135,17 @@
             completion_conclusion: String::new(),
             progress_notes: Vec::new(),
             stage_key: String::new(),
-            stage_updated_at: None,
-            trigger: TaskTrigger {
-                run_at: None,
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
                 every_minutes: None,
-                end_at: None,
-                next_run_at: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
             },
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            last_triggered_at: None,
-            completed_at: None,
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
             current_tracked: false,
         };
 

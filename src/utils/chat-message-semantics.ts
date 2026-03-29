@@ -185,9 +185,9 @@ function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | unde
     flow: String(card.flow || "").trim() || undefined,
     statusSummary: String(card.statusSummary || "").trim() || undefined,
     todos: Array.isArray(card.todos) ? card.todos.map((item) => String(item || "").trim()).filter(Boolean) : [],
-    runAt: String(card.runAt || "").trim() || undefined,
-    endAt: String(card.endAt || "").trim() || undefined,
-    nextRunAt: String(card.nextRunAt || "").trim() || undefined,
+    runAtLocal: String(card.runAtLocal || card.runAt || "").trim() || undefined,
+    endAtLocal: String(card.endAtLocal || card.endAt || "").trim() || undefined,
+    nextRunAtLocal: String(card.nextRunAtLocal || card.nextRunAt || "").trim() || undefined,
     everyMinutes: Number.isFinite(Number(card.everyMinutes)) ? Number(card.everyMinutes) : undefined,
   };
 }
