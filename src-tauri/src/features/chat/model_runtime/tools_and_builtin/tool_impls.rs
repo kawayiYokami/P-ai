@@ -1,5 +1,7 @@
-#[derive(Debug, Clone, Copy)]
-struct BuiltinFetchTool;
+#[derive(Debug, Clone)]
+struct BuiltinFetchTool {
+    app_state: AppState,
+}
 
 impl Tool for BuiltinFetchTool {
     const NAME: &'static str = "fetch";
@@ -27,7 +29,7 @@ impl Tool for BuiltinFetchTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=fetch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
-        let result = builtin_fetch(&args.url, args.max_length.unwrap_or(1800))
+        let result = builtin_fetch(&self.app_state, &args.url, args.max_length.unwrap_or(1800))
             .await
             .map_err(ToolInvokeError::from);
         match &result {
@@ -41,8 +43,10 @@ impl Tool for BuiltinFetchTool {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BuiltinBingSearchTool;
+#[derive(Debug, Clone)]
+struct BuiltinBingSearchTool {
+    app_state: AppState,
+}
 
 impl Tool for BuiltinBingSearchTool {
     const NAME: &'static str = "websearch";
@@ -69,7 +73,7 @@ impl Tool for BuiltinBingSearchTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=websearch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         );
-        let result = builtin_bing_search(&args.query)
+        let result = builtin_bing_search(&self.app_state, &args.query)
             .await
             .map_err(ToolInvokeError::from);
         match &result {

@@ -1682,6 +1682,7 @@ struct AppState {
     config_path: PathBuf,
     data_path: PathBuf,
     llm_workspace_path: PathBuf,
+    shared_http_client: reqwest::Client,
     terminal_shell: TerminalShellProfile,
     terminal_shell_candidates: Vec<TerminalShellProfile>,
     state_lock: Arc<Mutex<()>>,
@@ -1833,12 +1834,20 @@ impl AppState {
             .map_err(|err| format!("Create llm workspace failed: {err}"))?;
         let terminal_shell_candidates = detect_terminal_shell_candidates();
         let terminal_shell = detect_default_terminal_shell();
+        let shared_http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(12))
+            .connect_timeout(std::time::Duration::from_secs(8))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(|err| format!("Build shared HTTP client failed: {err}"))?;
 
         Ok(Self {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: config_dir.join("app_config.toml"),
             data_path: config_dir.join("app_data.json"),
             llm_workspace_path,
+            shared_http_client,
             terminal_shell,
             terminal_shell_candidates,
             state_lock: Arc::new(Mutex::new(())),

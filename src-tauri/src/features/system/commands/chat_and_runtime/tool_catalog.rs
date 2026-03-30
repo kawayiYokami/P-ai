@@ -143,9 +143,23 @@ async fn builtin_tool_definitions_for_frontend(
         }
     };
     let mut out = vec![
-        frontend_tool_definition(rig::tool::Tool::definition(&BuiltinFetchTool, String::new()).await),
         frontend_tool_definition(
-            rig::tool::Tool::definition(&BuiltinBingSearchTool, String::new()).await,
+            rig::tool::Tool::definition(
+                &BuiltinFetchTool {
+                    app_state: state.clone(),
+                },
+                String::new(),
+            )
+            .await,
+        ),
+        frontend_tool_definition(
+            rig::tool::Tool::definition(
+                &BuiltinBingSearchTool {
+                    app_state: state.clone(),
+                },
+                String::new(),
+            )
+            .await,
         ),
         frontend_tool_definition(
             rig::tool::Tool::definition(

@@ -131,7 +131,10 @@ async fn assemble_runtime_tools(
         },
     ));
     if has_fetch {
-        tools.push(Box::new(BuiltinFetchTool));
+        let state = app_state
+            .ok_or_else(|| "fetch requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinFetchTool { app_state: state }));
     }
 
     tool_manifest.push(tool_manifest_item(
@@ -146,7 +149,10 @@ async fn assemble_runtime_tools(
         },
     ));
     if has_websearch {
-        tools.push(Box::new(BuiltinBingSearchTool));
+        let state = app_state
+            .ok_or_else(|| "websearch requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinBingSearchTool { app_state: state }));
     }
 
     if has_remember {

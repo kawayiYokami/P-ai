@@ -944,6 +944,7 @@
             config_path: root.join("app_config.toml"),
             data_path: root.join("app_data.json"),
             llm_workspace_path: root.join("llm-workspace"),
+            shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),
             terminal_shell_candidates: detect_terminal_shell_candidates(),
             state_lock: Arc::new(Mutex::new(())),

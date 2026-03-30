@@ -427,6 +427,7 @@ mod terminal_workspace_tests {
             config_path: llm_workspace_path.join("app_config.toml"),
             data_path: llm_workspace_path.join("app_data.json"),
             llm_workspace_path,
+            shared_http_client: reqwest::Client::new(),
             terminal_shell: terminal_shell.clone(),
             terminal_shell_candidates: vec![terminal_shell],
             state_lock: Arc::new(Mutex::new(())),

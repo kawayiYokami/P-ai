@@ -89,7 +89,29 @@ async fn validate_builtin_fetch_url(raw: &str) -> Result<ValidatedFetchTarget, S
     })
 }
 
-async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
+fn build_fetch_client(
+    state: &AppState,
+    validated: &ValidatedFetchTarget,
+) -> Result<reqwest::Client, String> {
+    if validated.resolve_host.is_none() {
+        return Ok(state.shared_http_client.clone());
+    }
+    let mut client_builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .redirect(reqwest::redirect::Policy::limited(10));
+    if let Some(host) = validated.resolve_host.as_deref() {
+        for addr in &validated.resolved_addrs {
+            client_builder = client_builder.resolve(host, *addr);
+        }
+    }
+    client_builder
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))
+}
+
+async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result<Value, String> {
     let normalized_url = url.trim();
     if normalized_url.is_empty() {
         return Ok(serde_json::json!({
@@ -116,22 +138,15 @@ async fn builtin_fetch(url: &str, max_length: usize) -> Result<Value, String> {
         }
     };
 
-    let mut client_builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(12));
-    if let Some(host) = validated.resolve_host.as_deref() {
-        for addr in &validated.resolved_addrs {
-            client_builder = client_builder.resolve(host, *addr);
-        }
-    }
-    let client = match client_builder.build() {
+    let client = match build_fetch_client(state, &validated) {
         Ok(client) => client,
         Err(err) => {
-            let build_err = format!("Build HTTP client failed: {err}");
             return Ok(serde_json::json!({
               "ok": false,
               "url": normalized_url,
               "status": Value::Null,
               "error": "build_http_client_failed",
-              "message": build_err,
+              "message": err,
               "content": ""
             }));
         }
@@ -309,11 +324,8 @@ fn canonical_url_key(raw: &str) -> String {
     key
 }
 
-async fn builtin_bing_search(query: &str) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, String> {
+    let client = state.shared_http_client.clone();
     let limit = 10usize;
     let raw_query = query.trim();
     let mut last_error: Option<String> = None;
