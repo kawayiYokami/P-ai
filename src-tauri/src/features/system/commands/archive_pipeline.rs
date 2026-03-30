@@ -1715,6 +1715,8 @@ async fn run_archive_pipeline_inner(
         eprintln!("[归档] 清理 PDF 缓存失败: conversation={}, error={}", source.id, e);
     }
 
+    drop(guard);
+
     if let Some(active_conversation_id_value) = active_conversation_id.as_deref() {
         emit_archive_history_flushed_event(
             state,
@@ -1724,8 +1726,6 @@ async fn run_archive_pipeline_inner(
             archive_reason,
         );
     }
-
-    drop(guard);
 
     // 归档前预整理同样属于“上下文整理行为”，必须独立入一个记忆任务队列。
     spawn_compaction_memory_generation_task(

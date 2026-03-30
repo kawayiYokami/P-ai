@@ -1460,6 +1460,9 @@ fn collect_unarchived_conversation_summaries(
         .map(|conversation| build_unarchived_conversation_summary(state, &main_conversation_id, conversation))
         .collect::<Vec<_>>();
     summaries.sort_by(|a, b| {
+        if a.is_main_conversation != b.is_main_conversation {
+            return b.is_main_conversation.cmp(&a.is_main_conversation);
+        }
         let bk = b
             .last_message_at
             .as_deref()
@@ -1606,11 +1609,11 @@ fn emit_unarchived_conversation_overview_updated_payload(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        eprintln!("[会话概览] 推送跳过: app_handle unavailable");
+        eprintln!("[会话概览] 推送跳过：无法获取 app_handle");
         return;
     };
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT, payload) {
-        eprintln!("[会话概览] 推送失败: error={}", err);
+        eprintln!("[会话概览] 推送失败：错误={}", err);
     }
 }
 
@@ -1802,6 +1805,8 @@ struct CreateUnarchivedConversationInput {
     api_config_id: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1832,6 +1837,12 @@ fn create_unarchived_conversation(
         .map(ToOwned::to_owned)
         .or_else(|| resolve_selected_api_config(&app_config, None).map(|item| item.id.clone()))
         .ok_or_else(|| "No API config available".to_string())?;
+    let conversation_title = input
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default();
 
     for conversation in &mut data.conversations {
         if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
@@ -1842,7 +1853,7 @@ fn create_unarchived_conversation(
     let conversation = build_conversation_record(
         &api_config_id,
         "",
-        "",
+        conversation_title,
         CONVERSATION_KIND_CHAT,
         None,
         None,

@@ -358,11 +358,7 @@ fn main() {
                 }
             }
             if should_enable_devtools() {
-                for label in ["main", "chat", "archives"] {
-                    if let Some(window) = app_handle.get_webview_window(label) {
-                        let _ = window.open_devtools();
-                    }
-                }
+                eprintln!("[启动] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
             }
             let startup_state = app_handle.state::<AppState>().inner().clone();
             start_task_scheduler(startup_state.clone());

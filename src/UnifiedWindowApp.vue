@@ -1821,17 +1821,22 @@ async function requestConversationSnapshot(conversationId?: string | null): Prom
 
 async function recoverForegroundConversationFromOverview(reason: string, preferredConversationId?: string | null) {
   if (conversationForegroundSyncing.value) return;
-  const currentConversationId = String(currentChatConversationId.value || "").trim();
-  if (currentConversationId && unarchivedConversations.value.some((item) => String(item.conversationId || "").trim() === currentConversationId)) {
-    return;
+  try {
+    conversationForegroundSyncing.value = true;
+    const currentConversationId = String(currentChatConversationId.value || "").trim();
+    if (currentConversationId && unarchivedConversations.value.some((item) => String(item.conversationId || "").trim() === currentConversationId)) {
+      return;
+    }
+    const nextConversationId = String(preferredConversationId || "").trim() || pickForegroundConversationId(unarchivedConversations.value);
+    if (!nextConversationId) {
+      clearForegroundConversation(reason);
+      return;
+    }
+    const snapshot = await requestConversationSnapshot(nextConversationId);
+    applyConversationSnapshot(snapshot);
+  } finally {
+    conversationForegroundSyncing.value = false;
   }
-  const nextConversationId = String(preferredConversationId || "").trim() || pickForegroundConversationId(unarchivedConversations.value);
-  if (!nextConversationId) {
-    clearForegroundConversation(reason);
-    return;
-  }
-  const snapshot = await requestConversationSnapshot(nextConversationId);
-  applyConversationSnapshot(snapshot);
 }
 
 async function handleConversationOverviewUpdated(payload?: ConversationOverviewUpdatedPayload | null) {
@@ -1903,13 +1908,14 @@ async function switchUnarchivedConversation(conversationId: string) {
   }
 }
 
-async function createUnarchivedConversation() {
+async function createUnarchivedConversation(title?: string) {
   const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
   if (!apiConfigId) return;
   try {
     const result = await invokeTauri<{ conversationId: string }>("create_unarchived_conversation", {
       input: {
         apiConfigId,
+        title: String(title || "").trim() || null,
       },
     });
     const conversationId = String(result?.conversationId || "").trim();

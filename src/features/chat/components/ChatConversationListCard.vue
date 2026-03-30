@@ -1,9 +1,5 @@
 <template>
   <div class="flex h-[80vh] w-[80vw] max-h-[calc(100vh-1rem)] max-w-[calc(100vw-1rem)] flex-col rounded-box border border-base-300 bg-base-100 shadow-xl">
-    <div class="flex items-center justify-between border-b border-base-300 px-3 py-2">
-      <div class="text-sm font-semibold">{{ t("chat.conversationList") }}</div>
-      <div class="badge badge-ghost badge-sm">{{ props.items.length }}</div>
-    </div>
     <div class="flex-1 min-h-0 space-y-2 overflow-y-auto p-2">
       <button
         v-for="item in props.items"
@@ -29,7 +25,7 @@
                   :alt="lastSpeakerLabel(item)"
                   class="w-10 h-10 rounded-full object-cover"
                 />
-                <span v-else class="text-sm font-bold">
+                <span v-else class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold">
                   {{ lastSpeakerInitial(item) }}
                 </span>
               </div>
@@ -57,7 +53,7 @@
               </span>
               <span class="text-base-content/70">{{ formatConversationTime(item.updatedAt) }}</span>
               <span class="font-medium">
-                {{ item.messageCount }} 条
+                {{ t("chat.messageCount", { count: item.messageCount }) }}
               </span>
             </div>
           </div>

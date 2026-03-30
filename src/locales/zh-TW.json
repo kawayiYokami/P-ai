@@ -682,6 +682,8 @@
     "mainConversation": "主會話",
     "conversationNoPreview": "暫無消息",
     "defaultWorkspace": "預設工作空間",
+    "newConversationTopicPlaceholder": "輸入會話主題，可留空",
+    "recentConversationTopics": "最近使用的主題",
     "organizingContextDisabled": "當前會話正在背景歸檔或整理上下文，暫時不能切換。",
     "runtimeIdle": "空閒",
     "runtimeStreaming": "回覆中",
@@ -690,6 +692,7 @@
     "previewPdf": "[PDF]",
     "previewAudio": "[語音]",
     "previewAttachment": "[附件]",
+    "messageCount": "{count} 條",
     "taskTrigger": {
       "badge": "任務提醒",
       "kindImmediate": "立即任務",
