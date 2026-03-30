@@ -5,8 +5,7 @@ fn llm_workspace_skills_root(state: &AppState) -> PathBuf {
 }
 
 fn sync_skill_template_file(path: &PathBuf, content: &str) -> Result<(), String> {
-    let current = fs::read_to_string(path).ok();
-    if current.as_deref() == Some(content) {
+    if path.exists() {
         return Ok(());
     }
     fs::write(path, content).map_err(|err| format!("Write file failed ({}): {err}", path.display()))
