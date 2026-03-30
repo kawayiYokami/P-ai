@@ -102,10 +102,16 @@ async fn remote_im_get_channel_status(
     state: State<'_, AppState>,
 ) -> Result<ChannelConnectionStatus, String> {
     let config = state_read_config_cached(&state).map_err(|e| format!("{e:?}"))?;
-    if let Some(channel) = config.remote_im_channels.iter().find(|ch| ch.id == channel_id) {
+    if let Some(channel) = config
+        .remote_im_channels
+        .iter()
+        .find(|ch| ch.id == channel_id)
+    {
         return match channel.platform {
             RemoteImPlatform::OnebotV11 => get_channel_connection_status(channel_id).await,
-            RemoteImPlatform::Dingtalk => Ok(dingtalk_stream_manager().get_channel_status(&channel.id).await),
+            RemoteImPlatform::Dingtalk => Ok(dingtalk_stream_manager()
+                .get_channel_status(&channel.id)
+                .await),
             RemoteImPlatform::Feishu => Ok(ChannelConnectionStatus {
                 channel_id: channel.id.clone(),
                 connected: false,
@@ -139,9 +145,10 @@ async fn remote_im_restart_channel(
     onebot_v11_ws_manager()
         .add_log(&channel_id, "info", "[远程IM] 收到渠道重启请求")
         .await;
-    let config = state_read_config_cached(&state)
-        .map_err(|e| format!("{e:?}"))?;
-    let channel = config.remote_im_channels.iter()
+    let config = state_read_config_cached(&state).map_err(|e| format!("{e:?}"))?;
+    let channel = config
+        .remote_im_channels
+        .iter()
         .find(|ch| ch.id == channel_id)
         .ok_or_else(|| format!("渠道 {} 未找到", channel_id))?
         .clone();
@@ -184,9 +191,7 @@ async fn remote_im_restart_channel(
             {
                 eprintln!(
                     "[远程IM] 钉钉渠道收敛失败: channel_id={}, platform={:?}, error={}",
-                    channel_clone.id,
-                    channel_clone.platform,
-                    err
+                    channel_clone.id, channel_clone.platform, err
                 );
             }
         });
@@ -198,7 +203,9 @@ async fn remote_im_restart_channel(
     }
 
     if channel.platform == RemoteImPlatform::Dingtalk {
-        Ok(dingtalk_stream_manager().get_channel_status(&channel_id).await)
+        Ok(dingtalk_stream_manager()
+            .get_channel_status(&channel_id)
+            .await)
     } else if channel.platform == RemoteImPlatform::WeixinOc {
         Ok(weixin_oc_manager().build_status(&channel_id).await)
     } else {

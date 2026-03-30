@@ -1,5 +1,18 @@
 # 变更日志
 
+## 更新（v0.8.71）：优化发布构建与静态网页抓取请求头
+
+- 调整（release-build-profile-tightening）：收紧发布构建产物体积与链接策略
+  - `src-tauri/Cargo.toml` 新增 `release` profile，启用 `opt-level = "z"`、`lto = true`、`codegen-units = 1`、`strip = true` 与 `debug = false`
+  - 新增 `.cargo/config.toml`，为 Windows MSVC 链接补充 `/OPT:REF` 与 `/OPT:ICF`，进一步裁剪无用符号与重复代码
+
+- 调整（builtin-fetch-browser-like-headers）：内置 `fetch` 改为浏览器风格请求头
+  - `src-tauri/src/features/chat/model_runtime/tools_and_builtin/builtin_network.rs` 为静态网页抓取补充完整 Chrome 风格 `User-Agent`
+  - 同步增加 `Accept`、`Accept-Language`、`Cache-Control`、`Pragma` 与 `Upgrade-Insecure-Requests`，降低 `TopHub` 这类站点将抓取请求直接拦截为异常流量的概率
+
+- 调整（rustfmt-sync-cleanup）：同步收口零散 Rust 格式化改动
+  - `src-tauri/src/bin/litchi_probe.rs` 与 `src-tauri/src/main.rs` 仅保留 `cargo fmt` 带来的格式整理，不涉及行为变更
+
 ## 更新（v0.8.7）：聊天会话列表卡片与切换链路重构
 
 - 调整（chat-conversation-overview-card-refresh）：聊天窗口改为弹出式会话列表卡片

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use litchi::{detect_file_format, Document, FileFormat, Presentation};
 use litchi::sheet::Workbook;
+use litchi::{detect_file_format, Document, FileFormat, Presentation};
 
 const PREVIEW_CHARS: usize = 1200;
 
@@ -38,7 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("detected_format={format:?}");
 
     let text = match format {
-        FileFormat::Doc | FileFormat::Docx | FileFormat::Rtf | FileFormat::Odt | FileFormat::Pages => {
+        FileFormat::Doc
+        | FileFormat::Docx
+        | FileFormat::Rtf
+        | FileFormat::Odt
+        | FileFormat::Pages => {
             let document = Document::open(path)?;
             document.text()?
         }
@@ -46,7 +50,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let presentation = Presentation::open(path)?;
             presentation.text()?
         }
-        FileFormat::Xls | FileFormat::Xlsx | FileFormat::Xlsb | FileFormat::Ods | FileFormat::Numbers => {
+        FileFormat::Xls
+        | FileFormat::Xlsx
+        | FileFormat::Xlsb
+        | FileFormat::Ods
+        | FileFormat::Numbers => {
             let workbook = Workbook::open(path)?;
             workbook.text()?
         }
