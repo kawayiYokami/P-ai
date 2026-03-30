@@ -49,6 +49,11 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
     )?;
     sync_workspace_preset_skill(
         &skills_root,
+        "assistant-interaction-guide",
+        include_str!("../../../resources/preset-skills/assistant-interaction-guide/SKILL.md"),
+    )?;
+    sync_workspace_preset_skill(
+        &skills_root,
         "skill-setup",
         include_str!("../../../resources/preset-skills/skill-setup/SKILL.md"),
     )?;
@@ -64,13 +69,13 @@ pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), Str
     )?;
     sync_workspace_preset_skill(
         &skills_root,
-        "task-guide",
-        include_str!("../../../resources/preset-skills/task-guide/SKILL.md"),
+        "private-organization-guide",
+        include_str!("../../../resources/preset-skills/private-organization-guide/SKILL.md"),
     )?;
     sync_workspace_preset_skill(
         &skills_root,
-        "private-organization-guide",
-        include_str!("../../../resources/preset-skills/private-organization-guide/SKILL.md"),
+        "pai-guide",
+        include_str!("../../../resources/preset-skills/pai-guide/SKILL.md"),
     )?;
 
     Ok(())
