@@ -250,8 +250,10 @@ fn prepare_background_archive_active_conversation(
         conversation_id
     };
 
+    let overview_payload = build_unarchived_conversation_overview_payload(state, &data);
     state_write_app_data_cached(state, &data)?;
     drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
     Ok(active_conversation_id)
 }
 
@@ -632,6 +634,12 @@ fn emit_archive_history_flushed_event(
             source_conversation_id, active_conversation_id, archive_id
         );
     }
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        eprintln!(
+            "[会话概览] archive_history_flushed 后推送失败: source_conversation_id={}, error={}",
+            source_conversation_id, err
+        );
+    }
 }
 
 fn emit_compaction_history_flushed_event(
@@ -670,6 +678,12 @@ fn emit_compaction_history_flushed_event(
         eprintln!(
             "[ARCHIVE-PIPELINE] 上下文整理 history_flushed 已发送: conversation_id={}",
             conversation_id
+        );
+    }
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        eprintln!(
+            "[会话概览] compaction_history_flushed 后推送失败: conversation_id={}, error={}",
+            conversation_id, err
         );
     }
 }

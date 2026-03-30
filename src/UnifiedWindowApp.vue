@@ -534,6 +534,7 @@ let chatRoundCompletedUnlisten: UnlistenFn | null = null;
 let chatRoundFailedUnlisten: UnlistenFn | null = null;
 let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
+let chatConversationOverviewUpdatedUnlisten: UnlistenFn | null = null;
 let foregroundPaintTraceSeq = 0;
 let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let chatMicPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -669,8 +670,6 @@ const {
   selectedRemoteImContactId,
   loadArchives,
   loadDelegateConversations,
-  loadUnarchivedConversations,
-  loadUnarchivedConversationListOnly,
   selectArchive,
   selectUnarchivedConversation,
   selectDelegateConversation,
@@ -900,8 +899,7 @@ function syncChatWindowActiveState(reason = "unknown") {
     recordHotkey.suppressAfterPopup(RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS);
     const activeConversationId = String(currentChatConversationId.value || "").trim();
     if (!activeConversationId) {
-      void loadUnarchivedConversationListOnly()
-        .then(() => ensureForegroundConversation("window_activated"))
+      void refreshChatUnarchivedConversations()
         .catch((error) => {
           console.warn("[聊天追踪][前台会话] 激活恢复失败", error);
         });
@@ -1017,9 +1015,6 @@ const CONVERSATION_COLORS = [
   'neutral',   // 7: 黑
 ] as const;
 
-const conversationWorkspaceLabelMap = ref<Record<string, string>>({});
-let refreshConversationWorkspaceToken = 0;
-let workspaceLabelsFreshUntil = 0;
 const conversationScrollToBottomRequest = ref(0);
 let pendingConversationScrollToBottomConversationId = "";
 let pendingConversationScrollToBottomTimer = 0;
@@ -1029,43 +1024,12 @@ type SwitchConversationSnapshot = {
   messages: ChatMessage[];
   hasMoreHistory: boolean;
   unarchivedConversations: UnarchivedConversationSummary[];
-  workspaceLabels?: Record<string, string>;
 };
 
-async function refreshConversationWorkspaceLabels() {
-  if (Date.now() < workspaceLabelsFreshUntil) {
-    return;
-  }
-  const apiConfigId = String(assistantDepartmentApiConfigId.value || "").trim();
-  const agentId = String(activeAssistantAgentId.value || "").trim();
-  if (!apiConfigId || !agentId) {
-    conversationWorkspaceLabelMap.value = {};
-    return;
-  }
-  const targetConversationIds = unarchivedConversations.value
-    .map((item) => String(item.conversationId || "").trim())
-    .filter((id) => !!id);
-  const token = ++refreshConversationWorkspaceToken;
-  const nextMap: Record<string, string> = {};
-  await Promise.all(
-    targetConversationIds.map(async (conversationId) => {
-      try {
-        const state = await invokeTauri<{ workspaceName?: string; rootPath?: string }>("get_chat_shell_workspace", {
-          input: {
-            apiConfigId,
-            agentId,
-            conversationId,
-          },
-        });
-        nextMap[conversationId] = String(state?.workspaceName || "").trim() || "默认工作空间";
-      } catch {
-        nextMap[conversationId] = "默认工作空间";
-      }
-    }),
-  );
-  if (token !== refreshConversationWorkspaceToken) return;
-  conversationWorkspaceLabelMap.value = nextMap;
-}
+type ConversationOverviewUpdatedPayload = {
+  unarchivedConversations?: UnarchivedConversationSummary[];
+  preferredConversationId?: string | null;
+};
 
 function clearPendingConversationScrollToBottomFallback() {
   if (pendingConversationScrollToBottomTimer) {
@@ -1104,13 +1068,14 @@ const chatUnarchivedConversationItems = computed(() => {
   const items = unarchivedConversations.value
     .map((item) => ({
       conversationId: item.conversationId,
+      title: item.title,
       messageCount: Number(item.messageCount || 0),
-      workspaceLabel:
-        conversationWorkspaceLabelMap.value[String(item.conversationId || "").trim()] || "默认工作空间",
+      workspaceLabel: String(item.workspaceLabel || "").trim() || "默认工作空间",
       isActive: !!item.isActive,
       isMainConversation: !!item.isMainConversation,
       runtimeState: item.runtimeState,
       updatedAt: item.lastMessageAt || item.updatedAt || "",
+      previewMessages: Array.isArray(item.previewMessages) ? item.previewMessages : [],
       backgroundStatus:
         backgroundConversationBadgeMap.value[String(item.conversationId || "").trim()] || undefined,
     }))
@@ -1570,11 +1535,13 @@ const {
 } = chatRuntime;
 
 async function refreshChatUnarchivedConversations() {
-  await loadUnarchivedConversationListOnly();
-  const candidates = unarchivedConversations.value;
-  const current = String(currentChatConversationId.value || "").trim();
-  if (!current || !candidates.some((item) => String(item.conversationId || "").trim() === current)) {
-    await ensureForegroundConversation("refresh_unarchived_list");
+  if (conversationForegroundSyncing.value) return;
+  try {
+    conversationForegroundSyncing.value = true;
+    const snapshot = await requestConversationSnapshot(String(currentChatConversationId.value || "").trim() || null);
+    applyConversationSnapshot(snapshot);
+  } finally {
+    conversationForegroundSyncing.value = false;
   }
 }
 
@@ -1584,33 +1551,6 @@ function pickForegroundConversationId(candidates: UnarchivedConversationSummary[
     || candidates.find((item) => !!item.isMainConversation)
     || candidates[0];
   return String(target?.conversationId || "").trim();
-}
-
-async function ensureForegroundConversation(reason: string) {
-  if (conversationForegroundSyncing.value) return;
-  const currentConversationId = String(currentChatConversationId.value || "").trim();
-  const candidates = unarchivedConversations.value;
-  if (candidates.length === 0) {
-    console.warn("[聊天追踪][前台会话] 候选列表为空，保留当前前台", {
-      windowLabel: tauriWindowLabel.value,
-      reason,
-      currentConversationId,
-      currentMessageCount: allMessages.value.length,
-    });
-    return;
-  }
-  if (currentConversationId && candidates.some((item) => String(item.conversationId || "").trim() === currentConversationId)) {
-    return;
-  }
-  const nextConversationId = pickForegroundConversationId(candidates);
-  if (!nextConversationId) return;
-  console.warn("[聊天追踪][前台会话] 已设置", {
-    windowLabel: tauriWindowLabel.value,
-    reason,
-    conversationId: nextConversationId,
-    previousConversationId: currentConversationId,
-  });
-  await switchUnarchivedConversation(nextConversationId);
 }
 
 function clearForegroundConversation(reason: string) {
@@ -1861,12 +1801,68 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   unarchivedConversations.value = Array.isArray(snapshot.unarchivedConversations)
     ? snapshot.unarchivedConversations
     : [];
-  conversationWorkspaceLabelMap.value =
-    snapshot.workspaceLabels && typeof snapshot.workspaceLabels === "object"
-      ? { ...snapshot.workspaceLabels }
-      : {};
-  workspaceLabelsFreshUntil = Date.now() + 1000;
   scheduleConversationScrollToBottomFallback(nextConversationId);
+}
+
+function applyConversationOverviewPayload(payload?: ConversationOverviewUpdatedPayload | null) {
+  unarchivedConversations.value = Array.isArray(payload?.unarchivedConversations)
+    ? payload.unarchivedConversations
+    : [];
+}
+
+async function requestConversationSnapshot(conversationId?: string | null): Promise<SwitchConversationSnapshot> {
+  return invokeTauri<SwitchConversationSnapshot>("switch_active_conversation_snapshot", {
+    input: {
+      conversationId: String(conversationId || "").trim() || null,
+      agentId: String(activeAssistantAgentId.value || "").trim() || null,
+    },
+  });
+}
+
+async function recoverForegroundConversationFromOverview(reason: string, preferredConversationId?: string | null) {
+  if (conversationForegroundSyncing.value) return;
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (currentConversationId && unarchivedConversations.value.some((item) => String(item.conversationId || "").trim() === currentConversationId)) {
+    return;
+  }
+  const nextConversationId = String(preferredConversationId || "").trim() || pickForegroundConversationId(unarchivedConversations.value);
+  if (!nextConversationId) {
+    clearForegroundConversation(reason);
+    return;
+  }
+  const snapshot = await requestConversationSnapshot(nextConversationId);
+  applyConversationSnapshot(snapshot);
+}
+
+async function handleConversationOverviewUpdated(payload?: ConversationOverviewUpdatedPayload | null) {
+  applyConversationOverviewPayload(payload);
+  await recoverForegroundConversationFromOverview(
+    "overview_updated",
+    String(payload?.preferredConversationId || "").trim() || null,
+  );
+}
+
+function syncCurrentConversationWorkspaceLabel() {
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (!currentConversationId) return;
+  const nextLabel = String(chatWorkspaceName.value || "").trim() || "默认工作空间";
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== currentConversationId) {
+      return item;
+    }
+    if (String(item.workspaceLabel || "").trim() === nextLabel) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      workspaceLabel: nextLabel,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = nextItems;
+  }
 }
 
 async function switchUnarchivedConversation(conversationId: string) {
@@ -1894,12 +1890,7 @@ async function switchUnarchivedConversation(conversationId: string) {
       displayBlockCount: displayMessageBlocks.value.length,
       syncCostMs: Math.round((perfNow() - startedAt) * 10) / 10,
     });
-    const snapshot = await invokeTauri<SwitchConversationSnapshot>("switch_active_conversation_snapshot", {
-      input: {
-        conversationId: cid,
-        agentId: String(activeAssistantAgentId.value || "").trim() || null,
-      },
-    });
+    const snapshot = await requestConversationSnapshot(cid);
     applyConversationSnapshot(snapshot);
     await nextTick();
     void requestConversationMessagesAfterAsync(cid, trace).catch((error) => {
@@ -1923,12 +1914,7 @@ async function createUnarchivedConversation() {
     });
     const conversationId = String(result?.conversationId || "").trim();
     if (!conversationId) return;
-    const snapshot = await invokeTauri<SwitchConversationSnapshot>("switch_active_conversation_snapshot", {
-      input: {
-        conversationId,
-        agentId: String(activeAssistantAgentId.value || "").trim() || null,
-      },
-    });
+    const snapshot = await requestConversationSnapshot(conversationId);
     applyConversationSnapshot(snapshot);
   } catch (error) {
     setStatusError("status.loadMessagesFailed", error);
@@ -2197,7 +2183,6 @@ onMounted(() => {
         payloadConversationId,
         currentConversationId,
       });
-      void loadUnarchivedConversationListOnly();
       if (hasActiveForegroundConversation(payloadConversationId)) {
         void chatFlow.handleExternalHistoryFlushed(event.payload);
       }
@@ -2214,7 +2199,6 @@ onMounted(() => {
     void listen<unknown>("easy-call:round-completed", (event) => {
       const payloadConversationId = readConversationIdFromPayload(event.payload);
       const currentConversationId = String(currentChatConversationId.value || "").trim();
-      void loadUnarchivedConversationListOnly();
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "completed");
         return;
@@ -2232,7 +2216,6 @@ onMounted(() => {
     void listen<unknown>("easy-call:round-failed", (event) => {
       const payloadConversationId = readConversationIdFromPayload(event.payload);
       const currentConversationId = String(currentChatConversationId.value || "").trim();
-      void loadUnarchivedConversationListOnly();
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "failed");
         return;
@@ -2246,6 +2229,17 @@ onMounted(() => {
       })
       .catch((error) => {
         console.error("[聊天追踪][轮次失败] 监听器注册失败", error);
+      });
+    void listen<ConversationOverviewUpdatedPayload>("easy-call:conversation-overview-updated", (event) => {
+      void handleConversationOverviewUpdated(event.payload).catch((error) => {
+        console.warn("[会话概览] 推送更新处理失败", error);
+      });
+    })
+      .then((unlisten) => {
+        chatConversationOverviewUpdatedUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[会话概览] 监听器注册失败", error);
       });
     void listen<unknown>("easy-call:assistant-delta", (event) => {
       const conversationId = readConversationIdFromPayload(event.payload);
@@ -2298,6 +2292,10 @@ onBeforeUnmount(() => {
   if (chatConversationMessagesAfterSyncedUnlisten) {
     chatConversationMessagesAfterSyncedUnlisten();
     chatConversationMessagesAfterSyncedUnlisten = null;
+  }
+  if (chatConversationOverviewUpdatedUnlisten) {
+    chatConversationOverviewUpdatedUnlisten();
+    chatConversationOverviewUpdatedUnlisten = null;
   }
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);
@@ -2362,7 +2360,6 @@ watch(
   ({ mode }) => {
     if (mode !== "chat") return;
     void refreshChatWorkspaceState();
-    void refreshConversationWorkspaceLabels();
   },
   { immediate: true },
 );
@@ -2375,7 +2372,7 @@ watch(
   }),
   ({ mode }) => {
     if (mode !== "chat") return;
-    void refreshConversationWorkspaceLabels();
+    syncCurrentConversationWorkspaceLabel();
   },
 );
 
@@ -2741,7 +2738,6 @@ const chatFlow = useChatFlow({
         finalMessageCount: allMessages.value.length,
       });
     }
-    await loadUnarchivedConversationListOnly();
     cacheConversationMessages(flushedConversationId || String(currentChatConversationId.value || "").trim(), allMessages.value);
     console.warn("[聊天追踪][历史刷写处理] 完成", {
       windowLabel: tauriWindowLabel.value,
@@ -2758,7 +2754,9 @@ watch(
   }),
   ({ mode }) => {
     if (mode !== "chat") return;
-    void refreshChatUnarchivedConversations();
+    void refreshChatUnarchivedConversations().catch((error) => {
+      setStatusError("status.loadMessagesFailed", error);
+    });
   },
   { immediate: true },
 );

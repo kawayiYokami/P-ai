@@ -1231,6 +1231,27 @@ fn get_chat_snapshot(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ConversationPreviewMessage {
+    message_id: String,
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speaker_agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    text_preview: String,
+    #[serde(default)]
+    has_image: bool,
+    #[serde(default)]
+    has_pdf: bool,
+    #[serde(default)]
+    has_audio: bool,
+    #[serde(default)]
+    has_attachment: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UnarchivedConversationSummary {
     conversation_id: String,
     title: String,
@@ -1239,12 +1260,15 @@ struct UnarchivedConversationSummary {
     last_message_at: Option<String>,
     message_count: usize,
     agent_id: String,
+    workspace_label: String,
     #[serde(default)]
     is_active: bool,
     #[serde(default)]
     is_main_conversation: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_state: Option<MainSessionState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    preview_messages: Vec<ConversationPreviewMessage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1288,6 +1312,165 @@ fn conversation_preview_title(conversation: &Conversation) -> String {
     } else {
         compact.chars().take(12).collect::<String>()
     }
+}
+
+fn build_conversation_preview_text(message: &ChatMessage) -> String {
+    let text = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text } => Some(text.trim()),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    clean_text(text.trim())
+}
+
+fn conversation_message_has_attachment(message: &ChatMessage) -> bool {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("attachments"))
+        .and_then(Value::as_array)
+        .map(|items| !items.is_empty())
+        .unwrap_or(false)
+}
+
+fn build_conversation_preview_messages(
+    conversation: &Conversation,
+    limit: usize,
+) -> Vec<ConversationPreviewMessage> {
+    let mut selected = conversation
+        .messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant" | "tool"
+            )
+        })
+        .rev()
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    selected.reverse();
+    selected
+        .into_iter()
+        .map(|message| {
+            let mut has_image = false;
+            let mut has_pdf = false;
+            let mut has_audio = false;
+            for part in &message.parts {
+                match part {
+                    MessagePart::Image { mime, .. } => {
+                        if mime.trim().eq_ignore_ascii_case("application/pdf") {
+                            has_pdf = true;
+                        } else {
+                            has_image = true;
+                        }
+                    }
+                    MessagePart::Audio { .. } => {
+                        has_audio = true;
+                    }
+                    MessagePart::Text { .. } => {}
+                }
+            }
+            ConversationPreviewMessage {
+                message_id: message.id.clone(),
+                role: message.role.clone(),
+                speaker_agent_id: message
+                    .speaker_agent_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned),
+                created_at: Some(message.created_at.clone())
+                    .filter(|value| !value.trim().is_empty()),
+                text_preview: build_conversation_preview_text(&message),
+                has_image,
+                has_pdf,
+                has_audio,
+                has_attachment: conversation_message_has_attachment(&message),
+            }
+        })
+        .collect()
+}
+
+fn workspace_label_for_unarchived_conversation(
+    state: &AppState,
+    conversation: &Conversation,
+) -> String {
+    let agent_id = conversation.agent_id.trim();
+    let conversation_id = conversation.id.trim();
+    if conversation_id.is_empty() {
+        return "默认工作空间".to_string();
+    }
+    let session_id =
+        normalize_terminal_tool_session_id(&inflight_chat_key(agent_id, Some(conversation_id)));
+    match terminal_session_root_canonical(state, &session_id) {
+        Ok(path) => resolve_workspace_display_name(state, &path),
+        Err(_) => "默认工作空间".to_string(),
+    }
+}
+
+fn build_unarchived_conversation_summary(
+    state: &AppState,
+    main_conversation_id: &str,
+    conversation: &Conversation,
+) -> UnarchivedConversationSummary {
+    let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
+    UnarchivedConversationSummary {
+        conversation_id: conversation.id.clone(),
+        title: if conversation.title.trim().is_empty() {
+            conversation_preview_title(conversation)
+        } else {
+            conversation.title.clone()
+        },
+        updated_at: conversation.updated_at.clone(),
+        last_message_at,
+        message_count: conversation.messages.len(),
+        agent_id: conversation.agent_id.clone(),
+        workspace_label: workspace_label_for_unarchived_conversation(state, conversation),
+        is_active: conversation.status.trim() == "active",
+        is_main_conversation: conversation.id.trim() == main_conversation_id,
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
+        preview_messages: build_conversation_preview_messages(conversation, 2),
+    }
+}
+
+fn collect_unarchived_conversation_summaries(
+    state: &AppState,
+    data: &AppData,
+) -> Vec<UnarchivedConversationSummary> {
+    let main_conversation_id = data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    let mut summaries = data
+        .conversations
+        .iter()
+        .filter(|conversation| {
+            conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+        })
+        .map(|conversation| build_unarchived_conversation_summary(state, &main_conversation_id, conversation))
+        .collect::<Vec<_>>();
+    summaries.sort_by(|a, b| {
+        let bk = b
+            .last_message_at
+            .as_deref()
+            .unwrap_or(b.updated_at.as_str());
+        let ak = a
+            .last_message_at
+            .as_deref()
+            .unwrap_or(a.updated_at.as_str());
+        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+    summaries
 }
 
 fn delegate_conversation_summary_from_runtime_thread(
@@ -1351,47 +1534,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
     let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
-    let main_conversation_id = data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-
-    let mut summaries = data
-        .conversations
-        .iter()
-        .filter(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c))
-        .map(|c| {
-            let last_message_at = c.messages.last().map(|m| m.created_at.clone());
-            UnarchivedConversationSummary {
-                conversation_id: c.id.clone(),
-                title: if c.title.trim().is_empty() {
-                    conversation_preview_title(c)
-                } else {
-                    c.title.clone()
-                },
-                updated_at: c.updated_at.clone(),
-                last_message_at,
-                message_count: c.messages.len(),
-                agent_id: c.agent_id.clone(),
-                is_active: c.status.trim() == "active",
-                is_main_conversation: c.id.trim() == main_conversation_id,
-                runtime_state: unarchived_conversation_runtime_state(state.inner(), &c.id),
-            }
-        })
-        .collect::<Vec<_>>();
-    summaries.sort_by(|a, b| {
-        let bk = b
-            .last_message_at
-            .as_deref()
-            .unwrap_or(b.updated_at.as_str());
-        let ak = a
-            .last_message_at
-            .as_deref()
-            .unwrap_or(a.updated_at.as_str());
-        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
-    });
+    let summaries = collect_unarchived_conversation_summaries(state.inner(), &data);
     if defaults_changed || normalized_changed {
         state_write_app_data_cached(&state, &data)?;
     }
@@ -1417,7 +1560,8 @@ struct SetActiveUnarchivedConversationOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SwitchActiveConversationSnapshotInput {
-    conversation_id: String,
+    #[serde(default)]
+    conversation_id: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
 }
@@ -1429,7 +1573,62 @@ struct SwitchActiveConversationSnapshotOutput {
     messages: Vec<ChatMessage>,
     has_more_history: bool,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
-    workspace_labels: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UnarchivedConversationOverviewUpdatedPayload {
+    unarchived_conversations: Vec<UnarchivedConversationSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preferred_conversation_id: Option<String>,
+}
+
+fn build_unarchived_conversation_overview_payload(
+    state: &AppState,
+    data: &AppData,
+) -> UnarchivedConversationOverviewUpdatedPayload {
+    let unarchived_conversations = collect_unarchived_conversation_summaries(state, data);
+    let preferred_conversation_id = unarchived_conversations
+        .first()
+        .map(|item| item.conversation_id.clone());
+    UnarchivedConversationOverviewUpdatedPayload {
+        unarchived_conversations,
+        preferred_conversation_id,
+    }
+}
+
+fn emit_unarchived_conversation_overview_updated_payload(
+    state: &AppState,
+    payload: &UnarchivedConversationOverviewUpdatedPayload,
+) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        eprintln!("[会话概览] 推送跳过: app_handle unavailable");
+        return;
+    };
+    if let Err(err) = app_handle.emit(CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT, payload) {
+        eprintln!("[会话概览] 推送失败: error={}", err);
+    }
+}
+
+fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) -> Result<(), String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut data = state_read_app_data_cached(state)?;
+    let defaults_changed = ensure_default_agent(&mut data);
+    let normalized_changed = normalize_single_active_main_conversation(&mut data);
+    if defaults_changed || normalized_changed {
+        state_write_app_data_cached(state, &data)?;
+    }
+    let payload = build_unarchived_conversation_overview_payload(state, &data);
+    drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state, &payload);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1519,29 +1718,39 @@ fn switch_active_conversation_snapshot(
     state: State<'_, AppState>,
 ) -> Result<SwitchActiveConversationSnapshotOutput, String> {
     const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 50;
-    let target_conversation_id = input.conversation_id.trim();
-    if target_conversation_id.is_empty() {
-        return Err("conversationId is required.".to_string());
-    }
     let guard = state
         .state_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
+    let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
     let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
-
-    let target_idx = data
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let effective_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
+    let target_idx = resolve_unarchived_conversation_index_with_fallback(
+        &mut data,
+        &app_config,
+        &effective_agent_id,
+        requested_conversation_id,
+    )?;
+    let target_conversation_id = data
         .conversations
-        .iter()
-        .position(|item| {
-            item.id == target_conversation_id
-                && item.summary.trim().is_empty()
-                && conversation_visible_in_foreground_lists(item)
-        })
-        .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
-    ensure_unarchived_conversation_not_organizing(state.inner(), target_conversation_id)?;
+        .get(target_idx)
+        .map(|item| item.id.clone())
+        .ok_or_else(|| "Unarchived conversation index out of bounds.".to_string())?;
+    ensure_unarchived_conversation_not_organizing(state.inner(), &target_conversation_id)?;
 
     let mut changed = defaults_changed || normalized_changed;
     for (_idx, conversation) in data.conversations.iter_mut().enumerate() {
@@ -1569,47 +1778,7 @@ fn switch_active_conversation_snapshot(
     let start = total_messages.saturating_sub(SWITCH_SNAPSHOT_RECENT_LIMIT);
     let mut messages = all_messages[start..].to_vec();
     let has_more_history = start > 0;
-    let main_conversation_id = data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-
-    let mut unarchived_conversations = data
-        .conversations
-        .iter()
-        .filter(|c| c.summary.trim().is_empty() && conversation_visible_in_foreground_lists(c))
-        .map(|c| {
-            let last_message_at = c.messages.last().map(|m| m.created_at.clone());
-            UnarchivedConversationSummary {
-                conversation_id: c.id.clone(),
-                title: if c.title.trim().is_empty() {
-                    conversation_preview_title(c)
-                } else {
-                    c.title.clone()
-                },
-                updated_at: c.updated_at.clone(),
-                last_message_at,
-                message_count: c.messages.len(),
-                agent_id: c.agent_id.clone(),
-                is_active: c.status.trim() == "active",
-                is_main_conversation: c.id.trim() == main_conversation_id,
-                runtime_state: unarchived_conversation_runtime_state(state.inner(), &c.id),
-            }
-        })
-        .collect::<Vec<_>>();
-    unarchived_conversations.sort_by(|a, b| {
-        let bk = b
-            .last_message_at
-            .as_deref()
-            .unwrap_or(b.updated_at.as_str());
-        let ak = a
-            .last_message_at
-            .as_deref()
-            .unwrap_or(a.updated_at.as_str());
-        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
-    });
+    let unarchived_conversations = collect_unarchived_conversation_summaries(state.inner(), &data);
 
     if changed {
         state_write_app_data_cached(&state, &data)?;
@@ -1618,33 +1787,11 @@ fn switch_active_conversation_snapshot(
 
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
 
-    let mut workspace_labels = std::collections::HashMap::<String, String>::new();
-    let workspace_agent_id = input
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| data.assistant_department_agent_id.clone());
-    for item in &unarchived_conversations {
-        let cid = item.conversation_id.trim();
-        if cid.is_empty() {
-            continue;
-        }
-        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(&workspace_agent_id, Some(cid)));
-        let workspace_name = match terminal_session_root_canonical(state.inner(), &session_id) {
-            Ok(path) => resolve_workspace_display_name(state.inner(), &path),
-            Err(_) => "默认工作空间".to_string(),
-        };
-        workspace_labels.insert(item.conversation_id.clone(), workspace_name);
-    }
-
     Ok(SwitchActiveConversationSnapshotOutput {
         conversation_id,
         messages,
         has_more_history,
         unarchived_conversations,
-        workspace_labels,
     })
 }
 
@@ -1711,8 +1858,10 @@ fn create_unarchived_conversation(
     {
         data.main_conversation_id = Some(conversation_id.clone());
     }
+    let overview_payload = build_unarchived_conversation_overview_payload(state.inner(), &data);
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
 
     Ok(CreateUnarchivedConversationOutput { conversation_id })
 }
@@ -1906,12 +2055,14 @@ fn delete_unarchived_conversation(
                 .map(|conversation| conversation.id.clone())
         })
         .unwrap_or_default();
+    let overview_payload = build_unarchived_conversation_overview_payload(state.inner(), &data);
     state_write_app_data_cached(&state, &data)?;
     eprintln!(
         "[会话] 已删除未归档主会话: conversation_id={}",
         conversation_id
     );
     drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
     Ok(DeleteUnarchivedConversationOutput {
         deleted_conversation_id: conversation_id.to_string(),

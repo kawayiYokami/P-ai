@@ -236,6 +236,7 @@ import type {
   ApiConfigItem,
   AppConfig,
   ArchiveSummary,
+  ChatConversationOverviewItem,
   ChatMessage,
   ChatMessageBlock,
   ChatPersonaPresenceChip,
@@ -336,18 +337,7 @@ const props = defineProps<{
   currentChatWorkspaceName: string;
   chatWorkspaceLocked: boolean;
   currentChatConversationId: string;
-  chatUnarchivedConversationItems: Array<{
-    conversationId: string;
-    messageCount: number;
-    updatedAt?: string;
-    workspaceLabel?: string;
-    isActive?: boolean;
-    isMainConversation?: boolean;
-    runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
-    color?: string;
-    canCreateNew?: boolean;
-    backgroundStatus?: "completed" | "failed";
-  }>;
+  chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveMessages: ChatMessage[];

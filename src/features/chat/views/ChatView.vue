@@ -176,90 +176,38 @@
           @keydown="handleChatInputKeydown"
         ></textarea>
         <div class="flex items-center justify-between gap-2">
-          <div class="flex-1 min-w-0 rounded-box border border-base-300 bg-linear-to-r from-base-300 via-base-300 to-base-200 px-2 py-1.5 text-[11px] overflow-hidden">
-            <div class="flex items-center gap-1 min-w-0 overflow-x-auto conversation-tray-scroll-hidden">
-              <template v-if="mainConversationItem">
-                <button
-                  :key="mainConversationItem.conversationId"
-                  class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
-                  :class="[
-                    mainConversationItem.conversationId === activeConversationId ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300',
-                    isConversationItemDisabled(mainConversationItem) ? 'btn-disabled opacity-60' : '',
-                  ]"
-                  :disabled="frozen || isConversationItemDisabled(mainConversationItem)"
-                  :title="conversationItemTitle(mainConversationItem)"
-                  @click="onConversationItemClick(mainConversationItem)"
-                >
-                  <span class="badge badge-xs badge-primary shrink-0">主</span>
-                  <span
-                    class="w-2 h-2 rounded-full shrink-0"
-                    :class="{
-                      'bg-primary': mainConversationItem.color === 'primary',
-                      'bg-secondary': mainConversationItem.color === 'secondary',
-                      'bg-accent': mainConversationItem.color === 'accent',
-                      'bg-neutral': mainConversationItem.color === 'neutral',
-                      'bg-info': mainConversationItem.color === 'info',
-                      'bg-success': mainConversationItem.color === 'success',
-                      'bg-warning': mainConversationItem.color === 'warning',
-                      'bg-error': mainConversationItem.color === 'error',
-                    }"
-                  ></span>
-                  <span
-                    v-if="mainConversationItem.backgroundStatus"
-                    class="w-2 h-2 rounded-full shrink-0"
-                    :class="mainConversationItem.backgroundStatus === 'failed' ? 'bg-error' : 'bg-success'"
-                    :title="mainConversationItem.backgroundStatus === 'failed' ? '后台失败' : '后台完成'"
-                  ></span>
-                  <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ mainConversationItem.workspaceLabel || '默认工作空间' }}</span>
-                </button>
-                <div class="mx-1 h-4 w-px shrink-0 bg-base-content/20"></div>
-              </template>
-                <button
-                  v-for="item in secondaryConversationItems"
-                  :key="item.conversationId"
-                  class="btn btn-xs flex items-center gap-1.5 min-w-8 shrink px-1.5!"
-                  :class="[
-                    item.conversationId === activeConversationId ? 'bg-neutral text-neutral-content border-neutral' : 'bg-base-100 border-base-300',
-                    isConversationItemDisabled(item) ? 'btn-disabled opacity-60' : '',
-                  ]"
-                  :disabled="frozen || isConversationItemDisabled(item)"
-                  :title="conversationItemTitle(item)"
-                  @click="onConversationItemClick(item)"
-                >
-                <span
-                  class="w-2 h-2 rounded-full shrink-0"
-                  :class="{
-                    'bg-primary': item.color === 'primary',
-                    'bg-secondary': item.color === 'secondary',
-                    'bg-accent': item.color === 'accent',
-                    'bg-neutral': item.color === 'neutral',
-                    'bg-info': item.color === 'info',
-                    'bg-success': item.color === 'success',
-                    'bg-warning': item.color === 'warning',
-                    'bg-error': item.color === 'error',
-                  }"
-                ></span>
-                <span
-                  v-if="item.backgroundStatus"
-                  class="w-2 h-2 rounded-full shrink-0"
-                  :class="item.backgroundStatus === 'failed' ? 'bg-error' : 'bg-success'"
-                  :title="item.backgroundStatus === 'failed' ? '后台失败' : '后台完成'"
-                ></span>
-                <span class="truncate text-left min-w-0 overflow-hidden flex-1">{{ item.workspaceLabel || '默认工作空间' }}</span>
-              </button>
-              <div v-if="secondaryConversationItems.length > 0" class="mx-1 h-4 w-px shrink-0 bg-base-content/20"></div>
-              <button
-                class="btn btn-xs btn-circle bg-base-100 border-base-300 shrink-0"
-                :class="{ 'btn-disabled': frozen || !canCreateConversation }"
-                :disabled="frozen || !canCreateConversation"
-                :title="canCreateConversation ? t('chat.newConversation') : t('chat.maxConversations')"
-                @click="$emit('createConversation')"
-              >
-                <Plus class="h-3 w-3" />
-              </button>
+          <div ref="conversationListPopoverRef" class="relative flex items-center gap-2">
+            <button
+              class="btn btn-sm btn-circle bg-base-100 shrink-0"
+              :class="{ 'btn-disabled': frozen || !canCreateConversation }"
+              :disabled="frozen || !canCreateConversation"
+              :title="canCreateConversation ? t('chat.newConversation') : t('chat.maxConversations')"
+              @click="handleCreateConversation"
+            >
+              <Plus class="h-3.5 w-3.5" />
+            </button>
+            <button
+              class="btn btn-sm bg-base-100 shrink-0 gap-1.5 pl-3 pr-2"
+              :title="t('chat.conversationList')"
+              @click="toggleConversationList"
+            >
+              <List class="h-3.5 w-3.5" />
+              <span class="text-xs">{{ t("chat.conversationListShort") }}</span>
+              <span class="badge badge-ghost badge-xs">{{ props.unarchivedConversationItems.length }}</span>
+            </button>
+            <div v-if="conversationListOpen" class="absolute bottom-full left-0 z-40 mb-2">
+              <ChatConversationListCard
+                :items="props.unarchivedConversationItems"
+                :active-conversation-id="props.activeConversationId"
+                :user-alias="props.userAlias"
+                :persona-name-map="props.personaNameMap"
+                :persona-avatar-url-map="props.personaAvatarUrlMap"
+                :user-avatar-url="props.userAvatarUrl"
+                @select-conversation="handleConversationListSelect"
+              />
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="ml-auto flex items-center gap-2">
             <div class="h-5 w-px shrink-0 bg-base-300"></div>
             <button
               class="btn btn-sm btn-circle bg-base-100 shrink-0"
@@ -338,11 +286,12 @@
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
-import { ArrowDown, FileText, Image as ImageIcon, Lock, LockOpen, Mic, Minus, Paperclip, Plus, Send, Square, X } from "lucide-vue-next";
+import { ArrowDown, FileText, Image as ImageIcon, List, Lock, LockOpen, Mic, Minus, Paperclip, Plus, Send, Square, X } from "lucide-vue-next";
 import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
+import type { ChatConversationOverviewItem, ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
+import ChatConversationListCard from "../components/ChatConversationListCard.vue";
 import ChatQueuePreview from "../components/ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
 
@@ -382,30 +331,11 @@ const props = defineProps<{
   workspaceLocked: boolean;
   activeConversationId: string;
   currentTheme: string;
-  unarchivedConversationItems: Array<{
-    conversationId: string;
-    messageCount: number;
-    updatedAt?: string;
-    workspaceLabel?: string;
-    isActive?: boolean;
-    isMainConversation?: boolean;
-    runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
-    color?: string;
-    canCreateNew?: boolean;
-    backgroundStatus?: "completed" | "failed";
-  }>;
+  unarchivedConversationItems: ChatConversationOverviewItem[];
 }>();
 
-const mainConversationItem = computed(
-  () => props.unarchivedConversationItems.find((item) => !!item.isMainConversation) || null,
-);
-
-const secondaryConversationItems = computed(
-  () => props.unarchivedConversationItems.filter((item) => !item.isMainConversation),
-);
-
 const canCreateConversation = computed(
-  () => !!props.unarchivedConversationItems[0]?.canCreateNew,
+  () => props.unarchivedConversationItems.length === 0 || !!props.unarchivedConversationItems[0]?.canCreateNew,
 );
 
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
@@ -583,11 +513,13 @@ function handleChatInputKeydown(event: KeyboardEvent) {
 const scrollContainer = ref<HTMLElement | null>(null);
 const composerContainer = ref<HTMLElement | null>(null);
 const toolbarContainer = ref<HTMLElement | null>(null);
+const conversationListPopoverRef = ref<HTMLElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
 const playingAudioId = ref("");
 const linkOpenErrorText = ref("");
 const latestMessageMinHeight = ref(0);
 const jumpToBottomOffset = ref(96);
+const conversationListOpen = ref(false);
 let activeAudio: HTMLAudioElement | null = null;
 let resizeInputRaf = 0;
 let pendingAlignOnLatestContainerReady = false;
@@ -844,25 +776,41 @@ function onPreviewPointerUp(event: PointerEvent) {
   previewPointerId = null;
 }
 
-function isConversationItemDisabled(item: { runtimeState?: string }) {
-  return item.runtimeState === "organizing_context";
+function closeConversationList() {
+  conversationListOpen.value = false;
 }
 
-function conversationItemTitle(item: { workspaceLabel?: string; runtimeState?: string }) {
-  if (item.runtimeState === "organizing_context") {
-    return `${item.workspaceLabel || "默认工作空间"}（后台归档中）`;
-  }
-  return item.workspaceLabel || "默认工作空间";
+function handleCreateConversation() {
+  closeConversationList();
+  emit("createConversation");
 }
 
-function onConversationItemClick(item: { conversationId: string; isActive?: boolean; runtimeState?: string }) {
-  const conversationId = String(item.conversationId || "").trim();
-  if (!conversationId) return;
-  if (isConversationItemDisabled(item)) return;
-  const isCurrent = conversationId === String(props.activeConversationId || "").trim()
-    || (!props.activeConversationId && !!item.isActive);
+function toggleConversationList() {
+  conversationListOpen.value = !conversationListOpen.value;
+}
+
+function handleConversationListSelect(conversationId: string) {
+  const normalizedConversationId = String(conversationId || "").trim();
+  closeConversationList();
+  if (!normalizedConversationId) return;
+  const isCurrent = normalizedConversationId === String(props.activeConversationId || "").trim();
   if (isCurrent) return;
-  emit("switchConversation", conversationId);
+  emit("switchConversation", normalizedConversationId);
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!conversationListOpen.value) return;
+  const target = event.target as Node | null;
+  const root = conversationListPopoverRef.value;
+  if (root && target && !root.contains(target)) {
+    closeConversationList();
+  }
+}
+
+function handleWindowKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && conversationListOpen.value) {
+    closeConversationList();
+  }
 }
 
 const lastBottomState = ref(false);
@@ -1003,6 +951,8 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 
 onMounted(() => {
   loadChatInputHistory();
+  document.addEventListener("pointerdown", handleDocumentPointerDown, true);
+  window.addEventListener("keydown", handleWindowKeydown);
   nextTick(() => {
     resizeChatInput();
     updateJumpToBottomOffset();
@@ -1022,6 +972,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+  window.removeEventListener("keydown", handleWindowKeydown);
   if (resizeInputRaf) {
     cancelAnimationFrame(resizeInputRaf);
     resizeInputRaf = 0;
