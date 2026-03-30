@@ -271,6 +271,43 @@ pub(crate) fn remove_from_queue(state: &AppState, event_id: &str) -> Result<Opti
     Ok(removed)
 }
 
+pub(crate) fn clear_conversation_queue(
+    state: &AppState,
+    conversation_id: &str,
+    error_message: &str,
+) -> Result<usize, String> {
+    let trimmed_conversation_id = conversation_id.trim();
+    if trimmed_conversation_id.is_empty() {
+        return Ok(0);
+    }
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let Some(slot) = slots.get_mut(trimmed_conversation_id) else {
+        return Ok(0);
+    };
+    let removed_events = slot.pending_queue.drain(..).collect::<Vec<_>>();
+    slot.last_activity_at = now_iso();
+    let removed_count = removed_events.len();
+    let removed_event_ids = removed_events
+        .iter()
+        .map(|event| event.id.clone())
+        .collect::<Vec<_>>();
+    drop(slots);
+    if removed_count > 0 {
+        eprintln!(
+            "[聊天调度] 清空会话队列: conversation_id={}, removed_count={}",
+            trimmed_conversation_id,
+            removed_count
+        );
+        emit_chat_queue_snapshot(state);
+        complete_pending_chat_events_with_error(state, &removed_event_ids, error_message)?;
+    }
+    Ok(removed_count)
+}
+
 // ==================== 队列管理函数 ====================
 
 pub(crate) fn ingress_chat_event(

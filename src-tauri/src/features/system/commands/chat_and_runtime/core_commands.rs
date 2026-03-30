@@ -483,6 +483,69 @@ async fn remove_chat_queue_event(
     Ok(removed.is_some())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InterruptConversationRuntimeResult {
+    aborted: bool,
+    cleared_queue_count: usize,
+}
+
+#[tauri::command]
+async fn interrupt_conversation_runtime(
+    session: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<InterruptConversationRuntimeResult, String> {
+    let agent_id = session.agent_id.trim().to_string();
+    if agent_id.is_empty() {
+        return Err("Missing session.agentId".to_string());
+    }
+    let conversation_id = session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "Missing session.conversationId".to_string())?;
+
+    let chat_key = inflight_chat_key(&agent_id, Some(&conversation_id));
+    let aborted_chat = {
+        let mut inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+        if let Some(handle) = inflight.remove(&chat_key) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    };
+    let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
+    let aborted_delegate_children =
+        abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
+    let cleared_queue_count = clear_conversation_queue(
+        state.inner(),
+        &conversation_id,
+        "消息已因会话撤回被清出队列",
+    )?;
+    let _ = release_conversation_processing_claim(state.inner(), &conversation_id);
+    let _ = set_conversation_runtime_state(state.inner(), &conversation_id, MainSessionState::Idle);
+    let _ = set_conversation_remote_im_activation_sources(state.inner(), &conversation_id, Vec::new());
+
+    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    eprintln!(
+        "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
+        conversation_id,
+        aborted,
+        cleared_queue_count,
+        aborted_delegate_children
+    );
+    Ok(InterruptConversationRuntimeResult {
+        aborted,
+        cleared_queue_count,
+    })
+}
+
 #[tauri::command]
 async fn get_main_session_state_snapshot(
     state: State<'_, AppState>,

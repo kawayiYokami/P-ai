@@ -2844,6 +2844,7 @@ const {
   clipboardImages,
   deleteUnarchivedConversationFromArchives,
   sendChat: chatFlow.sendChat,
+  stopChat: chatFlow.stopChat,
   setStatusError,
   setChatErrorText: (text: string) => {
     chatErrorText.value = text;

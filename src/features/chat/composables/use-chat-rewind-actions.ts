@@ -27,6 +27,7 @@ type UseChatRewindActionsOptions = {
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
   requestRecallMode: (payload: { turnId: string }) => Promise<RecallConfirmMode>;
+  stopChat: () => Promise<void> | void;
 };
 
 export function useChatRewindActions(options: UseChatRewindActionsOptions) {
@@ -64,6 +65,24 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       }
     }
     return null;
+  }
+
+  async function interruptConversationRuntimeForRewind() {
+    const agentId = String(options.activeAgentId.value || "").trim();
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    if (!agentId || !conversationId) return;
+    try {
+      await options.stopChat();
+    } catch {
+      // Continue with backend cleanup even if local stopChat coordination fails.
+    }
+    await invokeTauri("interrupt_conversation_runtime", {
+      session: {
+        apiConfigId: String(options.activeApiConfigId.value || "").trim() || null,
+        agentId,
+        conversationId,
+      },
+    });
   }
 
   async function rewindConversationFromTurn(turnId: string, undoApplyPatch: boolean): Promise<ChatMessage | null> {
@@ -158,11 +177,12 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       chatting: options.chatting.value,
       forcingArchive: options.forcingArchive.value,
     });
-    if (options.chatting.value || options.forcingArchive.value) return;
+    if (options.forcingArchive.value) return;
     const mode = await options.requestRecallMode({ turnId: payload.turnId });
     console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
     if (mode === "cancel") return;
     options.setChatErrorText("");
+    await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, mode === "with_patch");
     if (!recalledUserMessage) {
       console.warn("[会话撤回] 结束：未拿到可回填消息", { turnId: payload.turnId, mode });
@@ -183,7 +203,8 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
   }
 
   async function handleRegenerateTurn(payload: { turnId: string }) {
-    if (options.chatting.value || options.forcingArchive.value) return;
+    if (options.forcingArchive.value) return;
+    await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
     if (!recalledUserMessage) return;
     options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
