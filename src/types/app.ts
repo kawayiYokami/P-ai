@@ -379,9 +379,38 @@ export type UnarchivedConversationSummary = {
   messageCount: number;
   agentId: string;
   apiConfigId?: string;
+  workspaceLabel?: string;
   isActive?: boolean;
   isMainConversation?: boolean;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  previewMessages?: ConversationPreviewMessage[];
+};
+
+export type ConversationPreviewMessage = {
+  messageId: string;
+  role: ChatRole;
+  speakerAgentId?: string;
+  createdAt?: string;
+  textPreview?: string;
+  hasImage?: boolean;
+  hasPdf?: boolean;
+  hasAudio?: boolean;
+  hasAttachment?: boolean;
+};
+
+export type ChatConversationOverviewItem = {
+  conversationId: string;
+  title: string;
+  messageCount: number;
+  updatedAt?: string;
+  workspaceLabel?: string;
+  isActive?: boolean;
+  isMainConversation?: boolean;
+  runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  color?: string;
+  canCreateNew?: boolean;
+  backgroundStatus?: "completed" | "failed";
+  previewMessages?: ConversationPreviewMessage[];
 };
 
 export type DelegateConversationSummary = {

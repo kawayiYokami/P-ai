@@ -1150,6 +1150,81 @@
     }
 
     #[test]
+    fn collect_unarchived_conversation_summaries_should_include_last_two_preview_messages() {
+        let state = test_chat_runtime_state();
+        let first = now_iso();
+        let second = (now_utc() + time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("format second");
+        let third = (now_utc() + time::Duration::minutes(2))
+            .format(&Rfc3339)
+            .expect("format third");
+        let mut data = AppData::default();
+        data.main_conversation_id = Some("conversation-main".to_string());
+        let mut conversation = test_chat_conversation("conversation-main", "active", &third);
+        conversation.messages = vec![
+            ChatMessage {
+                id: "msg-1".to_string(),
+                role: "user".to_string(),
+                created_at: first.clone(),
+                speaker_agent_id: Some("user-persona".to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "第一条".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: "msg-2".to_string(),
+                role: "assistant".to_string(),
+                created_at: second.clone(),
+                speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "第二条".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: "msg-3".to_string(),
+                role: "user".to_string(),
+                created_at: third.clone(),
+                speaker_agent_id: Some("user-persona".to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "第三条".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "attachments": [
+                        {
+                            "fileName": "notes.txt",
+                            "relativePath": "downloads/notes.txt"
+                        }
+                    ]
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+        ];
+        data.conversations = vec![conversation];
+
+        let summaries = collect_unarchived_conversation_summaries(&state, &data);
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].workspace_label, "默认工作空间");
+        assert_eq!(summaries[0].preview_messages.len(), 2);
+        assert_eq!(summaries[0].preview_messages[0].message_id, "msg-2");
+        assert_eq!(summaries[0].preview_messages[0].text_preview, "第二条");
+        assert_eq!(summaries[0].preview_messages[1].message_id, "msg-3");
+        assert_eq!(summaries[0].preview_messages[1].text_preview, "第三条");
+        assert!(summaries[0].preview_messages[1].has_attachment);
+    }
+
+    #[test]
     fn task_resolve_dispatch_session_should_prefer_task_bound_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");

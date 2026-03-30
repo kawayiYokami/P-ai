@@ -1,5 +1,21 @@
 # 变更日志
 
+## 更新（v0.8.6）：聊天会话列表卡片与切换链路重构
+
+- 调整（chat-conversation-overview-card-refresh）：聊天窗口改为弹出式会话列表卡片
+  - 输入区上方原有紧凑会话条改为“新建 + 会话列表”入口，点击后以内联弹层展示全部未归档会话，减少横向挤压带来的辨识成本
+  - 新会话列表卡片补充标题、主会话/当前会话标记、工作空间、最近更新时间、消息条数、运行状态与最近两条消息摘要，并支持展示最后发言人的头像或首字母
+  - 会话列表支持点击外部关闭与 `Escape` 关闭，后台正在整理上下文的会话会被禁用，避免切换到不可操作状态
+
+- 调整（chat-conversation-overview-push-sync）：未归档会话概览改为后端主动推送同步
+  - Rust 侧新增未归档会话概览 payload，统一复用会话 summary 收集逻辑，并在新建、删除、归档刷新、轮次完成/失败等关键节点主动推送前端
+  - 前端聊天窗口改为监听 `easy-call:conversation-overview-updated` 事件更新会话概览，并在当前前台会话丢失时按推荐会话或排序结果自动恢复
+  - `switch_active_conversation_snapshot` 支持空会话 ID 回退解析，减少窗口激活、列表刷新与前台会话恢复之间的链路分叉
+
+- 测试（chat-conversation-preview-regression）：补齐会话预览消息回归
+  - 未归档会话 summary 新增工作空间标签与最近两条预览消息，支持文本、图片、PDF、语音、附件等摘要信息
+  - Rust 单测覆盖最近两条消息提取与附件标记，降低后续继续演进会话列表卡片时的回归风险
+
 ## 更新（v0.8.6）：移除发布构建中的常驻 devtools feature
 
 - 调整（tauri-release-devtools-feature-cleanup）：收紧 Tauri devtools 编译范围

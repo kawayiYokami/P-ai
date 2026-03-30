@@ -126,6 +126,7 @@ const CHAT_HISTORY_FLUSHED_EVENT: &str = "easy-call:history-flushed";
 const CHAT_ROUND_COMPLETED_EVENT: &str = "easy-call:round-completed";
 const CHAT_ROUND_FAILED_EVENT: &str = "easy-call:round-failed";
 const CHAT_ASSISTANT_DELTA_EVENT: &str = "easy-call:assistant-delta";
+const CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT: &str = "easy-call:conversation-overview-updated";
 const CHAT_CONCURRENCY_LIMIT: usize = 8;
 
 fn lock_conversation_runtime_slots(
@@ -1266,6 +1267,12 @@ fn emit_history_flushed_event(
             );
         }
     }
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        eprintln!(
+            "[会话概览] history_flushed 后推送失败: conversation_id={}, error={}",
+            conversation_id, err
+        );
+    }
 }
 
 fn emit_round_completed_event(
@@ -1307,6 +1314,12 @@ fn emit_round_completed_event(
             conversation_id, err
         ),
     }
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        eprintln!(
+            "[会话概览] round_completed 后推送失败: conversation_id={}, error={}",
+            conversation_id, err
+        );
+    }
 }
 
 fn emit_round_failed_event(
@@ -1343,6 +1356,12 @@ fn emit_round_failed_event(
             "[聊天推送] emit round_failed 失败: conversation_id={}, error={}",
             conversation_id, err
         ),
+    }
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        eprintln!(
+            "[会话概览] round_failed 后推送失败: conversation_id={}, error={}",
+            conversation_id, err
+        );
     }
 }
 
