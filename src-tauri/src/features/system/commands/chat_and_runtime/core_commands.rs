@@ -69,7 +69,12 @@ async fn send_chat_message(
             }) {
                 cid.to_string()
             } else {
-                let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
+                let idx = ensure_active_foreground_conversation_index_atomic(
+                    &mut data,
+                    &state.data_path,
+                    &api_config_id,
+                    &agent_id,
+                );
                 let fallback_id = data.conversations
                     .get(idx)
                     .map(|item| item.id.clone())
@@ -99,7 +104,12 @@ async fn send_chat_message(
                 fallback_id
             }
         } else {
-            let idx = ensure_active_conversation_index(&mut data, &api_config_id, &agent_id);
+            let idx = ensure_active_foreground_conversation_index_atomic(
+                &mut data,
+                &state.data_path,
+                &api_config_id,
+                &agent_id,
+            );
             data.conversations
                 .get(idx)
                 .map(|item| item.id.clone())

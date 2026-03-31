@@ -12,6 +12,8 @@ type PromptPreviewResult = {
   requestBodyJson: string;
 };
 
+export type RequestPreviewMode = "chat" | "compaction" | "archive";
+
 type SystemPromptPreviewResult = {
   systemPrompt: string;
 };
@@ -28,11 +30,13 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
   const promptPreviewLatestUserText = ref("");
   const promptPreviewLatestImages = ref(0);
   const promptPreviewLatestAudios = ref(0);
-  const promptPreviewMode = ref<"full" | "system">("full");
+  const promptPreviewMode = ref<RequestPreviewMode | "system" | null>(null);
+  const promptPreviewApiConfigId = ref("");
+  const promptPreviewAgentId = ref("");
 
-  function resetPromptPreviewState(mode: "full" | "system") {
+  function resetPromptPreviewState(mode: RequestPreviewMode | "system" | null) {
     promptPreviewMode.value = mode;
-    promptPreviewLoading.value = true;
+    promptPreviewLoading.value = false;
     promptPreviewText.value = "";
     promptPreviewLatestUserText.value = "";
     promptPreviewLatestImages.value = 0;
@@ -42,11 +46,24 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
 
   async function openPromptPreview(apiConfigId: string, agentId: string) {
     if (!apiConfigId || !agentId) return;
-    resetPromptPreviewState("full");
+    promptPreviewApiConfigId.value = apiConfigId;
+    promptPreviewAgentId.value = agentId;
+    resetPromptPreviewState(null);
+  }
+
+  async function loadPromptPreview(mode: RequestPreviewMode) {
+    if (!promptPreviewApiConfigId.value || !promptPreviewAgentId.value) return;
+    promptPreviewMode.value = mode;
+    promptPreviewLoading.value = true;
+    promptPreviewText.value = "";
+    promptPreviewLatestUserText.value = "";
+    promptPreviewLatestImages.value = 0;
+    promptPreviewLatestAudios.value = 0;
     try {
       await options.beforePreview();
       const preview = await invokeTauri<PromptPreviewResult>("get_prompt_preview", {
-        input: { apiConfigId, agentId },
+        input: { apiConfigId: promptPreviewApiConfigId.value, agentId: promptPreviewAgentId.value },
+        previewMode: mode,
       });
       promptPreviewText.value = preview.requestBodyJson || "";
       promptPreviewLatestUserText.value = preview.latestUserText || "";
@@ -61,7 +78,10 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
 
   async function openSystemPromptPreview(apiConfigId: string, agentId: string) {
     if (!apiConfigId || !agentId) return;
+    promptPreviewApiConfigId.value = apiConfigId;
+    promptPreviewAgentId.value = agentId;
     resetPromptPreviewState("system");
+    promptPreviewLoading.value = true;
     try {
       await options.beforePreview();
       const preview = await invokeTauri<SystemPromptPreviewResult>("get_system_prompt_preview", {
@@ -87,10 +107,10 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
     promptPreviewLatestImages,
     promptPreviewLatestAudios,
     promptPreviewMode,
+    loadPromptPreview,
     openPromptPreview,
     openSystemPromptPreview,
     closePromptPreview,
   };
 }
-
 

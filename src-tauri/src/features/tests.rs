@@ -48,6 +48,7 @@
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages,
@@ -61,3 +62,4 @@
     include!("remote_im/tests.rs");
     include!("system/tests.rs");
     include!("memory/tests.rs");
+

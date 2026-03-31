@@ -83,6 +83,80 @@ fn merge_memory_groups_into_store(
     Ok(merged_groups)
 }
 
+fn archive_profile_memory_type_allowed(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "knowledge" | "skill" | "event"
+    )
+}
+
+fn apply_profile_memories_into_store(
+    data_path: &PathBuf,
+    drafts: &[ArchiveProfileMemoryDraft],
+    owner_agent_id: Option<&str>,
+) -> Result<(usize, usize, usize), String> {
+    let started_at = std::time::Instant::now();
+    runtime_log_info(format!(
+        "[用户画像] 开始，任务=apply_profile_memories_into_store，items={}",
+        drafts.len()
+    ));
+    let mut memory_ids = Vec::<String>::new();
+    let mut created_count = 0usize;
+    let mut skipped_count = 0usize;
+    let memory_map = memory_store_list_memories(data_path)?
+        .into_iter()
+        .map(|memory| (memory.id.clone(), memory))
+        .collect::<HashMap<String, MemoryEntry>>();
+
+    for item in drafts {
+        let existing_id = item
+            .memory_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(memory_id) = existing_id {
+            if let Some(found) = memory_map.get(memory_id) {
+                if memory_entry_allowed_for_profile(found) {
+                    memory_ids.push(memory_id.to_string());
+                } else {
+                    skipped_count += 1;
+                }
+            } else {
+                skipped_count += 1;
+            }
+            continue;
+        }
+
+        if let Some(memory) = item.memory.as_ref() {
+            if !archive_profile_memory_type_allowed(&memory.memory_type) {
+                skipped_count += 1;
+                continue;
+            }
+            let inserted_ids =
+                upsert_memories_into_store_with_ids(data_path, &[memory.clone()], owner_agent_id)?;
+            if inserted_ids.is_empty() {
+                skipped_count += 1;
+                continue;
+            }
+            created_count += inserted_ids.len();
+            memory_ids.extend(inserted_ids);
+            continue;
+        }
+
+        skipped_count += 1;
+    }
+
+    let linked_count = memory_store_upsert_profile_memory_links(data_path, &memory_ids, "auto")?;
+    runtime_log_info(format!(
+        "[用户画像] 完成，任务=apply_profile_memories_into_store，linked_count={}，created_count={}，skipped_count={}，elapsed_ms={}",
+        linked_count,
+        created_count,
+        skipped_count,
+        started_at.elapsed().as_millis()
+    ));
+    Ok((linked_count, created_count, skipped_count))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ForceArchiveResult {
@@ -236,6 +310,59 @@ fn prepare_background_archive_active_conversation(
             None,
             None,
         );
+        let conversation = if let Some(agent) = data
+            .agents
+            .iter()
+            .find(|item| item.id == data.assistant_department_agent_id)
+        {
+            match build_user_profile_snapshot_block(&state.data_path, agent, 12) {
+                Ok(Some(snapshot)) => {
+                    let mut conversation = Conversation {
+                        user_profile_snapshot: snapshot.clone(),
+                        ..conversation
+                    };
+                    let summary_message = build_initial_summary_context_message(
+                        Some(source.summary.as_str()),
+                        Some(snapshot.as_str()),
+                    );
+                    conversation.last_user_at = Some(summary_message.created_at.clone());
+                    conversation.updated_at = summary_message.created_at.clone();
+                    conversation.messages.push(summary_message);
+                    conversation
+                }
+                Ok(None) => {
+                    let mut conversation = conversation;
+                    let summary_message =
+                        build_initial_summary_context_message(Some(source.summary.as_str()), None);
+                    conversation.last_user_at = Some(summary_message.created_at.clone());
+                    conversation.updated_at = summary_message.created_at.clone();
+                    conversation.messages.push(summary_message);
+                    conversation
+                }
+                Err(err) => {
+                    runtime_log_error(format!(
+                        "[用户画像] 失败，任务=prepare_archive_active_conversation_seed_snapshot，agent_id={}，error={}",
+                        agent.id,
+                        err
+                    ));
+                    let mut conversation = conversation;
+                    let summary_message =
+                        build_initial_summary_context_message(Some(source.summary.as_str()), None);
+                    conversation.last_user_at = Some(summary_message.created_at.clone());
+                    conversation.updated_at = summary_message.created_at.clone();
+                    conversation.messages.push(summary_message);
+                    conversation
+                }
+            }
+        } else {
+            let mut conversation = conversation;
+            let summary_message =
+                build_initial_summary_context_message(Some(source.summary.as_str()), None);
+            conversation.last_user_at = Some(summary_message.created_at.clone());
+            conversation.updated_at = summary_message.created_at.clone();
+            conversation.messages.push(summary_message);
+            conversation
+        };
         let conversation_id = conversation.id.clone();
         data.conversations.push(conversation);
         if data
@@ -284,18 +411,14 @@ async fn summarize_archived_conversation_with_model_v2(
     agent: &AgentProfile,
     user_alias: &str,
     source_conversation: &Conversation,
-    all_compaction_context: &str,
+    scene: SummaryContextScene,
     memories: &[MemoryEntry],
-    recall_table: &[String],
-    _trace_tag: &str,
-    _trace_id: &str,
+    _recall_table: &[String],
 ) -> Result<MemoryCurationDraft, String> {
-    let used_memories = archive_used_memories_block(memories, recall_table);
-
-    let instruction = build_memory_generation_instruction(agent, user_alias);
-
+    let current_user_profile = build_user_profile_memory_board(&state.data_path, agent)?
+        .unwrap_or_else(|| "（无）".to_string());
     let mut prepared = build_prepared_prompt_for_mode(
-        PromptBuildMode::Archive,
+        PromptBuildMode::SummaryContext,
         source_conversation,
         agent,
         &[],
@@ -307,20 +430,25 @@ async fn summarize_archived_conversation_with_model_v2(
         None,
         None,
         None,
-        None,
+        Some(ChatPromptOverrides {
+            latest_user_text: Some(build_summary_context_requirement_block(scene)),
+            latest_user_meta_text: Some(build_summary_context_memory_block(
+                agent,
+                user_alias,
+                &current_user_profile,
+            )),
+            latest_user_extra_blocks: vec![build_summary_context_json_contract_block(scene)],
+            latest_images: Some(Vec::new()),
+            latest_audios: Some(Vec::new()),
+            ..ChatPromptOverrides::default()
+        }),
         Some(state),
         None,
         None,
     );
-    prepared.latest_user_text =
-        build_memory_generation_latest_user_text(
-            &instruction,
-            all_compaction_context,
-            &used_memories,
-            memory_curation_example_output_block(),
-        );
+    prepared.latest_images.clear();
+    prepared.latest_audios.clear();
     let timeout_secs = 360u64;
-
     let reply = call_archive_summary_model_with_timeout(
         state,
         resolved_api,
@@ -329,125 +457,98 @@ async fn summarize_archived_conversation_with_model_v2(
         timeout_secs,
     )
     .await?;
-    let parsed = match parse_memory_curation_draft(&reply.assistant_text) {
-        Some(parsed) => parsed,
-        None => {
-            eprintln!(
-                "[ARCHIVE-PIPELINE] parse memory curation JSON failed; skip memory generation. raw={}",
-                reply.assistant_text.chars().take(240).collect::<String>()
-            );
-            return Ok(MemoryCurationDraft {
-                useful_memory_ids: Vec::new(),
-                new_memories: Vec::new(),
-                merge_groups: Vec::new(),
-            });
-        }
-    };
+    let parsed = parse_memory_curation_draft(&reply.assistant_text).ok_or_else(|| {
+        format!(
+            "SummaryContext JSON 解析失败，raw={}",
+            reply.assistant_text.chars().take(240).collect::<String>()
+        )
+    })?;
+    let summary = clean_text(parsed.summary.trim());
+    if summary.is_empty() {
+        return Err("SummaryContext summary is empty".to_string());
+    }
+    let id_alias_map = memory_curation_id_alias_map(memories);
     Ok(MemoryCurationDraft {
-        useful_memory_ids: parsed
-            .useful_memory_ids
-            .into_iter()
-            .map(|id| id.trim().to_string())
-            .filter(|id| !id.is_empty())
-            .collect::<Vec<_>>(),
+        summary,
+        useful_memory_ids: resolve_memory_curation_ids(&parsed.useful_memory_ids, &id_alias_map),
         new_memories: parsed.new_memories.into_iter().take(7).collect::<Vec<_>>(),
-        merge_groups: parsed.merge_groups.into_iter().take(7).collect::<Vec<_>>(),
+        merge_groups: parsed
+            .merge_groups
+            .into_iter()
+            .take(7)
+            .map(|group| ArchiveMergeGroupDraft {
+                source_ids: resolve_memory_curation_ids(&group.source_ids, &id_alias_map),
+                target: group.target,
+            })
+            .collect::<Vec<_>>(),
+        profile_memories: resolve_profile_memory_drafts(
+            &parsed
+                .profile_memories
+                .into_iter()
+                .take(7)
+                .collect::<Vec<_>>(),
+            &id_alias_map,
+        ),
     })
 }
 
-async fn summarize_archive_summary_only_with_model(
-    state: &AppState,
-    resolved_api: &ResolvedApiConfig,
-    selected_api: &ApiConfig,
-    agent: &AgentProfile,
-    user_alias: &str,
-    source_conversation: &Conversation,
-    all_compaction_context: &str,
-    memories: &[MemoryEntry],
-    recall_table: &[String],
-) -> Result<String, String> {
-    let used_memories = archive_used_memories_block(memories, recall_table);
-    let instruction = build_archive_summary_only_instruction(agent, user_alias);
-    let mut prepared = build_prepared_prompt_for_mode(
-        PromptBuildMode::Archive,
-        source_conversation,
-        agent,
-        &[],
-        &[],
-        user_alias,
-        "",
-        "concise",
-        "zh-CN",
-        None,
-        None,
-        None,
-        None,
-        Some(state),
-        None,
-        None,
-    );
-    prepared.latest_user_text = build_archive_summary_only_latest_user_text(
-        &instruction,
-        all_compaction_context,
-        &used_memories,
-    );
-    let timeout_secs = 360u64;
-    let reply = call_archive_summary_model_with_timeout(
-        state,
-        resolved_api,
-        selected_api,
-        prepared,
-        timeout_secs,
-    )
-    .await?;
-    let summary = clean_text(reply.assistant_text.trim());
-    if summary.is_empty() {
-        return Err("Archive summary is empty".to_string());
-    }
-    Ok(summary)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SummaryContextScene {
+    Compaction,
+    Archive,
 }
 
-async fn summarize_context_compaction_with_model_v1(
-    state: &AppState,
-    resolved_api: &ResolvedApiConfig,
-    selected_api: &ApiConfig,
+fn build_summary_context_requirement_block(scene: SummaryContextScene) -> String {
+    let body = match scene {
+        SummaryContextScene::Compaction => {
+            "你现在正在执行 SummaryContext。\n\
+             请基于以上完整对话历史，生成一份供当前会话继续使用的上下文压缩摘要。\n\
+             summary 必须保留后续继续聊天必需的目标、约束、已完成进展、未完成事项、用户明确决策。"
+        }
+        SummaryContextScene::Archive => {
+            "你现在正在执行 SummaryContext。\n\
+             请基于以上完整对话历史，生成一份供归档保存的会话摘要。\n\
+             summary 必须总结本轮完成了什么、确认了什么、用户做了哪些关键决策、当前遗留问题是什么。"
+        }
+    };
+    prompt_xml_block("summary_requirement", body)
+}
+
+fn build_summary_context_memory_block(
     agent: &AgentProfile,
     user_alias: &str,
-    source_conversation: &Conversation,
-) -> Result<String, String> {
-    let mut prepared = build_prepared_prompt_for_mode(
-        PromptBuildMode::Archive,
-        source_conversation,
-        agent,
-        &[],
-        &[],
-        user_alias,
-        "",
-        "concise",
-        "zh-CN",
-        None,
-        None,
-        None,
-        None,
-        Some(state),
-        None,
-        None,
-    );
-    prepared.latest_user_text = build_compaction_instruction().to_string();
-    let timeout_secs = 360u64;
-    let reply = call_archive_summary_model_with_timeout(
-        state,
-        resolved_api,
-        selected_api,
-        prepared,
-        timeout_secs,
+    current_user_profile: &str,
+) -> String {
+    let instruction = build_memory_generation_instruction(agent, user_alias);
+    prompt_xml_block(
+        "memory_curation_context",
+        format!(
+            "{}\n\n【当前完整用户画像（带ID）】\n{}",
+            instruction, current_user_profile
+        ),
     )
-    .await?;
-    let summary = clean_text(reply.assistant_text.trim());
-    if summary.is_empty() {
-        return Err("Compaction summary is empty".to_string());
-    }
-    Ok(summary)
+}
+
+fn build_summary_context_json_contract_block(scene: SummaryContextScene) -> String {
+    let summary_rule = match scene {
+        SummaryContextScene::Compaction => {
+            "summary 表示本次上下文压缩摘要，必须方便后续继续聊天直接使用。"
+        }
+        SummaryContextScene::Archive => {
+            "summary 表示本次会话归档摘要，必须方便后续回看归档时直接理解。"
+        }
+    };
+    prompt_xml_block(
+        "json_contract",
+        format!(
+            "你必须输出合法 JSON，且只能包含以下五个字段：summary/usefulMemoryIds/newMemories/mergeGroups/profileMemories。\n\
+             不得输出 markdown、代码块、解释性前后缀。\n\
+             {}\n\
+             下面是唯一合法的 JSON 形状示例：\n{}",
+            summary_rule,
+            memory_curation_example_output_block()
+        ),
+    )
 }
 
 fn archive_pipeline_message_plain_text(message: &ChatMessage) -> String {
@@ -520,19 +621,6 @@ fn archive_pipeline_collect_compression_texts(source: &Conversation) -> Vec<Stri
     blocks
 }
 
-fn archive_pipeline_all_compaction_context(source: &Conversation) -> String {
-    let compression_blocks = archive_pipeline_collect_compression_texts(source);
-    if compression_blocks.is_empty() {
-        return "（无）".to_string();
-    }
-    compression_blocks
-        .iter()
-        .enumerate()
-        .map(|(idx, block)| format!("C{}:\n{}", idx + 1, block))
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
 fn archive_pipeline_dedup_recall_table(recall_table: &[String]) -> Vec<String> {
     let mut seen = HashSet::<String>::new();
     let mut deduped = Vec::<String>::new();
@@ -546,6 +634,65 @@ fn archive_pipeline_dedup_recall_table(recall_table: &[String]) -> Vec<String> {
         }
     }
     deduped
+}
+
+fn memory_curation_id_alias_map(memories: &[MemoryEntry]) -> HashMap<String, String> {
+    let mut map = HashMap::<String, String>::new();
+    for memory in memories {
+        let canonical_id = memory.id.trim();
+        if canonical_id.is_empty() {
+            continue;
+        }
+        map.insert(canonical_id.to_string(), canonical_id.to_string());
+        let display_id = memory.display_id();
+        let short_id = display_id.trim();
+        if !short_id.is_empty() {
+            map.insert(short_id.to_string(), canonical_id.to_string());
+        }
+    }
+    map
+}
+
+fn resolve_memory_curation_ids(items: &[String], id_alias_map: &HashMap<String, String>) -> Vec<String> {
+    let mut seen = HashSet::<String>::new();
+    let mut out = Vec::<String>::new();
+    for raw in items {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let resolved = id_alias_map
+            .get(trimmed)
+            .cloned()
+            .unwrap_or_else(|| trimmed.to_string());
+        if seen.insert(resolved.clone()) {
+            out.push(resolved);
+        }
+    }
+    out
+}
+
+fn resolve_profile_memory_drafts(
+    drafts: &[ArchiveProfileMemoryDraft],
+    id_alias_map: &HashMap<String, String>,
+) -> Vec<ArchiveProfileMemoryDraft> {
+    drafts
+        .iter()
+        .map(|item| ArchiveProfileMemoryDraft {
+            memory_id: item
+                .memory_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    id_alias_map
+                        .get(value)
+                        .cloned()
+                        .unwrap_or_else(|| value.to_string())
+                }),
+            memory: item.memory.clone(),
+        })
+        .collect::<Vec<_>>()
 }
 
 fn build_archive_summary_from_compression_and_last_three_rounds(
@@ -762,7 +909,12 @@ fn delete_main_conversation_and_activate_latest(
         }
         existing_idx
     } else {
-        ensure_main_conversation_index(&mut data, &selected_api.id, "")
+        ensure_active_foreground_conversation_index_atomic(
+            &mut data,
+            &state.data_path,
+            &selected_api.id,
+            "",
+        )
     };
     let active_conversation_id = data
         .conversations
@@ -776,7 +928,11 @@ fn delete_main_conversation_and_activate_latest(
     Ok(active_conversation_id)
 }
 
-fn build_compaction_message(summary: &str, compaction_reason: &str) -> ChatMessage {
+fn build_compaction_message(
+    summary: &str,
+    compaction_reason: &str,
+    user_profile_snapshot: Option<&str>,
+) -> ChatMessage {
     let now = now_iso();
     let reason = compaction_reason.trim();
     let reason_line = if reason.is_empty() {
@@ -784,22 +940,90 @@ fn build_compaction_message(summary: &str, compaction_reason: &str) -> ChatMessa
     } else {
         format!("触发原因：{}\n", reason)
     };
+    let profile_snapshot = user_profile_snapshot
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("\n\n{}", value))
+        .unwrap_or_default();
     let text = format!(
-        "[上下文整理]\n{}整理摘要：\n{}",
+        "[上下文整理]\n{}整理摘要：\n{}{}",
         reason_line,
-        clean_text(summary.trim())
+        clean_text(summary.trim()),
+        profile_snapshot
     );
     ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
         created_at: now,
-        speaker_agent_id: None,
+        speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
         parts: vec![MessagePart::Text { text }],
         extra_text_blocks: Vec::new(),
-        provider_meta: None,
+        provider_meta: Some(serde_json::json!({
+            "message_meta": {
+                "kind": "context_compaction",
+                "scene": "compaction",
+                "reason": reason,
+            }
+        })),
         tool_call: None,
         mcp_call: None,
     }
+}
+
+fn build_initial_summary_context_message(
+    last_archive_summary: Option<&str>,
+    user_profile_snapshot: Option<&str>,
+) -> ChatMessage {
+    let summary = last_archive_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("（暂无历史归档摘要）");
+    let mut message = build_compaction_message(summary, "", user_profile_snapshot);
+    message.provider_meta = Some(serde_json::json!({
+        "message_meta": {
+            "kind": "summary_context_seed",
+            "scene": "seed",
+        }
+    }));
+    message
+}
+
+#[derive(Debug, Clone, Default)]
+struct SummaryContextApplyReport {
+    merged_memories: usize,
+    merged_groups: usize,
+    linked_profile_memories: usize,
+    created_profile_memories: usize,
+    skipped_profile_memories: usize,
+    memory_feedback: MemoryArchiveFeedbackReport,
+}
+
+fn apply_summary_context_result(
+    data_path: &PathBuf,
+    host_agent: &AgentProfile,
+    recall_ids: &[String],
+    draft: &MemoryCurationDraft,
+) -> Result<SummaryContextApplyReport, String> {
+    let owner_agent_id = if host_agent.private_memory_enabled && !host_agent.is_built_in_user {
+        Some(host_agent.id.as_str())
+    } else {
+        None
+    };
+    let memory_feedback =
+        memory_store_apply_archive_feedback(data_path, recall_ids, &draft.useful_memory_ids)?;
+    let merged_memories = merge_memories_into_store(data_path, &draft.new_memories, owner_agent_id)?;
+    let merged_groups =
+        merge_memory_groups_into_store(data_path, &draft.merge_groups, owner_agent_id)?;
+    let (linked_profile_memories, created_profile_memories, skipped_profile_memories) =
+        apply_profile_memories_into_store(data_path, &draft.profile_memories, owner_agent_id)?;
+    Ok(SummaryContextApplyReport {
+        merged_memories,
+        merged_groups,
+        linked_profile_memories,
+        created_profile_memories,
+        skipped_profile_memories,
+        memory_feedback,
+    })
 }
 
 async fn summarize_archive_summary_with_fallback(
@@ -809,36 +1033,47 @@ async fn summarize_archive_summary_with_fallback(
     host_agent: &AgentProfile,
     user_alias: &str,
     source: &Conversation,
-    all_compaction_context: &str,
     memories: &[MemoryEntry],
-) -> (String, Option<String>) {
+) -> (MemoryCurationDraft, Option<String>) {
     let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-    match summarize_archive_summary_only_with_model(
+    match summarize_archived_conversation_with_model_v2(
         state,
         resolved_api,
         selected_api,
         host_agent,
         user_alias,
         source,
-        all_compaction_context,
+        SummaryContextScene::Archive,
         memories,
         &deduped_recall,
     )
     .await
     {
-        Ok(summary) => (summary, None),
+        Ok(draft) => (draft, None),
         Err(err) => match build_archive_summary_from_compression_and_last_three_rounds(source) {
             Ok(summary) => (
-                summary,
+                MemoryCurationDraft {
+                    summary,
+                    useful_memory_ids: Vec::new(),
+                    new_memories: Vec::new(),
+                    merge_groups: Vec::new(),
+                    profile_memories: Vec::new(),
+                },
                 Some(format!(
-                    "归档摘要模型失败，已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
+                    "SummaryContext 归档失败，已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
                     err
                 )),
             ),
             Err(compression_err) => (
-                build_archive_summary_from_last_three_rounds(source),
+                MemoryCurationDraft {
+                    summary: build_archive_summary_from_last_three_rounds(source),
+                    useful_memory_ids: Vec::new(),
+                    new_memories: Vec::new(),
+                    merge_groups: Vec::new(),
+                    profile_memories: Vec::new(),
+                },
                 Some(format!(
-                    "归档摘要模型失败，上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
+                    "SummaryContext 归档失败，上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
                     err, compression_err
                 )),
             ),
@@ -846,181 +1081,50 @@ async fn summarize_archive_summary_with_fallback(
     }
 }
 
-fn archive_pipeline_is_rate_limit_error(err: &str) -> bool {
-    let lower = err.to_ascii_lowercase();
-    lower.contains("429")
-        || lower.contains("too many requests")
-        || lower.contains("rate limit")
-        || lower.contains("rate_limit")
-}
-
-fn spawn_compaction_memory_generation_task(
+async fn summarize_compaction_with_fallback(
     state: &AppState,
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     host_agent: &AgentProfile,
     user_alias: &str,
     source: &Conversation,
-    all_compaction_context: &str,
-    trace_tag: &str,
     trace_id: &str,
-) {
-    let app_state = state.clone();
-    let selected_api = selected_api.clone();
-    let resolved_api = resolved_api.clone();
-    let host_agent = host_agent.clone();
-    let user_alias = user_alias.to_string();
-    let source = source.clone();
-    let all_compaction_context = all_compaction_context.to_string();
-    let trace_tag = trace_tag.to_string();
-    let trace_id = trace_id.to_string();
-    tauri::async_runtime::spawn(async move {
-        const MAX_ATTEMPTS: usize = 3;
-        const RETRY_DELAY_SECS: u64 = 30;
-        let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-        for attempt in 1..=MAX_ATTEMPTS {
-            let visible_memories = match memory_store_list_memories_visible_for_agent(
-                &app_state.data_path,
-                &host_agent.id,
-                host_agent.private_memory_enabled,
-            ) {
-                Ok(items) => items,
-                Err(err) => {
-                    eprintln!(
-                        "[上下文整理记忆] 失败，任务=compaction_memory_async，stage=list_visible_memories，trace_id={}，conversation_id={}，attempt={}，error={}",
-                        trace_id, source.id, attempt, err
-                    );
-                    return;
-                }
-            };
-
-            let draft_result = summarize_archived_conversation_with_model_v2(
-                &app_state,
-                &resolved_api,
-                &selected_api,
-                &host_agent,
-                &user_alias,
-                &source,
-                &all_compaction_context,
-                &visible_memories,
-                &deduped_recall,
-                &trace_tag,
-                &trace_id,
-            )
-            .await;
-
-            let parsed = match draft_result {
-                Ok(value) => value,
-                Err(err) => {
-                    if attempt < MAX_ATTEMPTS {
-                        let retry_stage = if archive_pipeline_is_rate_limit_error(&err) {
-                            "retry_after_429"
-                        } else {
-                            "retry_after_error"
-                        };
-                        eprintln!(
-                            "[上下文整理记忆] 跳过，任务=compaction_memory_async，stage={}，trace_id={}，conversation_id={}，attempt={}，next_retry_secs={}，error={}",
-                            retry_stage,
-                            trace_id,
-                            source.id,
-                            attempt,
-                            RETRY_DELAY_SECS,
-                            err
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
-                        continue;
-                    }
-                    eprintln!(
-                        "[上下文整理记忆] 失败，任务=compaction_memory_async，stage=llm_draft，trace_id={}，conversation_id={}，attempt={}，error={}",
-                        trace_id, source.id, attempt, err
-                    );
-                    return;
-                }
-            };
-
-            let owner_agent_id = if host_agent.private_memory_enabled && !host_agent.is_built_in_user {
-                Some(host_agent.id.as_str())
-            } else {
-                None
-            };
-            let memory_feedback = match memory_store_apply_archive_feedback(
-                &app_state.data_path,
-                &deduped_recall,
-                &parsed.useful_memory_ids,
-            ) {
-                Ok(v) => v,
-                Err(err) => {
-                    eprintln!(
-                        "[上下文整理记忆] 失败，任务=compaction_memory_async，stage=apply_feedback，trace_id={}，conversation_id={}，attempt={}，error={}",
-                        trace_id, source.id, attempt, err
-                    );
-                    return;
-                }
-            };
-            let merged_memories = match merge_memories_into_store(
-                &app_state.data_path,
-                &parsed.new_memories,
-                owner_agent_id,
-            ) {
-                Ok(v) => v,
-                Err(err) => {
-                    eprintln!(
-                        "[上下文整理记忆] 失败，任务=compaction_memory_async，stage=merge_memories，trace_id={}，conversation_id={}，attempt={}，error={}",
-                        trace_id, source.id, attempt, err
-                    );
-                    return;
-                }
-            };
-            let merged_groups = match merge_memory_groups_into_store(
-                &app_state.data_path,
-                &parsed.merge_groups,
-                owner_agent_id,
-            ) {
-                Ok(v) => v,
-                Err(err) => {
-                    eprintln!(
-                        "[上下文整理记忆] 失败，任务=compaction_memory_async，stage=merge_groups，trace_id={}，conversation_id={}，attempt={}，error={}",
-                        trace_id, source.id, attempt, err
-                    );
-                    return;
-                }
-            };
-            eprintln!(
-                "[上下文整理记忆] 完成，任务=compaction_memory_async，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，useful_accept={}，penalized={}，natural_decay={}",
-                trace_id,
-                source.id,
-                merged_memories,
-                merged_groups,
-                memory_feedback.useful_accepted_count,
-                memory_feedback.penalized_count,
-                memory_feedback.natural_decay_count
-            );
-            return;
-        }
-    });
-}
-
-async fn summarize_compaction_text_with_fallback(
-    state: &AppState,
-    resolved_api: &ResolvedApiConfig,
-    selected_api: &ApiConfig,
-    host_agent: &AgentProfile,
-    user_alias: &str,
-    source: &Conversation,
-    trace_id: &str,
-) -> (String, Option<String>) {
+) -> (MemoryCurationDraft, Option<String>) {
     const MAX_ATTEMPTS: usize = 3;
     const RETRY_DELAY_SECS: u64 = 5;
 
     let mut last_err = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
-        match summarize_context_compaction_with_model_v1(
+        let visible_memories = match memory_store_list_memories_visible_for_agent(
+            &state.data_path,
+            &host_agent.id,
+            host_agent.private_memory_enabled,
+        ) {
+            Ok(items) => items,
+            Err(err) => {
+                return (
+                    MemoryCurationDraft {
+                        summary: build_archive_summary_from_last_three_rounds(source),
+                        useful_memory_ids: Vec::new(),
+                        new_memories: Vec::new(),
+                        merge_groups: Vec::new(),
+                        profile_memories: Vec::new(),
+                    },
+                    Some(format!("SummaryContext 读取可见记忆失败：{}", err)),
+                )
+            }
+        };
+        let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
+        match summarize_archived_conversation_with_model_v2(
             state,
             resolved_api,
             selected_api,
             host_agent,
             user_alias,
             source,
+            SummaryContextScene::Compaction,
+            &visible_memories,
+            &deduped_recall,
         )
         .await
         {
@@ -1045,26 +1149,38 @@ async fn summarize_compaction_text_with_fallback(
     match build_archive_summary_from_compression_and_last_three_rounds(source) {
         Ok(summary) => {
             eprintln!(
-                "[ARCHIVE-PIPELINE] 上下文整理模型失败，重试后降级到 上下文整理信息+最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}",
+                "[SummaryContext] 上下文整理失败，重试后降级到 上下文整理信息+最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}",
                 trace_id, source.id, MAX_ATTEMPTS, last_err
             );
             (
-                summary,
+                MemoryCurationDraft {
+                    summary,
+                    useful_memory_ids: Vec::new(),
+                    new_memories: Vec::new(),
+                    merge_groups: Vec::new(),
+                    profile_memories: Vec::new(),
+                },
                 Some(format!(
-                    "上下文整理模型失败（已重试{}次），已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
+                    "SummaryContext 上下文整理失败（已重试{}次），已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
                     MAX_ATTEMPTS, last_err
                 )),
             )
         }
         Err(compression_err) => {
             eprintln!(
-                "[ARCHIVE-PIPELINE] 上下文整理模型失败，重试后上下文整理降级失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}, compression_err={}",
+                "[SummaryContext] 上下文整理失败，重试后上下文整理降级失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}, compression_err={}",
                 trace_id, source.id, MAX_ATTEMPTS, last_err, compression_err
             );
             (
-                build_archive_summary_from_last_three_rounds(source),
+                MemoryCurationDraft {
+                    summary: build_archive_summary_from_last_three_rounds(source),
+                    useful_memory_ids: Vec::new(),
+                    new_memories: Vec::new(),
+                    merge_groups: Vec::new(),
+                    profile_memories: Vec::new(),
+                },
                 Some(format!(
-                    "上下文整理模型失败（已重试{}次），上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
+                    "SummaryContext 上下文整理失败（已重试{}次），上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
                     MAX_ATTEMPTS, last_err, compression_err
                 )),
             )
@@ -1373,16 +1489,26 @@ async fn run_context_compaction_pipeline_inner(
         host_agent_id
     );
 
-    let (summary, compaction_warning) = summarize_compaction_text_with_fallback(
+    let (summary_draft, compaction_warning) = summarize_compaction_with_fallback(
         state,
-        resolved_api,
         selected_api,
+        resolved_api,
         &host_agent,
         &user_alias,
         source,
         trace_id,
     )
     .await;
+    let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
+    let applied_report =
+        apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
+    let user_profile_snapshot = if conversation_is_delegate(source)
+        || conversation_is_remote_im_contact(source)
+    {
+        None
+    } else {
+        build_user_profile_snapshot_block(&state.data_path, &host_agent, 12)?
+    };
 
     let guard = state
         .state_lock
@@ -1396,7 +1522,8 @@ async fn run_context_compaction_pipeline_inner(
         .iter()
         .position(|item| item.id == source.id && item.summary.trim().is_empty())
         .ok_or_else(|| "活动对话已变化，请重试上下文整理。".to_string())?;
-    let compression_message = build_compaction_message(&summary, compaction_reason);
+    let compression_message =
+        build_compaction_message(&summary_draft.summary, compaction_reason, user_profile_snapshot.as_deref());
     let compression_message_id = compression_message.id.clone();
     {
         let conversation = data
@@ -1404,6 +1531,7 @@ async fn run_context_compaction_pipeline_inner(
             .get_mut(conversation_idx)
             .ok_or_else(|| "活动对话索引无效，请重试上下文整理。".to_string())?;
         conversation.messages.push(compression_message.clone());
+        conversation.user_profile_snapshot = user_profile_snapshot.clone().unwrap_or_default();
         let now = now_iso();
         conversation.updated_at = now.clone();
         conversation.last_user_at = Some(now);
@@ -1414,11 +1542,6 @@ async fn run_context_compaction_pipeline_inner(
         .conversations
         .get(conversation_idx)
         .map(|item| item.id.clone());
-    let conversation_for_memory = data
-        .conversations
-        .get(conversation_idx)
-        .cloned()
-        .ok_or_else(|| "活动对话索引无效，请重试上下文整理。".to_string())?;
     state_write_app_data_cached(&state, &data)?;
 
     drop(guard);
@@ -1466,36 +1589,31 @@ async fn run_context_compaction_pipeline_inner(
     }
     emit_compaction_history_flushed_event(state, &source.id, &compression_message);
 
-    let all_compaction_context = archive_pipeline_all_compaction_context(&conversation_for_memory);
-    spawn_compaction_memory_generation_task(
-        state,
-        selected_api,
-        resolved_api,
-        &host_agent,
-        &user_alias,
-        &conversation_for_memory,
-        &all_compaction_context,
-        "COMPACTION-MEMORY-ASYNC",
-        trace_id,
-    );
-
     eprintln!(
-        "[{}] trace={} done compaction=true merged_memories=0 merged_groups=0",
-        trace_tag,
+        "[SummaryContext] 完成，场景=compaction，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_linked={}，profile_created={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
         trace_id,
+        source.id,
+        applied_report.merged_memories,
+        applied_report.merged_groups,
+        applied_report.linked_profile_memories,
+        applied_report.created_profile_memories,
+        applied_report.skipped_profile_memories,
+        applied_report.memory_feedback.useful_accepted_count,
+        applied_report.memory_feedback.penalized_count,
+        applied_report.memory_feedback.natural_decay_count
     );
 
     Ok(ForceArchiveResult {
         archived: false,
         archive_id: None,
         active_conversation_id,
-        summary,
-        merged_memories: 0,
+        summary: summary_draft.summary,
+        merged_memories: applied_report.merged_memories,
         warning: compaction_warning,
         reason_code: None,
         elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-        memory_feedback: None,
-        merge_groups: Some(0),
+        memory_feedback: Some(applied_report.memory_feedback),
+        merge_groups: Some(applied_report.merged_groups),
     })
 }
 
@@ -1625,47 +1743,20 @@ async fn run_archive_pipeline_inner(
         host_agent_id
     );
 
-    let (pre_archive_compaction_summary, pre_archive_compaction_warning) =
-        summarize_compaction_text_with_fallback(
-            state,
-            resolved_api,
-            selected_api,
-            &host_agent,
-            &user_alias,
-            source,
-            trace_id,
-        )
-        .await;
-    let pre_archive_compaction_message =
-        build_compaction_message(&pre_archive_compaction_summary, "archive_pre_compaction");
-    let pre_archive_compaction_message_id = pre_archive_compaction_message.id.clone();
-    let mut source_for_archive = source.clone();
-    source_for_archive
-        .messages
-        .push(pre_archive_compaction_message.clone());
-    source_for_archive.updated_at = now_iso();
-
-    let all_compaction_context = archive_pipeline_all_compaction_context(&source_for_archive);
-    let (summary, archive_warning_main) = summarize_archive_summary_with_fallback(
+    let (summary_draft, archive_warning_main) = summarize_archive_summary_with_fallback(
         state,
         resolved_api,
         selected_api,
         &host_agent,
         &user_alias,
-        &source_for_archive,
-        &all_compaction_context,
+        source,
         &memories,
     )
     .await;
-    let archive_warning = match (
-        archive_warning_main,
-        pre_archive_compaction_warning,
-    ) {
-        (Some(main), Some(compaction)) => Some(format!("{main}；预整理提示：{compaction}")),
-        (Some(main), None) => Some(main),
-        (None, Some(compaction)) => Some(format!("预整理提示：{compaction}")),
-        (None, None) => None,
-    };
+    let archive_warning = archive_warning_main;
+    let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
+    let applied_report =
+        apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
 
     let guard = state
         .state_lock
@@ -1673,30 +1764,19 @@ async fn run_archive_pipeline_inner(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
-    let source_conversation_idx = data
+    let _source_conversation_idx = data
         .conversations
         .iter()
         .position(|item| item.id == source.id && item.summary.trim().is_empty())
-        .ok_or_else(|| "归档前上下文整理写回失败：活动会话已变化，请重试归档。".to_string())?;
-    {
-        let conversation = data
-            .conversations
-            .get_mut(source_conversation_idx)
-            .ok_or_else(|| "归档前上下文整理写回失败：活动会话索引无效，请重试归档。".to_string())?;
-        conversation.messages.push(pre_archive_compaction_message);
-        let now = now_iso();
-        conversation.updated_at = now.clone();
-        conversation.last_user_at = Some(now);
-        eprintln!(
-            "[ARCHIVE-PIPELINE] 归档前上下文整理消息已写回: conversation_id={}, message_count={}, message_id={}",
-            conversation.id,
-            conversation.messages.len(),
-            pre_archive_compaction_message_id
-        );
-    }
-    let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary)
+        .ok_or_else(|| "归档前会话已变化，请重试归档。".to_string())?;
+    let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary_draft.summary)
         .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
-    let active_idx = ensure_active_conversation_index(&mut data, &selected_api.id, "");
+    let active_idx = ensure_active_foreground_conversation_index_atomic(
+        &mut data,
+        &state.data_path,
+        &selected_api.id,
+        "",
+    );
     let active_conversation_id = data
         .conversations
         .get(active_idx)
@@ -1727,35 +1807,30 @@ async fn run_archive_pipeline_inner(
         );
     }
 
-    // 归档前预整理同样属于“上下文整理行为”，必须独立入一个记忆任务队列。
-    spawn_compaction_memory_generation_task(
-        state,
-        selected_api,
-        resolved_api,
-        &host_agent,
-        &user_alias,
-        &source_for_archive,
-        &all_compaction_context,
-        "ARCHIVE-PRE-COMPACTION-MEMORY-ASYNC",
-        trace_id,
-    );
-
     eprintln!(
-        "[{}] trace={} done archived=true merged_memories=0 merged_groups=0 useful_accept=0 penalized=0 natural_decay=0",
-        trace_tag,
+        "[SummaryContext] 完成，场景=archive，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_linked={}，profile_created={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
         trace_id,
+        source.id,
+        applied_report.merged_memories,
+        applied_report.merged_groups,
+        applied_report.linked_profile_memories,
+        applied_report.created_profile_memories,
+        applied_report.skipped_profile_memories,
+        applied_report.memory_feedback.useful_accepted_count,
+        applied_report.memory_feedback.penalized_count,
+        applied_report.memory_feedback.natural_decay_count
     );
 
     Ok(ForceArchiveResult {
         archived: true,
         archive_id: Some(archive_id),
         active_conversation_id,
-        summary,
-        merged_memories: 0,
+        summary: summary_draft.summary,
+        merged_memories: applied_report.merged_memories,
         warning: archive_warning,
         reason_code: None,
         elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-        memory_feedback: None,
-        merge_groups: Some(0),
+        memory_feedback: Some(applied_report.memory_feedback),
+        merge_groups: Some(applied_report.merged_groups),
     })
 }

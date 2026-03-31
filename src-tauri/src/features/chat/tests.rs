@@ -143,7 +143,7 @@
         let now = now_iso();
         let mut message = test_text_message("user", "继续", &now);
         message.extra_text_blocks.push(
-            "<system-reminder>\n[MemoryBoard]\n\n以下为相关记忆，仅作背景参考，并非用户当前发言。请勿直接针对记忆内容作答，仅在确有帮助时自然使用。\n\n用户询问 codex 是什么\n> 无\n</system-reminder>"
+            "<memory_context>\n<id:m1>\n用户询问 codex 是什么\n> 无\n</id:m1>\n</memory_context>"
                 .to_string(),
         );
 
@@ -221,6 +221,106 @@
     }
 
     #[test]
+    fn build_prompt_should_delay_inject_retrieved_memories_with_request_local_dedupe() {
+        let state = test_chat_runtime_state();
+        let drafts = vec![
+            MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "用户很喜欢猫咪".to_string(),
+                reasoning: "因为用户妈妈从小养猫".to_string(),
+                tags: vec!["猫".to_string()],
+                owner_agent_id: None,
+            },
+            MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "用户对花生过敏".to_string(),
+                reasoning: "因为用户小时候吃花生酱休克过".to_string(),
+                tags: vec!["花生".to_string(), "过敏".to_string()],
+                owner_agent_id: None,
+            },
+        ];
+        let (saved, _) = memory_store_upsert_drafts(&state.data_path, &drafts).expect("seed memories");
+        let cat_memory_id = saved[0].id.clone().expect("cat memory id");
+        let peanut_memory_id = saved[1].id.clone().expect("peanut memory id");
+        let now = now_iso();
+        let agent = default_agent();
+        let messages = vec![
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(USER_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "我家猫吐毛球怎么办？".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "retrieved_memory_ids": [cat_memory_id]
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "assistant".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(agent.id.clone()),
+                parts: vec![MessagePart::Text {
+                    text: "吐毛球可以先观察饮食和梳毛频率。".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: None,
+                mcp_call: None,
+            },
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(USER_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "我想吃花生酱面包，可以吗？".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "retrieved_memory_ids": [saved[0].id.clone().expect("dup cat id"), peanut_memory_id.clone(), peanut_memory_id]
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            Some(&state.data_path),
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(
+            prepared.history_messages[0]
+                .text
+                .matches("用户很喜欢猫咪")
+                .count(),
+            1
+        );
+        assert!(prepared.history_messages[0].text.contains("因为用户妈妈从小养猫"));
+        assert!(!prepared.history_messages[0].text.contains("用户对花生过敏"));
+        assert!(prepared.latest_user_extra_text.contains("用户对花生过敏"));
+        assert_eq!(prepared.latest_user_extra_text.matches("用户很喜欢猫咪").count(), 0);
+        assert_eq!(prepared.latest_user_extra_text.matches("用户对花生过敏").count(), 1);
+    }
+
+    #[test]
     fn build_prompt_user_meta_text_should_skip_compaction_message_metadata() {
         let now = now_iso();
         let mut message = test_text_message(
@@ -258,6 +358,7 @@
                 PreparedHistoryMessage {
                     role: "user".to_string(),
                     text: "你好".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: Some("[遥酱] 2026-03-18T12:18".to_string()),
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -268,6 +369,7 @@
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -282,6 +384,7 @@
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"results\":[{\"title\":\"Rust\"}]}".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -361,6 +464,7 @@
                 PreparedHistoryMessage {
                     role: "user".to_string(),
                     text: "现在时间是多少？".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -371,6 +475,7 @@
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: "2026-03-30 00:26（+08:00）".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -402,12 +507,18 @@
                 id: Uuid::new_v4().to_string(),
                 role: "user".to_string(),
                 created_at: now.clone(),
-                speaker_agent_id: None,
+                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
                 parts: vec![MessagePart::Text {
                     text: "[上下文整理]\n触发原因：force_context_usage_82_after_reply\n整理摘要：\n保留关键上下文。".to_string(),
                 }],
                 extra_text_blocks: Vec::new(),
-                provider_meta: None,
+                provider_meta: Some(serde_json::json!({
+                    "message_meta": {
+                        "kind": "context_compaction",
+                        "scene": "compaction",
+                        "reason": "force_context_usage_82_after_reply"
+                    }
+                })),
                 tool_call: None,
                 mcp_call: None,
             },
@@ -433,61 +544,75 @@
         assert!(prepared.history_messages[0].text.contains("[上下文整理]"));
         assert!(prepared.latest_user_text.trim().is_empty());
         assert!(prepared.latest_user_meta_text.trim().is_empty());
+        assert_eq!(prepared.history_messages[0].role, "user");
     }
 
     #[test]
-    fn build_archive_history_messages_should_expand_tool_history_events_instead_of_nesting_them() {
+    fn build_prompt_should_not_treat_normal_message_with_compaction_phrase_as_compaction_boundary() {
         let now = now_iso();
-        let mut assistant = test_text_message("assistant", "我查好了", &now);
-        assistant.tool_call = Some(vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": Value::Null,
-                "tool_calls": [{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {
-                        "name": "remote_im_send",
-                        "arguments": "{\"action\":\"send\"}"
-                    }
-                }]
-            }),
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": "call_1",
-                "content": "{\"ok\":true}"
-            }),
-        ]);
-        let conv = test_active_conversation_with_messages(vec![assistant], Some(now));
+        let agent = default_agent();
+        let messages = vec![
+            test_text_message("user", "第一轮用户原始消息", &now),
+            test_text_message("assistant", "第一轮助手回复", &now),
+            test_text_message(
+                "user",
+                "plan 写入 markdown，是为了防止上下文压缩之后，计划被压缩掉了的设计。",
+                &now,
+            ),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
 
-        let history = build_archive_history_messages(&conv);
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
 
-        assert_eq!(history.len(), 3);
-        assert_eq!(history[0].role, "assistant");
-        assert!(history[0].tool_calls.is_some());
-        assert_eq!(
-            history[0]
-                .tool_calls
-                .as_ref()
-                .and_then(|calls| calls.first())
-                .and_then(|call| call.get("id"))
-                .and_then(Value::as_str),
-            Some("call_1")
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert_eq!(prepared.history_messages[0].text, "第一轮用户原始消息");
+        assert_eq!(prepared.history_messages[1].text, "第一轮助手回复");
+        assert!(prepared
+            .latest_user_text
+            .contains("防止上下文压缩之后"));
+    }
+
+    #[test]
+    fn build_prompt_should_not_treat_prefix_only_message_without_meta_as_compaction_boundary() {
+        let now = now_iso();
+        let agent = default_agent();
+        let messages = vec![
+            test_text_message("user", "第一轮用户原始消息", &now),
+            test_text_message("assistant", "第一轮助手回复", &now),
+            test_text_message("user", "[上下文整理]\n这只是普通文本，不是系统压缩消息。", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
         );
-        assert_eq!(
-            history[0]
-                .tool_calls
-                .as_ref()
-                .and_then(|calls| calls.first())
-                .and_then(|call| call.get("type"))
-                .and_then(Value::as_str),
-            Some("function")
-        );
-        assert_eq!(history[1].role, "tool");
-        assert_eq!(history[1].tool_call_id.as_deref(), Some("call_1"));
-        assert_eq!(history[2].role, "assistant");
-        assert!(history[2].tool_calls.is_none());
-        assert_eq!(history[2].text, "我查好了");
+
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert!(prepared.latest_user_text.contains("这只是普通文本"));
     }
 
     #[test]
@@ -1013,6 +1138,7 @@
             last_effective_prompt_tokens: 0,
             status: status.to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: Vec::new(),
@@ -1405,6 +1531,7 @@
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: vec![ChatMessage {
@@ -1704,3 +1831,4 @@
         assert_eq!(data.conversations[idx].status, "active");
         assert!(data.conversations[idx].summary.is_empty());
     }
+

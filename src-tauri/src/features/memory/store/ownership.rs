@@ -82,6 +82,112 @@ fn memory_store_delete_memories_by_owner_agent_id(
     Ok(deleted)
 }
 
+fn memory_entry_allowed_for_profile(memory: &MemoryEntry) -> bool {
+    matches!(
+        memory.memory_type.trim().to_ascii_lowercase().as_str(),
+        "knowledge" | "skill" | "event"
+    )
+}
+
+fn memory_store_upsert_profile_memory_links(
+    data_path: &PathBuf,
+    memory_ids: &[String],
+    source: &str,
+) -> Result<usize, String> {
+    let mut conn = memory_store_open(data_path)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| format!("Begin profile memory link transaction failed: {err}"))?;
+    let now = now_iso();
+    let normalized_source = if source.trim().eq_ignore_ascii_case("manual") {
+        "manual"
+    } else {
+        "auto"
+    };
+    let mut linked_count = 0usize;
+    for memory_id in memory_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+    {
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM memory_record WHERE id=?1 LIMIT 1",
+                params![memory_id],
+                |_| Ok(1i64),
+            )
+            .optional()
+            .map_err(|err| format!("Check profile memory existence failed: {err}"))?
+            .is_some();
+        if !exists {
+            continue;
+        }
+        let changed = tx
+            .execute(
+                "INSERT INTO profile_memory_link(id, memory_id, source, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(memory_id) DO UPDATE SET source=excluded.source, updated_at=excluded.updated_at",
+                params![Uuid::new_v4().to_string(), memory_id, normalized_source, now, now],
+            )
+            .map_err(|err| format!("Upsert profile_memory_link failed: {err}"))?;
+        if changed > 0 {
+            linked_count += 1;
+        }
+    }
+    tx.commit()
+        .map_err(|err| format!("Commit profile memory link transaction failed: {err}"))?;
+    Ok(linked_count)
+}
+
+fn memory_store_list_profile_memories_visible_for_agent(
+    data_path: &PathBuf,
+    agent_id: &str,
+    private_memory_enabled: bool,
+    limit: usize,
+) -> Result<Vec<MemoryEntry>, String> {
+    let visible_memories =
+        memory_store_list_memories_visible_for_agent(data_path, agent_id, private_memory_enabled)?;
+    if visible_memories.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = memory_store_open(data_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT memory_id
+             FROM profile_memory_link
+             ORDER BY updated_at DESC, created_at DESC",
+        )
+        .map_err(|err| format!("Prepare list profile memory links failed: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("Query profile memory links failed: {err}"))?;
+    let mut ordered_ids = Vec::<String>::new();
+    for row in rows {
+        ordered_ids.push(row.map_err(|err| format!("Read profile memory link failed: {err}"))?);
+    }
+    if ordered_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let memory_map = visible_memories
+        .into_iter()
+        .filter(memory_entry_allowed_for_profile)
+        .map(|memory| (memory.id.clone(), memory))
+        .collect::<HashMap<String, MemoryEntry>>();
+    let max_items = if limit == 0 { usize::MAX } else { limit };
+    let mut out = Vec::<MemoryEntry>::new();
+    for memory_id in ordered_ids {
+        if let Some(memory) = memory_map.get(&memory_id) {
+            out.push(memory.clone());
+        }
+        if out.len() >= max_items {
+            break;
+        }
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentPrivateMemoryExportResult {

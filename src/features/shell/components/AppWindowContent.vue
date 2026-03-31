@@ -211,6 +211,10 @@
         :loading="promptPreviewLoading"
         :title="promptPreviewMode === 'system' ? t('prompt.systemPreview') : t('prompt.requestPreview')"
         :loading-text="t('common.loading')"
+        :empty-hint="'请选择一个预览模式\n对话：正常聊天请求体\n压缩：SummaryContext 压缩请求体\n归档：SummaryContext 归档请求体'"
+        :chat-text="'对话'"
+        :compaction-text="'压缩'"
+        :archive-text="'归档'"
         :latest-input-length-text="t('prompt.latestInputLength')"
         :images-text="t('prompt.images')"
         :audios-text="t('prompt.audios')"
@@ -219,6 +223,7 @@
         :latest-images="promptPreviewLatestImages"
         :latest-audios="promptPreviewLatestAudios"
         :text="promptPreviewText"
+        @select-mode="loadPromptPreview"
         @close="closePromptPreview"
       />
     </dialog>
@@ -357,12 +362,13 @@ const props = defineProps<{
   memoryPage: number;
   memoryPageCount: number;
   pagedMemories: MemoryItem[];
-  promptPreviewMode: "full" | "system";
+  promptPreviewMode: "chat" | "compaction" | "archive" | "system" | null;
   promptPreviewLoading: boolean;
   promptPreviewText: string;
   promptPreviewLatestUserText: string;
   promptPreviewLatestImages: number;
   promptPreviewLatestAudios: number;
+  loadPromptPreview: (mode: "chat" | "compaction" | "archive") => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
   updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;

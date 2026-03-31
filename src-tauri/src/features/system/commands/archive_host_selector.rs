@@ -127,6 +127,7 @@ mod archive_host_selection_tests {
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: vec![mk_msg("assistant"), mk_msg("assistant"), mk_msg("assistant")],
@@ -161,6 +162,7 @@ mod archive_host_selection_tests {
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: vec![mk_msg("assistant")],
@@ -170,60 +172,6 @@ mod archive_host_selection_tests {
         assert_eq!(host, "p2");
     }
 
-    #[test]
-    fn archive_history_should_not_prefix_role_in_text() {
-        let source = Conversation {
-            id: "c1".to_string(),
-            title: "t".to_string(),
-            agent_id: "p1".to_string(),
-            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            last_user_at: None,
-            last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
-            status: "active".to_string(),
-            summary: String::new(),
-            shell_workspace_path: None,
-            archived_at: None,
-            messages: vec![
-                ChatMessage {
-                    id: Uuid::new_v4().to_string(),
-                    role: "user".to_string(),
-                    created_at: now_iso(),
-                    speaker_agent_id: Some("p1".to_string()),
-                    parts: vec![MessagePart::Text {
-                        text: "我再次测试一次上下文整理，如何？".to_string(),
-                    }],
-                    extra_text_blocks: Vec::new(),
-                    provider_meta: None,
-                    tool_call: None,
-                    mcp_call: None,
-                },
-                ChatMessage {
-                    id: Uuid::new_v4().to_string(),
-                    role: "assistant".to_string(),
-                    created_at: now_iso(),
-                    speaker_agent_id: Some("p1".to_string()),
-                    parts: vec![MessagePart::Text {
-                        text: "可以，开始吧。".to_string(),
-                    }],
-                    extra_text_blocks: Vec::new(),
-                    provider_meta: None,
-                    tool_call: None,
-                    mcp_call: None,
-                },
-            ],
-            memory_recall_table: Vec::new(),
-        };
-
-        let history = build_archive_history_messages(&source);
-        assert_eq!(history.len(), 2);
-        assert!(!history[0].text.starts_with("USER:"));
-        assert!(!history[1].text.starts_with("ASSISTANT:"));
-    }
 }
+
 

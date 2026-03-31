@@ -213,6 +213,7 @@ fn build_prepared_history_messages_from_tool_history(
             history_messages.push(PreparedHistoryMessage {
                 role: "assistant".to_string(),
                 text: event.text,
+                extra_text_blocks: Vec::new(),
                 user_time_text: None,
                 images: Vec::new(),
                 audios: Vec::new(),
@@ -226,6 +227,7 @@ fn build_prepared_history_messages_from_tool_history(
             history_messages.push(PreparedHistoryMessage {
                 role: "tool".to_string(),
                 text: event.text,
+                extra_text_blocks: Vec::new(),
                 user_time_text: None,
                 images: Vec::new(),
                 audios: Vec::new(),

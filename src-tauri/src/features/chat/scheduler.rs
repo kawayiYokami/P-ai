@@ -798,6 +798,51 @@ async fn process_conversation_batch(
             .iter()
             .position(|c| c.id == conversation_id && c.summary.trim().is_empty())
         {
+            let last_archive_summary = data
+                .conversations
+                .iter()
+                .rev()
+                .find(|item| !conversation_is_delegate(item) && !item.summary.trim().is_empty())
+                .map(|item| item.summary.clone());
+            {
+                let conversation = &mut data.conversations[conversation_idx];
+                let has_summary_context = conversation.messages.iter().any(|message| {
+                    is_context_compaction_message(message, message.role.trim())
+                });
+                if !has_summary_context
+                    && !conversation_is_delegate(conversation)
+                    && !conversation_is_remote_im_contact(conversation)
+                {
+                    if conversation.user_profile_snapshot.trim().is_empty() {
+                        if let Some(agent) = data
+                            .agents
+                            .iter()
+                            .find(|item| item.id == conversation.agent_id)
+                        {
+                            match build_user_profile_snapshot_block(&state.data_path, agent, 12) {
+                                Ok(Some(snapshot)) => {
+                                    conversation.user_profile_snapshot = snapshot;
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    runtime_log_error(format!(
+                                        "[用户画像] 失败，任务=seed_scheduler_profile_snapshot，conversation_id={}，agent_id={}，error={}",
+                                        conversation.id,
+                                        agent.id,
+                                        err
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    let summary_message = build_initial_summary_context_message(
+                        last_archive_summary.as_deref(),
+                        Some(conversation.user_profile_snapshot.as_str()),
+                    );
+                    persisted_batch_messages.push(summary_message.clone());
+                    conversation.messages.insert(0, summary_message);
+                }
+            }
             for event in &events {
                 let event_should_activate = if matches!(event.source, ChatEventSource::RemoteIm) {
                     should_activate_remote_im_event(event, &mut data, &history_flush_time)
@@ -817,6 +862,30 @@ async fn process_conversation_batch(
                         &image_text_cache,
                     );
                     persisted.created_at = history_flush_time.clone();
+                    if persisted.role.trim() == "user" {
+                        let recall_ids = collect_recall_ids_for_user_message(
+                            &state.data_path,
+                            &data.agents,
+                            &event.session_info.agent_id,
+                            &persisted,
+                        )?;
+                        if !recall_ids.is_empty() {
+                            write_retrieved_memory_ids_into_provider_meta(
+                                &mut persisted.provider_meta,
+                                &recall_ids,
+                            );
+                            for memory_id in &recall_ids {
+                                conversation.memory_recall_table.push(memory_id.clone());
+                            }
+                        }
+                        eprintln!(
+                            "[记忆RAG][出队消息写入] conversation_id={} user_message_id={} agent_id={} retrieved_memory_ids={:?}",
+                            conversation_id,
+                            persisted.id,
+                            event.session_info.agent_id,
+                            recall_ids
+                        );
+                    }
                     persisted_batch_messages.push(persisted.clone());
                     conversation.messages.push(persisted.clone());
                     match persisted.role.trim() {

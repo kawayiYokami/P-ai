@@ -22,6 +22,11 @@ fn prepared_history_to_rig_messages(
                 hm.text.clone()
             };
             let mut user_blocks = vec![UserContent::text(base_user_text)];
+            for block in &hm.extra_text_blocks {
+                if !block.trim().is_empty() {
+                    user_blocks.push(UserContent::text(block.clone()));
+                }
+            }
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     user_blocks.push(UserContent::text(time_text.clone()));
@@ -149,6 +154,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "user".to_string(),
                     text: "帮我看一下".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: Some("2026-03-01 11:00:00".to_string()),
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -159,6 +165,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -174,6 +181,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -247,6 +255,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -261,6 +270,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -311,6 +321,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -325,6 +336,7 @@ mod prepared_history_to_rig_messages_tests {
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),

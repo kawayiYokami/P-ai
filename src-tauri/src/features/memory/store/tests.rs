@@ -28,10 +28,12 @@ mod memory_store_tests {
 
         let memories = memory_store_list_memories(&data_path).expect("list memories");
         assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].memory_no, Some(1));
         assert_eq!(memories[0].tags, vec!["alice".to_string(), "rust".to_string()]);
 
         let stats = memory_store_import_memories(&data_path, &vec![MemoryEntry {
             id: String::new(),
+            memory_no: None,
             memory_type: "knowledge".to_string(),
             judgment: "Alice likes rust".to_string(),
             reasoning: "".to_string(),
@@ -435,5 +437,69 @@ mod memory_store_tests {
         assert!(b_state.2 > 3.0, "useful_score should increase");
         assert_eq!(c_strength, 2, "T2 recalled-but-useless should remain unchanged");
     }
-}
 
+    #[test]
+    fn profile_memory_links_should_store_and_filter_visible_types() {
+        let data_path = temp_data_path("profile_memory_links");
+        let (saved, _) = memory_store_upsert_drafts(
+            &data_path,
+            &vec![
+                MemoryDraftInput {
+                    memory_type: "knowledge".to_string(),
+                    judgment: "用户常驻深圳".to_string(),
+                    reasoning: "明确说明".to_string(),
+                    tags: vec!["深圳".to_string(), "居住地".to_string()],
+                    owner_agent_id: None,
+                },
+                MemoryDraftInput {
+                    memory_type: "emotion".to_string(),
+                    judgment: "用户今天很开心".to_string(),
+                    reasoning: "语气积极".to_string(),
+                    tags: vec!["开心".to_string()],
+                    owner_agent_id: None,
+                },
+            ],
+        )
+        .expect("seed profile memories");
+        let knowledge_id = saved[0].id.clone().expect("knowledge id");
+        let emotion_id = saved[1].id.clone().expect("emotion id");
+
+        let linked = memory_store_upsert_profile_memory_links(
+            &data_path,
+            &vec![knowledge_id.clone(), emotion_id],
+            "auto",
+        )
+        .expect("link profile memories");
+        assert_eq!(linked, 2);
+
+        let profile_memories = memory_store_list_profile_memories_visible_for_agent(
+            &data_path,
+            "default-agent",
+            false,
+            20,
+        )
+        .expect("list profile memories");
+        assert_eq!(profile_memories.len(), 1);
+        assert_eq!(profile_memories[0].id, knowledge_id);
+        assert_eq!(profile_memories[0].memory_type, "knowledge");
+    }
+
+    #[test]
+    fn memory_store_should_backfill_short_ids_for_legacy_rows() {
+        let data_path = temp_data_path("memory_store_backfill_short_id");
+        let now = now_iso();
+        let conn = memory_store_open(&data_path).expect("open conn");
+        conn.execute(
+            "INSERT INTO memory_record(
+                id, memory_type, judgment, reasoning, owner_agent_id, strength, is_active, memory_scope, useful_count, useful_score, created_at, updated_at
+             ) VALUES (?1, 'knowledge', 'legacy row', '', NULL, 0, 1, 'public', 0, 0, ?2, ?2)",
+            params!["legacy-id", now],
+        )
+        .expect("insert legacy row");
+        drop(conn);
+
+        let memories = memory_store_list_memories(&data_path).expect("list memories");
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].memory_no, Some(1));
+    }
+}

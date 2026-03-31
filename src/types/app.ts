@@ -336,6 +336,7 @@ export type ChatMessageBlock = {
   streamTail?: string;
   speakerAgentId?: string;
   createdAt?: string;
+  providerMeta?: ChatMessage["providerMeta"];
   text: string;
   images: Array<{ mime: string; bytesBase64: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;

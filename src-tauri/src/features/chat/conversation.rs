@@ -185,11 +185,65 @@ fn build_conversation_record(
         last_effective_prompt_tokens: 0,
         status: "active".to_string(),
         summary: String::new(),
+        user_profile_snapshot: String::new(),
         shell_workspace_path: None,
         archived_at: None,
         messages: Vec::new(),
         memory_recall_table: Vec::new(),
     }
+}
+
+fn build_foreground_chat_conversation_record(
+    data_path: &PathBuf,
+    data: &AppData,
+    api_config_id: &str,
+    agent_id: &str,
+    title: &str,
+) -> Conversation {
+    let mut conversation = build_conversation_record(
+        api_config_id,
+        agent_id,
+        title,
+        CONVERSATION_KIND_CHAT,
+        None,
+        None,
+    );
+    let snapshot_agent_id = agent_id
+        .trim()
+        .is_empty()
+        .then(|| data.assistant_department_agent_id.trim().to_string())
+        .unwrap_or_else(|| agent_id.trim().to_string());
+    let user_profile_snapshot = data
+        .agents
+        .iter()
+        .find(|item| item.id == snapshot_agent_id)
+        .and_then(|agent| match build_user_profile_snapshot_block(data_path, agent, 12) {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[用户画像] 失败，任务=build_foreground_chat_conversation_record，agent_id={}，error={}",
+                    agent.id, err
+                ));
+                None
+            }
+        });
+    if let Some(snapshot) = user_profile_snapshot.clone() {
+        conversation.user_profile_snapshot = snapshot;
+    }
+    let last_archive_summary = data
+        .conversations
+        .iter()
+        .rev()
+        .find(|item| !conversation_is_delegate(item) && !item.summary.trim().is_empty())
+        .map(|item| item.summary.as_str());
+    let summary_message = build_initial_summary_context_message(
+        last_archive_summary,
+        user_profile_snapshot.as_deref(),
+    );
+    conversation.last_user_at = Some(summary_message.created_at.clone());
+    conversation.updated_at = summary_message.created_at.clone();
+    conversation.messages.push(summary_message);
+    conversation
 }
 
 fn ensure_active_conversation_index(
@@ -265,6 +319,51 @@ fn ensure_main_conversation_index(
         data.main_conversation_id = Some(conversation.id.clone());
     }
     idx
+}
+
+fn ensure_active_foreground_conversation_index_atomic(
+    data: &mut AppData,
+    data_path: &PathBuf,
+    api_config_id: &str,
+    agent_id: &str,
+) -> usize {
+    let _ = normalize_main_conversation_marker(data, agent_id);
+    let _ = normalize_single_active_main_conversation(data);
+    if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
+        return idx;
+    }
+
+    if let Some(idx) = latest_main_conversation_index(data, agent_id) {
+        for conversation in &mut data.conversations {
+            if !conversation_visible_in_foreground_lists(conversation)
+                || !conversation.summary.trim().is_empty()
+            {
+                continue;
+            }
+            conversation.status = "active".to_string();
+        }
+        return idx;
+    }
+
+    let conversation =
+        build_foreground_chat_conversation_record(data_path, data, api_config_id, agent_id, "");
+    for item in &mut data.conversations {
+        if !conversation_visible_in_foreground_lists(item) || !item.summary.trim().is_empty() {
+            continue;
+        }
+        item.status = "active".to_string();
+    }
+    data.conversations.push(conversation);
+    if data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        data.main_conversation_id = data.conversations.last().map(|item| item.id.clone());
+    }
+    data.conversations.len() - 1
 }
 
 #[derive(Debug, Clone)]
@@ -533,24 +632,6 @@ fn build_user_parts(
     Ok(parts)
 }
 
-fn render_message_for_context(message: &ChatMessage) -> String {
-    let mut chunks = Vec::<String>::new();
-    for part in &message.parts {
-        match part {
-            MessagePart::Text { text } => chunks.push(text.clone()),
-            MessagePart::Image { mime, .. } => {
-                if mime.trim().eq_ignore_ascii_case("application/pdf") {
-                    chunks.push("[pdf attached]".to_string());
-                } else {
-                    chunks.push("[image attached]".to_string());
-                }
-            }
-            MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
-        }
-    }
-    format!("{}: {}", message.role.to_uppercase(), chunks.join(" | "))
-}
-
 fn render_message_content_for_model(message: &ChatMessage) -> String {
     let mut chunks = Vec::<String>::new();
     for part in &message.parts {
@@ -596,7 +677,10 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
 }
 
 fn sanitize_memory_block_xml(raw: &str) -> String {
-    if !raw.contains("<memory_board") && !raw.contains("[MemoryBoard]") {
+    if !raw.contains("<memory_board")
+        && !raw.contains("[MemoryBoard]")
+        && !raw.contains("<memory_context>")
+    {
         return raw.to_string();
     }
     raw.lines()
@@ -873,12 +957,65 @@ fn build_prompt_message_context_block(message: &ChatMessage) -> Option<String> {
     Some(format!("[消息上下文]\n{}", lines.join("\n")))
 }
 
+fn prompt_retrieved_memory_ids_from_message(message: &ChatMessage) -> Vec<String> {
+    let Some(meta) = message.provider_meta.as_ref() else {
+        return Vec::new();
+    };
+    let Some(ids) = meta
+        .get("retrieved_memory_ids")
+        .or_else(|| meta.get("recallMemoryIds"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::<String>::new();
+    ids.iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter_map(|value| {
+            let owned = value.to_string();
+            if seen.insert(owned.clone()) {
+                Some(owned)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+fn prompt_recall_memory_block_for_message(
+    message: &ChatMessage,
+    recall_memories: Option<&[MemoryEntry]>,
+    seen_memory_ids: &mut HashSet<String>,
+) -> Option<String> {
+    let Some(memories) = recall_memories else {
+        return None;
+    };
+    let retrieved_ids = prompt_retrieved_memory_ids_from_message(message);
+    if retrieved_ids.is_empty() {
+        return None;
+    }
+    let inject_ids = retrieved_ids
+        .into_iter()
+        .filter(|memory_id| seen_memory_ids.insert(memory_id.clone()))
+        .collect::<Vec<_>>();
+    build_memory_board_xml_from_recall_ids(memories, &inject_ids)
+}
+
 fn prompt_user_extra_blocks_for_message(
     message: &ChatMessage,
+    recall_memories: Option<&[MemoryEntry]>,
+    seen_memory_ids: &mut HashSet<String>,
 ) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
     if let Some(context_block) = build_prompt_message_context_block(message) {
         blocks.push(context_block);
+    }
+    if let Some(recall_block) =
+        prompt_recall_memory_block_for_message(message, recall_memories, seen_memory_ids)
+    {
+        blocks.push(recall_block);
     }
     for extra in &message.extra_text_blocks {
         if extra.trim().is_empty() {
@@ -917,46 +1054,27 @@ fn prompt_user_extra_blocks_for_message(
     blocks
 }
 
-fn append_prompt_user_blocks_to_text(base_text: &str, blocks: &[String]) -> String {
-    let mut out = String::new();
-    if !base_text.trim().is_empty() {
-        out.push_str(base_text);
-    }
-    for block in blocks {
-        let trimmed = block.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if !out.trim().is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(trimmed);
-    }
-    out
-}
-
-fn context_compaction_message_text(message: &ChatMessage) -> String {
-    let base_text = render_prompt_user_text_only(message);
-    let extra_blocks = prompt_user_extra_blocks_for_message(message);
-    clean_text(append_prompt_user_blocks_to_text(&base_text, &extra_blocks).trim())
+fn provider_meta_message_kind(message: &ChatMessage) -> Option<String> {
+    message
+        .provider_meta
+        .as_ref()?
+        .get("message_meta")
+        .and_then(Value::as_object)?
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn is_context_compaction_message(message: &ChatMessage, role: &str) -> bool {
     if role != "user" {
         return false;
     }
-    let text = context_compaction_message_text(message).to_ascii_lowercase();
-    if text.is_empty() {
-        return false;
-    }
-    text.contains("[上下文整理]")
-        || text.contains("上下文整理")
-        || text.contains("整理摘要")
-        || text.contains("[上下文压缩]")
-        || text.contains("上下文压缩")
-        || text.contains("压缩摘要")
-        || text.contains("context compression")
-        || text.contains("context compact")
+    matches!(
+        provider_meta_message_kind(message).as_deref(),
+        Some("context_compaction") | Some("summary_context_seed")
+    )
 }
 
 fn resolve_media_from_parts(
@@ -1242,6 +1360,18 @@ fn build_departments_prompt_block(
     prompt_xml_block("department context", lines.join("\n"))
 }
 
+fn build_memory_rag_rule_block() -> String {
+    prompt_xml_block(
+        "memory rag rule",
+        "当用户消息中出现 `<memory_context>` 块时，应将其视为系统检索出的历史记忆背景，而不是用户当前这条消息本身。\n\
+         1. 只有在确有帮助时才参考这些记忆。\n\
+         2. 应自然融入理解与回复，不要主动暴露检索、注入或档案读取等机制。\n\
+         3. 不要把这些记忆误当成用户此刻正在明确表达的立场、需求或情绪。\n\
+         4. 若当前消息与记忆冲突，一律以当前消息为准。\n\
+         5. 若用户明确追问你为什么记得，可以坦诚说明这来自历史对话记忆。",
+    )
+}
+
 fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1407,9 +1537,26 @@ fn build_prompt_with_mode(
         messages: enriched_messages,
         ..conversation.clone()
     };
+    let recall_memories = data_path.and_then(|path| {
+        match memory_store_list_memories_visible_for_agent(
+            path,
+            &agent.id,
+            agent.private_memory_enabled,
+        ) {
+            Ok(memories) => Some(memories),
+            Err(err) => {
+                eprintln!(
+                    "[提示词] 读取可见记忆失败，conversation_id={}，agent_id={}，error={}",
+                    conversation.id, agent.id, err
+                );
+                None
+            }
+        }
+    });
 
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let mut seen_remote_contacts = std::collections::HashSet::<String>::new();
+    let mut seen_prompt_memory_ids = HashSet::<String>::new();
     let compression_message_indexes = enriched_conversation
         .messages
         .iter()
@@ -1463,10 +1610,17 @@ fn build_prompt_with_mode(
             ));
         }
         let is_user = role == "user";
+        let history_extra_blocks = if is_user {
+            prompt_user_extra_blocks_for_message(
+                message,
+                recall_memories.as_deref(),
+                &mut seen_prompt_memory_ids,
+            )
+        } else {
+            Vec::new()
+        };
         let mut text = if is_user {
-            let base_text = render_prompt_user_text_only(message);
-            let extra_blocks = prompt_user_extra_blocks_for_message(message);
-            append_prompt_user_blocks_to_text(&base_text, &extra_blocks)
+            render_prompt_user_text_only(message)
         } else {
             render_prompt_message_text(message)
         };
@@ -1482,6 +1636,7 @@ fn build_prompt_with_mode(
         history_messages.push(PreparedHistoryMessage {
             role: role.clone(),
             text,
+            extra_text_blocks: history_extra_blocks,
             user_time_text: if role == "user" {
                 let include_remote_identity = remote_im_contact_key_from_message(message)
                     .map(|key| seen_remote_contacts.insert(key))
@@ -1569,6 +1724,7 @@ fn build_prompt_with_mode(
         _ => prompt_xml_block("remote im contact rules", "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。"),
     };
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
+    let memory_rag_rule_block = build_memory_rag_rule_block();
     let mut preamble = if let Some((user_name, user_intro)) = user_profile {
         let user_intro_display = if user_intro.trim().is_empty() {
             not_provided_label.to_string()
@@ -1585,8 +1741,10 @@ fn build_prompt_with_mode(
 {}\n\
 {}\n\
 {}\n\
+{}\n\
 {}\n",
             highest_instruction_md,
+            memory_rag_rule_block,
             departments_block,
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(
@@ -1632,8 +1790,10 @@ fn build_prompt_with_mode(
 {}\n\
 {}\n\
 {}\n\
+{}\n\
 {}\n",
             highest_instruction_md,
+            memory_rag_rule_block,
             departments_block,
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(
@@ -1672,7 +1832,11 @@ fn build_prompt_with_mode(
         let latest_user_text_rendered = render_prompt_user_text_only(&msg);
         let (resolved_images, resolved_audios) =
             resolve_media_from_parts(&msg.parts, data_path, "[提示词] 最新消息");
-        let latest_extra_blocks = prompt_user_extra_blocks_for_message(&msg);
+        let latest_extra_blocks = prompt_user_extra_blocks_for_message(
+            &msg,
+            recall_memories.as_deref(),
+            &mut seen_prompt_memory_ids,
+        );
         let include_remote_identity = remote_im_contact_key_from_message(&msg)
             .map(|key| seen_remote_contacts.insert(key))
             .unwrap_or(false);
@@ -1696,6 +1860,14 @@ fn build_prompt_with_mode(
             }
             latest_user_extra_text.push_str(&extra);
         }
+        eprintln!(
+            "[提示词][当前消息组装] conversation_id={} message_id={} retrieved_memory_ids={:?} latest_extra_has_memory_board={} latest_extra_len={}",
+            conversation.id,
+            msg.id,
+            prompt_retrieved_memory_ids_from_message(&msg),
+            latest_user_extra_text.contains("<memory_context>"),
+            latest_user_extra_text.len()
+        );
         if latest_user_text.trim().is_empty()
             && latest_user_meta_text.trim().is_empty()
             && latest_user_extra_text.trim().is_empty()

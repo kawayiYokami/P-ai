@@ -122,6 +122,9 @@ fn estimate_prepared_prompt_tokens(
     for hm in &prepared.history_messages {
         total += 10.0;
         total += estimated_tokens_for_text(&hm.text);
+        for block in &hm.extra_text_blocks {
+            total += estimated_tokens_for_text(block);
+        }
         if let Some(v) = hm.user_time_text.as_deref() {
             total += estimated_tokens_for_text(v);
         }

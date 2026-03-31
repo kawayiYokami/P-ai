@@ -912,20 +912,20 @@ fn build_memory_board_xml_from_recall_ids(
     }
 
     let mut out = String::new();
-    out.push_str("<system-reminder>\n");
-    out.push_str("[MemoryBoard]\n\n");
-    out.push_str("以下为相关记忆，仅作背景参考，并非用户当前发言。请勿直接针对记忆内容作答，仅在确有帮助时自然使用。\n\n");
+    out.push_str("<memory_context>\n");
     for memory in ordered_memories {
+        let display_id = memory.display_id();
+        out.push_str(&format!("<id:{}>\n", display_id));
         out.push_str(memory.judgment.trim());
         out.push('\n');
         let reasoning = memory.reasoning.trim();
         let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
         out.push_str("> ");
         out.push_str(display_reasoning);
-        out.push_str("\n\n");
+        out.push_str(&format!("\n</id:{}>\n\n", display_id));
     }
     out.truncate(out.trim_end().len());
-    out.push_str("\n</system-reminder>");
+    out.push_str("\n</memory_context>");
     Some(out)
 }
 

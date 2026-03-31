@@ -1,5 +1,26 @@
 # 变更日志
 
+## 更新（未发布）：统一 SummaryContext、记忆RAG 与压缩消息结构标记
+
+- 重构（summary-context-memory-rag-unification）：统一 SummaryContext、记忆 RAG 与用户画像链路
+  - 归档与上下文压缩统一收敛为 `SummaryContext`，模型输出统一为 `summary/usefulMemoryIds/newMemories/mergeGroups/profileMemories` 五字段 JSON
+  - 聊天主链路改为先写 `retrieved_memory_ids`，再在 prompt 组装阶段按消息延迟注入 `<memory_context>`，避免把记忆块直接揉进消息正文
+  - 记忆存储新增 `memory_no` 与 `profile_memory_link`，支持用短 ID 管理记忆与用户画像记忆
+  - 请求体预览新增 `chat / compaction / archive` 三模式，便于直接核对 SummaryContext 与聊天请求体
+  - 同步补齐本轮重构的总览与模块计划文档，便于后续按实现回看设计边界
+
+- 修复（compaction-message-structured-meta-and-seed-order）：压缩消息改为结构化标记并修正旧会话摘要种子位置
+  - 压缩消息与摘要种子消息不再靠正文关键词识别，统一改为写入 `provider_meta.message_meta.kind`
+  - 前后端只按结构化 `kind` 识别压缩类消息，不再因为正文里出现“上下文压缩/压缩摘要”等词组误判为压缩边界
+  - 旧会话缺少摘要种子时，补种消息改为插入消息列表最开头，而不是追加到最后一条消息之后
+  - 压缩消息的 `speaker_agent_id` 统一挂到系统人格 `system-persona / 凯瑟琳`，避免后续链路把它误当成用户本人发言
+
+- 测试（summary-context-and-compaction-regression）：补齐关键回归
+  - Rust 单测覆盖“普通消息提到上下文压缩但不得触发压缩边界”
+  - Rust 单测覆盖“即使正文以 `[上下文整理]` 开头，只要没有结构化 meta 也不得认作压缩消息”
+  - 前端类型检查覆盖 `providerMeta` 透传到 `ChatMessageBlock` 的链路
+
+
 ## 更新（v0.8.71）：优化发布构建与静态网页抓取请求头
 
 - 调整（release-build-profile-tightening）：收紧发布构建产物体积与链接策略

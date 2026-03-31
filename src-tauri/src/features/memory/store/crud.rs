@@ -132,11 +132,6 @@ fn memory_store_upsert_drafts(
     data_path: &PathBuf,
     drafts: &[MemoryDraftInput],
 ) -> Result<(Vec<MemorySaveUpsertItemResult>, usize), String> {
-    let started_at = std::time::Instant::now();
-    runtime_log_info(format!(
-        "[记忆存储] 开始，任务=memory_store_upsert_drafts，drafts={}",
-        drafts.len()
-    ));
     if drafts.is_empty() {
         return Ok((Vec::new(), memory_store_count(data_path)?));
     }
@@ -154,14 +149,18 @@ fn memory_store_upsert_drafts(
     memory_jieba_add_words(&draft_tags);
 
     let now = now_iso();
+    let mut next_memory_no = tx
+        .query_row(
+            "SELECT COALESCE(MAX(memory_no), 0) + 1 FROM memory_record",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|err| format!("Query next memory_no failed: {err}"))?
+        .max(1) as u64;
     let mut results = Vec::<MemorySaveUpsertItemResult>::new();
     for draft in drafts {
         let memory_type = memory_store_normalize_memory_type(&draft.memory_type)?;
         if memory_contains_sensitive(&draft.judgment, &draft.tags) {
-            runtime_log_info(format!(
-                "[记忆存储] 跳过，任务=memory_store_upsert_drafts，reason=sensitive_rejected，judgment_len={}",
-                draft.judgment.len()
-            ));
             results.push(MemorySaveUpsertItemResult {
                 saved: false,
                 id: None,
@@ -200,16 +199,34 @@ fn memory_store_upsert_drafts(
                 ],
             )
             .map_err(|err| format!("Update memory_record failed: {err}"))?;
+            tx.execute(
+                "UPDATE memory_record
+                 SET memory_no=COALESCE(memory_no, ?1)
+                 WHERE id=?2",
+                params![next_memory_no as i64, id],
+            )
+            .map_err(|err| format!("Backfill existing memory_no failed: {err}"))?;
+            let assigned_no = tx
+                .query_row(
+                    "SELECT memory_no FROM memory_record WHERE id=?1",
+                    params![id.clone()],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .map_err(|err| format!("Read existing memory_no failed: {err}"))?
+                .unwrap_or(next_memory_no as i64)
+                .max(1) as u64;
+            next_memory_no = assigned_no.saturating_add(1).max(next_memory_no);
             id
         } else {
             let id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO memory_record(
-                    id, memory_type, judgment, reasoning, owner_agent_id, strength, is_active, memory_scope, useful_count, useful_score, created_at, updated_at
+                    id, memory_no, memory_type, judgment, reasoning, owner_agent_id, strength, is_active, memory_scope, useful_count, useful_score, created_at, updated_at
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, 'public', 0, 0, ?6, ?7)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1, 'public', 0, 0, ?7, ?8)",
                 params![
                     id,
+                    next_memory_no as i64,
                     memory_type,
                     draft.judgment,
                     draft.reasoning,
@@ -219,6 +236,7 @@ fn memory_store_upsert_drafts(
                 ],
             )
             .map_err(|err| format!("Insert memory_record failed: {err}"))?;
+            next_memory_no += 1;
             id
         };
 
@@ -239,15 +257,6 @@ fn memory_store_upsert_drafts(
     invalidate_memory_matcher_cache();
 
     let total = memory_store_count(data_path)?;
-    let success_count = results.iter().filter(|item| item.saved).count();
-    let skipped_count = results.len().saturating_sub(success_count);
-    runtime_log_info(format!(
-        "[记忆存储] 完成，任务=memory_store_upsert_drafts，success_count={}，skipped_count={}，total={}，elapsed_ms={}",
-        success_count,
-        skipped_count,
-        total,
-        started_at.elapsed().as_millis()
-    ));
     Ok((results, total))
 }
 
@@ -264,7 +273,7 @@ fn memory_store_list_memories(data_path: &PathBuf) -> Result<Vec<MemoryEntry>, S
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at
+            "SELECT id, memory_no, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at
              FROM memory_record
              ORDER BY updated_at DESC",
         )
@@ -274,19 +283,20 @@ fn memory_store_list_memories(data_path: &PathBuf) -> Result<Vec<MemoryEntry>, S
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
+                row.get::<_, Option<i64>>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(|err| format!("Query list memories failed: {err}"))?;
 
     let mut out = Vec::<MemoryEntry>::new();
     for row in rows {
-        let (id, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at) =
+        let (id, memory_no, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at) =
             row.map_err(|err| format!("Read memory row failed: {err}"))?;
         let mut tag_stmt = conn
             .prepare(
@@ -307,6 +317,7 @@ fn memory_store_list_memories(data_path: &PathBuf) -> Result<Vec<MemoryEntry>, S
 
         out.push(MemoryEntry {
             id,
+            memory_no: memory_no.map(|value| value.max(0) as u64),
             memory_type,
             judgment,
             reasoning,

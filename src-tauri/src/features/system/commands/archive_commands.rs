@@ -1,6 +1,22 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptPreviewMode {
+    Chat,
+    Compaction,
+    Archive,
+}
+
+fn parse_prompt_preview_mode(raw: Option<&str>) -> PromptPreviewMode {
+    match raw.unwrap_or("").trim() {
+        "compaction" => PromptPreviewMode::Compaction,
+        "archive" => PromptPreviewMode::Archive,
+        _ => PromptPreviewMode::Chat,
+    }
+}
+
 #[tauri::command]
 fn get_prompt_preview(
     input: SessionSelector,
+    preview_mode: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<PromptPreview, String> {
     let guard = state
@@ -44,6 +60,7 @@ fn get_prompt_preview(
         .find(|a| a.id == effective_agent_id)
         .cloned()
         .ok_or_else(|| "Selected agent not found.".to_string())?;
+    let preview_mode = parse_prompt_preview_mode(preview_mode.as_deref());
 
     let conversation = input
         .conversation_id
@@ -79,11 +96,47 @@ fn get_prompt_preview(
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: Vec::new(),
             memory_recall_table: Vec::new(),
         });
+    let latest_user_message = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| prompt_role_for_message(message, &effective_agent_id).as_deref() == Some("user"));
+    let latest_user_message_id = latest_user_message
+        .map(|message| message.id.clone())
+        .unwrap_or_default();
+    let latest_user_retrieved_memory_ids = latest_user_message
+        .and_then(|message| {
+            message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("retrieved_memory_ids").or_else(|| meta.get("recallMemoryIds")))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "[请求体预览][当前消息提取] mode={:?} requested_conversation_id={:?} selected_conversation_id={} agent_id={} latest_user_message_id={} latest_user_retrieved_memory_ids={:?}",
+        preview_mode,
+        input.conversation_id,
+        conversation.id,
+        effective_agent_id,
+        latest_user_message_id,
+        latest_user_retrieved_memory_ids
+    );
 
     let user_name = user_persona_name(&data);
     let user_intro = user_persona_intro(&data);
@@ -93,29 +146,92 @@ fn get_prompt_preview(
         .rev()
         .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
         .map(|c| c.summary.clone());
-    let prepared = build_prepared_prompt_for_mode(
-        PromptBuildMode::Chat,
-        &conversation,
-        &agent,
-        &data.agents,
-        &app_config.departments,
-        &user_name,
-        &user_intro,
-        &data.response_style_id,
-        &app_config.ui_language,
-        Some(&state.data_path),
-        last_archive_summary.as_deref(),
-        terminal_prompt_trusted_roots_block(&state, &api_config),
-        Some(ChatPromptOverrides {
-            system_preamble_blocks: vec![build_hidden_skill_snapshot_block(&state)],
-            ..Default::default()
-        }),
-        Some(&*state),
-        Some(&resolved_api),
-        Some(data.pdf_read_mode == "image" && api_config.enable_image),
-    );
+    let prepared = match preview_mode {
+        PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conversation,
+            &agent,
+            &data.agents,
+            &app_config.departments,
+            &user_name,
+            &user_intro,
+            &data.response_style_id,
+            &app_config.ui_language,
+            Some(&state.data_path),
+            last_archive_summary.as_deref(),
+            terminal_prompt_trusted_roots_block(&state, &api_config),
+            Some(ChatPromptOverrides {
+                system_preamble_blocks: vec![build_hidden_skill_snapshot_block(&state)],
+                ..Default::default()
+            }),
+            Some(&*state),
+            Some(&resolved_api),
+            Some(data.pdf_read_mode == "image" && api_config.enable_image),
+        ),
+        PromptPreviewMode::Compaction | PromptPreviewMode::Archive => {
+            let host_agent_id = choose_archive_host_agent_id(&data, &conversation, &effective_agent_id);
+            let host_agent = data
+                .agents
+                .iter()
+                .find(|item| item.id == host_agent_id)
+                .cloned()
+                .ok_or_else(|| "Selected agent not found.".to_string())?;
+            build_prepared_prompt_for_mode(
+                PromptBuildMode::SummaryContext,
+                &conversation,
+                &host_agent,
+                &data.agents,
+                &app_config.departments,
+                &user_name,
+                &user_intro,
+                &data.response_style_id,
+                &app_config.ui_language,
+                Some(&state.data_path),
+                last_archive_summary.as_deref(),
+                None,
+                Some(ChatPromptOverrides {
+                    latest_user_text: Some(build_summary_context_requirement_block(
+                        if preview_mode == PromptPreviewMode::Compaction {
+                            SummaryContextScene::Compaction
+                        } else {
+                            SummaryContextScene::Archive
+                        },
+                    )),
+                    latest_user_meta_text: Some(build_summary_context_memory_block(
+                        &host_agent,
+                        &user_name,
+                        &build_user_profile_memory_board(&state.data_path, &host_agent)?
+                            .unwrap_or_else(|| "（无）".to_string()),
+                    )),
+                    latest_user_extra_blocks: vec![build_summary_context_json_contract_block(
+                        if preview_mode == PromptPreviewMode::Compaction {
+                            SummaryContextScene::Compaction
+                        } else {
+                            SummaryContextScene::Archive
+                        },
+                    )],
+                    latest_images: Some(Vec::new()),
+                    latest_audios: Some(Vec::new()),
+                    ..Default::default()
+                }),
+                Some(&*state),
+                Some(&resolved_api),
+                Some(data.pdf_read_mode == "image" && api_config.enable_image),
+            )
+        }
+    };
     let request_body_json = serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
         .map_err(|err| format!("Serialize request preview failed: {err}"))?;
+    eprintln!(
+        "[请求体预览] 完成: mode={:?} conversation_id={} latest_user_text_len={} latest_images={} latest_audios={} request_has_memory_board={} request_len={}",
+        preview_mode,
+        conversation.id,
+        prepared.latest_user_text.len(),
+        prepared.latest_images.len(),
+        prepared.latest_audios.len(),
+        request_body_json.contains("<memory_context>"),
+        request_body_json.len()
+    );
     drop(guard);
 
     Ok(PromptPreview {
@@ -132,7 +248,7 @@ fn get_system_prompt_preview(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<SystemPromptPreview, String> {
-    let preview = get_prompt_preview(input, state)?;
+    let preview = get_prompt_preview(input, None, state)?;
     Ok(SystemPromptPreview {
         system_prompt: preview.preamble,
     })

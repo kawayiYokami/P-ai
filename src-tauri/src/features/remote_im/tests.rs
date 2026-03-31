@@ -104,6 +104,7 @@
                 last_effective_prompt_tokens: 0,
                 status: "inactive".to_string(),
                 summary: String::new(),
+                user_profile_snapshot: String::new(),
                 shell_workspace_path: None,
                 archived_at: None,
                 messages: Vec::new(),
@@ -124,6 +125,7 @@
                 last_effective_prompt_tokens: 0,
                 status: "active".to_string(),
                 summary: String::new(),
+                user_profile_snapshot: String::new(),
                 shell_workspace_path: None,
                 archived_at: None,
                 messages: Vec::new(),
@@ -212,6 +214,7 @@
                 last_effective_prompt_tokens: 0,
                 status: "inactive".to_string(),
                 summary: String::new(),
+                user_profile_snapshot: String::new(),
                 shell_workspace_path: None,
                 archived_at: None,
                 messages: Vec::new(),
@@ -232,6 +235,7 @@
                 last_effective_prompt_tokens: 0,
                 status: "active".to_string(),
                 summary: String::new(),
+                user_profile_snapshot: String::new(),
                 shell_workspace_path: None,
                 archived_at: None,
                 messages: Vec::new(),
@@ -325,6 +329,7 @@
             last_effective_prompt_tokens: 0,
             status: "inactive".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: vec![ChatMessage {
@@ -384,6 +389,7 @@
             last_effective_prompt_tokens: 0,
             status: "inactive".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             archived_at: None,
             messages: vec![ChatMessage {
@@ -598,3 +604,4 @@
         assert!(media_refs.is_empty());
         assert_eq!(text, "节点名称：转发内容");
     }
+

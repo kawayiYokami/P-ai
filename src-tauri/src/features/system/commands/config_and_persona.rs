@@ -1843,13 +1843,12 @@ fn create_unarchived_conversation(
         }
         conversation.status = "active".to_string();
     }
-    let conversation = build_conversation_record(
+    let conversation = build_foreground_chat_conversation_record(
+        &state.data_path,
+        &data,
         &api_config_id,
-        "",
+        &data.assistant_department_agent_id,
         conversation_title,
-        CONVERSATION_KIND_CHAT,
-        None,
-        None,
     );
     let conversation_id = conversation.id.clone();
     data.conversations.push(conversation);
@@ -2038,7 +2037,12 @@ fn delete_unarchived_conversation(
     }
     let _ = normalize_main_conversation_marker(&mut data, "");
     if latest_main_conversation_index(&data, "").is_none() {
-        let _ = ensure_main_conversation_index(&mut data, "", "");
+        let _ = ensure_active_foreground_conversation_index_atomic(
+            &mut data,
+            &state.data_path,
+            "",
+            "",
+        );
     }
     let _ = normalize_single_active_main_conversation(&mut data);
     let active_conversation_id = data

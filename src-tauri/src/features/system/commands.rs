@@ -7,14 +7,8 @@ include!("commands/prompt_assembly.rs");
 // ==================== 调试日志命令 ====================
 include!("commands/debug_log_commands.rs");
 
-// ==================== 上下文整理（独立模块） ====================
-include!("commands/context_compaction/prompt_contract.rs");
-
 // ==================== 记忆整理（独立模块） ====================
 include!("commands/memory_curation/prompt_contract.rs");
-
-// ==================== 会话归档（独立模块） ====================
-include!("commands/conversation_archive/prompt_contract.rs");
 
 // ==================== 归档JSON解析层 ====================
 include!("commands/archive_summary_parser.rs");

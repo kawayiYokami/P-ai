@@ -547,6 +547,7 @@ mod terminal_workspace_tests {
             last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
+            user_profile_snapshot: String::new(),
             shell_workspace_path: Some(custom_workspace_path.to_string_lossy().to_string()),
             archived_at: None,
             messages: Vec::new(),
@@ -568,3 +569,4 @@ mod terminal_workspace_tests {
         let _ = std::fs::remove_dir_all(temp_root);
     }
 }
+

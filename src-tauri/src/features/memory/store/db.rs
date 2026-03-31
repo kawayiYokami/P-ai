@@ -66,6 +66,7 @@ fn apply_pragmas_and_create_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_record (
             id TEXT PRIMARY KEY,
+            memory_no INTEGER UNIQUE,
             memory_type TEXT NOT NULL DEFAULT 'knowledge',
             judgment TEXT NOT NULL,
             reasoning TEXT NOT NULL DEFAULT '',
@@ -92,6 +93,15 @@ fn apply_pragmas_and_create_schema(conn: &Connection) -> Result<(), String> {
             PRIMARY KEY (memory_id, tag_id),
             FOREIGN KEY(memory_id) REFERENCES memory_record(id) ON DELETE CASCADE,
             FOREIGN KEY(tag_id) REFERENCES global_tag(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_memory_link (
+            id TEXT PRIMARY KEY,
+            memory_id TEXT NOT NULL UNIQUE,
+            source TEXT NOT NULL DEFAULT 'auto',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(memory_id) REFERENCES memory_record(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS note_index_record (
@@ -135,6 +145,7 @@ fn apply_pragmas_and_create_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_memory_scope_active ON memory_record(memory_scope, is_active);
         CREATE INDEX IF NOT EXISTS idx_memory_useful_score ON memory_record(useful_score);
         CREATE INDEX IF NOT EXISTS idx_memory_tag_tag_id ON memory_tag_rel(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_profile_memory_updated_at ON profile_memory_link(updated_at);
         CREATE INDEX IF NOT EXISTS idx_note_updated_at ON note_index_record(updated_at);
         CREATE INDEX IF NOT EXISTS idx_note_file_id ON note_index_record(file_id);
         CREATE INDEX IF NOT EXISTS idx_note_tag_tag_id ON note_tag_rel(tag_id);
@@ -150,6 +161,64 @@ fn apply_pragmas_and_create_schema(conn: &Connection) -> Result<(), String> {
         );",
     )
     .map_err(|err| format!("Initialize memory db schema failed: {err}"))?;
+    Ok(())
+}
+
+fn migrate_memory_short_id(conn: &Connection) -> Result<(), String> {
+    let has_memory_no_col: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('memory_record') WHERE name='memory_no'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if has_memory_no_col == 0 {
+        conn.execute_batch(
+            "ALTER TABLE memory_record ADD COLUMN memory_no INTEGER;
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_memory_no ON memory_record(memory_no);",
+        )
+        .map_err(|err| format!("Migrate memory_record memory_no failed: {err}"))?;
+    } else {
+        conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_memory_no ON memory_record(memory_no);")
+            .map_err(|err| format!("Ensure idx_memory_memory_no failed: {err}"))?;
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id
+             FROM memory_record
+             WHERE memory_no IS NULL
+             ORDER BY datetime(created_at) ASC, created_at ASC, id ASC",
+        )
+        .map_err(|err| format!("Prepare list missing memory_no failed: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("Query missing memory_no failed: {err}"))?;
+    let mut missing_ids = Vec::<String>::new();
+    for row in rows {
+        missing_ids.push(row.map_err(|err| format!("Read missing memory_no row failed: {err}"))?);
+    }
+    if missing_ids.is_empty() {
+        return Ok(());
+    }
+
+    let max_memory_no = conn
+        .query_row(
+            "SELECT COALESCE(MAX(memory_no), 0) FROM memory_record",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|err| format!("Query max memory_no failed: {err}"))?
+        .max(0) as u64;
+    let mut next_memory_no = max_memory_no + 1;
+    for memory_id in missing_ids {
+        conn.execute(
+            "UPDATE memory_record SET memory_no=?1 WHERE id=?2 AND memory_no IS NULL",
+            params![next_memory_no as i64, memory_id],
+        )
+        .map_err(|err| format!("Backfill memory_no failed: {err}"))?;
+        next_memory_no += 1;
+    }
     Ok(())
 }
 
@@ -229,6 +298,22 @@ fn migrate_memory_fts(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_profile_memory_link(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS profile_memory_link (
+            id TEXT PRIMARY KEY,
+            memory_id TEXT NOT NULL UNIQUE,
+            source TEXT NOT NULL DEFAULT 'auto',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(memory_id) REFERENCES memory_record(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_profile_memory_updated_at ON profile_memory_link(updated_at);",
+    )
+    .map_err(|err| format!("Migrate profile_memory_link failed: {err}"))?;
+    Ok(())
+}
+
 // ========== repopulate_fts_if_needed ==========
 fn repopulate_fts_if_needed(conn: &Connection) -> Result<(), String> {
     // If memory_fts is empty but memory_record has data, repopulate.
@@ -276,8 +361,10 @@ fn repopulate_fts_if_needed(conn: &Connection) -> Result<(), String> {
 
 fn memory_store_init_schema(conn: &Connection) -> Result<(), String> {
     apply_pragmas_and_create_schema(conn)?;
+    migrate_memory_short_id(conn)?;
     migrate_owner_agent_col(conn)?;
     migrate_memory_fts(conn)?;
+    migrate_profile_memory_link(conn)?;
     repopulate_fts_if_needed(conn)?;
 
     Ok(())
@@ -315,4 +402,3 @@ fn memory_store_provider_model_name(
     .optional()
     .map_err(|err| format!("Query provider model_name failed: {err}"))
 }
-

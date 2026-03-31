@@ -1277,6 +1277,8 @@ struct Conversation {
     #[serde(default)]
     summary: String,
     #[serde(default)]
+    user_profile_snapshot: String,
+    #[serde(default)]
     shell_workspace_path: Option<String>,
     #[serde(default)]
     archived_at: Option<String>,
@@ -1389,6 +1391,8 @@ pub struct PdfRenderedImage {
 #[serde(rename_all = "camelCase")]
 struct MemoryEntry {
     id: String,
+    #[serde(default)]
+    memory_no: Option<u64>,
     #[serde(default, alias = "memoryType")]
     memory_type: String,
     #[serde(default, alias = "content")]
@@ -1401,6 +1405,14 @@ struct MemoryEntry {
     owner_agent_id: Option<String>,
     created_at: String,
     updated_at: String,
+}
+
+impl MemoryEntry {
+    fn display_id(&self) -> String {
+        self.memory_no
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| self.id.clone())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1639,6 +1651,7 @@ struct ResolvedApiConfig {
 struct PreparedHistoryMessage {
     role: String,
     text: String,
+    extra_text_blocks: Vec<String>,
     user_time_text: Option<String>,
     images: Vec<(String, String)>,
     audios: Vec<(String, String)>,

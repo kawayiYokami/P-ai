@@ -75,6 +75,34 @@ fn remote_im_message_has_reply_decision(message: &ChatMessage) -> bool {
         .is_some()
 }
 
+fn write_retrieved_memory_ids_into_provider_meta(
+    provider_meta: &mut Option<Value>,
+    recall_hit_ids: &[String],
+) {
+    let deduped_ids = memory_board_ids_from_current_hits(recall_hit_ids, recall_hit_ids.len());
+    if deduped_ids.is_empty() {
+        return;
+    }
+    let mut meta = provider_meta
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !meta.is_object() {
+        meta = serde_json::json!({});
+    }
+    if let Some(obj) = meta.as_object_mut() {
+        obj.insert(
+            "retrieved_memory_ids".to_string(),
+            Value::Array(
+                deduped_ids
+                    .into_iter()
+                    .map(Value::String)
+                    .collect::<Vec<_>>(),
+            ),
+        );
+    }
+    *provider_meta = Some(meta);
+}
+
 fn remote_im_activation_source_summary_line(source: &RemoteImActivationSource) -> String {
     let mut parts = vec![
         format!("channel_id={}", source.channel_id.trim()),
@@ -482,43 +510,53 @@ fn prioritize_requested_chat_api_id(
     candidate_api_ids.insert(0, requested_api_id.to_string());
 }
 
-fn memory_recall_query_from_conversation_window(
-    conversation: &Conversation,
-    effective_agent_id: &str,
-) -> String {
-    let last_assistant_index = conversation
-        .messages
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(idx, message)| {
-            let role = prompt_role_for_message(message, effective_agent_id)?;
-            if role == "assistant" {
-                Some(idx)
-            } else {
-                None
-            }
-        });
+fn memory_recall_query_from_user_text(user_text: &str) -> String {
+    clean_text(user_text.trim())
+}
 
-    conversation
-        .messages
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| last_assistant_index.map(|boundary| *idx > boundary).unwrap_or(true))
-        .filter_map(|(_, message)| {
-            let role = prompt_role_for_message(message, effective_agent_id)?;
-            if role != "user" {
-                return None;
+fn render_message_parts_text_for_recall(parts: &[MessagePart]) -> String {
+    parts.iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text } => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
             }
-            let text = render_message_content_for_model(message).trim().to_string();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text)
-            }
+            MessagePart::Image { .. } | MessagePart::Audio { .. } => None,
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn collect_recall_ids_for_user_message(
+    data_path: &PathBuf,
+    agents: &[AgentProfile],
+    effective_agent_id: &str,
+    message: &ChatMessage,
+) -> Result<Vec<String>, String> {
+    if message.role.trim() != "user" {
+        return Ok(Vec::new());
+    }
+    let private_memory_enabled = agents
+        .iter()
+        .find(|a| a.id == effective_agent_id)
+        .map(|a| a.private_memory_enabled)
+        .unwrap_or(false);
+    let recall_query_text =
+        memory_recall_query_from_user_text(&render_message_parts_text_for_recall(&message.parts));
+    if recall_query_text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let store_memories = memory_store_list_memories_visible_for_agent(
+        data_path,
+        effective_agent_id,
+        private_memory_enabled,
+    )?;
+    let recall_hit_ids = memory_recall_hit_ids(data_path, &store_memories, &recall_query_text);
+    Ok(memory_board_ids_from_current_hits(&recall_hit_ids, 7))
 }
 
 async fn send_chat_message_inner(
@@ -1079,7 +1117,7 @@ async fn send_chat_message_inner(
                     .is_some()
             })
             .map(ToOwned::to_owned);
-        let mut runtime_conversation = if let Some(conversation_id) = runtime_conversation_id.as_deref() {
+        let runtime_conversation = if let Some(conversation_id) = runtime_conversation_id.as_deref() {
             delegate_runtime_thread_conversation_get(&state, conversation_id)?
                 .ok_or_else(|| format!("指定临时会话不存在：{conversation_id}"))?
         } else {
@@ -1098,6 +1136,7 @@ async fn send_chat_message_inner(
                 last_effective_prompt_tokens: 0,
                 status: String::new(),
                 summary: String::new(),
+                user_profile_snapshot: String::new(),
                 shell_workspace_path: None,
                 archived_at: None,
                 messages: Vec::new(),
@@ -1119,7 +1158,12 @@ async fn send_chat_message_inner(
                     .ok_or_else(|| format!("指定会话不存在或不可用：{conversation_id}"))?,
             )
         } else {
-            Some(ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id))
+            Some(ensure_active_foreground_conversation_index_atomic(
+                &mut data,
+                &state.data_path,
+                &selected_api.id,
+                &effective_agent_id,
+            ))
         };
         if idx.is_some() {
             for (_i, conversation) in data.conversations.iter_mut().enumerate() {
@@ -1145,6 +1189,33 @@ async fn send_chat_message_inner(
             .as_ref()
             .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
             .unwrap_or_else(|| "continuous".to_string());
+        if !is_runtime_conversation
+            && !conversation_is_delegate(&conversation_before)
+            && !is_remote_im_contact_conversation
+            && conversation_before.user_profile_snapshot.trim().is_empty()
+        {
+            match build_user_profile_snapshot_block(&state.data_path, &agent, 12) {
+                Ok(Some(snapshot)) => {
+                    if let Some(actual_idx) = idx {
+                        data.conversations[actual_idx].user_profile_snapshot = snapshot;
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    runtime_log_error(format!(
+                        "[用户画像] 失败，任务=seed_conversation_profile_snapshot，conversation_id={}，agent_id={}，error={}",
+                        conversation_before.id,
+                        agent.id,
+                        err
+                    ));
+                }
+            }
+        }
+        let conversation_before = if let Some(actual_idx) = idx {
+            data.conversations[actual_idx].clone()
+        } else {
+            conversation_before
+        };
         let last_archive_summary = if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
             None
         } else {
@@ -1168,7 +1239,7 @@ async fn send_chat_message_inner(
         } else {
             conversation_before.clone()
         };
-        let mut conversation = if trigger_only {
+        let conversation = if trigger_only {
             let latest_message = prompt_conversation_before
                 .messages
                 .last()
@@ -1193,8 +1264,57 @@ async fn send_chat_message_inner(
             let mut user_parts = build_user_parts(&storage_payload, &storage_api)?;
             externalize_message_parts_to_media_refs(&mut user_parts, &state.data_path)?;
             let attachment_meta = normalize_payload_attachments(input.payload.attachments.as_ref());
-            let user_provider_meta =
+            let mut user_provider_meta =
                 merge_provider_meta_with_attachments(input.payload.provider_meta.clone(), &attachment_meta);
+            let current_user_recall_text = render_message_parts_text_for_recall(&user_parts);
+            let is_delegate_conversation =
+                prompt_conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
+            if !is_delegate_conversation {
+                let private_memory_enabled = data
+                    .agents
+                    .iter()
+                    .find(|a| a.id == effective_agent_id)
+                    .map(|a| a.private_memory_enabled)
+                    .unwrap_or(false);
+                let recall_query_text = memory_recall_query_from_user_text(&current_user_recall_text);
+                if !recall_query_text.trim().is_empty() {
+                    let store_memories = memory_store_list_memories_visible_for_agent(
+                        &state.data_path,
+                        &effective_agent_id,
+                        private_memory_enabled,
+                    )?;
+                    let recall_hit_ids =
+                        memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
+                    let stored_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
+                    write_retrieved_memory_ids_into_provider_meta(
+                        &mut user_provider_meta,
+                        &stored_recall_ids,
+                    );
+                    if let Some(actual_idx) = idx {
+                        for memory_id in &recall_hit_ids {
+                            data.conversations[actual_idx]
+                                .memory_recall_table
+                                .push(memory_id.clone());
+                        }
+                    }
+                    eprintln!(
+                        "[记忆RAG][当前消息召回] conversation_id={} user_message_text={:?} private_memory_enabled={} recall_query={:?} hit_ids={:?}",
+                        prompt_conversation_before.id,
+                        current_user_recall_text,
+                        private_memory_enabled,
+                        recall_query_text,
+                        stored_recall_ids
+                    );
+                    runtime_log_info(format!(
+                        "[记忆RAG] 消息写入前 状态=完成 conversation_id={} agent_id={} private_memory_enabled={} 检索query={:?} 命中memory_ids={:?}",
+                        prompt_conversation_before.id,
+                        effective_agent_id,
+                        private_memory_enabled,
+                        recall_query_text,
+                        stored_recall_ids
+                    ));
+                }
+            }
             let now = now_iso();
             let user_message = ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -1207,26 +1327,38 @@ async fn send_chat_message_inner(
                 tool_call: None,
                 mcp_call: None,
             };
-            if let Some(idx) = idx {
-                data.conversations[idx].messages.push(user_message);
-                data.conversations[idx].updated_at = now.clone();
-                data.conversations[idx].last_user_at = Some(now_iso());
-                data.conversations[idx].last_context_usage_ratio =
-                    compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
+            let current_message_retrieved_ids = user_message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("retrieved_memory_ids"))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            eprintln!(
+                "[记忆RAG][当前消息入队前] conversation_id={} user_message_id={} retrieved_memory_ids={:?}",
+                prompt_conversation_before.id,
+                user_message.id,
+                current_message_retrieved_ids
+            );
+            let mut next_conversation = if let Some(idx) = idx {
                 data.conversations[idx].clone()
             } else {
-                runtime_conversation.messages.push(user_message);
-                runtime_conversation.updated_at = now.clone();
-                runtime_conversation.last_user_at = Some(now_iso());
-                runtime_conversation.last_context_usage_ratio =
-                    compute_context_usage_ratio(&runtime_conversation, selected_api.context_window_tokens);
-                delegate_runtime_thread_conversation_update(
-                    &state,
-                    runtime_conversation_id.as_deref().unwrap_or_default(),
-                    runtime_conversation.clone(),
-                )?;
                 runtime_conversation.clone()
-            }
+            };
+            next_conversation.messages.push(user_message);
+            next_conversation.updated_at = now.clone();
+            next_conversation.last_user_at = Some(now_iso());
+            next_conversation.last_context_usage_ratio =
+                compute_context_usage_ratio(&next_conversation, selected_api.context_window_tokens);
+            next_conversation
         };
         let user_name = user_persona_name(&data);
         let user_intro = user_persona_intro(&data);
@@ -1243,68 +1375,46 @@ async fn send_chat_message_inner(
         };
         let is_delegate_conversation =
             conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
-        let recall_query_text =
-            memory_recall_query_from_conversation_window(&conversation, &effective_agent_id);
-        if !is_delegate_conversation {
-            let private_memory_enabled = data
-                .agents
-                .iter()
-                .find(|a| a.id == effective_agent_id)
-                .map(|a| a.private_memory_enabled)
-                .unwrap_or(false);
-            let store_memories = memory_store_list_memories_visible_for_agent(
-                &state.data_path,
-                &effective_agent_id,
-                private_memory_enabled,
-            )?;
-            let recall_hit_ids =
-                memory_recall_hit_ids(&state.data_path, &store_memories, &recall_query_text);
-            let latest_recall_ids = memory_board_ids_from_current_hits(&recall_hit_ids, 7);
-            let memory_board_xml =
-                build_memory_board_xml_from_recall_ids(&store_memories, &latest_recall_ids);
-            if let Some(xml) = &memory_board_xml {
-                if let Some((latest_user_idx, _)) = conversation
+        if !trigger_only {
+            if let Some(actual_idx) = idx {
+                data.conversations[actual_idx] = conversation.clone();
+                let persisted_user_meta = data.conversations[actual_idx]
                     .messages
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, message)| {
-                        prompt_role_for_message(message, &effective_agent_id).as_deref()
-                            == Some("user")
+                    .last()
+                    .and_then(|message| {
+                        message
+                            .provider_meta
+                            .as_ref()
+                            .and_then(|meta| meta.get("retrieved_memory_ids"))
+                            .and_then(Value::as_array)
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .collect::<Vec<_>>()
+                            })
                     })
-                {
-                    conversation.messages[latest_user_idx]
-                        .extra_text_blocks
-                        .push(xml.clone());
-                }
+                    .unwrap_or_default();
+                eprintln!(
+                    "[记忆RAG][持久化后] conversation_id={} latest_user_message_id={} latest_user_retrieved_memory_ids={:?}",
+                    conversation.id,
+                    data.conversations[actual_idx]
+                        .messages
+                        .last()
+                        .map(|message| message.id.clone())
+                        .unwrap_or_default(),
+                    persisted_user_meta
+                );
+            } else {
+                delegate_runtime_thread_conversation_update(
+                    &state,
+                    runtime_conversation_id.as_deref().unwrap_or_default(),
+                    conversation.clone(),
+                )?;
             }
-            if let Some(idx) = idx {
-                for memory_id in &recall_hit_ids {
-                    data.conversations[idx]
-                        .memory_recall_table
-                        .push(memory_id.clone());
-                }
-            }
-            eprintln!(
-                "[记忆RAG] 消息组建节点: conversation_id={}, agent_id={}, private_memory_enabled={}, visible_memories={}, recall_query={:?}, hit_ids={:?}, memory_board_present={}",
-                conversation.id,
-                effective_agent_id,
-                private_memory_enabled,
-                store_memories.len(),
-                recall_query_text,
-                latest_recall_ids,
-                memory_board_xml.is_some()
-            );
-            runtime_log_info(format!(
-                "[记忆RAG] 消息组建节点 状态=完成 conversation_id={} agent_id={} private_memory_enabled={} 可见记忆数={} 检索query={:?} 命中memory_ids={:?} 注入memory_board={:?}",
-                conversation.id,
-                effective_agent_id,
-                private_memory_enabled,
-                store_memories.len(),
-                recall_query_text,
-                latest_recall_ids,
-                memory_board_xml.as_deref().unwrap_or("")
-            ));
         }
         let mut chat_overrides = ChatPromptOverrides::default();
         chat_overrides
@@ -1379,6 +1489,42 @@ async fn send_chat_message_inner(
 
         if !trigger_only && !is_runtime_conversation {
             state_write_app_data_cached(&state, &data)?;
+            if let Some(persisted_idx) = data
+                .conversations
+                .iter()
+                .position(|item| item.id == conversation_id)
+            {
+                let persisted_user_meta = data.conversations[persisted_idx]
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| {
+                        prompt_role_for_message(message, &effective_agent_id).as_deref()
+                            == Some("user")
+                    })
+                    .and_then(|message| {
+                        message
+                            .provider_meta
+                            .as_ref()
+                            .and_then(|meta| meta.get("retrieved_memory_ids"))
+                            .and_then(Value::as_array)
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                    .unwrap_or_default();
+                eprintln!(
+                    "[记忆RAG][持久化后] conversation_id={} latest_user_retrieved_memory_ids={:?}",
+                    conversation_id,
+                    persisted_user_meta
+                );
+            }
         }
         drop(guard);
 

@@ -129,6 +129,7 @@
       :prompt-preview-latest-user-text="promptPreviewLatestUserText"
       :prompt-preview-latest-images="promptPreviewLatestImages"
       :prompt-preview-latest-audios="promptPreviewLatestAudios"
+      :load-prompt-preview="loadPromptPreview"
       :set-memory-dialog-ref="setMemoryDialogRef"
       :set-prompt-preview-dialog-ref="setPromptPreviewDialogRef"
       :set-status="setStatus"
@@ -642,6 +643,7 @@ const {
   promptPreviewLatestImages,
   promptPreviewLatestAudios,
   promptPreviewMode,
+  loadPromptPreview,
   openPromptPreview: openPromptPreviewDialog,
   openSystemPromptPreview: openSystemPromptPreviewDialog,
   closePromptPreview,
@@ -2692,23 +2694,34 @@ const chatFlow = useChatFlow({
       const existing = allMessages.value;
       const dedup = new Set(existing.map((m) => String(m.id || "").trim()).filter((id) => !!id));
       const beforeDedupCount = queueMessages.length;
-      const appended = queueMessages.filter((m) => {
+      const uniqueIncoming = queueMessages.filter((m) => {
         const id = String(m.id || "").trim();
         if (!id) return true;
         if (dedup.has(id)) return false;
         dedup.add(id);
         return true;
       });
-      allMessages.value = [...existing, ...appended];
-      const appendedSummary = appended.map((message) => {
+      const prepended = uniqueIncoming.filter((message) => {
+        const meta = ((message.providerMeta || {}) as Record<string, unknown>);
+        const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
+        return String(messageMeta.kind || "").trim() === "summary_context_seed";
+      });
+      const appended = uniqueIncoming.filter((message) => {
+        const meta = ((message.providerMeta || {}) as Record<string, unknown>);
+        const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
+        return String(messageMeta.kind || "").trim() !== "summary_context_seed";
+      });
+      allMessages.value = [...prepended, ...existing, ...appended];
+      const appendedSummary = uniqueIncoming.map((message) => {
         const meta = (message.providerMeta || {}) as Record<string, unknown>;
         const origin = meta.origin as Record<string, unknown> | undefined;
+        const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
         return {
           id: String(message.id || "").trim(),
           role: String(message.role || "").trim(),
           speakerAgentId: String(message.speakerAgentId || meta.speakerAgentId || meta.speaker_agent_id || "").trim(),
           originKind: String(origin?.kind || "").trim(),
-          messageKind: String(meta.messageKind || "").trim(),
+          messageKind: String(messageMeta.kind || meta.messageKind || "").trim(),
           textPreview: Array.isArray(message.parts)
             ? message.parts
               .filter((part) => part?.type === "text")
@@ -2730,10 +2743,12 @@ const chatFlow = useChatFlow({
         windowLabel: tauriWindowLabel.value,
         activateAssistant,
         beforeDedupCount,
+        prependedCount: prepended.length,
         appendedCount: appended.length,
-        droppedAsDuplicate: beforeDedupCount - appended.length,
+        droppedAsDuplicate: beforeDedupCount - uniqueIncoming.length,
         previousMessageCount: existing.length,
         finalMessageCount: allMessages.value.length,
+        firstPrependedId: String(prepended[0]?.id || ""),
         firstAppendedId: String(appended[0]?.id || ""),
         lastAppendedId: String(appended[appended.length - 1]?.id || ""),
       });

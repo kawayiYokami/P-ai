@@ -15,6 +15,7 @@
         let memories = vec![
             MemoryEntry {
                 id: "m-user".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "user-hit".to_string(),
                 reasoning: "".to_string(),
@@ -25,6 +26,7 @@
             },
             MemoryEntry {
                 id: "m-assistant-only".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "assistant-only-hit".to_string(),
                 reasoning: "".to_string(),
@@ -37,10 +39,10 @@
 
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should have one hit");
-        assert!(xml.starts_with("<system-reminder>\n[MemoryBoard]\n\n"));
-        assert!(xml.contains("以下为相关记忆，仅作背景参考，并非用户当前发言。请勿直接针对记忆内容作答，仅在确有帮助时自然使用。"));
-        assert!(xml.ends_with("\n</system-reminder>"));
+        assert!(xml.starts_with("<memory_context>\n<id:m-user>\n"));
+        assert!(xml.ends_with("\n</memory_context>"));
         assert!(xml.contains("user-hit"));
+        assert!(xml.contains("</id:m-user>"));
         assert!(!xml.contains("assistant-only-hit"));
     }
 
@@ -58,6 +60,7 @@
         let memories = vec![
             MemoryEntry {
                 id: "m1".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-8".to_string(),
                 reasoning: "".to_string(),
@@ -77,6 +80,7 @@
             },
             MemoryEntry {
                 id: "m2".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-7".to_string(),
                 reasoning: "".to_string(),
@@ -95,6 +99,7 @@
             },
             MemoryEntry {
                 id: "m3".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-6".to_string(),
                 reasoning: "".to_string(),
@@ -112,6 +117,7 @@
             },
             MemoryEntry {
                 id: "m4".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-5".to_string(),
                 reasoning: "".to_string(),
@@ -128,6 +134,7 @@
             },
             MemoryEntry {
                 id: "m5".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-4".to_string(),
                 reasoning: "".to_string(),
@@ -143,6 +150,7 @@
             },
             MemoryEntry {
                 id: "m6".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-3".to_string(),
                 reasoning: "".to_string(),
@@ -153,6 +161,7 @@
             },
             MemoryEntry {
                 id: "m7".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-2".to_string(),
                 reasoning: "".to_string(),
@@ -163,6 +172,7 @@
             },
             MemoryEntry {
                 id: "m8".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "rank-1".to_string(),
                 reasoning: "".to_string(),
@@ -176,8 +186,7 @@
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should produce board");
 
-        assert!(xml.starts_with("<system-reminder>\n[MemoryBoard]\n\n"));
-        assert!(xml.contains("以下为相关记忆，仅作背景参考，并非用户当前发言。请勿直接针对记忆内容作答，仅在确有帮助时自然使用。"));
+        assert!(xml.starts_with("<memory_context>\n<id:m1>\n"));
         assert_eq!(xml.matches("\n> ").count(), 7);
         assert!(xml.contains("rank-8"));
         assert!(xml.contains("rank-2"));
@@ -199,6 +208,7 @@
 
         let memories = vec![MemoryEntry {
             id: "m-reasoning".to_string(),
+            memory_no: None,
             memory_type: "knowledge".to_string(),
             judgment: "用户偏好简洁回答".to_string(),
             reasoning: "用户多次要求简短".to_string(),
@@ -209,8 +219,10 @@
         }];
 
         let xml = build_memory_board_xml(&memories, &search_text, "简洁").expect("should produce board");
+        assert!(xml.contains("<id:m-reasoning>"));
         assert!(xml.contains("用户偏好简洁回答"));
         assert!(xml.contains("> 用户多次要求简短"));
+        assert!(xml.contains("</id:m-reasoning>"));
     }
 
     #[test]
@@ -224,6 +236,7 @@
 
         let memories = vec![MemoryEntry {
             id: "m-empty-reasoning".to_string(),
+            memory_no: None,
             memory_type: "knowledge".to_string(),
             judgment: "用户提到记忆".to_string(),
             reasoning: "".to_string(),
@@ -234,6 +247,7 @@
         }];
 
         let xml = build_memory_board_xml(&memories, &search_text, "记忆").expect("should produce board");
+        assert!(xml.contains("<id:m-empty-reasoning>"));
         assert!(xml.contains("> 无"));
     }
 
@@ -242,6 +256,7 @@
         let memories = vec![
             MemoryEntry {
                 id: "m1".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "用户关注极简风格".to_string(),
                 reasoning: "".to_string(),
@@ -252,6 +267,7 @@
             },
             MemoryEntry {
                 id: "m2".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "用户关注项目A".to_string(),
                 reasoning: "".to_string(),
@@ -276,6 +292,7 @@
         let memories = vec![
             MemoryEntry {
                 id: "m1".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "用户提到 Apple".to_string(),
                 reasoning: "".to_string(),
@@ -286,6 +303,7 @@
             },
             MemoryEntry {
                 id: "m2".to_string(),
+                memory_no: None,
                 memory_type: "knowledge".to_string(),
                 judgment: "用户提到 apple".to_string(),
                 reasoning: "".to_string(),

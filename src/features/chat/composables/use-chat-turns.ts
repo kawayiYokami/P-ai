@@ -68,6 +68,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       streamTail,
       speakerAgentId: projection.speakerAgentId,
       createdAt: String(message.createdAt || "").trim() || undefined,
+      providerMeta: message.providerMeta,
       text: projection.text,
       images: projection.images,
       audios: projection.audios,

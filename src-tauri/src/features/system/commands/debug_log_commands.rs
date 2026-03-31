@@ -290,10 +290,22 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
         }
 
         if hm.role == "user" {
-            let mut content = vec![serde_json::json!({
-                "type": "text",
-                "text": hm.text,
-            })];
+            let mut content = Vec::<Value>::new();
+            if !hm.text.trim().is_empty() {
+                content.push(serde_json::json!({
+                    "type": "text",
+                    "text": hm.text,
+                }));
+            }
+            for block in &hm.extra_text_blocks {
+                if block.trim().is_empty() {
+                    continue;
+                }
+                content.push(serde_json::json!({
+                    "type": "text",
+                    "text": block,
+                }));
+            }
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     content.push(serde_json::json!({

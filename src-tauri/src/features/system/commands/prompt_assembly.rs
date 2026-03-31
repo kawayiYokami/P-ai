@@ -2,7 +2,7 @@
 enum PromptBuildMode {
     Chat,
     Delegate,
-    Archive,
+    SummaryContext,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -44,31 +44,6 @@ fn build_prepared_prompt_for_mode(
 ) -> PreparedPrompt {
     match mode {
         PromptBuildMode::Chat => {
-            let temp_config = AppConfig {
-                hotkey: String::new(),
-                ui_language: String::new(),
-                ui_font: String::new(),
-                record_hotkey: String::new(),
-                record_background_wake_enabled: false,
-                min_record_seconds: 0,
-                max_record_seconds: 0,
-                tool_max_iterations: 0,
-                selected_api_config_id: String::new(),
-                assistant_department_api_config_id: String::new(),
-                vision_api_config_id: None,
-                stt_api_config_id: None,
-                stt_auto_send: false,
-                terminal_shell_kind: default_terminal_shell_kind(),
-                shell_workspaces: Vec::new(),
-                mcp_servers: Vec::new(),
-                remote_im_channels: Vec::new(),
-                departments: departments.to_vec(),
-                provider_non_stream_base_urls: Vec::new(),
-                api_configs: Vec::new(),
-            };
-            let include_archive_recap = department_for_agent_id(&temp_config, &agent.id)
-            .map(|department| department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant)
-            .unwrap_or(false);
             let mut prepared = build_prompt(
                 conversation,
                 agent,
@@ -83,15 +58,7 @@ fn build_prepared_prompt_for_mode(
                 resolved_api,
                 enable_pdf_images.unwrap_or(false),
             );
-            prepared = enrich_prepared_prompt_with_common_preamble(
-                prepared,
-                if include_archive_recap {
-                    last_archive_summary
-                } else {
-                    None
-                },
-                terminal_block,
-            );
+            prepared = enrich_prepared_prompt_with_common_preamble(prepared, last_archive_summary, None, terminal_block);
             if let Some(overrides) = chat_overrides {
                 append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
                 let latest_user_text = overrides
@@ -124,7 +91,7 @@ fn build_prepared_prompt_for_mode(
                 resolved_api,
                 enable_pdf_images.unwrap_or(false),
             );
-            prepared = enrich_prepared_prompt_with_common_preamble(prepared, None, terminal_block);
+            prepared = enrich_prepared_prompt_with_common_preamble(prepared, None, None, terminal_block);
             if let Some(overrides) = chat_overrides {
                 append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
                 let latest_user_text = overrides
@@ -144,151 +111,115 @@ fn build_prepared_prompt_for_mode(
             }
             prepared
         }
-        PromptBuildMode::Archive => PreparedPrompt {
-            // Keep system/preamble stable for archive mode.
-            preamble: "你是一个严格遵循用户指令的助手。".to_string(),
-            history_messages: build_archive_history_messages(conversation),
-            latest_user_text: String::new(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        },
+        PromptBuildMode::SummaryContext => {
+            let prepared = build_prompt(
+                conversation,
+                agent,
+                agents,
+                departments,
+                user_name,
+                user_intro,
+                response_style_id,
+                ui_language,
+                data_path,
+                state,
+                resolved_api,
+                enable_pdf_images.unwrap_or(false),
+            );
+            let mut prepared =
+                enrich_prepared_prompt_with_common_preamble(prepared, last_archive_summary, None, terminal_block);
+            if let Some(overrides) = chat_overrides {
+                append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
+                let latest_user_text = overrides
+                    .latest_user_text
+                    .unwrap_or_else(|| prepared.latest_user_text.clone());
+                let latest_user_meta_text = overrides
+                    .latest_user_meta_text
+                    .unwrap_or_else(|| prepared.latest_user_meta_text.clone());
+                apply_chat_latest_user_payload(
+                    &mut prepared,
+                    latest_user_text,
+                    latest_user_meta_text,
+                    &overrides.latest_user_extra_blocks,
+                    overrides.latest_images,
+                    overrides.latest_audios,
+                );
+            }
+            prepared
+        }
     }
 }
 
-fn build_archive_history_messages(source_conversation: &Conversation) -> Vec<PreparedHistoryMessage> {
-    let mut history_messages = Vec::<PreparedHistoryMessage>::new();
-    for msg in &source_conversation.messages {
-        if msg.role == "assistant" {
-            history_messages.extend(build_prepared_history_messages_from_tool_history(
-                msg,
-                MessageToolHistoryView::PromptReplay,
-            ));
-        }
-
-        let mut text = archive_message_plain_text(msg);
-        if text.trim().is_empty() {
-            text = render_message_for_context(msg);
-        }
-        if msg.role == "user" {
-            text = strip_archive_role_prefix(&text, "USER:");
-        } else if msg.role == "assistant" {
-            text = strip_archive_role_prefix(&text, "ASSISTANT:");
-        }
-        let reasoning_content = msg
-            .provider_meta
-            .as_ref()
-            .and_then(Value::as_object)
-            .and_then(|obj| obj.get("reasoningStandard").and_then(Value::as_str))
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(ToOwned::to_owned);
-        history_messages.push(PreparedHistoryMessage {
-            role: msg.role.clone(),
-            text,
-            user_time_text: if msg.role == "user" {
-                Some(format_message_time_text(&msg.created_at))
-            } else {
-                None
-            },
-            images: Vec::new(),
-            audios: Vec::new(),
-            tool_calls: None,
-            tool_call_id: None,
-            reasoning_content,
-        });
+fn render_user_profile_memory_block(
+    memories: &[MemoryEntry],
+    block_name: &str,
+    intro: &str,
+) -> Option<String> {
+    if memories.is_empty() {
+        return None;
     }
-    history_messages
-}
-
-fn strip_archive_role_prefix(text: &str, prefix: &str) -> String {
-    let trimmed = text.trim_start();
-    let lower_text = trimmed.to_ascii_lowercase();
-    let lower_prefix = prefix.to_ascii_lowercase();
-    if lower_text.starts_with(&lower_prefix) {
-        let rest = &trimmed[prefix.len()..];
-        return rest.trim_start().to_string();
+    let mut lines = vec![intro.to_string()];
+    for memory in memories {
+        let display_id = memory.display_id();
+        lines.push(format!(
+            "<{}>\n类型：{}\n判断：{}\n理由：{}\n标签：{}\n</{}>",
+            display_id,
+            memory.memory_type,
+            clean_text(memory.judgment.trim()),
+            clean_text(memory.reasoning.trim()),
+            memory.tags.join("、"),
+            display_id
+        ));
     }
-    text.to_string()
-}
-
-fn archive_used_memories_block(memories: &[MemoryEntry], recall_table: &[String]) -> String {
-    if recall_table.is_empty() {
-        return "（无）".to_string();
-    }
-    let mut seen = HashSet::<String>::new();
-    let memory_map = memories
-        .iter()
-        .map(|m| (m.id.clone(), m))
-        .collect::<HashMap<String, &MemoryEntry>>();
-    let mut lines = Vec::<String>::new();
-    for memory_id in recall_table
-        .iter()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-    {
-        if !seen.insert(memory_id.to_string()) {
-            continue;
-        }
-        if let Some(memory) = memory_map.get(memory_id) {
-            lines.push(format!(
-                "<{}>\n判断：{}\n理由：{}\n</{}>",
-                memory_id,
-                clean_text(memory.judgment.trim()),
-                clean_text(memory.reasoning.trim()),
-                memory_id
-            ));
-        } else {
-            lines.push(format!("<{}>\n判断：\n理由：\n</{}>", memory_id, memory_id));
-        }
-    }
-    if lines.is_empty() {
-        "（无）".to_string()
+    let block = prompt_xml_block(block_name, lines.join("\n"));
+    if block.trim().is_empty() {
+        None
     } else {
-        lines.join("\n")
+        Some(block)
     }
 }
 
-fn memory_curation_example_output_block() -> &'static str {
-    r###"{
-  "usefulMemoryIds": ["string"],
-  "newMemories": [
-    {
-      "memoryType": "knowledge|skill|emotion|event",
-      "judgment": "string",
-      "reasoning": "string",
-      "tags": ["string"]
-    }
-  ],
-  "mergeGroups": [
-    {
-      "sourceIds": ["string", "string"],
-      "target": {
-        "memoryType": "knowledge|skill|emotion|event",
-        "judgment": "string",
-        "reasoning": "string",
-        "tags": ["string"]
-      }
-    }
-  ]
-}"###
+fn build_user_profile_snapshot_block(
+    data_path: &PathBuf,
+    agent: &AgentProfile,
+    limit: usize,
+) -> Result<Option<String>, String> {
+    let memories = memory_store_list_profile_memories_visible_for_agent(
+        data_path,
+        &agent.id,
+        agent.private_memory_enabled,
+        limit,
+    )?;
+    Ok(render_user_profile_memory_block(
+        &memories,
+        "user profile snapshot",
+        "以下内容是用户画像快照，不是本轮即时上下文。请把它们视为用户长期稳定背景。",
+    ))
+}
+
+fn build_user_profile_memory_board(
+    data_path: &PathBuf,
+    agent: &AgentProfile,
+) -> Result<Option<String>, String> {
+    let memories = memory_store_list_profile_memories_visible_for_agent(
+        data_path,
+        &agent.id,
+        agent.private_memory_enabled,
+        0,
+    )?;
+    Ok(render_user_profile_memory_block(
+        &memories,
+        "user profile memory board",
+        "以下内容是完整用户画像记忆（含ID），用于合并、纠错和去除过期画像记忆。",
+    ))
 }
 
 fn enrich_prepared_prompt_with_common_preamble(
     mut prepared: PreparedPrompt,
-    last_archive_summary: Option<&str>,
+    _last_archive_summary: Option<&str>,
+    _user_profile_memory_block: Option<&str>,
     terminal_block: Option<String>,
 ) -> PreparedPrompt {
-    if let Some(summary) = last_archive_summary {
-        let summary = summary.trim();
-        if !summary.is_empty() {
-            let recap = format!("USER: 上次我们聊到哪里？\nASSISTANT: {}", summary);
-            prepared
-                .preamble
-                .push_str(&format!("\n{}\n", prompt_xml_block("archive recap", recap)));
-        }
-    }
     if let Some(block) = terminal_block {
         if !block.trim().is_empty() {
             prepared.preamble.push('\n');
@@ -349,4 +280,60 @@ fn merge_latest_user_extra_text(existing: &str, appended_blocks: &[String]) -> S
         merged.push(trimmed.to_string());
     }
     merged.join("\n\n")
+}
+
+#[cfg(test)]
+mod prompt_assembly_tests {
+    use super::*;
+
+    fn temp_data_path(name: &str) -> PathBuf {
+        let root = std::env::temp_dir()
+            .join("easy_call_ai_tests")
+            .join(format!("{}_{}", name, Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create temp dir");
+        root.join("app_data.json")
+    }
+
+    #[test]
+    fn user_profile_memory_board_should_mark_block_as_profile() {
+        let data_path = temp_data_path("prompt_profile_board");
+        let drafts = vec![MemoryDraftInput {
+            memory_type: "knowledge".to_string(),
+            judgment: "用户当前长期在深圳生活".to_string(),
+            reasoning: "本轮明确说明".to_string(),
+            tags: vec!["深圳".to_string(), "居住地".to_string()],
+            owner_agent_id: None,
+        }];
+        let (saved, _) = memory_store_upsert_drafts(&data_path, &drafts).expect("seed memories");
+        let memory_id = saved[0].id.clone().expect("memory id");
+        memory_store_upsert_profile_memory_links(&data_path, &vec![memory_id], "auto")
+            .expect("link profile memory");
+
+        let block = build_user_profile_memory_board(&data_path, &default_agent())
+            .expect("build profile board")
+            .expect("profile board should exist");
+        assert!(block.contains("用户画像记忆"));
+        assert!(block.contains("用户当前长期在深圳生活"));
+    }
+
+    #[test]
+    fn common_preamble_should_allow_profile_without_archive_summary() {
+        let prepared = PreparedPrompt {
+            preamble: "系统前言".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let enriched = enrich_prepared_prompt_with_common_preamble(
+            prepared,
+            None,
+            Some("<user profile memory board>\n用户画像记忆\n</user profile memory board>"),
+            None,
+        );
+        assert!(enriched.preamble.contains("用户画像记忆"));
+        assert!(!enriched.preamble.contains("上次我们聊到哪里"));
+    }
 }

@@ -383,9 +383,10 @@ function blockRenderId(block: ChatMessageBlock, blockIndex: number): string {
 
 function isCompactionBlock(block: ChatMessageBlock): boolean {
   if (block.remoteImOrigin) return false;
-  const text = String(block.text || "").trim();
-  if (!text) return false;
-  return text.startsWith("[上下文整理]") || text.startsWith("[上下文压缩]");
+  const meta = (block.providerMeta || {}) as Record<string, unknown>;
+  const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
+  const kind = String(messageMeta.kind || "").trim();
+  return kind === "context_compaction" || kind === "summary_context_seed";
 }
 
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {

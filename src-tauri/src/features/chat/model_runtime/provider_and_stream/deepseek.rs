@@ -85,6 +85,14 @@ fn deepseek_messages_from_prepared(prepared: &PreparedPrompt) -> Vec<Value> {
                     "text": hm.text.clone()
                 }));
             }
+            for block in &hm.extra_text_blocks {
+                if !block.trim().is_empty() {
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": block.clone()
+                    }));
+                }
+            }
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     content.push(serde_json::json!({
@@ -660,6 +668,7 @@ mod deepseek_tool_call_tests {
                 PreparedHistoryMessage {
                     role: "assistant".to_string(),
                     text: String::new(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
@@ -674,6 +683,7 @@ mod deepseek_tool_call_tests {
                 PreparedHistoryMessage {
                     role: "tool".to_string(),
                     text: "{\"ok\":true}".to_string(),
+                    extra_text_blocks: Vec::new(),
                     user_time_text: None,
                     images: Vec::new(),
                     audios: Vec::new(),
