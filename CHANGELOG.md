@@ -1,5 +1,11 @@
 # 变更日志
 
+## 更新（未发布）：补充需求对齐与反馈非指令规则
+
+- 调整（highest-instruction-alignment-guardrails）：系统准则补充需求对齐与反馈处理边界
+  - `src/constants/highest-instruction.json` 新增“先对齐口径”，要求先确认目标、范围、约束与成功标准一致，再进入执行
+  - 新增“反馈不等于指令”，明确当用户只是表达不满、指出问题、质疑结果或描述现象时，助手应先复述理解并对齐下一步，而不是擅自开工
+
 ## 更新（未发布）：新增会话级 Todo MCP 工具与压缩摘要待办段
 
 - 新增（conversation-todo-mcp）：新增会话级 `todo` MCP 工具
