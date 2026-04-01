@@ -474,6 +474,46 @@ fn decide_archive_before_model_request(
     build_archive_decision_from_usage_ratio(usage_ratio, last_user_at, has_assistant_reply)
 }
 
+fn decide_archive_before_send_with_fallback(
+    cached_effective_prompt_tokens: u64,
+    cached_usage_ratio: f64,
+    estimated_prompt_tokens: Option<u64>,
+    context_window_tokens: u32,
+    last_user_at: Option<&str>,
+    has_assistant_reply: bool,
+) -> (ArchiveDecision, &'static str) {
+    if cached_effective_prompt_tokens > 0 {
+        return (
+            decide_archive_before_model_request(
+                cached_effective_prompt_tokens,
+                context_window_tokens,
+                last_user_at,
+                has_assistant_reply,
+            ),
+            "cached_effective_prompt_tokens",
+        );
+    }
+    if cached_usage_ratio.is_finite() && cached_usage_ratio > 0.0 {
+        return (
+            build_archive_decision_from_usage_ratio(
+                cached_usage_ratio.max(0.0),
+                last_user_at,
+                has_assistant_reply,
+            ),
+            "cached_usage_ratio",
+        );
+    }
+    (
+        decide_archive_before_model_request(
+            estimated_prompt_tokens.unwrap_or(0),
+            context_window_tokens,
+            last_user_at,
+            has_assistant_reply,
+        ),
+        "estimated_prompt_tokens",
+    )
+}
+
 fn archive_conversation_now(
     data: &mut AppData,
     conversation_id: &str,
@@ -1406,6 +1446,24 @@ fn build_delegate_prompt(
     )
 }
 
+fn find_last_context_compaction_index(
+    messages: &[ChatMessage],
+    agent_id: &str,
+) -> Option<usize> {
+    messages
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, message)| {
+            let role = prompt_role_for_message(message, agent_id)?;
+            if is_context_compaction_message(message, role.as_str()) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .last()
+}
+
 fn build_prompt_with_mode(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1419,8 +1477,14 @@ fn build_prompt_with_mode(
     _resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
 ) -> PreparedPrompt {
-    // 预处理PDF附件：按页提取文本，可选按页提取图片
-    let mut enriched_messages = conversation.messages.clone();
+    let source_messages = match find_last_context_compaction_index(&conversation.messages, &agent.id)
+    {
+        Some(boundary) => &conversation.messages[boundary..],
+        None => conversation.messages.as_slice(),
+    };
+
+    // 仅对压缩边界后的有效消息做附件 enrich，避免旧历史重复处理。
+    let mut enriched_messages = source_messages.to_vec();
 
     if let Some(state) = state {
         for message in &mut enriched_messages {
@@ -1512,8 +1576,26 @@ fn build_prompt_with_mode(
 
     // 使用enriched_messages替代conversation.messages
     let enriched_conversation = Conversation {
+        id: conversation.id.clone(),
+        title: conversation.title.clone(),
+        agent_id: conversation.agent_id.clone(),
+        conversation_kind: conversation.conversation_kind.clone(),
+        root_conversation_id: conversation.root_conversation_id.clone(),
+        delegate_id: conversation.delegate_id.clone(),
+        created_at: conversation.created_at.clone(),
+        updated_at: conversation.updated_at.clone(),
+        last_user_at: conversation.last_user_at.clone(),
+        last_assistant_at: conversation.last_assistant_at.clone(),
+        last_context_usage_ratio: conversation.last_context_usage_ratio,
+        last_effective_prompt_tokens: conversation.last_effective_prompt_tokens,
+        status: conversation.status.clone(),
+        summary: conversation.summary.clone(),
+        user_profile_snapshot: conversation.user_profile_snapshot.clone(),
+        shell_workspace_path: conversation.shell_workspace_path.clone(),
+        archived_at: conversation.archived_at.clone(),
         messages: enriched_messages,
-        ..conversation.clone()
+        current_todos: conversation.current_todos.clone(),
+        memory_recall_table: conversation.memory_recall_table.clone(),
     };
     let recall_memories = data_path.and_then(|path| {
         match memory_store_list_memories_visible_for_agent(
@@ -1522,33 +1604,15 @@ fn build_prompt_with_mode(
             agent.private_memory_enabled,
         ) {
             Ok(memories) => Some(memories),
-            Err(err) => {
-                eprintln!(
-                    "[提示词] 读取可见记忆失败，conversation_id={}，agent_id={}，error={}",
-                    conversation.id, agent.id, err
-                );
-                None
-            }
+            Err(_) => None,
         }
     });
 
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let mut seen_remote_contacts = std::collections::HashSet::<String>::new();
     let mut seen_prompt_memory_ids = HashSet::<String>::new();
-    let compression_message_indexes = enriched_conversation
-        .messages
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, message)| {
-            let role = prompt_role_for_message(message, &agent.id)?;
-            if is_context_compaction_message(message, role.as_str()) {
-                Some(idx)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let last_compaction_index = compression_message_indexes.last().copied();
+    let last_compaction_index =
+        find_last_context_compaction_index(&enriched_conversation.messages, &agent.id);
     let mut latest_user_index = None;
     for (idx, message) in enriched_conversation.messages.iter().enumerate().rev() {
         if let Some(boundary) = last_compaction_index {
@@ -1838,14 +1902,6 @@ fn build_prompt_with_mode(
             }
             latest_user_extra_text.push_str(&extra);
         }
-        eprintln!(
-            "[提示词][当前消息组装] conversation_id={} message_id={} retrieved_memory_ids={:?} latest_extra_has_memory_board={} latest_extra_len={}",
-            conversation.id,
-            msg.id,
-            prompt_retrieved_memory_ids_from_message(&msg),
-            latest_user_extra_text.contains("<memory_context>"),
-            latest_user_extra_text.len()
-        );
         if latest_user_text.trim().is_empty()
             && latest_user_meta_text.trim().is_empty()
             && latest_user_extra_text.trim().is_empty()

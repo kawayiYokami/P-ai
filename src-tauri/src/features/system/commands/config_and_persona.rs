@@ -275,7 +275,7 @@ fn get_project_repository_url(state: State<'_, AppState>) -> String {
 #[tauri::command]
 fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut result = state_read_config_cached(&state)?;
@@ -320,7 +320,7 @@ fn save_config(
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -348,7 +348,7 @@ fn save_config(
 #[tauri::command]
 fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -374,7 +374,7 @@ fn save_agents(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -591,7 +591,7 @@ fn set_agent_private_memory_enabled(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -684,7 +684,7 @@ fn disable_agent_private_memory(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -735,7 +735,7 @@ fn import_agent_memories(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -769,7 +769,7 @@ fn import_agent_memories(
 #[tauri::command]
 fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -807,7 +807,7 @@ fn save_chat_settings(
     state: State<'_, AppState>,
 ) -> Result<ChatSettings, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -942,7 +942,7 @@ fn save_agent_avatar(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -995,7 +995,7 @@ fn clear_agent_avatar(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1117,7 +1117,7 @@ fn sync_tray_icon(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1147,7 +1147,7 @@ fn save_conversation_api_settings(
     state: State<'_, AppState>,
 ) -> Result<ConversationApiSettings, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -1183,7 +1183,7 @@ fn get_chat_snapshot(
     state: State<'_, AppState>,
 ) -> Result<ChatSnapshot, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -1561,7 +1561,7 @@ fn ensure_unarchived_conversation_not_organizing(
 #[tauri::command]
 fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<UnarchivedConversationSummary>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1649,7 +1649,7 @@ fn emit_unarchived_conversation_overview_updated_payload(
 
 fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) -> Result<(), String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
@@ -1670,7 +1670,7 @@ fn set_active_unarchived_conversation(
     state: State<'_, AppState>,
 ) -> Result<SetActiveUnarchivedConversationOutput, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -1752,7 +1752,7 @@ fn switch_active_conversation_snapshot(
 ) -> Result<SwitchActiveConversationSnapshotOutput, String> {
     const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 50;
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -1851,7 +1851,7 @@ fn create_unarchived_conversation(
     state: State<'_, AppState>,
 ) -> Result<CreateUnarchivedConversationOutput, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -1960,7 +1960,7 @@ fn get_unarchived_conversation_messages(
         return Err("conversationId is required.".to_string());
     }
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = state_read_app_data_cached(&state)?;
@@ -1992,7 +1992,7 @@ fn get_unarchived_conversation_recent_messages(
     }
     let limit = input.limit.clamp(1, 50);
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = state_read_app_data_cached(&state)?;
@@ -2058,7 +2058,7 @@ fn delete_unarchived_conversation(
         return Err("conversationId is required.".to_string());
     }
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -2121,7 +2121,7 @@ fn get_active_conversation_messages(
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -2294,7 +2294,7 @@ fn resolve_unarchived_conversation_messages_after(
     fallback_limit: usize,
 ) -> Result<(Vec<ChatMessage>, Option<String>), String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = state_read_app_data_cached(state)?;
@@ -2341,7 +2341,7 @@ fn get_active_conversation_messages_before(
     let limit = input.limit.clamp(1, 100);
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -2426,7 +2426,7 @@ fn get_active_conversation_messages_after(
     let limit = input.limit.clamp(1, 200);
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -2630,7 +2630,7 @@ fn rewind_conversation_from_message(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
@@ -2773,3 +2773,4 @@ fn rewind_conversation_from_message(
         recalled_user_message,
     })
 }
+

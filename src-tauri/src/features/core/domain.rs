@@ -1677,6 +1677,12 @@ struct PreparedPrompt {
     latest_audios: Vec<(String, String)>,
 }
 
+#[derive(Debug, Clone)]
+struct PendingAppDataPersist {
+    seq: u64,
+    data: AppData,
+}
+
 fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
     for text in [
@@ -1704,13 +1710,20 @@ struct AppState {
     shared_http_client: reqwest::Client,
     terminal_shell: TerminalShellProfile,
     terminal_shell_candidates: Vec<TerminalShellProfile>,
-    state_lock: Arc<Mutex<()>>,
+    conversation_lock: Arc<ConversationDomainLock>,
+    memory_lock: Arc<Mutex<()>>,
     // 运行态内存缓存：减少热路径重复读盘（配置）
     cached_config: Arc<Mutex<Option<AppConfig>>>,
     cached_config_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
     // 运行态内存缓存：减少热路径重复读盘（业务数据）
     cached_app_data: Arc<Mutex<Option<AppData>>>,
     cached_app_data_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
+    cached_app_data_dirty: Arc<std::sync::atomic::AtomicBool>,
+    app_data_persist_pending: Arc<Mutex<Option<PendingAppDataPersist>>>,
+    app_data_persist_notify: Arc<tokio::sync::Notify>,
+    app_data_persist_started: Arc<std::sync::atomic::AtomicBool>,
+    app_data_persist_latest_seq: Arc<std::sync::atomic::AtomicU64>,
+    app_data_persist_write_lock: Arc<Mutex<()>>,
     last_panic_snapshot: Arc<Mutex<Option<String>>>,
     inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
     inflight_tool_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
@@ -1862,11 +1875,18 @@ impl AppState {
             shared_http_client,
             terminal_shell,
             terminal_shell_candidates,
-            state_lock: Arc::new(Mutex::new(())),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
             cached_config: Arc::new(Mutex::new(None)),
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -1945,6 +1965,18 @@ fn state_write_config_cached(state: &AppState, config: &AppConfig) -> Result<(),
 }
 
 fn state_read_app_data_cached(state: &AppState) -> Result<AppData, String> {
+    if state
+        .cached_app_data_dirty
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
+        let cached = state
+            .cached_app_data
+            .lock()
+            .map_err(|_| "Failed to lock cached app data".to_string())?;
+        if let Some(data) = cached.as_ref() {
+            return Ok(data.clone());
+        }
+    }
     let disk_mtime = path_modified_time(&state.data_path);
     {
         let cached = state
@@ -1964,6 +1996,7 @@ fn state_read_app_data_cached(state: &AppState) -> Result<AppData, String> {
         }
     }
 
+    let started = std::time::Instant::now();
     let data = read_app_data(&state.data_path)?;
     let disk_mtime = path_modified_time(&state.data_path);
     *state
@@ -1974,10 +2007,26 @@ fn state_read_app_data_cached(state: &AppState) -> Result<AppData, String> {
         .cached_app_data_mtime
         .lock()
         .map_err(|_| "Failed to lock cached app data mtime".to_string())? = disk_mtime;
+    state
+        .cached_app_data_dirty
+        .store(false, std::sync::atomic::Ordering::Release);
+    eprintln!(
+        "[应用数据耗时] 读取完成 source=disk_read conversations={} elapsed_ms={}",
+        data.conversations.len(),
+        started.elapsed().as_millis()
+    );
     Ok(data)
 }
 
 fn state_write_app_data_cached(state: &AppState, data: &AppData) -> Result<(), String> {
+    let seq = state
+        .app_data_persist_latest_seq
+        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+        + 1;
+    let _write_guard = state
+        .app_data_persist_write_lock
+        .lock()
+        .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
     write_app_data(&state.data_path, data)?;
     let disk_mtime = path_modified_time(&state.data_path);
     *state
@@ -1988,6 +2037,141 @@ fn state_write_app_data_cached(state: &AppState, data: &AppData) -> Result<(), S
         .cached_app_data_mtime
         .lock()
         .map_err(|_| "Failed to lock cached app data mtime".to_string())? = disk_mtime;
+    if let Ok(mut pending) = state.app_data_persist_pending.lock() {
+        if pending
+            .as_ref()
+            .map(|item| item.seq <= seq)
+            .unwrap_or(false)
+        {
+            *pending = None;
+        }
+    }
+    let has_newer_pending = state
+        .app_data_persist_latest_seq
+        .load(std::sync::atomic::Ordering::Acquire)
+        > seq;
+    state
+        .cached_app_data_dirty
+        .store(has_newer_pending, std::sync::atomic::Ordering::Release);
+    Ok(())
+}
+
+fn state_schedule_app_data_persist(state: &AppState, data: &AppData) -> Result<u64, String> {
+    let seq = state
+        .app_data_persist_latest_seq
+        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+        + 1;
+    *state
+        .cached_app_data
+        .lock()
+        .map_err(|_| "Failed to lock cached app data".to_string())? = Some(data.clone());
+    state
+        .cached_app_data_dirty
+        .store(true, std::sync::atomic::Ordering::Release);
+    {
+        let mut pending = state
+            .app_data_persist_pending
+            .lock()
+            .map_err(|_| "Failed to lock pending app data persist".to_string())?;
+        *pending = Some(PendingAppDataPersist {
+            seq,
+            data: data.clone(),
+        });
+    }
+    state.app_data_persist_notify.notify_one();
+    Ok(seq)
+}
+
+fn start_app_data_persist_worker(state: &AppState) -> Result<(), String> {
+    let started = state.app_data_persist_started.compare_exchange(
+        false,
+        true,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    );
+    if started.is_err() {
+        return Ok(());
+    }
+    let state_clone = state.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            state_clone.app_data_persist_notify.notified().await;
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            loop {
+                let Some(pending) = ({
+                    let mut slot = match state_clone.app_data_persist_pending.lock() {
+                        Ok(slot) => slot,
+                        Err(_) => {
+                            runtime_log_error(
+                                "[后台持久化] 失败，任务=读取待写入队列，error=lock poisoned"
+                                    .to_string(),
+                            );
+                            break;
+                        }
+                    };
+                    slot.take()
+                }) else {
+                    break;
+                };
+
+                let latest_seq = state_clone
+                    .app_data_persist_latest_seq
+                    .load(std::sync::atomic::Ordering::Acquire);
+                if pending.seq < latest_seq {
+                    continue;
+                }
+                let data_path = state_clone.data_path.clone();
+                let data_to_write = pending.data.clone();
+                let write_lock = state_clone.app_data_persist_write_lock.clone();
+                let write_result = tokio::task::spawn_blocking(move || {
+                    let _write_guard = write_lock.lock().map_err(|err| {
+                        named_lock_error(
+                            "app_data_persist_write_lock",
+                            file!(),
+                            line!(),
+                            module_path!(),
+                            &err,
+                        )
+                    })?;
+                    write_app_data(&data_path, &data_to_write)?;
+                    Ok::<Option<std::time::SystemTime>, String>(path_modified_time(&data_path))
+                })
+                .await;
+                match write_result {
+                    Ok(Ok(disk_mtime)) => {
+                        if let Ok(mut cached) = state_clone.cached_app_data.lock() {
+                            *cached = Some(pending.data.clone());
+                        }
+                        if let Ok(mut cached_mtime) = state_clone.cached_app_data_mtime.lock() {
+                            *cached_mtime = disk_mtime;
+                        }
+                        let still_latest = state_clone
+                            .app_data_persist_latest_seq
+                            .load(std::sync::atomic::Ordering::Acquire)
+                            == pending.seq;
+                        if still_latest {
+                            state_clone.cached_app_data_dirty.store(
+                                false,
+                                std::sync::atomic::Ordering::Release,
+                            );
+                        }
+                    }
+                    Ok(Err(err)) => {
+                        runtime_log_error(format!(
+                            "[后台持久化] 失败，任务=写入应用数据，seq={}，error={}",
+                            pending.seq, err
+                        ));
+                    }
+                    Err(err) => {
+                        runtime_log_error(format!(
+                            "[后台持久化] 失败，任务=阻塞写入任务，seq={}，error={}",
+                            pending.seq, err
+                        ));
+                    }
+                }
+            }
+        }
+    });
     Ok(())
 }
 
@@ -2042,14 +2226,146 @@ fn state_lock_error_with_panic(
     let panic_snapshot = last_panic_snapshot_text();
     if panic_snapshot.trim().is_empty() {
         return format!(
-            "Failed to lock state mutex at {}:{} {}: {err}",
-            file, line, module_path
+            "无法获取状态锁：{}（位置：{}:{} 模块：{}）",
+            err, file, line, module_path
         );
     }
     format!(
-        "Failed to lock state mutex at {}:{} {}: {err}; last panic: {}",
-        file, line, module_path, panic_snapshot
+        "无法获取状态锁：{}（位置：{}:{} 模块：{}；最近 panic：{}）",
+        err, file, line, module_path, panic_snapshot
     )
+}
+
+fn named_lock_error(
+    lock_name: &str,
+    file: &str,
+    line: u32,
+    module_path: &str,
+    err: &dyn std::fmt::Display,
+) -> String {
+    format!(
+        "无法获取 {} 锁：{}（位置：{}:{} 模块：{}）",
+        lock_name, err, file, line, module_path
+    )
+}
+
+const CONVERSATION_LOCK_SLOW_WAIT_MS: u128 = 20;
+const CONVERSATION_LOCK_SLOW_HOLD_MS: u128 = 20;
+
+#[derive(Clone)]
+struct ConversationLockOwnerSnapshot {
+    task_name: String,
+    acquired_at: std::time::Instant,
+}
+
+struct ConversationDomainLock {
+    inner: Mutex<()>,
+    owner: Mutex<Option<ConversationLockOwnerSnapshot>>,
+}
+
+impl ConversationDomainLock {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(()),
+            owner: Mutex::new(None),
+        }
+    }
+
+    #[track_caller]
+    fn lock(&self) -> std::sync::LockResult<TimedConversationLockGuard<'_>> {
+        let location = std::panic::Location::caller();
+        let task_name = format!("{}:{}", location.file(), location.line());
+        self.lock_named(&task_name)
+    }
+
+    fn lock_named(&self, task_name: &str) -> std::sync::LockResult<TimedConversationLockGuard<'_>> {
+        let wait_started_at = std::time::Instant::now();
+        let owner_before_wait = match self.inner.try_lock() {
+            Ok(guard) => {
+                return Ok(self.build_guard(guard, task_name.to_string()));
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                self.owner.lock().ok().and_then(|owner| owner.clone())
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => None,
+        };
+        let guard = match self.inner.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                return Err(std::sync::PoisonError::new(
+                    self.build_guard(poisoned.into_inner(), task_name.to_string()),
+                ));
+            }
+        };
+        let waited_ms = wait_started_at.elapsed().as_millis();
+        if waited_ms >= CONVERSATION_LOCK_SLOW_WAIT_MS {
+            if let Some(owner) = owner_before_wait {
+                let owner_held_ms = owner.acquired_at.elapsed().as_millis();
+                eprintln!(
+                    "[会话锁] 等待完成: task={}, waited_ms={}, owner={}, owner_held_ms={}",
+                    task_name, waited_ms, owner.task_name, owner_held_ms
+                );
+            } else {
+                eprintln!(
+                    "[会话锁] 等待完成: task={}, waited_ms={}",
+                    task_name, waited_ms
+                );
+            }
+        }
+        Ok(self.build_guard(guard, task_name.to_string()))
+    }
+
+    fn build_guard<'a>(
+        &'a self,
+        guard: std::sync::MutexGuard<'a, ()>,
+        task_name: String,
+    ) -> TimedConversationLockGuard<'a> {
+        let acquired_at = std::time::Instant::now();
+        if let Ok(mut owner) = self.owner.lock() {
+            *owner = Some(ConversationLockOwnerSnapshot {
+                task_name: task_name.clone(),
+                acquired_at,
+            });
+        }
+        TimedConversationLockGuard {
+            task_name,
+            acquired_at,
+            lock: self,
+            _guard: guard,
+        }
+    }
+}
+
+struct TimedConversationLockGuard<'a> {
+    task_name: String,
+    acquired_at: std::time::Instant,
+    lock: &'a ConversationDomainLock,
+    _guard: std::sync::MutexGuard<'a, ()>,
+}
+
+impl Drop for TimedConversationLockGuard<'_> {
+    fn drop(&mut self) {
+        let held_ms = self.acquired_at.elapsed().as_millis();
+        if let Ok(mut owner) = self.lock.owner.lock() {
+            owner.take();
+        }
+        if held_ms >= CONVERSATION_LOCK_SLOW_HOLD_MS {
+            eprintln!(
+                "[会话锁] 持有完成: task={}, held_ms={}",
+                self.task_name, held_ms
+            );
+        }
+    }
+}
+
+fn lock_conversation_with_metrics<'a>(
+    state: &'a AppState,
+    task_name: &str,
+) -> Result<TimedConversationLockGuard<'a>, String> {
+    state
+        .conversation_lock
+        .lock_named(task_name)
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))
 }
 
 fn format_message_time_rfc3339_local(raw: &str) -> String {

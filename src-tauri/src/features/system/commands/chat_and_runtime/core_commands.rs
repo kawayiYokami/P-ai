@@ -39,8 +39,7 @@ async fn send_chat_message(
 
     // 获取或创建会话ID
     let (conversation_id, department_id, model_config_id) = {
-        let guard = state.state_lock.lock()
-            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+        let _guard = lock_conversation_with_metrics(&state, "send_chat_message_prepare_conversation")?;
         let app_config = state_read_config_cached(&state)?;
         let mut data = state_read_app_data_cached(&state)?;
         let department = if let Some(department_id) = requested_department_id.as_deref() {
@@ -65,7 +64,6 @@ async fn send_chat_message(
             if data.conversations.iter().any(|conv| {
                 conv.id == cid
                     && conv.summary.trim().is_empty()
-                    && conversation_visible_in_foreground_lists(conv)
             }) {
                 cid.to_string()
             } else {
@@ -86,8 +84,6 @@ async fn send_chat_message(
                     .map(|conv| {
                         if !conv.summary.trim().is_empty() {
                             "summary_present"
-                        } else if !conversation_visible_in_foreground_lists(conv) {
-                            "background_conversation"
                         } else {
                             "unknown"
                         }
@@ -117,7 +113,6 @@ async fn send_chat_message(
         };
         state_write_app_data_cached(&state, &data)?;
 
-        drop(guard);
         (conversation_id, department.id.clone(), api_config_id)
     };
 
@@ -177,14 +172,6 @@ async fn send_chat_message(
         sender_info: None,
     };
 
-    let main_session_state_text = get_main_session_state(state.inner())
-        .map(|value| match value {
-            MainSessionState::Idle => "idle".to_string(),
-            MainSessionState::AssistantStreaming => "assistant_streaming".to_string(),
-            MainSessionState::OrganizingContext => "organizing_context".to_string(),
-        })
-        .unwrap_or_else(|err| format!("unknown({err})"));
-
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
     register_chat_event_runtime(state.inner(), &event_id, on_delta.clone(), result_tx)?;
 
@@ -203,23 +190,6 @@ async fn send_chat_message(
         return Err(err);
         }
     };
-
-    let queue_len = total_queue_len(state.inner()).unwrap_or_default();
-    let ingress_mode = match &ingress {
-        ChatEventIngress::Direct(_) => "direct",
-        ChatEventIngress::Queued { .. } => "queued",
-    };
-    eprintln!(
-        "[聊天调度] 用户消息已接入调度: mode={}, event_id={}, request_id={}, conversation_id={}, department_id={}, agent_id={}, queue_len={}, main_session_state={}",
-        ingress_mode,
-        event_id,
-        request_id,
-        conversation_id,
-        department_id,
-        agent_id,
-        queue_len,
-        main_session_state_text,
-    );
 
     // 根据 ingress 结果执行：直写或排队；排队仅在事件仍滞留时才通知前端。
     process_chat_event_after_ingress(state.inner(), ingress).await;
@@ -249,11 +219,6 @@ async fn bind_active_chat_view_stream(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    runtime_log_info(format!(
-        "[聊天推送] 收到前端绑定请求: window={}, conversation_id={}",
-        window_label,
-        conversation_id.unwrap_or("*")
-    ));
     if let Some(conversation_id) = conversation_id {
         set_active_chat_view_stream_binding(
             state.inner(),
@@ -273,10 +238,6 @@ async fn bind_active_chat_view_stream(
             Some("*"),
             on_delta,
         )?;
-        runtime_log_info(format!(
-            "[聊天调度] 活动聊天流已通配绑定：window={}",
-            window_label,
-        ));
     }
     Ok(())
 }
@@ -358,10 +319,7 @@ async fn stop_chat_message(
         return Ok(build_stop_result(false, None, None));
     }
 
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let _guard = lock_conversation_with_metrics(&state, "stop_chat_generation_persist_partial")?;
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
     ensure_default_agent(&mut data);
@@ -412,7 +370,6 @@ async fn stop_chat_message(
         conversation
     } else {
         let Some(idx) = idx else {
-            drop(guard);
             return Ok(build_stop_result(false, None, None));
         };
         data.conversations
@@ -429,7 +386,6 @@ async fn stop_chat_message(
     {
         let conversation_id = conversation.id.clone();
         let assistant_message = conversation.messages.last().cloned();
-        drop(guard);
         return Ok(build_stop_result(false, Some(conversation_id), assistant_message));
     }
 
@@ -469,7 +425,6 @@ async fn stop_chat_message(
     } else {
         state_write_app_data_cached(&state, &data)?;
     }
-    drop(guard);
 
     Ok(build_stop_result(true, Some(conversation_id), Some(assistant_message)))
 }
@@ -559,3 +514,4 @@ async fn get_main_session_state_snapshot(
 ) -> Result<MainSessionState, String> {
     get_main_session_state(state.inner())
 }
+

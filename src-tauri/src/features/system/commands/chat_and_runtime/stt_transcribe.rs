@@ -105,7 +105,7 @@ async fn stt_transcribe(
 
     let app_config = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let cfg = read_config(&state.config_path)?;
@@ -136,4 +136,5 @@ async fn stt_transcribe(
     let text = call_openai_stt_transcribe(&api, &input.mime, audio_raw).await?;
     Ok(SttTranscribeOutput { text })
 }
+
 

@@ -221,7 +221,7 @@ fn save_workspace_mcp_server_policy(
         tools: normalize_mcp_tool_policies(payload.tools.clone()),
     };
     let text = serde_json::to_string_pretty(&out)
-        .map_err(|err| format!("Serialize MCP policy JSON failed: {err}"))?;
+        .map_err(|err| format!("序列化 MCP 策略 JSON 失败：{err}"))?;
     fs::write(&path, text)
         .map_err(|err| format!("Write MCP policy file failed ({}): {err}", path.display()))
 }
@@ -287,7 +287,7 @@ fn save_workspace_mcp_server(state: &AppState, server: &McpServerConfig) -> Resu
     let value: Value = serde_json::from_str(&server.definition_json)
         .map_err(|err| format!("Parse MCP definition JSON failed before write: {err}"))?;
     let payload = serde_json::to_string_pretty(&value)
-        .map_err(|err| format!("Serialize MCP definition JSON failed: {err}"))?;
+        .map_err(|err| format!("序列化 MCP 定义 JSON 失败：{err}"))?;
     let target = mcp_server_file_path(state, &server.id);
     fs::write(&target, payload)
         .map_err(|err| format!("Write MCP file failed ({}): {err}", target.display()))

@@ -5,22 +5,22 @@ async fn builtin_desktop_wait(ms: u64) -> Result<Value, String> {
     })
     .await
     .map_err(|err| to_tool_err_string(&err))?;
-    serde_json::to_value(res).map_err(|err| format!("serialize desktop wait result failed: {err}"))
+    serde_json::to_value(res).map_err(|err| format!("序列化桌面等待结果失败：{err}"))
 }
 
 
 async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
     let mut result = {
         let guard = app_state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| {
-                format!(
-                    "Failed to lock state mutex at {}:{}:{}: {}",
+                named_lock_error(
+                    "conversation_lock",
                     file!(),
                     line!(),
                     module_path!(),
-                    err
+                    &err,
                 )
             })?;
         let result = refresh_workspace_mcp_and_skills(app_state)?;
@@ -40,7 +40,7 @@ async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
             });
         }
     }
-    serde_json::to_value(result).map_err(|err| format!("Serialize refresh result failed: {err}"))
+    serde_json::to_value(result).map_err(|err| format!("序列化刷新结果失败：{err}"))
 }
 
 async fn builtin_organize_context(
@@ -50,15 +50,15 @@ async fn builtin_organize_context(
 ) -> Result<Value, String> {
     let (selected_api, resolved_api, source, effective_agent_id) = {
         let guard = app_state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| {
-                format!(
-                    "Failed to lock state mutex at {}:{}:{}: {}",
+                named_lock_error(
+                    "conversation_lock",
                     file!(),
                     line!(),
                     module_path!(),
-                    err
+                    &err,
                 )
             })?;
         let mut app_config = read_config(&app_state.config_path)?;
@@ -126,5 +126,6 @@ async fn builtin_organize_context(
             obj.insert("result".to_string(), value);
             Value::Object(obj)
         })
-        .map_err(|err| format!("Serialize organize context result failed: {err}"))
+        .map_err(|err| format!("序列化组织上下文结果失败：{err}"))
 }
+

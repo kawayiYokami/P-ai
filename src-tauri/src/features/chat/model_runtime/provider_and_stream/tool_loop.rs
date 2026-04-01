@@ -92,7 +92,7 @@ fn tool_loop_active_conversation_snapshot(
     conversation_id: &str,
 ) -> Result<Option<Conversation>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(state)?;
@@ -826,3 +826,4 @@ mod tool_loop_tests {
         );
     }
 }
+

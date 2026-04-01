@@ -110,7 +110,7 @@ fn task_resolve_dispatch_session(
     task: &TaskRecordStored,
 ) -> Result<Option<TaskDispatchSessionResolved>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let app_config = read_config(&state.config_path)?;
@@ -516,4 +516,5 @@ fn start_task_scheduler(state: AppState) {
         }
     });
 }
+
 

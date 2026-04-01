@@ -384,22 +384,15 @@ fn resolve_chat_tool_session_id(
         return Err("agentId is required.".to_string());
     }
 
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let config = read_config(&state.config_path)?;
+    let config = state_read_config_cached(state)?;
     if !config.api_configs.iter().any(|v| v.id == api_id) {
-        drop(guard);
         return Err(format!("Selected API config '{api_id}' not found."));
     }
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = state_read_app_data_cached(state)?;
     ensure_default_agent(&mut data);
     if !data.agents.iter().any(|v| v.id == agent && !v.is_built_in_user) {
-        drop(guard);
         return Err(format!("Selected agent '{agent}' not found."));
     }
-    drop(guard);
 
     let session_id = inflight_chat_key(agent, conversation_id);
     Ok(normalize_terminal_tool_session_id(&session_id))
@@ -663,3 +656,4 @@ fn resolve_terminal_approval(
     let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
     Ok(())
 }
+

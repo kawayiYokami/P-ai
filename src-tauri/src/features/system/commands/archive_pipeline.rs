@@ -211,7 +211,7 @@ fn resolve_archive_target_conversation(
     input: &SessionSelector,
 ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut app_config = read_config(&state.config_path)?;
@@ -271,7 +271,7 @@ fn prepare_background_archive_active_conversation(
     source: &Conversation,
 ) -> Result<String, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
@@ -965,7 +965,7 @@ fn delete_main_conversation_and_activate_latest(
     source: &Conversation,
 ) -> Result<String, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
@@ -1611,7 +1611,7 @@ async fn run_context_compaction_pipeline_inner(
 
     let (host_agent, host_agent_id, user_alias) = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = state_read_app_data_cached(&state)?;
@@ -1661,7 +1661,7 @@ async fn run_context_compaction_pipeline_inner(
     };
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1708,7 +1708,7 @@ async fn run_context_compaction_pipeline_inner(
 
     {
         let verify_guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let verify_data = state_read_app_data_cached(&state)?;
@@ -1869,7 +1869,7 @@ async fn run_archive_pipeline_inner(
 
     let (host_agent, host_agent_id, user_alias, memories) = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = state_read_app_data_cached(&state)?;
@@ -1919,7 +1919,7 @@ async fn run_archive_pipeline_inner(
         apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1994,3 +1994,4 @@ async fn run_archive_pipeline_inner(
         merge_groups: Some(applied_report.merged_groups),
     })
 }
+

@@ -20,9 +20,9 @@ fn get_prompt_preview(
     state: State<'_, AppState>,
 ) -> Result<PromptPreview, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
 
     let mut app_config = read_config(&state.config_path)?;
     let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
@@ -228,7 +228,7 @@ fn get_prompt_preview(
         }
     };
     let request_body_json = serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
-        .map_err(|err| format!("Serialize request preview failed: {err}"))?;
+        .map_err(|err| format!("序列化请求预览失败：{err}"))?;
     eprintln!(
         "[请求体预览] 完成: mode={:?} conversation_id={} latest_user_text_len={} latest_images={} latest_audios={} request_has_memory_board={} request_len={}",
         preview_mode,
@@ -351,9 +351,9 @@ fn archive_to_conversation(archive: ConversationArchive) -> Conversation {
 #[tauri::command]
 fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
 
     let data = state_read_app_data_cached(&state)?;
     let app_config = read_config(&state.config_path)?;
@@ -390,9 +390,9 @@ fn get_archive_messages(
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
 
     let data = state_read_app_data_cached(&state)?;
     drop(guard);
@@ -414,9 +414,9 @@ fn get_archive_summary(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
 
     let data = state_read_app_data_cached(&state)?;
     drop(guard);
@@ -437,9 +437,9 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
 
     let mut data = state_read_app_data_cached(&state)?;
     let before = data.conversations.len();
@@ -455,3 +455,4 @@ fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), 
     drop(guard);
     Ok(())
 }
+

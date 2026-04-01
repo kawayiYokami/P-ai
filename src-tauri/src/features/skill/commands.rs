@@ -6,9 +6,9 @@ pub(crate) async fn mcp_refresh_mcp_and_skills(
 ) -> Result<RefreshMcpAndSkillsResult, String> {
     let mut out = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let out = refresh_workspace_mcp_and_skills(&state)?;
         drop(guard);
         out
@@ -32,9 +32,9 @@ pub(crate) async fn mcp_refresh_mcp_and_skills(
 #[tauri::command]
 pub(crate) fn mcp_list_skills(state: State<'_, AppState>) -> Result<SkillListResult, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let (skills, errors) = load_workspace_skill_summaries_with_errors(&state)?;
     drop(guard);
     Ok(SkillListResult { skills, errors })
@@ -44,3 +44,4 @@ pub(crate) fn mcp_list_skills(state: State<'_, AppState>) -> Result<SkillListRes
 pub(crate) fn skill_open_workspace_dir(state: State<'_, AppState>) -> Result<String, String> {
     open_skills_workspace_dir(&state)
 }
+

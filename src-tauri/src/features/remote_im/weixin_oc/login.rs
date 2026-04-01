@@ -205,7 +205,7 @@ impl WeixinOcManager {
             }
             let updated_channel = {
                 let guard = state
-                    .state_lock
+                    .conversation_lock
                     .lock()
                     .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
                 let mut writable = state_read_config_cached(state)?;
@@ -327,7 +327,7 @@ impl WeixinOcManager {
         self.login_sessions.write().await.remove(channel_id);
         {
             let guard = state
-                .state_lock
+                .conversation_lock
                 .lock()
                 .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
             let mut writable = state_read_config_cached(state)?;
@@ -355,4 +355,5 @@ impl WeixinOcManager {
         Ok(())
     }
 }
+
 

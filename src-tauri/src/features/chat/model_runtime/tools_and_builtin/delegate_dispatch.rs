@@ -16,7 +16,7 @@ fn delegate_resolve_context(
     String,
 > {
     let guard = app_state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut config = read_config(&app_state.config_path)?;
@@ -486,3 +486,4 @@ async fn delegate_execute_sync(
         })),
     }
 }
+

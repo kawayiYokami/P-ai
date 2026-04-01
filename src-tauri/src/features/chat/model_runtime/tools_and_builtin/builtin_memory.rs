@@ -94,7 +94,7 @@ fn upsert_memories(
 ) -> Result<(Vec<MemorySaveUpsertItemResult>, usize), String> {
     let owner_agent_id = {
         let guard = app_state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = read_app_data(&app_state.data_path)?;
@@ -207,7 +207,7 @@ fn builtin_recall(app_state: &AppState, query: &str) -> Result<Value, String> {
 
     let memories = {
         let guard = app_state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut data = read_app_data(&app_state.data_path)?;
@@ -239,3 +239,4 @@ fn builtin_recall(app_state: &AppState, query: &str) -> Result<Value, String> {
       "count": latest_recall_ids.len()
     }))
 }
+

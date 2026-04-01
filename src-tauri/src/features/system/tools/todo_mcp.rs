@@ -186,7 +186,7 @@ fn conversation_todo_replace(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(state)?;
@@ -277,3 +277,4 @@ pub fn run_todo_mcp_server() -> Result<(), String> {
         Ok::<(), String>(())
     })
 }
+

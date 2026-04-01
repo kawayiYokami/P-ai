@@ -745,7 +745,7 @@ fn create_pending_event(
 #[tauri::command]
 fn remote_im_list_channels(state: State<'_, AppState>) -> Result<Vec<RemoteImChannelConfig>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(&state)?;
@@ -756,7 +756,7 @@ fn remote_im_list_channels(state: State<'_, AppState>) -> Result<Vec<RemoteImCha
 #[tauri::command]
 fn remote_im_list_contacts(state: State<'_, AppState>) -> Result<Vec<RemoteImContact>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(&state)?;
@@ -777,7 +777,7 @@ fn remote_im_update_contact_allow_send(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -799,7 +799,7 @@ fn remote_im_update_contact_allow_send_files(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -821,7 +821,7 @@ fn remote_im_update_contact_allow_receive(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -843,7 +843,7 @@ fn remote_im_update_contact_activation(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -867,7 +867,7 @@ fn remote_im_update_contact_remark(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -889,7 +889,7 @@ fn remote_im_update_contact_route_mode(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(&state)?;
@@ -924,7 +924,7 @@ fn remote_im_update_contact_department_binding(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(&state)?;
@@ -962,7 +962,7 @@ fn remote_im_update_contact_processing_mode(
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -985,7 +985,7 @@ fn remote_im_list_contact_conversations(
     let started_at = std::time::Instant::now();
     eprintln!("[远程IM][联系人会话][列表] 开始");
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(&state)?;
@@ -1049,7 +1049,7 @@ fn remote_im_get_contact_conversation_messages(
         contact_id
     );
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(&state)?;
@@ -1097,7 +1097,7 @@ fn remote_im_delete_contact(
         return Err("contact_id 为必填项。".to_string());
     }
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1127,7 +1127,7 @@ fn remote_im_clear_contact_conversation(
         contact_id
     );
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -1188,7 +1188,7 @@ pub(crate) fn remote_im_enqueue_message_internal(
     state: &AppState,
 ) -> Result<RemoteImEnqueueResult, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(state)?;
@@ -1347,3 +1347,4 @@ pub(crate) fn remote_im_enqueue_message_internal(
         contact_id,
     })
 }
+

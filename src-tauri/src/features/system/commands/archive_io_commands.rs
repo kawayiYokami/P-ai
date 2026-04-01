@@ -340,7 +340,7 @@ fn export_archive_to_file(
     };
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let data = state_read_app_data_cached(&state)?;
@@ -408,7 +408,7 @@ fn import_archives_from_json(
     }
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -460,4 +460,5 @@ fn import_archives_from_json(
         selected_archive_id,
     })
 }
+
 

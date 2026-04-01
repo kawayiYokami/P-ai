@@ -93,7 +93,7 @@ fn delegate_enqueue_result_message(
     // 优先回发原始会话；若原会话已归档/消失，则回退到主会话。
     let (department_id, agent_id, target_conversation_id) = {
         let guard = app_state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let config = read_config(&app_state.config_path)?;
@@ -455,4 +455,5 @@ async fn delegate_run_thread_to_completion(
         }
     }
 }
+
 

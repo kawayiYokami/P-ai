@@ -619,6 +619,70 @@
     }
 
     #[test]
+    fn build_prompt_should_resolve_latest_user_from_trimmed_context_window() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut trailing_assistant = test_text_message("assistant", "收到，我继续处理", &now);
+        trailing_assistant.speaker_agent_id = Some(agent.id.clone());
+        let messages = vec![
+            test_text_message("user", "这是很久之前的超长历史消息，不应再参与本轮提示词", &now),
+            test_text_message("assistant", "这是旧助手回复", &now),
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "[上下文整理]\n只保留最近有效上下文".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "message_meta": {
+                        "kind": "context_compaction",
+                        "scene": "compaction",
+                        "reason": "manual"
+                    }
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+            trailing_assistant,
+            test_text_message("user", "这是压缩后的最新用户消息", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(prepared.latest_user_text, "这是压缩后的最新用户消息");
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert!(
+            prepared.history_messages[0]
+                .text
+                .contains("只保留最近有效上下文")
+        );
+        assert_eq!(prepared.history_messages[1].text, "收到，我继续处理");
+        assert!(
+            prepared
+                .history_messages
+                .iter()
+                .all(|message| !message.text.contains("很久之前的超长历史消息"))
+        );
+    }
+
+    #[test]
     fn build_prompt_should_not_treat_normal_message_with_compaction_phrase_as_compaction_boundary() {
         let now = now_iso();
         let agent = default_agent();
@@ -1126,6 +1190,45 @@
         assert!(d.usage_ratio >= 0.82);
     }
 
+    #[test]
+    fn archive_decision_should_prefer_cached_effective_prompt_tokens() {
+        let now = now_iso();
+        let (decision, source) =
+            decide_archive_before_send_with_fallback(820, 0.10, Some(100), 1000, Some(&now), true);
+        assert_eq!(source, "cached_effective_prompt_tokens");
+        assert!(decision.should_archive);
+        assert!(decision.forced);
+        assert!(decision.usage_ratio >= 0.82);
+    }
+
+    #[test]
+    fn archive_decision_should_fallback_to_estimate_only_when_cache_missing() {
+        let now = now_iso();
+        let (decision, source) =
+            decide_archive_before_send_with_fallback(0, 0.0, Some(820), 1000, Some(&now), true);
+        assert_eq!(source, "estimated_prompt_tokens");
+        assert!(decision.should_archive);
+        assert!(decision.forced);
+        assert!(decision.usage_ratio >= 0.82);
+    }
+
+    #[test]
+    fn append_user_message_should_keep_previous_context_usage_cache() {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-main", "active", &now);
+        conversation.last_context_usage_ratio = 0.67;
+        conversation.last_effective_prompt_tokens = 54321;
+        let user_message = test_text_message("user", "新的用户消息", &now);
+
+        let updated = append_user_message_to_conversation(conversation, user_message, &now);
+
+        assert_eq!(updated.last_context_usage_ratio, 0.67);
+        assert_eq!(updated.last_effective_prompt_tokens, 54321);
+        assert_eq!(updated.last_user_at.as_deref(), Some(now.as_str()));
+        assert_eq!(updated.updated_at, now);
+        assert_eq!(updated.messages.len(), 1);
+    }
+
     fn test_chat_runtime_state() -> AppState {
         let root = std::env::temp_dir().join(format!("eca-chat-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp test root");
@@ -1138,11 +1241,18 @@
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),
             terminal_shell_candidates: detect_terminal_shell_candidates(),
-            state_lock: Arc::new(Mutex::new(())),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
             cached_config: Arc::new(Mutex::new(None)),
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -1898,5 +2008,122 @@
         );
         assert_eq!(data.conversations[idx].status, "active");
         assert!(data.conversations[idx].summary.is_empty());
+    }
+
+    #[test]
+    #[ignore = "性能探针：本地按需运行 cargo test build_prepared_prompt_for_mode_perf_probe -- --ignored --nocapture"]
+    fn build_prepared_prompt_for_mode_perf_probe() {
+        let state = test_chat_runtime_state();
+        let agent = default_agent();
+        let user = default_user_persona();
+        let drafts = (0..12)
+            .map(|idx| MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: format!("用户偏好样本{}", idx),
+                reasoning: format!("这是第{}条用于提示词性能探针的记忆。", idx),
+                tags: vec!["性能".to_string(), format!("tag{}", idx)],
+                owner_agent_id: None,
+            })
+            .collect::<Vec<_>>();
+        let (saved, _) =
+            memory_store_upsert_drafts(&state.data_path, &drafts).expect("seed perf probe memories");
+        let memory_ids = saved
+            .iter()
+            .filter_map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+
+        let base_time = now_utc();
+        let mut messages = Vec::<ChatMessage>::new();
+        for idx in 0..80 {
+            let created_at = (base_time + time::Duration::seconds(idx as i64))
+                .format(&Rfc3339)
+                .expect("format probe message time");
+            let is_user = idx % 2 == 0;
+            let role = if is_user { "user" } else { "assistant" };
+            let speaker_agent_id = if is_user {
+                Some(USER_PERSONA_ID.to_string())
+            } else {
+                Some(agent.id.clone())
+            };
+            let mut provider_meta = None;
+            let mut extra_text_blocks = Vec::<String>::new();
+            if is_user && idx >= 60 {
+                let picked = memory_ids
+                    .iter()
+                    .skip((idx / 2) % 4)
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                provider_meta = Some(serde_json::json!({
+                    "retrieved_memory_ids": picked
+                }));
+                extra_text_blocks.push(format!("补充上下文块{}", idx));
+            }
+            messages.push(ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: role.to_string(),
+                created_at,
+                speaker_agent_id,
+                parts: vec![MessagePart::Text {
+                    text: format!("这是第{}条{}消息，用于测量提示词主结构构建速度。", idx, role),
+                }],
+                extra_text_blocks,
+                provider_meta,
+                tool_call: None,
+                mcp_call: None,
+            });
+        }
+
+        let last_user_at = messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "user")
+            .map(|message| message.created_at.clone());
+        let conversation = test_active_conversation_with_messages(messages, last_user_at);
+        let overrides = ChatPromptOverrides {
+            latest_user_extra_blocks: vec![
+                "这是一个额外的任务板块。".to_string(),
+                "这是一个额外的前台工具提示块。".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let runs = 20u32;
+        let started = std::time::Instant::now();
+        let mut latest_extra_len = 0usize;
+        let mut history_len = 0usize;
+        for _ in 0..runs {
+            let prepared = build_prepared_prompt_for_mode(
+                PromptBuildMode::Chat,
+                &conversation,
+                &agent,
+                &[agent.clone(), user.clone()],
+                &[],
+                "用户",
+                "我是性能探针里的用户。",
+                DEFAULT_RESPONSE_STYLE_ID,
+                "zh-CN",
+                Some(&state.data_path),
+                None,
+                None,
+                Some(overrides.clone()),
+                Some(&state),
+                None,
+                Some(false),
+            );
+            latest_extra_len = prepared.latest_user_extra_text.len();
+            history_len = prepared.history_messages.len();
+            assert!(!prepared.preamble.trim().is_empty());
+        }
+        let total_ms = started.elapsed().as_millis() as u64;
+        let avg_ms = total_ms / u64::from(runs);
+        eprintln!(
+            "[提示词性能探针] build_prepared_prompt_for_mode 平均耗时={}ms, total={}ms, runs={}, history_len={}, latest_extra_len={}",
+            avg_ms,
+            total_ms,
+            runs,
+            history_len,
+            latest_extra_len
+        );
     }
 

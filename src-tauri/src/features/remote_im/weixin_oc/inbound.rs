@@ -137,7 +137,7 @@ async fn run_single_weixin_oc_poll_cycle(
 ) -> Result<(), String> {
     let channel = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let config = state_read_config_cached(state)?;
@@ -199,7 +199,7 @@ async fn run_single_weixin_oc_poll_cycle(
         .filter(|value| !value.is_empty())
     {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut writable = state_read_config_cached(state)?;
@@ -307,7 +307,7 @@ fn sync_weixin_oc_contact_from_user_id(
         return Err("当前登录状态没有返回联系人 user_id，暂时无法补录联系人".to_string());
     }
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(state)?;
@@ -427,4 +427,5 @@ async fn remote_im_weixin_oc_sync_contacts(
         },
     })
 }
+
 

@@ -171,11 +171,6 @@ fn conversation_slot_mut<'a>(
     })
 }
 
-fn total_queue_len(state: &AppState) -> Result<usize, String> {
-    let slots = lock_conversation_runtime_slots(state)?;
-    Ok(slots.values().map(|slot| slot.pending_queue.len()).sum())
-}
-
 fn conversation_running_slot_count(
     claims: &std::collections::HashSet<String>,
     conversation_id: &str,
@@ -847,15 +842,117 @@ async fn process_conversation_batch(
     // 这里统一覆盖 created_at 为 history_flush_time，
     // 目的是把“正式进入历史的时间”作为消息的业务生效时间。
     // 入队时间只用于队列观察，不用于正式会话排序和轮次判断。
+    let (
+        app_config,
+        image_text_cache,
+        scheduler_agents,
+        summary_seed_agent,
+        should_seed_summary_context,
+    ) = {
+        let _guard = lock_conversation_with_metrics(state, "scheduler_snapshot")?;
+
+        let data = state_read_app_data_cached(state)?;
+        let app_config = state_read_config_cached(state)?;
+        let Some(conversation_idx) = data
+            .conversations
+            .iter()
+            .position(|c| c.id == conversation_id && c.summary.trim().is_empty())
+        else {
+            complete_pending_chat_events_with_error(
+                state,
+                &event_ids,
+                &format!("目标会话不存在，conversationId={conversation_id}"),
+            )?;
+            return Err(format!("目标会话不存在，conversationId={conversation_id}"));
+        };
+        let conversation = data
+            .conversations
+            .get(conversation_idx)
+            .ok_or_else(|| format!("目标会话不存在，conversationId={conversation_id}"))?;
+        let has_summary_context = conversation.messages.iter().any(|message| {
+            is_context_compaction_message(message, message.role.trim())
+        });
+        let should_seed_summary_context = !has_summary_context
+            && !conversation_is_delegate(conversation)
+            && !conversation_is_remote_im_contact(conversation);
+        let summary_seed_agent = if should_seed_summary_context
+            && conversation.user_profile_snapshot.trim().is_empty()
+        {
+            data.agents
+                .iter()
+                .find(|item| item.id == conversation.agent_id)
+                .cloned()
+        } else {
+            None
+        };
+        (
+            app_config,
+            data.image_text_cache.clone(),
+            data.agents.clone(),
+            summary_seed_agent,
+            should_seed_summary_context,
+        )
+    };
+    let seeded_profile_snapshot = if let Some(agent) = summary_seed_agent.as_ref() {
+        match with_memory_lock(state, "scheduler_profile_snapshot", || {
+            build_user_profile_snapshot_block(&state.data_path, agent, 12)
+        }) {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[用户画像] 失败，任务=seed_scheduler_profile_snapshot，conversation_id={}，agent_id={}，error={}",
+                    conversation_id,
+                    agent.id,
+                    err
+                ));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut session_image_capability =
+        std::collections::HashMap::<String, bool>::new();
+    let mut prepared_batches = Vec::<Vec<(ChatMessage, Vec<String>)>>::with_capacity(events.len());
+    for event in &events {
+        let enable_image = *session_image_capability
+            .entry(event.session_info.department_id.clone())
+            .or_insert_with(|| session_enable_image(&app_config, &event.session_info));
+        let mut prepared_messages = Vec::<(ChatMessage, Vec<String>)>::with_capacity(event.messages.len());
+        for message in &event.messages {
+            let mut persisted = message.clone();
+            normalize_user_message_for_image_support(
+                &mut persisted,
+                enable_image,
+                &image_text_cache,
+            );
+            persisted.created_at = history_flush_time.clone();
+            let recall_payload = if persisted.role.trim() == "user" {
+                with_memory_lock(state, "scheduler_user_message_recall", || {
+                    collect_recall_payload_for_user_message(
+                        &state.data_path,
+                        &scheduler_agents,
+                        &event.session_info.agent_id,
+                        &persisted,
+                    )
+                })?
+            } else {
+                UserMessageRecallPayload::default()
+            };
+            if !recall_payload.stored_ids.is_empty() {
+                write_retrieved_memory_ids_into_provider_meta(
+                    &mut persisted.provider_meta,
+                    &recall_payload.stored_ids,
+                );
+            }
+            prepared_messages.push((persisted, recall_payload.raw_ids));
+        }
+        prepared_batches.push(prepared_messages);
+    }
     {
-        let guard = state.state_lock.lock()
-            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+        let _guard = lock_conversation_with_metrics(state, "scheduler_commit")?;
 
         let mut data = state_read_app_data_cached(state)?;
-        let app_config = state_read_config_cached(state)?;
-        let image_text_cache = data.image_text_cache.clone();
-        let mut session_image_capability =
-            std::collections::HashMap::<String, bool>::new();
         if let Some(conversation_idx) = data
             .conversations
             .iter()
@@ -872,30 +969,14 @@ async fn process_conversation_batch(
                 let has_summary_context = conversation.messages.iter().any(|message| {
                     is_context_compaction_message(message, message.role.trim())
                 });
-                if !has_summary_context
+                if should_seed_summary_context
+                    && !has_summary_context
                     && !conversation_is_delegate(conversation)
                     && !conversation_is_remote_im_contact(conversation)
                 {
                     if conversation.user_profile_snapshot.trim().is_empty() {
-                        if let Some(agent) = data
-                            .agents
-                            .iter()
-                            .find(|item| item.id == conversation.agent_id)
-                        {
-                            match build_user_profile_snapshot_block(&state.data_path, agent, 12) {
-                                Ok(Some(snapshot)) => {
-                                    conversation.user_profile_snapshot = snapshot;
-                                }
-                                Ok(None) => {}
-                                Err(err) => {
-                                    runtime_log_error(format!(
-                                        "[用户画像] 失败，任务=seed_scheduler_profile_snapshot，conversation_id={}，agent_id={}，error={}",
-                                        conversation.id,
-                                        agent.id,
-                                        err
-                                    ));
-                                }
-                            }
+                        if let Some(snapshot) = seeded_profile_snapshot.as_deref() {
+                            conversation.user_profile_snapshot = snapshot.to_string();
                         }
                     }
                     let summary_message = build_initial_summary_context_message(
@@ -907,47 +988,36 @@ async fn process_conversation_batch(
                     conversation.messages.insert(0, summary_message);
                 }
             }
-            for event in &events {
+            for (event, prepared_messages) in events.iter().zip(prepared_batches.iter()) {
                 let event_should_activate = if matches!(event.source, ChatEventSource::RemoteIm) {
                     should_activate_remote_im_event(event, &mut data, &history_flush_time)
                 } else {
                     event.activate_assistant
                 };
                 event_activate_flags.push(event_should_activate);
-                let enable_image = *session_image_capability
-                    .entry(event.session_info.department_id.clone())
-                    .or_insert_with(|| session_enable_image(&app_config, &event.session_info));
                 let conversation = &mut data.conversations[conversation_idx];
-                for message in &event.messages {
-                    let mut persisted = message.clone();
-                    normalize_user_message_for_image_support(
-                        &mut persisted,
-                        enable_image,
-                        &image_text_cache,
-                    );
-                    persisted.created_at = history_flush_time.clone();
-                    if persisted.role.trim() == "user" {
-                        let recall_ids = collect_recall_ids_for_user_message(
-                            &state.data_path,
-                            &data.agents,
-                            &event.session_info.agent_id,
-                            &persisted,
-                        )?;
-                        if !recall_ids.is_empty() {
-                            write_retrieved_memory_ids_into_provider_meta(
-                                &mut persisted.provider_meta,
-                                &recall_ids,
-                            );
-                            for memory_id in &recall_ids {
-                                conversation.memory_recall_table.push(memory_id.clone());
-                            }
+                for (persisted, recall_ids) in prepared_messages {
+                    if persisted.role.trim() == "user" && !recall_ids.is_empty() {
+                        for memory_id in recall_ids {
+                            conversation.memory_recall_table.push(memory_id.clone());
                         }
                         eprintln!(
                             "[记忆RAG][出队消息写入] conversation_id={} user_message_id={} agent_id={} retrieved_memory_ids={:?}",
                             conversation_id,
                             persisted.id,
                             event.session_info.agent_id,
-                            recall_ids
+                            persisted
+                                .provider_meta
+                                .as_ref()
+                                .and_then(|meta| meta.get("retrieved_memory_ids"))
+                                .and_then(Value::as_array)
+                                .map(|items| {
+                                    items
+                                        .iter()
+                                        .filter_map(Value::as_str)
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default()
                         );
                     }
                     persisted_batch_messages.push(persisted.clone());
@@ -962,9 +1032,8 @@ async fn process_conversation_batch(
                 }
             }
             data.conversations[conversation_idx].updated_at = history_flush_time.clone();
-            state_write_app_data_cached(state, &data)?;
+            let _ = state_schedule_app_data_persist(state, &data)?;
         } else {
-            drop(guard);
             complete_pending_chat_events_with_error(
                 state,
                 &event_ids,
@@ -972,7 +1041,6 @@ async fn process_conversation_batch(
             )?;
             return Err(format!("目标会话不存在，conversationId={conversation_id}"));
         }
-        drop(guard);
     }
 
     // 2. 判断是否需要激活主助理。
@@ -981,7 +1049,6 @@ async fn process_conversation_batch(
     let activated_remote_im_sources =
         collect_activated_remote_im_sources(&events, &event_activate_flags);
     let should_activate = event_activate_flags.iter().copied().any(|v| v);
-    let activate_status = if should_activate { "开始" } else { "跳过" };
     let activating_runtime_context = events
         .iter()
         .zip(event_activate_flags.iter().copied())
@@ -995,40 +1062,14 @@ async fn process_conversation_batch(
         });
 
     let batch_message_count = events.iter().map(|e| e.messages.len()).sum::<usize>();
-    eprintln!(
-        "[聊天调度] 批次写入完成: conversation_id={}, message_count={}, activate={}, remote_im_activation_source_count={}, oldest_queue_created_at={}",
-        conversation_id,
-        batch_message_count,
-        activate_status,
-        activated_remote_im_sources.len(),
-        oldest_queue_created_at,
-    );
     let mut activations = take_queued_chat_activations(state, &event_ids)?;
-    if !activations.is_empty() {
-        eprintln!(
-            "[聊天调度] 使用请求绑定通道: conversation_id={}, binding_count={}",
-            conversation_id,
-            activations.len()
-        );
-    }
     if activations.is_empty() {
         activations = collect_active_chat_view_activations(state, conversation_id)?;
-        if !activations.is_empty() {
-            eprintln!(
-                "[聊天调度] 使用当前聊天窗口绑定通道: conversation_id={}, binding_count={}",
-                conversation_id,
-                activations.len()
-            );
-        }
     }
     let mut history_flushed_messages = Vec::<ChatMessage>::with_capacity(persisted_batch_messages.len());
-    let mut history_flushed_deferred_image_count = 0usize;
-    let mut history_flushed_deferred_base64_chars = 0usize;
     for message in &persisted_batch_messages {
-        let (deferred_message, deferred_image_count, deferred_base64_chars) =
+        let (deferred_message, _, _) =
             defer_image_parts_for_history_flushed(message, &state.data_path);
-        history_flushed_deferred_image_count += deferred_image_count;
-        history_flushed_deferred_base64_chars += deferred_base64_chars;
         history_flushed_messages.push(deferred_message);
     }
     let history_flushed_payload = serde_json::json!({
@@ -1037,17 +1078,6 @@ async fn process_conversation_batch(
         "messages": history_flushed_messages,
         "activateAssistant": should_activate,
     });
-    let history_flushed_payload_bytes = serde_json::to_vec(&history_flushed_payload)
-        .map(|bytes| bytes.len())
-        .unwrap_or(0);
-    eprintln!(
-        "[聊天调度] history_flushed 图片已改为延迟读取: conversation_id={}, message_count={}, deferred_image_count={}, deferred_base64_chars={}, payload_bytes={}",
-        conversation_id,
-        batch_message_count,
-        history_flushed_deferred_image_count,
-        history_flushed_deferred_base64_chars,
-        history_flushed_payload_bytes
-    );
     emit_history_flushed_event(state, &history_flushed_payload, conversation_id, &event_ids);
 
     // 3. 如果需要激活，调用主助理。
@@ -1057,12 +1087,6 @@ async fn process_conversation_batch(
             // 同一批里可能有多个激活请求，但前台主助理轮次只能有一个。
             // 因此这里只保留最后一个激活请求作为实际流式绑定对象。
             let activation = activations.pop();
-            if let Some(active) = activation.as_ref() {
-                eprintln!(
-                    "[聊天调度] 批次流式绑定: conversation_id={}, event_id={}, oldest_queue_created_at={}",
-                    conversation_id, active.event_id, oldest_queue_created_at
-                );
-            }
             match activate_main_assistant(
                 state,
                 &first_event.session_info,
@@ -1126,15 +1150,6 @@ async fn activate_main_assistant(
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
 ) -> Result<SendChatResult, String> {
-    eprintln!(
-        "[聊天调度] 开始: 激活主助理, conversation_id={}, department_id={}, agent_id={}, remote_im_activation_source_count={}, oldest_queue_created_at={}",
-        conversation_id,
-        session_info.department_id,
-        session_info.agent_id,
-        remote_im_activation_sources.len(),
-        oldest_queue_created_at,
-    );
-
     let mut runtime_context = runtime_context.unwrap_or_default();
     let activation_trace_id = activation
         .as_ref()
@@ -1429,10 +1444,6 @@ fn emit_history_flushed_event(
     conversation_id: &str,
     event_ids: &[String],
 ) {
-    eprintln!(
-        "[聊天推送] 准备发送 history_flushed: conversation_id={}, event_ids={:?}",
-        conversation_id, event_ids
-    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1445,12 +1456,7 @@ fn emit_history_flushed_event(
         return;
     };
     match app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
-        Ok(_) => {
-            eprintln!(
-                "[聊天调度] history_flushed 已通过 emit 发送: conversation_id={}, event_ids={:?}",
-                conversation_id, event_ids
-            );
-        }
+        Ok(_) => {}
         Err(err) => {
             eprintln!(
                 "[聊天调度] history_flushed emit 失败: conversation_id={}, event_ids={:?}, error={}",
@@ -1471,11 +1477,6 @@ fn emit_round_completed_event(
     conversation_id: &str,
     result: &SendChatResult,
 ) {
-    eprintln!(
-        "[聊天推送] 准备 emit round_completed: conversation_id={}, has_assistant_message={}",
-        conversation_id,
-        result.assistant_message.is_some()
-    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1496,10 +1497,7 @@ fn emit_round_completed_event(
         "assistantMessage": result.assistant_message,
     });
     match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
-        Ok(_) => eprintln!(
-            "[聊天推送] emit round_completed 成功: conversation_id={}",
-            conversation_id
-        ),
+        Ok(_) => {}
         Err(err) => eprintln!(
             "[聊天推送] emit round_completed 失败: conversation_id={}, error={}",
             conversation_id, err
@@ -1518,11 +1516,6 @@ fn emit_round_failed_event(
     conversation_id: &str,
     error_text: &str,
 ) {
-    eprintln!(
-        "[聊天推送] 准备 emit round_failed: conversation_id={}, error_len={}",
-        conversation_id,
-        error_text.len()
-    );
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1539,10 +1532,7 @@ fn emit_round_failed_event(
         "error": error_text,
     });
     match app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload) {
-        Ok(_) => eprintln!(
-            "[聊天推送] emit round_failed 成功: conversation_id={}",
-            conversation_id
-        ),
+        Ok(_) => {}
         Err(err) => eprintln!(
             "[聊天推送] emit round_failed 失败: conversation_id={}, error={}",
             conversation_id, err
@@ -1683,4 +1673,5 @@ fn complete_pending_chat_events_with_error(
     }
     Ok(())
 }
+
 

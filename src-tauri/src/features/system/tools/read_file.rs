@@ -477,7 +477,7 @@ async fn read_image_via_vision(
     let hash = compute_image_hash_hex(&image)?;
     let cached = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let data = state_read_app_data_cached(state)?;
@@ -495,7 +495,7 @@ async fn read_image_via_vision(
             return Err("Vision fallback returned empty text for the image.".to_string());
         }
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut data = state_read_app_data_cached(state)?;
@@ -800,11 +800,18 @@ fn test_read_file_state() -> AppState {
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),
             terminal_shell_candidates: detect_terminal_shell_candidates(),
-            state_lock: Arc::new(Mutex::new(())),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
             cached_config: Arc::new(Mutex::new(None)),
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
             inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -1045,3 +1052,4 @@ fn build_pdf_image_read_result_should_paginate_by_page_offset() {
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].get("pageIndex").and_then(Value::as_u64), Some(1));
 }
+

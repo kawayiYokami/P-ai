@@ -81,9 +81,9 @@ fn list_tools_from_runtime_or_policy(server: &McpServerConfig) -> Vec<McpToolDes
 async fn mcp_redeploy_all_from_policy(state: &AppState) -> Result<Vec<WorkspaceLoadError>, String> {
     let servers = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let servers = load_workspace_mcp_servers(state)?;
         drop(guard);
         servers
@@ -115,9 +115,9 @@ async fn mcp_redeploy_all_from_policy(state: &AppState) -> Result<Vec<WorkspaceL
             .collect::<Vec<_>>();
         let merged_policies = {
             let guard = state
-                .state_lock
+                .conversation_lock
                 .lock()
-                .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+                .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
             let policies = merge_workspace_mcp_tool_policies_with_new_tools(state, &server.id, &discovered_names)?;
             drop(guard);
             policies
@@ -143,9 +143,9 @@ async fn mcp_redeploy_all_from_policy(state: &AppState) -> Result<Vec<WorkspaceL
 #[tauri::command]
 fn mcp_list_servers(state: State<'_, AppState>) -> Result<Vec<McpServerConfig>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let mut out = load_workspace_mcp_servers(&state)?;
     for item in &mut out {
         *item = overlay_runtime_state_on_server(item.clone());
@@ -162,7 +162,7 @@ fn mcp_validate_definition(
     match normalize_mcp_definition_for_validation(&input.definition_json) {
         Ok((normalized_value, migrated)) => {
             let normalized_text = serde_json::to_string(&normalized_value)
-                .map_err(|err| format!("Serialize normalized MCP definition failed: {err}"))?;
+                .map_err(|err| format!("序列化标准化 MCP 定义失败：{err}"))?;
             let (name, parsed) = parse_mcp_server_definition(&normalized_text)?;
             let _ = migrated;
             let message = "MCP definition is valid".to_string();
@@ -198,9 +198,9 @@ fn mcp_save_server(
     let next = normalize_mcp_server_input(input)?;
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     save_workspace_mcp_server(&state, &next)?;
     let mut saved = load_server_by_id(&state, &next.id)?;
     saved = overlay_runtime_state_on_server(saved);
@@ -219,9 +219,9 @@ async fn mcp_remove_server(
         return Err("serverId is required".to_string());
     }
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let removed = remove_workspace_mcp_server(&state, server_id)?;
     drop(guard);
     if removed {
@@ -243,9 +243,9 @@ async fn mcp_list_server_tools(
 
     let server = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let server = load_server_by_id(&state, server_id)?;
         drop(guard);
         server
@@ -273,9 +273,9 @@ fn mcp_list_server_tools_cached(
 
     let server = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let server = load_server_by_id(&state, server_id)?;
         drop(guard);
         server
@@ -303,9 +303,9 @@ async fn mcp_deploy_server(
 
     let server = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let server = load_server_by_id(&state, server_id)?;
         set_workspace_mcp_policy_enabled(&state, server_id, true)?;
         drop(guard);
@@ -330,9 +330,9 @@ async fn mcp_deploy_server(
         .collect::<Vec<_>>();
     let merged_policies = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let policies = merge_workspace_mcp_tool_policies_with_new_tools(&state, server_id, &discovered_names)?;
         drop(guard);
         policies
@@ -368,9 +368,9 @@ async fn mcp_undeploy_server(
     }
     {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let _ = load_server_by_id(&state, server_id)?;
         set_workspace_mcp_policy_enabled(&state, server_id, false)?;
         drop(guard);
@@ -379,9 +379,9 @@ async fn mcp_undeploy_server(
     mcp_runtime_state_set(server_id, false, "stopped", "", Vec::new());
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let mut out = load_server_by_id(&state, server_id)?;
     out = overlay_runtime_state_on_server(out);
     drop(guard);
@@ -404,9 +404,9 @@ fn mcp_set_tool_enabled(
 
     let policies = {
         let guard = state
-            .state_lock
+            .conversation_lock
             .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+            .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
         let _ = load_server_by_id(&state, server_id)?;
         let mut policies = load_workspace_mcp_tool_policies(&state, server_id)?;
         if let Some(policy) = policies.iter_mut().find(|p| p.tool_name == tool_name) {
@@ -425,9 +425,9 @@ fn mcp_set_tool_enabled(
     mcp_runtime_state_set_tool_enabled(server_id, tool_name, input.enabled);
 
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let mut server = load_server_by_id(&state, server_id)?;
     server.tool_policies = policies;
     server = overlay_runtime_state_on_server(server);
@@ -440,3 +440,4 @@ fn mcp_set_tool_enabled(
 fn mcp_open_workspace_dir(state: State<'_, AppState>) -> Result<String, String> {
     open_mcp_workspace_dir(&state)
 }
+

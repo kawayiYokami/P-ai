@@ -314,6 +314,9 @@ fn main() {
             if let Err(err) = register_default_hotkey(&app_handle) {
                 eprintln!("[启动] 注册默认快捷键失败: {err}");
             }
+            if let Err(err) = start_app_data_persist_worker(app_handle.state::<AppState>().inner()) {
+                eprintln!("[启动] 启动后台持久化服务失败: {err}");
+            }
             if let Err(err) = start_record_hotkey_probe(
                 app_handle.clone(),
                 app_handle.state::<AppState>().config_path.clone(),
@@ -325,7 +328,7 @@ fn main() {
             }
             let app_state = app_handle.state::<AppState>();
             let guard = app_state
-                .state_lock
+                .conversation_lock
                 .lock()
                 .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
             let mut data = match state_read_app_data_cached(&app_state) {
@@ -638,3 +641,4 @@ fn main() {
 mod tests {
     include!("features/tests.rs");
 }
+

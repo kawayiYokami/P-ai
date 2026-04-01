@@ -4,7 +4,7 @@ fn check_tools_status(
     state: State<'_, AppState>,
 ) -> Result<Vec<ToolLoadStatus>, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut config = state_read_config_cached(&state)?;
@@ -167,7 +167,7 @@ fn check_tools_status(
 #[tauri::command]
 fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let data = state_read_app_data_cached(&state)?;
@@ -195,7 +195,7 @@ fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCac
 #[tauri::command]
 fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
     let guard = state
-        .state_lock
+        .conversation_lock
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
@@ -209,3 +209,4 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
         latest_updated_at: None,
     })
 }
+
