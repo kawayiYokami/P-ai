@@ -32,6 +32,15 @@ type UseChatRuntimeOptions = {
   perfDebug: boolean;
 };
 
+type ConversationMaintenanceAction = {
+  command: "force_archive_current" | "force_compact_current";
+  runningKey: string;
+  partialKey: string;
+  doneKey: string;
+  failedKey: string;
+  isDone: (result: ForceArchiveResult) => boolean;
+};
+
 export function useChatRuntime(options: UseChatRuntimeOptions) {
   const RECENT_MESSAGE_WINDOW = 50;
 
@@ -40,23 +49,23 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     return value || null;
   }
 
-  async function forceArchiveNow() {
+  async function runConversationMaintenance(action: ConversationMaintenanceAction) {
     const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
     const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
     if (!apiConfigId || !agentId) {
-      const text = options.t("status.forceArchiveNoTarget");
+      const text = options.t("status.conversationActionNoTarget");
       options.setStatus(text);
       options.setChatError(text);
       return;
     }
     if (options.forcingArchive.value) {
-      const text = options.t("status.forceArchiveInProgress");
+      const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
       return;
     }
     if (options.chatting.value) {
-      const text = options.t("status.forceArchiveBusy");
+      const text = options.t("status.conversationActionBusy");
       options.setStatus(text);
       options.setChatError(text);
       return;
@@ -66,7 +75,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     options.setChatError("");
     options.forcingArchive.value = true;
     try {
-      const result = await invokeTauri<ForceArchiveResult>("force_archive_current", {
+      const result = await invokeTauri<ForceArchiveResult>(action.command, {
         input: {
           apiConfigId,
           agentId,
@@ -85,18 +94,18 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.currentConversationId.value = activeConversationId;
       }
       if (result.reasonCode === "background_started") {
-        options.setStatus(options.t("status.forceArchiveRunning"));
+        options.setStatus(options.t(action.runningKey));
         options.setChatError("");
       } else if (result.warning) {
         const detail = `${result.warning}${result.elapsedMs ? ` (${result.elapsedMs}ms)` : ""}`;
-        const text = options.t("status.forceArchivePartial", { reason: detail });
+        const text = options.t(action.partialKey, { reason: detail });
         options.setStatus(text);
         options.setChatError(text);
-      } else if (result.archived) {
-        options.setStatus(options.t("status.forceArchiveDone", { count: result.mergedMemories }));
+      } else if (action.isDone(result)) {
+        options.setStatus(options.t(action.doneKey, { count: result.mergedMemories }));
         options.setChatError("");
       } else {
-        options.setStatus("");
+        options.setStatus(result.summary || "");
         options.setChatError("");
       }
       if (options.refreshUnarchivedConversations) {
@@ -106,16 +115,38 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     } catch (e) {
       const errText = String(e ?? "");
       if (errText.includes("活动对话已变化")) {
-        const text = options.t("status.forceArchiveConflict");
+        const text = options.t("status.conversationActionConflict");
         options.setStatus(text);
         options.setChatError(text);
       } else {
-        options.setStatusError("status.forceArchiveFailed", e);
-        options.setChatError(options.t("status.forceArchiveFailed", { err: String(e) }));
+        options.setStatusError(action.failedKey, e);
+        options.setChatError(options.t(action.failedKey, { err: String(e) }));
       }
     } finally {
       options.forcingArchive.value = false;
     }
+  }
+
+  async function forceArchiveNow() {
+    await runConversationMaintenance({
+      command: "force_archive_current",
+      runningKey: "status.forceArchiveRunning",
+      partialKey: "status.forceArchivePartial",
+      doneKey: "status.forceArchiveDone",
+      failedKey: "status.forceArchiveFailed",
+      isDone: (result) => result.archived,
+    });
+  }
+
+  async function forceCompactNow() {
+    await runConversationMaintenance({
+      command: "force_compact_current",
+      runningKey: "status.forceCompactRunning",
+      partialKey: "status.forceCompactPartial",
+      doneKey: "status.forceCompactDone",
+      failedKey: "status.forceCompactFailed",
+      isDone: (result) => !result.reasonCode,
+    });
   }
 
   async function loadAllMessages() {
@@ -146,6 +177,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
   return {
     refreshConversationHistory,
     forceArchiveNow,
+    forceCompactNow,
     loadAllMessages,
   };
 }

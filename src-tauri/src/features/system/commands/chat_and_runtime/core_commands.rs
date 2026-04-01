@@ -386,12 +386,9 @@ async fn stop_chat_message(
             .or_else(|| resolve_selected_api_config(&app_config, None).map(|api| api.id.clone()))
             .ok_or_else(|| "Missing available API config for stop request".to_string())?
     };
-    let selected_api = app_config
-        .api_configs
-        .iter()
-        .find(|api| api.id == api_config_id)
-        .cloned()
-        .ok_or_else(|| format!("Selected API config '{api_config_id}' not found."))?;
+    if !app_config.api_configs.iter().any(|api| api.id == api_config_id) {
+        return Err(format!("Selected API config '{api_config_id}' not found."));
+    }
     let runtime_requested = requested_conversation_id
         .as_deref()
         .filter(|conversation_id| {
@@ -463,8 +460,8 @@ async fn stop_chat_message(
     conversation.messages.push(assistant_message.clone());
     conversation.updated_at = now.clone();
     conversation.last_assistant_at = Some(now);
-    conversation.last_context_usage_ratio =
-        compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+    conversation.last_context_usage_ratio = 0.0;
+    conversation.last_effective_prompt_tokens = 0;
     let conversation_id = conversation.id.clone();
 
     if let Some(conversation) = runtime_conversation {

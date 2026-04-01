@@ -661,10 +661,10 @@
     "recording": "錄音中 {seconds}s",
     "holdRecord": "按住 {hotkey} 或按鈕錄音",
     "placeholder": "輸入問題，Ctrl+V 貼上圖片，按住按鈕語音輸入",
-    "forceArchiveTip": "點擊強制歸檔當前對話",
+    "forceArchiveTip": "點擊選擇壓縮或歸檔當前對話",
     "alwaysOnTopOff": "取消置頂",
     "alwaysOnTopOn": "總在最前視窗",
-    "archiving": "正在歸檔優化上下文...",
+    "archiving": "正在處理當前會話...",
     "archivingLock": "期間將暫時鎖定輸入",
     "currentHistoryTitle": "當前會話記錄（未歸檔）",
     "stop": "停止",
@@ -749,6 +749,11 @@
     "imageCacheCleared": "图片转文缓存已清理。",
     "clearImageCacheFailed": "清理图片缓存失败: {err}",
     "loadChatSnapshotFailed": "加载会话快照失败: {err}",
+    "loadConversationActionPreviewFailed": "載入會話操作預覽失敗: {err}",
+    "conversationActionNoTarget": "當前未選擇可用的對話 LLM 供應商設定或人格，暫無法處理當前會話。",
+    "conversationActionInProgress": "當前會話操作正在進行中，請稍候。",
+    "conversationActionBusy": "當前正在對話生成中，請稍後再試。",
+    "conversationActionConflict": "活動對話已變化，請重試當前會話操作。",
     "forceArchiveNoTarget": "当前未选择可用的对话LLM供应商配置或人格，暂无法强制归档。",
     "forceArchiveInProgress": "强制归档正在进行中，请稍候。",
     "forceArchiveBusy": "当前正在对话生成中，请稍后再试强制归档。",
@@ -757,6 +762,10 @@
     "forceArchiveConflict": "活动对话已变化，请重试强制归档。",
     "forceArchiveDone": "已强制归档，新增记忆 {count} 条。",
     "forceArchiveFailed": "强制归档失败: {err}",
+    "forceCompactRunning": "正在執行上下文壓縮...",
+    "forceCompactPartial": "已完成壓縮（降級總結）：{reason}",
+    "forceCompactDone": "已完成壓縮，更新記憶 {count} 條。",
+    "forceCompactFailed": "上下文壓縮失敗: {err}",
     "loadMessagesFailed": "加载消息失败: {err}",
     "rewindConversationFailed": "撤回消息失败: {err}",
     "toolCallDone": "工具调用完成",
@@ -887,4 +896,3 @@
     "repository": "Git 倉庫"
   }
 }
-

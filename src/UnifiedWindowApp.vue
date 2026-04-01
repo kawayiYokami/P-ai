@@ -346,40 +346,53 @@
     </dialog>
     <dialog class="modal" :class="{ 'modal-open': forceArchiveActionDialogOpen }">
       <div class="modal-box max-w-md">
-        <h3 class="font-semibold text-base">归档当前会话</h3>
-        <div v-if="forceArchivePreviewLoading" class="mt-3 text-sm opacity-70">正在判断当前会话是否可归档...</div>
+        <h3 class="font-semibold text-base">处理当前会话</h3>
+        <div v-if="forceArchivePreviewLoading" class="mt-3 text-sm opacity-70">正在判断当前会话是否适合压缩或归档...</div>
         <template v-else>
-          <div class="mt-3 space-y-2 text-sm opacity-85">
-            <div>归档：生成摘要并提炼记忆，保留为归档记录。</div>
-            <div>抛弃：直接删除当前会话，不保留内容。</div>
+          <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
+            <div class="font-medium">压缩</div>
+            <div class="mt-1 opacity-80">整理较早历史，保留当前会话继续聊。</div>
+            <div class="mt-2 text-xs opacity-70">适合上下文占用偏高，但你还想继续当前话题时使用。</div>
+            <div
+              v-if="forceCompactionPreview?.compactionDisabledReason"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+            >
+              {{ forceCompactionPreview.compactionDisabledReason }}
+            </div>
+          </div>
+          <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
+            <div class="font-medium">归档</div>
+            <div class="mt-1 opacity-80">生成摘要并提炼记忆，保留为归档记录。</div>
+            <div class="mt-2 text-xs opacity-70">适合这段会话已经结束，准备沉淀为历史记录时使用。</div>
+            <div
+              v-if="forceArchivePreview?.archiveDisabledReason"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+            >
+              {{ forceArchivePreview.archiveDisabledReason }}
+            </div>
           </div>
           <div class="mt-3 text-sm opacity-80">
             <div>当前会话消息数：{{ forceArchivePreview?.messageCount ?? 0 }}</div>
             <div>助理是否已回复：{{ forceArchivePreview?.hasAssistantReply ? "是" : "否" }}</div>
-          </div>
-          <div
-            v-if="forceArchivePreview?.archiveDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
-          >
-            {{ forceArchivePreview.archiveDisabledReason }}
+            <div>当前上下文占用：{{ forceCompactionPreview?.contextUsagePercent ?? 0 }}%</div>
           </div>
         </template>
         <div class="modal-action">
           <button
             class="btn btn-sm btn-primary"
-            :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canArchive || forcingArchive || discardingConversation"
+            :disabled="forceArchivePreviewLoading || !forceCompactionPreview?.canCompact || forcingArchive"
+            @click="confirmForceCompactionAction"
+          >
+            压缩
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canArchive || forcingArchive"
             @click="confirmForceArchiveAction"
           >
             归档
           </button>
-          <button
-            class="btn btn-sm btn-error"
-            :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canDiscard || forcingArchive || discardingConversation"
-            @click="confirmDiscardConversationAction"
-          >
-            {{ discardingConversation ? "抛弃中..." : "抛弃" }}
-          </button>
-          <button class="btn btn-sm" :disabled="forceArchivePreviewLoading || forcingArchive || discardingConversation" @click="closeForceArchiveActionDialog">
+          <button class="btn btn-sm" :disabled="forceArchivePreviewLoading || forcingArchive" @click="closeForceArchiveActionDialog">
             {{ t("common.cancel") }}
           </button>
         </div>
@@ -481,9 +494,14 @@ type ForceArchivePreviewResult = {
   isEmpty: boolean;
   archiveDisabledReason?: string | null;
 };
-type DeleteUnarchivedConversationResult = {
-  deletedConversationId: string;
-  activeConversationId: string;
+type ForceCompactionPreviewResult = {
+  conversationId: string;
+  canCompact: boolean;
+  messageCount: number;
+  hasAssistantReply: boolean;
+  isEmpty: boolean;
+  contextUsagePercent: number;
+  compactionDisabledReason?: string | null;
 };
 
 const viewMode = ref<"chat" | "archives" | "config">(props.fixedViewMode ?? "config");
@@ -584,7 +602,7 @@ const skillPlaceholderDialogOpen = ref(false);
 const forceArchiveActionDialogOpen = ref(false);
 const forceArchivePreviewLoading = ref(false);
 const forceArchivePreview = ref<ForceArchivePreviewResult | null>(null);
-const discardingConversation = ref(false);
+const forceCompactionPreview = ref<ForceCompactionPreviewResult | null>(null);
 const rewindConfirmDialogOpen = ref(false);
 const rewindConfirmCanUndoPatch = ref(false);
 const rewindConfirmUndoHint = ref("");
@@ -1533,6 +1551,7 @@ const chatRuntime = useChatRuntime({
 const {
   refreshConversationHistory,
   forceArchiveNow,
+  forceCompactNow,
   loadAllMessages,
 } = chatRuntime;
 
@@ -1933,6 +1952,7 @@ function closeForceArchiveActionDialog() {
   forceArchiveActionDialogOpen.value = false;
   forceArchivePreviewLoading.value = false;
   forceArchivePreview.value = null;
+  forceCompactionPreview.value = null;
 }
 
 async function openForceArchiveActionDialog() {
@@ -1946,60 +1966,44 @@ async function openForceArchiveActionDialog() {
   forceArchiveActionDialogOpen.value = true;
   forceArchivePreviewLoading.value = true;
   forceArchivePreview.value = null;
+  forceCompactionPreview.value = null;
   try {
-    const preview = await invokeTauri<ForceArchivePreviewResult>("preview_force_archive_current", {
-      input: {
-        apiConfigId,
-        agentId,
-        conversationId,
-      },
-    });
-    forceArchivePreview.value = preview;
+    const [archivePreview, compactionPreview] = await Promise.all([
+      invokeTauri<ForceArchivePreviewResult>("preview_force_archive_current", {
+        input: {
+          apiConfigId,
+          agentId,
+          conversationId,
+        },
+      }),
+      invokeTauri<ForceCompactionPreviewResult>("preview_force_compact_current", {
+        input: {
+          apiConfigId,
+          agentId,
+          conversationId,
+        },
+      }),
+    ]);
+    forceArchivePreview.value = archivePreview;
+    forceCompactionPreview.value = compactionPreview;
   } catch (error) {
     closeForceArchiveActionDialog();
-    setStatusError("status.forceArchiveFailed", error);
+    setStatusError("status.loadConversationActionPreviewFailed", error);
   } finally {
     forceArchivePreviewLoading.value = false;
   }
+}
+
+async function confirmForceCompactionAction() {
+  if (!forceCompactionPreview.value?.canCompact) return;
+  closeForceArchiveActionDialog();
+  await forceCompactNow();
 }
 
 async function confirmForceArchiveAction() {
   if (!forceArchivePreview.value?.canArchive) return;
   closeForceArchiveActionDialog();
   await forceArchiveNow();
-}
-
-async function confirmDiscardConversationAction() {
-  const conversationId = String(currentChatConversationId.value || "").trim();
-  if (!conversationId) return;
-  try {
-    discardingConversation.value = true;
-    const result = await invokeTauri<DeleteUnarchivedConversationResult>("delete_unarchived_conversation", {
-      input: { conversationId },
-    });
-    const deletedConversationId = String(result?.deletedConversationId || conversationId).trim();
-    const activeConversationId = String(result?.activeConversationId || "").trim();
-    const nextCache = { ...conversationMessageCache.value };
-    delete nextCache[deletedConversationId];
-    conversationMessageCache.value = nextCache;
-    clearConversationBadge(deletedConversationId);
-    currentChatConversationId.value = activeConversationId;
-    await refreshChatUnarchivedConversations();
-    if (activeConversationId) {
-      await loadAllMessages();
-      cacheConversationMessages(activeConversationId, allMessages.value);
-    } else {
-      allMessages.value = [];
-      hasMoreBackendHistory.value = false;
-    }
-    setStatus("当前会话已抛弃。");
-    chatErrorText.value = "";
-    closeForceArchiveActionDialog();
-  } catch (error) {
-    setStatusError("status.deleteUnarchivedConversationFailed", error);
-  } finally {
-    discardingConversation.value = false;
-  }
 }
 
 const {

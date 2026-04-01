@@ -2750,23 +2750,8 @@ fn rewind_conversation_from_message(
         .rev()
         .find(|m| m.role == "assistant")
         .map(|m| m.created_at.clone());
-    let context_window_tokens = input
-        .session
-        .department_id
-        .as_deref()
-        .and_then(|id| department_by_id(&app_config, id))
-        .map(department_primary_api_config_id)
-        .or_else(|| {
-            department_for_agent_id(&app_config, requested_agent_id).map(department_primary_api_config_id)
-        })
-        .and_then(|api_id| app_config.api_configs.iter().find(|api| api.id == api_id))
-        .map(|api| api.context_window_tokens)
-        .unwrap_or(128000);
-    conversation.last_context_usage_ratio = if conversation.messages.is_empty() {
-        0.0
-    } else {
-        compute_context_usage_ratio(conversation, context_window_tokens)
-    };
+    conversation.last_context_usage_ratio = 0.0;
+    conversation.last_effective_prompt_tokens = 0;
 
     if data.conversations.len() != before_len || removed_count > 0 {
         state_write_app_data_cached(&state, &data)?;

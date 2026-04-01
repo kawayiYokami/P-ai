@@ -191,6 +191,19 @@ struct ForceArchivePreviewResult {
     archive_disabled_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForceCompactionPreviewResult {
+    conversation_id: String,
+    can_compact: bool,
+    message_count: usize,
+    has_assistant_reply: bool,
+    is_empty: bool,
+    context_usage_percent: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compaction_disabled_reason: Option<String>,
+}
+
 const SHORT_CONVERSATION_DELETE_THRESHOLD: usize = 3;
 
 fn resolve_archive_target_conversation(
@@ -397,6 +410,54 @@ fn prepare_background_archive_active_conversation(
     Ok(active_conversation_id)
 }
 
+fn build_force_compaction_preview_result(
+    state: &AppState,
+    _selected_api: &ApiConfig,
+    source: &Conversation,
+) -> Result<ForceCompactionPreviewResult, String> {
+    let message_count = archive_pipeline_message_count_for_delete(source);
+    let has_assistant_reply = archive_pipeline_has_assistant_reply(source);
+    let is_empty = source.messages.is_empty();
+    let usage_ratio = if source.last_context_usage_ratio.is_finite() {
+        source.last_context_usage_ratio.max(0.0)
+    } else {
+        0.0
+    };
+    let context_usage_percent = usage_ratio
+        .mul_add(100.0, 0.0)
+        .round()
+        .clamp(0.0, 100.0) as u32;
+    let compaction_disabled_reason =
+        if get_conversation_runtime_state(state, &source.id)? == MainSessionState::OrganizingContext {
+            Some("当前会话正在整理上下文或归档处理中，请稍候。".to_string())
+        } else if is_empty {
+            Some("当前会话为空，无需整理。".to_string())
+        } else if !has_assistant_reply {
+            Some("当前会话还没有助理回复，暂不建议压缩。".to_string())
+        } else if message_count < 10 {
+            Some(format!(
+                "当前会话较短（仅 {} 条用户/助理消息），暂不建议压缩。",
+                message_count
+            ))
+        } else if usage_ratio < 0.10 {
+            Some(format!(
+                "当前上下文占用仅 {}%，暂不建议手动压缩。",
+                context_usage_percent
+            ))
+        } else {
+            None
+        };
+    Ok(ForceCompactionPreviewResult {
+        conversation_id: source.id.clone(),
+        can_compact: compaction_disabled_reason.is_none(),
+        message_count,
+        has_assistant_reply,
+        is_empty,
+        context_usage_percent,
+        compaction_disabled_reason,
+    })
+}
+
 fn archive_pipeline_message_count_for_delete(source: &Conversation) -> usize {
     source
         .messages
@@ -520,14 +581,21 @@ enum SummaryContextScene {
 fn build_summary_context_requirement_block(scene: SummaryContextScene) -> String {
     let body = match scene {
         SummaryContextScene::Compaction => {
-            "你现在正在执行 SummaryContext。\n\
-             请基于以上完整对话历史，生成一份供当前会话继续使用的上下文压缩摘要。\n\
-             summary 必须保留后续继续聊天必需的目标、约束、已完成进展、未完成事项、用户明确决策。"
+            "你正在执行一次“上下文检查点压缩（Context Checkpoint Compaction）”。\n\
+             请为另一个将继续当前任务的语言模型生成一份交接摘要。\n\
+             请包含以下内容：\n\
+             - 当前进展，以及已经做出的关键决策\n\
+             - 重要上下文、约束条件、或用户偏好\n\
+             - 剩余待办事项（给出清晰的下一步）\n\
+             - 为继续工作所需的关键数据、示例或引用\n\
+             请保持内容简洁、结构化，并专注于帮助下一个语言模型无缝继续当前工作。"
+                .to_string()
         }
         SummaryContextScene::Archive => {
             "你现在正在执行 SummaryContext。\n\
              请基于以上完整对话历史，生成一份供归档保存的会话摘要。\n\
              summary 必须总结本轮完成了什么、确认了什么、用户做了哪些关键决策、当前遗留问题是什么。"
+                .to_string()
         }
     };
     prompt_xml_block("summary_requirement", body)
@@ -551,7 +619,7 @@ fn build_summary_context_memory_block(
 fn build_summary_context_json_contract_block(scene: SummaryContextScene) -> String {
     let summary_rule = match scene {
         SummaryContextScene::Compaction => {
-            "summary 表示本次上下文压缩摘要，必须方便后续继续聊天直接使用。"
+            "summary 表示本次上下文检查点压缩的交接摘要，必须方便下一个模型继续当前任务直接使用。"
         }
         SummaryContextScene::Archive => {
             "summary 表示本次会话归档摘要，必须方便后续回看归档时直接理解。"
@@ -599,6 +667,9 @@ fn archive_pipeline_recent_user_assistant_messages(
         if role != "user" && role != "assistant" {
             continue;
         }
+        if archive_pipeline_is_context_compaction_message(message) {
+            continue;
+        }
         let text = archive_pipeline_message_plain_text(message);
         if text.is_empty() {
             continue;
@@ -612,32 +683,56 @@ fn archive_pipeline_recent_user_assistant_messages(
     recent
 }
 
-fn archive_pipeline_is_compression_text(text: &str) -> bool {
-    let lower = text.trim().to_ascii_lowercase();
-    if lower.is_empty() {
-        return false;
+fn archive_pipeline_recent_user_assistant_messages_by_token_budget(
+    source: &Conversation,
+    max_tokens: usize,
+) -> Vec<(String, String)> {
+    if max_tokens == 0 {
+        return Vec::new();
     }
-    lower.contains("上下文整理")
-        || lower.contains("整理摘要")
-        || lower.contains("上下文压缩")
-        || lower.contains("压缩摘要")
-        || lower.contains("context compression")
-        || lower.contains("context compact")
-}
-
-fn archive_pipeline_collect_compression_texts(source: &Conversation) -> Vec<String> {
-    let mut blocks = Vec::<String>::new();
-    for message in &source.messages {
-        if message.role.trim() != "user" && message.role.trim() != "assistant" {
+    let mut recent = Vec::<(String, String)>::new();
+    let mut consumed_tokens = 0.0f64;
+    let token_budget = max_tokens as f64;
+    for message in source.messages.iter().rev() {
+        let role = message.role.trim();
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        if archive_pipeline_is_context_compaction_message(message) {
             continue;
         }
         let text = archive_pipeline_message_plain_text(message);
-        if text.is_empty() || !archive_pipeline_is_compression_text(&text) {
+        if text.is_empty() {
             continue;
         }
-        blocks.push(text);
+        let next_tokens = estimated_tokens_for_text(&text);
+        if !recent.is_empty() && consumed_tokens + next_tokens > token_budget {
+            break;
+        }
+        consumed_tokens += next_tokens;
+        recent.push((role.to_string(), text));
+        if consumed_tokens >= token_budget {
+            break;
+        }
     }
-    blocks
+    recent.reverse();
+    recent
+}
+
+fn archive_pipeline_is_context_compaction_message(message: &ChatMessage) -> bool {
+    if message.role.trim() != "user" {
+        return false;
+    }
+    matches!(
+        message
+            .provider_meta
+            .as_ref()
+            .and_then(|meta| meta.get("message_meta"))
+            .and_then(|meta| meta.get("kind"))
+            .and_then(Value::as_str)
+            .map(str::trim),
+        Some("context_compaction") | Some("summary_context_seed")
+    )
 }
 
 fn archive_pipeline_dedup_recall_table(recall_table: &[String]) -> Vec<String> {
@@ -712,34 +807,6 @@ fn resolve_profile_memory_drafts(
             memory: item.memory.clone(),
         })
         .collect::<Vec<_>>()
-}
-
-fn build_archive_summary_from_compression_and_last_three_rounds(
-    source: &Conversation,
-) -> Result<String, String> {
-    let compression_blocks = archive_pipeline_collect_compression_texts(source);
-    if compression_blocks.is_empty() {
-        return Err("no compression messages found".to_string());
-    }
-    let recent = archive_pipeline_recent_user_assistant_messages(source, 6);
-    let mut lines = Vec::<String>::new();
-    lines.push("归档降级摘要（上下文整理信息 + 最后三轮正文对话）：".to_string());
-    lines.push("【上下文整理信息】".to_string());
-    for (idx, block) in compression_blocks.iter().enumerate() {
-        let snippet = block.chars().take(360).collect::<String>();
-        lines.push(format!("C{}. {}", idx + 1, snippet));
-    }
-    lines.push("【最近对话】".to_string());
-    if recent.is_empty() {
-        lines.push("最近对话暂无可用正文。".to_string());
-    } else {
-        for (idx, (role, text)) in recent.iter().enumerate() {
-            let speaker = if role == "user" { "用户" } else { "助理" };
-            let snippet = text.chars().take(240).collect::<String>();
-            lines.push(format!("{}. {}：{}", idx + 1, speaker, snippet));
-        }
-    }
-    Ok(lines.join("\n"))
 }
 
 fn build_archive_summary_from_last_three_rounds(source: &Conversation) -> String {
@@ -952,29 +1019,46 @@ fn build_compaction_message(
     compaction_reason: &str,
     user_profile_snapshot: Option<&str>,
     current_todos: Option<&[ConversationTodoItem]>,
+    preserved_dialogue: Option<&str>,
 ) -> ChatMessage {
     let now = now_iso();
     let reason = compaction_reason.trim();
-    let reason_line = if reason.is_empty() {
-        String::new()
-    } else {
-        format!("触发原因：{}\n", reason)
-    };
     let profile_snapshot = user_profile_snapshot
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| format!("\n\n{}", value))
-        .unwrap_or_default();
+        .map(clean_text)
+        .unwrap_or_else(|| "（暂无用户画像）".to_string());
     let todo_snapshot = current_todos
         .and_then(todo_markdown_block)
-        .map(|value| format!("\n\n{}", value))
+        .map(|value| clean_text(&value))
         .unwrap_or_default();
+    let user_profile_block = if todo_snapshot.is_empty() {
+        profile_snapshot
+    } else {
+        format!("{}\n\n{}", profile_snapshot, todo_snapshot)
+    };
+    let summary_note = if reason.is_empty() {
+        "以下内容为当前会话中较早历史对话的整理结果。\n\
+         为保证连续性，后文按约 10K token 的预算保留了最近的原始对话，不包含在本段摘要中。\n\
+         摘要中的助手发言统一使用当前人格昵称表示。"
+            .to_string()
+    } else {
+        "以下内容为当前会话中较早历史对话的整理结果。\n\
+         为保证连续性，后文按约 10K token 的预算保留了最近的原始对话，不包含在本段摘要中。\n\
+         摘要中的助手发言统一使用当前人格昵称表示。"
+            .to_string()
+    };
+    let preserved_dialogue_text = preserved_dialogue
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(normalize_multiline_block)
+        .unwrap_or_else(|| "（暂无保留对话）".to_string());
     let text = format!(
-        "[上下文整理]\n{}整理摘要：\n{}{}{}",
-        reason_line,
+        "[上下文整理]\n\n用户画像：\n{}\n\n摘要说明：\n{}\n\n摘要正文：\n{}\n\n保留对话：\n{}",
+        user_profile_block,
+        clean_text(summary_note.trim()),
         clean_text(summary.trim()),
-        profile_snapshot,
-        todo_snapshot
+        preserved_dialogue_text
     );
     ChatMessage {
         id: Uuid::new_v4().to_string(),
@@ -995,6 +1079,15 @@ fn build_compaction_message(
     }
 }
 
+fn normalize_multiline_block(input: &str) -> String {
+    input
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn build_initial_summary_context_message(
     last_archive_summary: Option<&str>,
     user_profile_snapshot: Option<&str>,
@@ -1004,7 +1097,8 @@ fn build_initial_summary_context_message(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("（暂无历史归档摘要）");
-    let mut message = build_compaction_message(summary, "", user_profile_snapshot, current_todos);
+    let mut message =
+        build_compaction_message(summary, "", user_profile_snapshot, current_todos, None);
     message.provider_meta = Some(serde_json::json!({
         "message_meta": {
             "kind": "summary_context_seed",
@@ -1052,6 +1146,35 @@ fn apply_summary_context_result(
     })
 }
 
+fn build_compaction_preserved_dialogue_block(
+    source: &Conversation,
+    user_alias: &str,
+    assistant_name: &str,
+    max_tokens: usize,
+) -> String {
+    archive_pipeline_recent_user_assistant_messages_by_token_budget(source, max_tokens)
+        .into_iter()
+        .map(|(role, text)| {
+            let speaker = if role.eq_ignore_ascii_case("assistant") {
+                assistant_name.trim()
+            } else {
+                user_alias.trim()
+            };
+            let speaker = if speaker.is_empty() {
+                if role.eq_ignore_ascii_case("assistant") {
+                    "助手"
+                } else {
+                    "用户"
+                }
+            } else {
+                speaker
+            };
+            format!("{}：{}", speaker, text)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 async fn summarize_archive_summary_with_fallback(
     state: &AppState,
     resolved_api: &ResolvedApiConfig,
@@ -1076,34 +1199,19 @@ async fn summarize_archive_summary_with_fallback(
     .await
     {
         Ok(draft) => (draft, None),
-        Err(err) => match build_archive_summary_from_compression_and_last_three_rounds(source) {
-            Ok(summary) => (
-                MemoryCurationDraft {
-                    summary,
-                    useful_memory_ids: Vec::new(),
-                    new_memories: Vec::new(),
-                    merge_groups: Vec::new(),
-                    profile_memories: Vec::new(),
-                },
-                Some(format!(
-                    "SummaryContext 归档失败，已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
-                    err
-                )),
-            ),
-            Err(compression_err) => (
-                MemoryCurationDraft {
-                    summary: build_archive_summary_from_last_three_rounds(source),
-                    useful_memory_ids: Vec::new(),
-                    new_memories: Vec::new(),
-                    merge_groups: Vec::new(),
-                    profile_memories: Vec::new(),
-                },
-                Some(format!(
-                    "SummaryContext 归档失败，上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
-                    err, compression_err
-                )),
-            ),
-        },
+        Err(err) => (
+            MemoryCurationDraft {
+                summary: build_archive_summary_from_last_three_rounds(source),
+                useful_memory_ids: Vec::new(),
+                new_memories: Vec::new(),
+                merge_groups: Vec::new(),
+                profile_memories: Vec::new(),
+            },
+            Some(format!(
+                "SummaryContext 归档失败，已使用最后三轮正文对话降级摘要：{}",
+                err
+            )),
+        ),
     }
 }
 
@@ -1130,13 +1238,13 @@ async fn summarize_compaction_with_fallback(
             Err(err) => {
                 return (
                     MemoryCurationDraft {
-                        summary: build_archive_summary_from_last_three_rounds(source),
+                        summary: String::new(),
                         useful_memory_ids: Vec::new(),
                         new_memories: Vec::new(),
                         merge_groups: Vec::new(),
                         profile_memories: Vec::new(),
                     },
-                    Some(format!("SummaryContext 读取可见记忆失败：{}", err)),
+                    Some(format!("SummaryContext 读取可见记忆失败，压缩摘要留空：{}", err)),
                 )
             }
         };
@@ -1172,46 +1280,23 @@ async fn summarize_compaction_with_fallback(
         }
     }
 
-    match build_archive_summary_from_compression_and_last_three_rounds(source) {
-        Ok(summary) => {
-            eprintln!(
-                "[SummaryContext] 上下文整理失败，重试后降级到 上下文整理信息+最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}",
-                trace_id, source.id, MAX_ATTEMPTS, last_err
-            );
-            (
-                MemoryCurationDraft {
-                    summary,
-                    useful_memory_ids: Vec::new(),
-                    new_memories: Vec::new(),
-                    merge_groups: Vec::new(),
-                    profile_memories: Vec::new(),
-                },
-                Some(format!(
-                    "SummaryContext 上下文整理失败（已重试{}次），已使用上下文整理信息+最后三轮正文对话降级摘要：{}",
-                    MAX_ATTEMPTS, last_err
-                )),
-            )
-        }
-        Err(compression_err) => {
-            eprintln!(
-                "[SummaryContext] 上下文整理失败，重试后上下文整理降级失败，已降级到 最后三轮 正文摘要: trace_id={}, conversation_id={}, attempts={}, err={}, compression_err={}",
-                trace_id, source.id, MAX_ATTEMPTS, last_err, compression_err
-            );
-            (
-                MemoryCurationDraft {
-                    summary: build_archive_summary_from_last_three_rounds(source),
-                    useful_memory_ids: Vec::new(),
-                    new_memories: Vec::new(),
-                    merge_groups: Vec::new(),
-                    profile_memories: Vec::new(),
-                },
-                Some(format!(
-                    "SummaryContext 上下文整理失败（已重试{}次），上下文整理降级失败，已使用最后三轮正文对话降级摘要：{}（上下文整理降级原因：{}）",
-                    MAX_ATTEMPTS, last_err, compression_err
-                )),
-            )
-        }
-    }
+    eprintln!(
+        "[SummaryContext] 上下文整理失败，压缩摘要留空继续主流程: trace_id={}, conversation_id={}, attempts={}, err={}",
+        trace_id, source.id, MAX_ATTEMPTS, last_err
+    );
+    (
+        MemoryCurationDraft {
+            summary: String::new(),
+            useful_memory_ids: Vec::new(),
+            new_memories: Vec::new(),
+            merge_groups: Vec::new(),
+            profile_memories: Vec::new(),
+        },
+        Some(format!(
+            "SummaryContext 上下文整理失败（已重试{}次），压缩摘要留空：{}",
+            MAX_ATTEMPTS, last_err
+        )),
+    )
 }
 
 #[tauri::command]
@@ -1286,6 +1371,35 @@ async fn force_archive_current(
 }
 
 #[tauri::command]
+async fn force_compact_current(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<ForceArchiveResult, String> {
+    let (selected_api, resolved_api, source, effective_agent_id) =
+        resolve_archive_target_conversation(state.inner(), &input)?;
+    let preview = build_force_compaction_preview_result(state.inner(), &selected_api, &source)?;
+    if !preview.can_compact {
+        return Err(
+            preview
+                .compaction_disabled_reason
+                .unwrap_or_else(|| "当前会话暂时不能压缩。".to_string()),
+        );
+    }
+    let result = run_context_compaction_pipeline(
+        state.inner(),
+        &selected_api,
+        &resolved_api,
+        &source,
+        &effective_agent_id,
+        "manual_force_compaction",
+        "COMPACTION-FORCE",
+    )
+    .await?;
+    trigger_chat_queue_processing(state.inner());
+    Ok(result)
+}
+
+#[tauri::command]
 fn preview_force_archive_current(
     input: SessionSelector,
     state: State<'_, AppState>,
@@ -1305,7 +1419,7 @@ fn preview_force_archive_current(
         Some("当前会话还没有助理回复，不能归档。".to_string())
     } else if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
         Some(format!(
-            "当前会话过短（仅 {} 条用户/助理消息），不进入归档，建议直接抛弃。",
+            "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
             message_count
         ))
     } else {
@@ -1320,6 +1434,16 @@ fn preview_force_archive_current(
         is_empty,
         archive_disabled_reason,
     })
+}
+
+#[tauri::command]
+fn preview_force_compact_current(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<ForceCompactionPreviewResult, String> {
+    let (selected_api, _resolved_api, source, _effective_agent_id) =
+        resolve_archive_target_conversation(state.inner(), &input)?;
+    build_force_compaction_preview_result(state.inner(), &selected_api, &source)
 }
 
 pub(crate) async fn run_archive_pipeline(
@@ -1553,6 +1677,12 @@ async fn run_context_compaction_pipeline_inner(
         compaction_reason,
         user_profile_snapshot.as_deref(),
         Some(&source.current_todos),
+        Some(&build_compaction_preserved_dialogue_block(
+            source,
+            &user_alias,
+            &host_agent.name,
+            10_000,
+        )),
     );
     let compression_message_id = compression_message.id.clone();
     {
@@ -1565,8 +1695,8 @@ async fn run_context_compaction_pipeline_inner(
         let now = now_iso();
         conversation.updated_at = now.clone();
         conversation.last_user_at = Some(now);
-        conversation.last_context_usage_ratio =
-            compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+        conversation.last_context_usage_ratio = 0.0;
+        conversation.last_effective_prompt_tokens = 0;
     }
     let active_conversation_id = data
         .conversations

@@ -94,6 +94,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
     err: String,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
@@ -142,6 +143,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
             on_delta,
             max_tool_iterations,
             app_state,
+            auto_compaction_context,
             chat_session_key,
         )
         .await
@@ -159,6 +161,7 @@ async fn dispatch_openai_style_call(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     app_state: Option<&AppState>,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     if selected_api.request_format.is_deepseek_kimi() {
@@ -177,24 +180,28 @@ async fn dispatch_openai_style_call(
     } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
         call_model_openai_responses_with_tools(
             api_config,
+            selected_api,
             model_name,
             prepared,
             tool_assembly,
             on_delta,
             max_tool_iterations,
             app_state,
+            auto_compaction_context,
             chat_session_key,
         )
         .await
     } else {
         call_model_openai_with_tools(
             api_config,
+            selected_api,
             model_name,
             prepared,
             tool_assembly,
             on_delta,
             max_tool_iterations,
             app_state,
+            auto_compaction_context,
             chat_session_key,
         )
         .await
@@ -226,6 +233,7 @@ async fn call_model_openai_style(
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
@@ -273,12 +281,14 @@ async fn call_model_openai_style(
                 tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                 call_model_gemini_with_tools(
                     api_config,
+                    selected_api,
                     model_name,
                     prepared,
                     tool_assembly,
                     on_delta,
                     max_tool_iterations,
                     app_state,
+                    auto_compaction_context,
                     chat_session_key,
                 )
                 .await
@@ -303,12 +313,14 @@ async fn call_model_openai_style(
                 tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
                 call_model_anthropic_with_tools(
                     api_config,
+                    selected_api,
                     model_name,
                     prepared,
                     tool_assembly,
                     on_delta,
                     max_tool_iterations,
                     app_state,
+                    auto_compaction_context,
                     chat_session_key,
                 )
                 .await
@@ -346,6 +358,7 @@ async fn call_model_openai_style(
                     on_delta,
                     max_tool_iterations,
                     app_state,
+                    auto_compaction_context,
                     chat_session_key,
                 )
                 .await
@@ -377,6 +390,7 @@ async fn call_model_openai_style(
                         err,
                         prepared,
                         app_state,
+                        auto_compaction_context,
                         on_delta,
                         max_tool_iterations,
                         chat_session_key,
@@ -444,6 +458,7 @@ async fn call_model_openai_style(
                         err,
                         prepared,
                         app_state,
+                        auto_compaction_context,
                         on_delta,
                         max_tool_iterations,
                         chat_session_key,
@@ -492,6 +507,7 @@ async fn call_model_openai_style(
                             on_delta,
                             max_tool_iterations,
                             app_state,
+                            auto_compaction_context,
                             chat_session_key,
                         )
                         .await

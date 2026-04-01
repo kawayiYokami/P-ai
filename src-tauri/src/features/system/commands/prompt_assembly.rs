@@ -128,6 +128,12 @@ fn build_prepared_prompt_for_mode(
             );
             let mut prepared =
                 enrich_prepared_prompt_with_common_preamble(prepared, last_archive_summary, None, terminal_block);
+            for message in &mut prepared.history_messages {
+                message.images.clear();
+                message.audios.clear();
+            }
+            prepared.latest_images.clear();
+            prepared.latest_audios.clear();
             if let Some(overrides) = chat_overrides {
                 append_preamble_blocks(&mut prepared.preamble, &overrides.system_preamble_blocks);
                 let latest_user_text = overrides

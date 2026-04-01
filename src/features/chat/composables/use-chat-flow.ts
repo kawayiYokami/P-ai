@@ -20,6 +20,7 @@ type HistoryFlushedPayload = {
   messageCount: number;
   messages: ChatMessage[];
   activateAssistant?: boolean;
+  compactionApplied?: boolean;
 };
 
 type RoundCompletedPayload = {
@@ -179,9 +180,16 @@ export function useChatFlow(options: UseChatFlowOptions) {
         messageCount: Math.max(0, Math.round(Number(parsed.messageCount) || 0)),
         messages: Array.isArray(parsed.messages) ? (parsed.messages as ChatMessage[]) : [],
         activateAssistant: !!parsed.activateAssistant,
+        compactionApplied: !!parsed.compactionApplied,
       };
     } catch {
-      return { conversationId: text, messageCount: 0, messages: [], activateAssistant: false };
+      return {
+        conversationId: text,
+        messageCount: 0,
+        messages: [],
+        activateAssistant: false,
+        compactionApplied: false,
+      };
     }
   }
 
@@ -545,11 +553,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
   ) {
     const flushed = readHistoryFlushedPayload(parsed.message);
     const shouldActivate = source === "sendChat" || !!flushed?.activateAssistant;
+    const shouldForceReset = !!flushed?.compactionApplied;
     console.info("[CHAT_TRACE][history_flushed] 开始", {
       source,
       gen,
       sendChatActiveGen,
       shouldActivate,
+      shouldForceReset,
       payloadConversationId: String(flushed?.conversationId || "").trim(),
     });
     // sendChat 活跃时，仅拦截“会激活助理”的 bound 批次，避免抢占当前轮次；
@@ -560,6 +570,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         gen,
         sendChatActiveGen,
         shouldActivate,
+        shouldForceReset,
       });
       return;
     }
@@ -568,6 +579,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       source,
       gen,
       shouldActivate,
+      shouldForceReset,
       payloadConversationId: String(flushed?.conversationId || "").trim(),
       replayCount: replayMessages.length,
       messageCount: Number(flushed?.messageCount || 0),
@@ -579,12 +591,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const payloadMessageCount = Math.max(0, Math.round(Number(flushed?.messageCount || 0)));
     const batchVisibleCount = Math.max(1, replayMessages.length, payloadMessageCount);
     activeHistoryMessageCount = batchVisibleCount;
-    if (shouldActivate) {
-      // 激活助理时重置显示态，但消息数组由外层做去重合并，不再清空重建。
+    if (shouldActivate || shouldForceReset) {
+      // 激活助理或上下文整理改写消息序列时，先强制收口当前显示态。
       const oldDraftId = round.phase === "streaming" ? round.draftId : "";
       resetDisplayState();
       if (oldDraftId) removeDraft(oldDraftId);
-      round = { phase: "queued", gen };
+      round = shouldActivate ? { phase: "queued", gen } : { phase: "idle" };
     }
 
     // ── reload ──
@@ -593,6 +605,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         source,
         gen,
         shouldActivate,
+        shouldForceReset,
         batchVisibleCount,
       });
       await options.onHistoryFlushed({
@@ -605,6 +618,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         source,
         gen,
         shouldActivate,
+        shouldForceReset,
         batchVisibleCount,
       });
     } else {

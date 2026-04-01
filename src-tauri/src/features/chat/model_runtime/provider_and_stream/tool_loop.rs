@@ -36,6 +36,222 @@ fn resolve_reasoning_for_tool_history(turn_reasoning: &str, chat_history: &[RigM
     " ".to_string()
 }
 
+#[derive(Debug, Clone)]
+struct ToolLoopAutoCompactionContext {
+    conversation_id: String,
+    prompt_mode: PromptBuildMode,
+    agent: AgentProfile,
+    agents: Vec<AgentProfile>,
+    departments: Vec<DepartmentConfig>,
+    user_name: String,
+    user_intro: String,
+    response_style_id: String,
+    ui_language: String,
+    last_archive_summary: Option<String>,
+    terminal_block: Option<String>,
+    chat_overrides: Option<ChatPromptOverrides>,
+    enable_pdf_images: bool,
+}
+
+fn tool_loop_transient_tool_history_message(events: &[Value]) -> Option<ChatMessage> {
+    if events.is_empty() {
+        return None;
+    }
+    Some(ChatMessage {
+        id: "tool_loop_transient_tool_history".to_string(),
+        role: "assistant".to_string(),
+        created_at: String::new(),
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text {
+            text: String::new(),
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: None,
+        tool_call: Some(events.to_vec()),
+        mcp_call: None,
+    })
+}
+
+fn append_tool_loop_transient_history_to_prepared(
+    prepared: &mut PreparedPrompt,
+    transient_tool_history: &[Value],
+) {
+    let Some(message) = tool_loop_transient_tool_history_message(transient_tool_history) else {
+        return;
+    };
+    prepared.history_messages.extend(
+        build_prepared_history_messages_from_tool_history(
+            &message,
+            MessageToolHistoryView::PromptReplay,
+        ),
+    );
+}
+
+fn tool_loop_active_conversation_snapshot(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<Conversation>, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
+    let data = state_read_app_data_cached(state)?;
+    let conversation = data
+        .conversations
+        .iter()
+        .find(|item| item.id == conversation_id && item.summary.trim().is_empty())
+        .cloned();
+    drop(guard);
+    Ok(conversation)
+}
+
+fn build_tool_loop_prepared_for_continuation(
+    state: &AppState,
+    context: &ToolLoopAutoCompactionContext,
+    resolved_api: &ResolvedApiConfig,
+    transient_tool_history: &[Value],
+) -> Result<Option<(Conversation, PreparedPrompt)>, String> {
+    let Some(conversation) =
+        tool_loop_active_conversation_snapshot(state, &context.conversation_id)?
+    else {
+        return Ok(None);
+    };
+    let mut prepared = build_prepared_prompt_for_mode(
+        context.prompt_mode,
+        &conversation,
+        &context.agent,
+        &context.agents,
+        &context.departments,
+        &context.user_name,
+        &context.user_intro,
+        &context.response_style_id,
+        &context.ui_language,
+        Some(&state.data_path),
+        context.last_archive_summary.as_deref(),
+        context.terminal_block.clone(),
+        context.chat_overrides.clone(),
+        Some(state),
+        Some(resolved_api),
+        Some(context.enable_pdf_images),
+    );
+    append_tool_loop_transient_history_to_prepared(&mut prepared, transient_tool_history);
+    Ok(Some((conversation, prepared)))
+}
+
+async fn maybe_apply_auto_compaction_before_tool_continue(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    protocol_family: ToolCallProtocolFamily,
+    transient_tool_history: &[Value],
+    current_prompt: &mut RigMessage,
+    chat_history: &mut Vec<RigMessage>,
+) -> Result<bool, String> {
+    let Some(state) = state else {
+        return Ok(false);
+    };
+    let Some(context) = context else {
+        return Ok(false);
+    };
+    if transient_tool_history.is_empty() {
+        return Ok(false);
+    }
+
+    let Some((source, prepared_before)) = build_tool_loop_prepared_for_continuation(
+        state,
+        context,
+        resolved_api,
+        transient_tool_history,
+    )?
+    else {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} 原因=会话不存在或已归档",
+            context.conversation_id
+        ));
+        return Ok(false);
+    };
+
+    let estimated_prompt_tokens =
+        estimate_prepared_prompt_tokens(&prepared_before, selected_api, &context.agent);
+    let context_window = u64::from(selected_api.context_window_tokens.max(1));
+    let usage_ratio = estimated_prompt_tokens as f64 / context_window as f64;
+    if usage_ratio < 0.82 {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} usage_ratio={:.4}",
+            context.conversation_id, usage_ratio
+        ));
+        return Ok(false);
+    }
+
+    let _ = on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("tool_status".to_string()),
+        tool_name: Some("archive".to_string()),
+        tool_status: Some("running".to_string()),
+        tool_args: None,
+        message: Some("上下文接近上限，正在整理后继续执行...".to_string()),
+    });
+
+    let archive_res = run_context_compaction_pipeline(
+        state,
+        selected_api,
+        resolved_api,
+        &source,
+        &context.agent.id,
+        "force_context_usage_82_before_tool_continue",
+        "COMPACTION-BEFORE-TOOL-CONTINUE",
+    )
+    .await;
+
+    let archive_result = match archive_res {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: String::new(),
+                kind: Some("tool_status".to_string()),
+                tool_name: Some("archive".to_string()),
+                tool_status: Some("failed".to_string()),
+                tool_args: None,
+                message: Some(format!("自动整理失败：{err}")),
+            });
+            return Err(format!("自动整理失败：{err}"));
+        }
+    };
+
+    if let Some(warning) = archive_result
+        .warning
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        runtime_log_warn(format!(
+            "[聊天] 工具续调前上下文整理 完成 conversation_id={} warning={}",
+            context.conversation_id, warning
+        ));
+    } else {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} estimated_prompt_tokens={}",
+            context.conversation_id, usage_ratio, estimated_prompt_tokens
+        ));
+    }
+
+    let Some((_compacted_source, prepared_after)) = build_tool_loop_prepared_for_continuation(
+        state,
+        context,
+        resolved_api,
+        transient_tool_history,
+    )?
+    else {
+        return Err("自动整理完成后未找到当前会话，无法继续工具续调。".to_string());
+    };
+    let (next_prompt, next_history) = build_tool_loop_prompt(&prepared_after, protocol_family)?;
+    *current_prompt = next_prompt;
+    *chat_history = next_history;
+    Ok(true)
+}
+
 fn organize_context_succeeded(tool_name: &str, tool_result: &str) -> bool {
     if tool_name != "organize_context" {
         return false;
@@ -154,6 +370,9 @@ async fn run_unified_tool_loop<M>(
     agent: rig::agent::Agent<M>,
     prepared: PreparedPrompt,
     protocol_family: ToolCallProtocolFamily,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     include_reasoning_before_tool_calls: bool,
@@ -172,7 +391,22 @@ where
         build_tool_loop_prompt(&prepared, protocol_family)?;
 
     let max_rounds = std::cmp::max(1usize, max_tool_iterations);
-    for _ in 0..max_rounds {
+    let mut auto_compaction_applied = false;
+    for round_index in 0..max_rounds {
+        if round_index > 0 && !auto_compaction_applied {
+            auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                resolved_api,
+                on_delta,
+                protocol_family,
+                &tool_history_events,
+                &mut current_prompt,
+                &mut chat_history,
+            )
+            .await?;
+        }
         let mut stream = agent
             .stream_completion(current_prompt.clone(), chat_history.clone())
             .await
@@ -547,5 +781,48 @@ mod tool_loop_tests {
         .to_string();
 
         assert!(should_stop_after_remote_im_send("remote_im_send", &tool_result));
+    }
+
+    #[test]
+    fn append_tool_loop_transient_history_to_prepared_should_expand_tool_events() {
+        let mut prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let events = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "xcap",
+                        "arguments": "{\"method\":\"list_windows\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "{\"ok\":true}"
+            }),
+        ];
+
+        append_tool_loop_transient_history_to_prepared(&mut prepared, &events);
+
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert_eq!(prepared.history_messages[0].role, "assistant");
+        assert!(prepared.history_messages[0].tool_calls.is_some());
+        assert_eq!(prepared.history_messages[1].role, "tool");
+        assert_eq!(
+            prepared.history_messages[1].tool_call_id.as_deref(),
+            Some("call_1")
+        );
     }
 }

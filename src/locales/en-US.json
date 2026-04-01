@@ -688,11 +688,11 @@
     "transcribing": "Transcribing voice...",
     "holdRecord": "Hold {hotkey} or button to record",
     "placeholder": "Type your question, Ctrl+V to paste image, hold to speak",
-    "forceArchiveTip": "Force archive current chat",
+    "forceArchiveTip": "Choose compact or archive for the current chat",
     "alwaysOnTopOff": "Disable always on top",
     "alwaysOnTopOn": "Always on top",
-    "archiving": "Archiving to optimize context...",
-    "archivingLock": "Input is temporarily locked",
+    "archiving": "Processing current conversation...",
+    "archivingLock": "Input is temporarily locked during this action",
     "currentHistoryTitle": "Current Session History (Unarchived)",
     "taskTrigger": {
       "badge": "Task Trigger",
@@ -749,6 +749,11 @@
     "imageCacheCleared": "Image cache cleared.",
     "clearImageCacheFailed": "Clear image cache failed: {err}",
     "loadChatSnapshotFailed": "Load chat snapshot failed: {err}",
+    "loadConversationActionPreviewFailed": "Failed to load conversation action preview: {err}",
+    "conversationActionNoTarget": "No valid chat LLM provider/persona is selected, cannot process the current conversation.",
+    "conversationActionInProgress": "A conversation action is already running, please wait.",
+    "conversationActionBusy": "Chat generation is in progress, please try again later.",
+    "conversationActionConflict": "Active conversation changed. Please retry this action.",
     "forceArchiveNoTarget": "No valid chat LLM provider/persona is selected, cannot force archive now.",
     "forceArchiveInProgress": "Force archive is already running, please wait.",
     "forceArchiveBusy": "Chat generation is in progress, please force archive later.",
@@ -757,6 +762,10 @@
     "forceArchiveConflict": "Active conversation changed. Please retry force archive.",
     "forceArchiveDone": "Force archive done, merged memories: {count}.",
     "forceArchiveFailed": "Force archive failed: {err}",
+    "forceCompactRunning": "Context compaction in progress...",
+    "forceCompactPartial": "Compaction completed with degraded summary: {reason}",
+    "forceCompactDone": "Context compaction done, merged memories: {count}.",
+    "forceCompactFailed": "Context compaction failed: {err}",
     "loadMessagesFailed": "Load messages failed: {err}",
     "rewindConversationFailed": "Recall failed: {err}",
     "toolCallDone": "Tool call done",
@@ -887,4 +896,3 @@
     "repository": "Git Repository"
   }
 }
-

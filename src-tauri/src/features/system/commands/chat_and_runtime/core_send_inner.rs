@@ -975,115 +975,9 @@ async fn send_chat_message_inner(
         })
         .collect::<Vec<_>>();
 
-    let specific_conversation_requested = requested_conversation_id.is_some();
     let mut archived_before_send = false;
-    let mut pending_archive_source: Option<Conversation> = None;
-    let mut pending_archive_reason = String::new();
-    let mut pending_archive_forced = false;
 
-    if !trigger_only && !specific_conversation_requested {
-        let guard = state
-            .state_lock
-            .lock()
-            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-        let mut data = state_read_app_data_cached(&state)?;
-        let changed = ensure_default_agent(&mut data);
-        let mut config = state_read_config_cached(&state)?;
-        let mut runtime_agents = data.agents.clone();
-        merge_private_organization_into_runtime(&state.data_path, &mut config, &mut runtime_agents)?;
-        let _agent = runtime_agents
-            .iter()
-            .find(|a| a.id == effective_agent_id)
-            .cloned()
-            .ok_or_else(|| "Selected agent not found.".to_string())?;
-
-        if let Some(idx) =
-            latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
-        {
-            let conversation = data
-                .conversations
-                .get_mut(idx)
-                .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
-            let decision =
-                decide_archive_before_user_message(conversation, selected_api.context_window_tokens);
-            conversation.last_context_usage_ratio = decision.usage_ratio;
-            eprintln!(
-                "[ARCHIVE] check before user message: should_archive={}, forced={}, reason={}, usage_ratio={:.4}",
-                decision.should_archive, decision.forced, decision.reason, decision.usage_ratio
-            );
-            if decision.should_archive {
-                pending_archive_source = Some(conversation.clone());
-                pending_archive_reason = decision.reason.clone();
-                pending_archive_forced = decision.forced;
-            }
-        }
-        let _ = changed;
-        state_write_app_data_cached(&state, &data)?;
-        drop(guard);
-    }
-
-    if let Some(source) = pending_archive_source {
-        if pending_archive_forced {
-            let _ = on_delta.send(AssistantDeltaEvent {
-                delta: "".to_string(),
-                kind: Some("tool_status".to_string()),
-                tool_name: Some("archive".to_string()),
-                tool_status: Some("running".to_string()),
-                tool_args: None,
-                message: Some("正在整理上下文...".to_string()),
-            });
-        }
-
-        let archive_res = run_context_compaction_pipeline(
-            &state,
-            &selected_api,
-            &resolved_api,
-            &source,
-            &effective_agent_id,
-            &pending_archive_reason,
-            "COMPACTION-AUTO",
-        )
-        .await;
-
-        match archive_res {
-            Ok(result) => {
-                archived_before_send = result.archived;
-                if pending_archive_forced {
-                    let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
-                        "整理完成，将继续当前会话。".to_string()
-                    } else {
-                        format!(
-                            "整理完成（降级摘要）：{}",
-                            result.warning.unwrap_or_default()
-                        )
-                    };
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: "".to_string(),
-                        kind: Some("tool_status".to_string()),
-                        tool_name: Some("archive".to_string()),
-                        tool_status: Some("done".to_string()),
-                        tool_args: None,
-                        message: Some(done_message),
-                    });
-                }
-            }
-            Err(err) => {
-                if pending_archive_forced {
-                    let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: "".to_string(),
-                        kind: Some("tool_status".to_string()),
-                        tool_name: Some("archive".to_string()),
-                        tool_status: Some("failed".to_string()),
-                        tool_args: None,
-                        message: Some(format!("整理失败：{err}")),
-                    });
-                }
-                return Err(format!("整理失败：{err}"));
-            }
-        }
-    }
-    log_run_stage("pre_send_archive_checked");
-
+    let prepare_request_context = |persist_user_message: bool| -> Result<_, String> {
     let (
         _primary_model_name,
         prepared_prompt,
@@ -1093,6 +987,9 @@ async fn send_chat_message_inner(
         estimated_prompt_tokens,
         is_remote_im_contact_conversation,
         remote_im_contact_processing_mode,
+        tool_loop_auto_compaction_context,
+        conversation_for_request,
+        is_runtime_conversation,
     ) = {
         let guard = state
             .state_lock
@@ -1254,6 +1151,8 @@ async fn send_chat_message_inner(
                 return Err("当前最后一条消息来自助理自身，无需重复激活。".to_string());
             }
             prompt_conversation_before.clone()
+        } else if !persist_user_message {
+            prompt_conversation_before.clone()
         } else {
             let mut storage_api = selected_api.clone();
             storage_api.enable_image = true;
@@ -1357,8 +1256,8 @@ async fn send_chat_message_inner(
             next_conversation.messages.push(user_message);
             next_conversation.updated_at = now.clone();
             next_conversation.last_user_at = Some(now_iso());
-            next_conversation.last_context_usage_ratio =
-                compute_context_usage_ratio(&next_conversation, selected_api.context_window_tokens);
+            next_conversation.last_context_usage_ratio = 0.0;
+            next_conversation.last_effective_prompt_tokens = 0;
             next_conversation
         };
         let user_name = user_persona_name(&data);
@@ -1376,7 +1275,7 @@ async fn send_chat_message_inner(
         };
         let is_delegate_conversation =
             conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
-        if !trigger_only {
+        if !trigger_only && persist_user_message {
             if let Some(actual_idx) = idx {
                 data.conversations[actual_idx] = conversation.clone();
                 let persisted_user_meta = data.conversations[actual_idx]
@@ -1464,13 +1363,16 @@ async fn send_chat_message_inner(
             chat_overrides.latest_images = Some(effective_images.clone());
             chat_overrides.latest_audios = Some(effective_audios.clone());
         }
+        let prompt_mode = if is_delegate_conversation {
+            PromptBuildMode::Delegate
+        } else {
+            PromptBuildMode::Chat
+        };
+        let enable_pdf_images = data.pdf_read_mode == "image" && selected_api.enable_image;
         let chat_overrides = Some(chat_overrides);
+        let terminal_block = terminal_prompt_trusted_roots_block(&state, &selected_api);
         let prepared = build_prepared_prompt_for_mode(
-            if is_delegate_conversation {
-                PromptBuildMode::Delegate
-            } else {
-                PromptBuildMode::Chat
-            },
+            prompt_mode,
             &conversation,
             &agent,
             &data.agents,
@@ -1481,12 +1383,27 @@ async fn send_chat_message_inner(
             &app_config.ui_language,
             Some(&state.data_path),
             last_archive_summary.as_deref(),
-            terminal_prompt_trusted_roots_block(&state, &selected_api),
-            chat_overrides,
+            terminal_block.clone(),
+            chat_overrides.clone(),
             Some(&state),
             Some(&resolved_api),
-            Some(data.pdf_read_mode == "image" && selected_api.enable_image),
+            Some(enable_pdf_images),
         );
+        let tool_loop_auto_compaction_context = idx.map(|_| ToolLoopAutoCompactionContext {
+            conversation_id: conversation.id.clone(),
+            prompt_mode,
+            agent: agent.clone(),
+            agents: data.agents.clone(),
+            departments: app_config.departments.clone(),
+            user_name: user_name.clone(),
+            user_intro: user_intro.clone(),
+            response_style_id: data.response_style_id.clone(),
+            ui_language: app_config.ui_language.clone(),
+            last_archive_summary: last_archive_summary.clone(),
+            terminal_block,
+            chat_overrides: chat_overrides.clone(),
+            enable_pdf_images,
+        });
 
         // Use persisted API config as the source of truth to avoid stale
         // frontend model overrides after editing/saving config.
@@ -1500,7 +1417,7 @@ async fn send_chat_message_inner(
         let estimated_prompt_tokens =
             estimate_prepared_prompt_tokens(&prepared, &selected_api, &agent);
 
-        if !trigger_only && !is_runtime_conversation {
+        if persist_user_message && !is_runtime_conversation {
             state_write_app_data_cached(&state, &data)?;
             if let Some(persisted_idx) = data
                 .conversations
@@ -1550,8 +1467,129 @@ async fn send_chat_message_inner(
             estimated_prompt_tokens,
             is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
+            tool_loop_auto_compaction_context,
+            conversation,
+            is_runtime_conversation,
         )
     };
+    Ok((
+        _primary_model_name,
+        prepared_prompt,
+        conversation_id,
+        latest_user_text,
+        current_agent,
+        estimated_prompt_tokens,
+        is_remote_im_contact_conversation,
+        remote_im_contact_processing_mode,
+        tool_loop_auto_compaction_context,
+        conversation_for_request,
+        is_runtime_conversation,
+    ))
+    };
+    let mut prepared_context = prepare_request_context(true)?;
+    let conversation_for_compaction = prepared_context.9.clone();
+    let estimated_prompt_tokens_before_send = prepared_context.5;
+    let is_runtime_conversation = prepared_context.10;
+    if is_runtime_conversation {
+        if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            eprintln!(
+                "[ARCHIVE] check before user message skipped: conversation_id={}, reason=delegate_runtime_thread",
+                conversation_id
+            );
+        }
+    } else {
+        let decision = decide_archive_before_model_request(
+            estimated_prompt_tokens_before_send,
+            selected_api.context_window_tokens,
+            conversation_for_compaction.last_user_at.as_deref(),
+            archive_pipeline_has_assistant_reply(&conversation_for_compaction),
+        );
+        eprintln!(
+            "[ARCHIVE] check before user message: should_archive={}, forced={}, reason={}, usage_ratio={:.4}, estimated_prompt_tokens={}, context_window_tokens={}",
+            decision.should_archive,
+            decision.forced,
+            decision.reason,
+            decision.usage_ratio,
+            estimated_prompt_tokens_before_send,
+            selected_api.context_window_tokens
+        );
+        if decision.should_archive {
+            if decision.forced {
+                let _ = on_delta.send(AssistantDeltaEvent {
+                    delta: "".to_string(),
+                    kind: Some("tool_status".to_string()),
+                    tool_name: Some("archive".to_string()),
+                    tool_status: Some("running".to_string()),
+                    tool_args: None,
+                    message: Some("正在整理上下文...".to_string()),
+                });
+            }
+
+            let archive_res = run_context_compaction_pipeline(
+                &state,
+                &selected_api,
+                &resolved_api,
+                &conversation_for_compaction,
+                &effective_agent_id,
+                &decision.reason,
+                "COMPACTION-AUTO",
+            )
+            .await;
+
+            match archive_res {
+                Ok(result) => {
+                    archived_before_send = result.archived;
+                    if decision.forced {
+                        let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
+                            "整理完成，将继续当前会话。".to_string()
+                        } else {
+                            format!(
+                                "整理完成（降级摘要）：{}",
+                                result.warning.unwrap_or_default()
+                            )
+                        };
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: "".to_string(),
+                            kind: Some("tool_status".to_string()),
+                            tool_name: Some("archive".to_string()),
+                            tool_status: Some("done".to_string()),
+                            tool_args: None,
+                            message: Some(done_message),
+                        });
+                    }
+                    prepared_context = prepare_request_context(false)?;
+                }
+                Err(err) => {
+                    if decision.forced {
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: "".to_string(),
+                            kind: Some("tool_status".to_string()),
+                            tool_name: Some("archive".to_string()),
+                            tool_status: Some("failed".to_string()),
+                            tool_args: None,
+                            message: Some(format!("整理失败：{err}")),
+                        });
+                    }
+                    return Err(format!("整理失败：{err}"));
+                }
+            }
+        }
+    }
+    log_run_stage("pre_send_archive_checked");
+
+    let (
+        _primary_model_name,
+        prepared_prompt,
+        conversation_id,
+        latest_user_text,
+        current_agent,
+        estimated_prompt_tokens,
+        is_remote_im_contact_conversation,
+        remote_im_contact_processing_mode,
+        tool_loop_auto_compaction_context,
+        _conversation_for_request,
+        _is_runtime_conversation,
+    ) = prepared_context;
     log_run_stage("prompt_ready");
 
     let mut model_reply: Option<ModelReply> = None;
@@ -1608,6 +1646,7 @@ async fn send_chat_message_inner(
                 &candidate_model_name,
                 prepared_prompt.clone(),
                 Some(&state),
+                tool_loop_auto_compaction_context.as_ref(),
                 on_delta,
                 app_config.tool_max_iterations as usize,
                 &chat_session_key,
@@ -1809,7 +1848,6 @@ async fn send_chat_message_inner(
     };
     log_run_stage("model_reply_ready");
 
-    let mut post_reply_forced_archive_source: Option<Conversation> = None;
     let mut persisted_assistant_message: Option<ChatMessage> = None;
     {
         let guard = state
@@ -1849,9 +1887,6 @@ async fn send_chat_message_inner(
             }
             conversation.last_effective_prompt_tokens = effective_prompt_tokens;
             conversation.last_context_usage_ratio = context_usage_ratio;
-            if !suppress_assistant_message && conversation.last_context_usage_ratio >= 0.82 {
-                post_reply_forced_archive_source = Some(conversation.clone());
-            }
             state_write_app_data_cached(&state, &data)?;
         } else if let Some(mut conversation) =
             delegate_runtime_thread_conversation_get(&state, &conversation_id)?
@@ -1897,56 +1932,6 @@ async fn send_chat_message_inner(
             persisted_assistant_message.as_ref().map(|message| message.id.clone()),
         );
     }
-
-    if let Some(source) = post_reply_forced_archive_source {
-        let _ = on_delta.send(AssistantDeltaEvent {
-            delta: "".to_string(),
-            kind: Some("tool_status".to_string()),
-            tool_name: Some("archive".to_string()),
-            tool_status: Some("running".to_string()),
-            tool_args: None,
-            message: Some("回复后上下文已达到 82%，正在自动整理...".to_string()),
-        });
-        let archive_res = run_context_compaction_pipeline(
-            &state,
-            &active_selected_api,
-            &active_resolved_api,
-            &source,
-            &effective_agent_id,
-            "force_context_usage_82_after_reply",
-            "COMPACTION-AFTER-REPLY",
-        )
-        .await;
-        match archive_res {
-            Ok(result) => {
-                let done_message = if result.warning.as_deref().unwrap_or("").trim().is_empty() {
-                    "自动整理完成，将继续当前会话。".to_string()
-                } else {
-                    format!("自动整理完成（降级摘要）：{}", result.warning.unwrap_or_default())
-                };
-                let _ = on_delta.send(AssistantDeltaEvent {
-                    delta: "".to_string(),
-                    kind: Some("tool_status".to_string()),
-                    tool_name: Some("archive".to_string()),
-                    tool_status: Some("done".to_string()),
-                    tool_args: None,
-                    message: Some(done_message),
-                });
-            }
-            Err(err) => {
-                let _ = on_delta.send(AssistantDeltaEvent {
-                    delta: "".to_string(),
-                    kind: Some("tool_status".to_string()),
-                    tool_name: Some("archive".to_string()),
-                    tool_status: Some("failed".to_string()),
-                    tool_args: None,
-                    message: Some(format!("自动整理失败：{err}")),
-                });
-                return Err(format!("自动整理失败：{err}"));
-            }
-        }
-    }
-    log_run_stage("post_reply_archive_checked");
 
     Ok(SendChatResult {
         conversation_id,

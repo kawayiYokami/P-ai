@@ -1,11 +1,13 @@
 async fn call_model_anthropic_with_tools(
     api_config: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
     mut tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let mut client_builder: anthropic::ClientBuilder =
@@ -35,6 +37,9 @@ async fn call_model_anthropic_with_tools(
         agent,
         prepared,
         ToolCallProtocolFamily::Anthropic,
+        selected_api,
+        api_config,
+        auto_compaction_context,
         on_delta,
         max_tool_iterations,
         false,

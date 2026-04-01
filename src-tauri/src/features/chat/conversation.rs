@@ -404,54 +404,19 @@ fn estimated_tokens_for_text(text: &str) -> f64 {
     zh_chars as f64 * 0.6 + other_chars as f64 * 0.3
 }
 
-fn estimated_tokens_for_message(message: &ChatMessage) -> f64 {
-    let mut tokens = 12.0;
-    for part in &message.parts {
-        match part {
-            MessagePart::Text { text } => {
-                tokens += estimated_tokens_for_text(text);
-            }
-            MessagePart::Image { .. } => {
-                tokens += 280.0;
-            }
-            MessagePart::Audio { .. } => {
-                tokens += 320.0;
-            }
-        }
-    }
-    tokens
-}
-
-fn estimate_conversation_tokens(conversation: &Conversation) -> u32 {
-    let mut sum = 0.0f64;
-    for msg in &conversation.messages {
-        sum += estimated_tokens_for_message(msg);
-    }
-    sum.ceil().max(0.0) as u32
-}
-
-fn compute_context_usage_ratio(conversation: &Conversation, context_window_tokens: u32) -> f64 {
-    let max_tokens = context_window_tokens.max(1) as f64;
-    (effective_prompt_tokens_for_conversation(conversation) as f64 / max_tokens).max(0.0)
-}
-
-fn effective_prompt_tokens_for_conversation(conversation: &Conversation) -> u32 {
-    let last_role = conversation
-        .messages
-        .last()
-        .map(|message| message.role.trim().to_ascii_lowercase())
-        .unwrap_or_default();
-    if last_role == "assistant" && conversation.last_effective_prompt_tokens > 0 {
-        return conversation.last_effective_prompt_tokens.min(u64::from(u32::MAX)) as u32;
-    }
-    estimate_conversation_tokens(conversation)
-}
-
-fn decide_archive_before_user_message(
-    conversation: &Conversation,
-    context_window_tokens: u32,
+fn build_archive_decision_from_usage_ratio(
+    usage_ratio: f64,
+    last_user_at: Option<&str>,
+    has_assistant_reply: bool,
 ) -> ArchiveDecision {
-    let usage_ratio = compute_context_usage_ratio(conversation, context_window_tokens);
+    if !has_assistant_reply {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "no_assistant_reply".to_string(),
+            usage_ratio,
+        };
+    }
     if usage_ratio >= 0.82 {
         return ArchiveDecision {
             should_archive: true,
@@ -461,7 +426,7 @@ fn decide_archive_before_user_message(
         };
     }
 
-    let Some(last_user_at) = conversation.last_user_at.as_deref().and_then(parse_iso) else {
+    let Some(last_user_at) = last_user_at.and_then(parse_iso) else {
         return ArchiveDecision {
             should_archive: false,
             forced: false,
@@ -496,6 +461,17 @@ fn decide_archive_before_user_message(
         reason: "usage_below_30pct".to_string(),
         usage_ratio,
     }
+}
+
+fn decide_archive_before_model_request(
+    estimated_prompt_tokens: u64,
+    context_window_tokens: u32,
+    last_user_at: Option<&str>,
+    has_assistant_reply: bool,
+) -> ArchiveDecision {
+    let max_tokens = context_window_tokens.max(1) as f64;
+    let usage_ratio = (estimated_prompt_tokens as f64 / max_tokens).max(0.0);
+    build_archive_decision_from_usage_ratio(usage_ratio, last_user_at, has_assistant_reply)
 }
 
 fn archive_conversation_now(
@@ -1597,7 +1573,7 @@ fn build_prompt_with_mode(
             continue;
         };
         if let Some(boundary) = last_compaction_index {
-            if idx < boundary && !is_context_compaction_message(message, role.as_str()) {
+            if idx < boundary {
                 continue;
             }
         }

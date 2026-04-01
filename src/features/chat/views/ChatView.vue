@@ -49,7 +49,7 @@
               :user-avatar-url="userAvatarUrl"
               :persona-name-map="personaNameMap"
               :persona-avatar-url-map="personaAvatarUrlMap"
-              :stream-tool-calls="streamToolCalls"
+              :stream-tool-calls="visibleStreamToolCalls"
               :markdown-is-dark="markdownIsDark"
               :playing-audio-id="playingAudioId"
               :active-turn-user="item.renderId === activeTurnUserId"
@@ -81,7 +81,7 @@
                   :user-avatar-url="userAvatarUrl"
                   :persona-name-map="personaNameMap"
                   :persona-avatar-url-map="personaAvatarUrlMap"
-                  :stream-tool-calls="streamToolCalls"
+                  :stream-tool-calls="visibleStreamToolCalls"
                   :markdown-is-dark="markdownIsDark"
                   :playing-audio-id="playingAudioId"
                   :active-turn-user="groupItem.renderId === activeTurnUserId"
@@ -123,6 +123,16 @@
         >
           <ArrowDown class="h-4 w-4" />
         </button>
+      </div>
+
+      <div
+        v-if="organizingContextBannerText"
+        class="shrink-0 border-t border-base-300 bg-base-100 px-3 py-2"
+      >
+        <div class="flex items-center gap-2 px-1 py-1 text-[12px] text-base-content/65">
+          <span class="loading loading-spinner loading-xs text-base-content/50"></span>
+          <span>{{ organizingContextBannerText }}</span>
+        </div>
       </div>
 
       <div ref="composerContainer" class="shrink-0 border-t border-base-300 bg-base-100 p-2">
@@ -246,6 +256,29 @@ const props = defineProps<{
 }>();
 
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
+function isOrganizeContextToolCall(call: { name: string; argsText: string }): boolean {
+  const name = String(call.name || "").trim().toLowerCase();
+  const argsText = String(call.argsText || "").trim().toLowerCase();
+  if (name === "organize_context" || name === "archive") return true;
+  return name === "command" && argsText.includes("organize_context");
+}
+
+const visibleStreamToolCalls = computed(() =>
+  props.streamToolCalls.filter((call) => !isOrganizeContextToolCall(call))
+);
+
+const organizingContextBannerText = computed(() => {
+  if (props.toolStatusState !== "running") return "";
+  const statusText = String(props.toolStatusText || "").trim();
+  if (statusText.includes("整理上下文") || statusText.includes("自动整理")) {
+    return statusText;
+  }
+  if (props.streamToolCalls.some((call) => isOrganizeContextToolCall(call))) {
+    return "正在整理上下文...";
+  }
+  return "";
+});
+
 const chatRenderItems = computed<ChatRenderItem[]>(() => {
   const items: ChatRenderItem[] = [];
   let currentGroup: Extract<ChatRenderItem, { kind: "group" }> | null = null;

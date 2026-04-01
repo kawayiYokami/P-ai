@@ -548,6 +548,77 @@
     }
 
     #[test]
+    fn build_prompt_should_only_keep_last_compaction_message_as_boundary() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut trailing_assistant = test_text_message("assistant", "摘要后的助手消息", &now);
+        trailing_assistant.speaker_agent_id = Some(agent.id.clone());
+        let messages = vec![
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "[上下文整理]\n旧摘要".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "message_meta": {
+                        "kind": "summary_context_seed",
+                        "scene": "seed",
+                    }
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+            test_text_message("user", "中间用户消息", &now),
+            test_text_message("assistant", "中间助手消息", &now),
+            ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "user".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+                parts: vec![MessagePart::Text {
+                    text: "[上下文整理]\n新摘要".to_string(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: Some(serde_json::json!({
+                    "message_meta": {
+                        "kind": "context_compaction",
+                        "scene": "compaction",
+                        "reason": "manual"
+                    }
+                })),
+                tool_call: None,
+                mcp_call: None,
+            },
+            trailing_assistant,
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert!(prepared.history_messages[0].text.contains("新摘要"));
+        assert!(!prepared.history_messages[0].text.contains("旧摘要"));
+        assert_eq!(prepared.history_messages[1].text, "摘要后的助手消息");
+    }
+
+    #[test]
     fn build_prompt_should_not_treat_normal_message_with_compaction_phrase_as_compaction_boundary() {
         let now = now_iso();
         let agent = default_agent();
@@ -1016,12 +1087,7 @@
     #[test]
     fn archive_decision_should_force_when_usage_reaches_82pct() {
         let now = now_iso();
-        let huge = "中".repeat(2000);
-        let conv = test_active_conversation_with_messages(
-            vec![test_text_message("user", &huge, &now)],
-            Some(now),
-        );
-        let d = decide_archive_before_user_message(&conv, 1000);
+        let d = decide_archive_before_model_request(820, 1000, Some(&now), true);
         assert!(d.should_archive);
         assert!(d.forced);
         assert!(d.usage_ratio >= 0.82);
@@ -1033,12 +1099,7 @@
         let old = (now - time::Duration::minutes(31))
             .format(&Rfc3339)
             .expect("format old time");
-        let text = "中".repeat(600);
-        let conv = test_active_conversation_with_messages(
-            vec![test_text_message("user", &text, &old)],
-            Some(old),
-        );
-        let d = decide_archive_before_user_message(&conv, 1000);
+        let d = decide_archive_before_model_request(300, 1000, Some(&old), true);
         assert!(d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio >= 0.30);
@@ -1050,14 +1111,19 @@
         let old = (now - time::Duration::minutes(31))
             .format(&Rfc3339)
             .expect("format old time");
-        let conv = test_active_conversation_with_messages(
-            vec![test_text_message("user", "hello", &old)],
-            Some(old),
-        );
-        let d = decide_archive_before_user_message(&conv, 1000);
+        let d = decide_archive_before_model_request(299, 1000, Some(&old), true);
         assert!(!d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio < 0.30);
+    }
+
+    #[test]
+    fn archive_decision_should_use_prepared_prompt_usage_before_model_request() {
+        let now = now_iso();
+        let d = decide_archive_before_model_request(166_000, 200_000, Some(&now), true);
+        assert!(d.should_archive);
+        assert!(d.forced);
+        assert!(d.usage_ratio >= 0.82);
     }
 
     fn test_chat_runtime_state() -> AppState {
