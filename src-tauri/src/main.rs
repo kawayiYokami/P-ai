@@ -501,6 +501,7 @@ fn main() {
             save_agent_avatar,
             clear_agent_avatar,
             read_avatar_data_url,
+            read_chat_image_data_url,
             sync_tray_icon,
             save_conversation_api_settings,
             get_chat_snapshot,

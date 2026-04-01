@@ -1,5 +1,7 @@
 import type { ChatMessage } from "../types/app";
 
+const MEDIA_REF_PREFIX = "@media:";
+
 // Internal parsing marker for reasoning block - DO NOT translate or change this value
 // This is a protocol marker used for text parsing, not a user-facing UI string
 const STANDARD_REASONING_MARKER = "[标准思考]";
@@ -67,18 +69,22 @@ export function removeBinaryPlaceholders(text: string): string {
     .trim();
 }
 
-export function extractMessageImages(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
+export function extractMessageImages(
+  msg?: ChatMessage,
+): Array<{ mime: string; bytesBase64?: string; mediaRef?: string }> {
   if (!msg) return [];
   return msg.parts
     .filter((p) => p.type === "image")
     .map((p) => {
       const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
+      const raw = String(anyPart.bytesBase64 || anyPart.bytes_base64 || "").trim();
       return {
         mime: anyPart.mime || "image/webp",
-        bytesBase64: anyPart.bytesBase64 || anyPart.bytes_base64 || "",
+        bytesBase64: raw && !raw.startsWith(MEDIA_REF_PREFIX) ? raw : undefined,
+        mediaRef: raw.startsWith(MEDIA_REF_PREFIX) ? raw : undefined,
       };
     })
-    .filter((p) => !!p.bytesBase64);
+    .filter((p) => !!p.bytesBase64 || !!p.mediaRef);
 }
 
 export function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {

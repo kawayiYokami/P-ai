@@ -1073,6 +1073,43 @@ fn read_avatar_data_url(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatImageDataUrlInput {
+    media_ref: String,
+    mime: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatImageDataUrlOutput {
+    data_url: String,
+}
+
+#[tauri::command]
+fn read_chat_image_data_url(
+    input: ChatImageDataUrlInput,
+    state: State<'_, AppState>,
+) -> Result<ChatImageDataUrlOutput, String> {
+    let media_ref = input.media_ref.trim();
+    if media_ref.is_empty() {
+        return Ok(ChatImageDataUrlOutput {
+            data_url: String::new(),
+        });
+    }
+    if media_id_from_marker(media_ref).is_none() {
+        return Err("Chat image mediaRef is invalid.".to_string());
+    }
+    let mime = input.mime.trim().to_ascii_lowercase();
+    if !mime.starts_with("image/") {
+        return Err("Chat image mime is invalid.".to_string());
+    }
+    let base64 = resolve_stored_binary_base64(&state.data_path, media_ref)?;
+    Ok(ChatImageDataUrlOutput {
+        data_url: format!("data:{mime};base64,{base64}"),
+    })
+}
+
 #[tauri::command]
 fn sync_tray_icon(
     input: SyncTrayIconInput,

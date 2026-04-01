@@ -881,7 +881,9 @@ fn externalize_message_parts_to_media_refs_lossy(parts: &mut [MessagePart], data
 fn materialize_message_parts_from_media_refs(parts: &mut [MessagePart], data_path: &PathBuf) {
     for part in parts {
         match part {
-            MessagePart::Image { bytes_base64, .. } | MessagePart::Audio { bytes_base64, .. } => {
+            // 图片在前台显示链路里保留 @media: 引用，由前端按需懒加载；
+            // 仅音频维持旧行为，继续展开为 base64。
+            MessagePart::Audio { bytes_base64, .. } => {
                 if media_id_from_marker(bytes_base64).is_none() {
                     continue;
                 }
@@ -892,7 +894,7 @@ fn materialize_message_parts_from_media_refs(parts: &mut [MessagePart], data_pat
                     }
                 }
             }
-            MessagePart::Text { .. } => {}
+            MessagePart::Image { .. } | MessagePart::Text { .. } => {}
         }
     }
 }

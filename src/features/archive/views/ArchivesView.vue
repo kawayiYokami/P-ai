@@ -154,7 +154,7 @@
             <img
               v-for="(img, idx) in messageImages(m)"
               :key="`${img.mime}-${idx}`"
-              :src="`data:${img.mime};base64,${img.bytesBase64}`"
+              :src="resolvedArchiveImageSrc(m.id, img, idx)"
               class="rounded max-h-32 object-contain bg-base-100/40 border border-base-300"
             />
           </div>
@@ -165,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import { summarizeToolActivityForDisplay } from "../../../utils/chat-message-semantics";
@@ -210,6 +210,9 @@ const emit = defineEmits<{
 }>();
 
 const viewMode = ref<"current" | "delegate" | "archive" | "remoteIm">("archive");
+const archiveImageDataUrlCache = new Map<string, string>();
+const archiveImagePendingCache = new Map<string, Promise<string>>();
+const archiveResolvedImageMap = ref<Record<string, string>>({});
 
 const visibleMessages = computed(() =>
   viewMode.value === "current"
@@ -314,18 +317,95 @@ function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string 
   }));
 }
 
-function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
+function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64?: string; mediaRef?: string }> {
   return msg.parts
     .filter((p): p is Extract<MessagePart, { type: "image" }> => p.type === "image")
     .map((p) => ({
       mime: String(p.mime || "").trim(),
-      bytesBase64: String((p as { bytesBase64?: unknown }).bytesBase64 ?? "").trim(),
+      bytesBase64: (() => {
+        const raw = String((p as { bytesBase64?: unknown }).bytesBase64 ?? "").trim();
+        return raw && !raw.startsWith("@media:") ? raw : undefined;
+      })(),
+      mediaRef: (() => {
+        const raw = String((p as { bytesBase64?: unknown }).bytesBase64 ?? "").trim();
+        return raw.startsWith("@media:") ? raw : undefined;
+      })(),
     }))
     .filter((item) =>
       item.mime.length > 0
-      && item.bytesBase64.length > 0
-      && item.bytesBase64 !== "undefined"
-      && item.bytesBase64 !== "null",
+      && (
+        (!!item.bytesBase64 && item.bytesBase64 !== "undefined" && item.bytesBase64 !== "null")
+        || !!item.mediaRef
+      ),
     );
+}
+
+function archiveImageKey(messageId: string, index: number): string {
+  return `${String(messageId || "").trim()}::${index}`;
+}
+
+async function readArchiveImageDataUrl(
+  image: { mime: string; bytesBase64?: string; mediaRef?: string },
+): Promise<string> {
+  const mime = String(image.mime || "").trim() || "image/webp";
+  const bytesBase64 = String(image.bytesBase64 || "").trim();
+  if (bytesBase64) return `data:${mime};base64,${bytesBase64}`;
+  const mediaRef = String(image.mediaRef || "").trim();
+  if (!mediaRef) return "";
+  const cacheKey = `${mime}::${mediaRef}`;
+  const cached = archiveImageDataUrlCache.get(cacheKey);
+  if (cached) return cached;
+  const pending = archiveImagePendingCache.get(cacheKey);
+  if (pending) return pending;
+  const task = invokeTauri<{ dataUrl: string }>("read_chat_image_data_url", {
+    input: { mediaRef, mime },
+  })
+    .then((result) => {
+      const dataUrl = String(result?.dataUrl || "").trim();
+      if (dataUrl) archiveImageDataUrlCache.set(cacheKey, dataUrl);
+      archiveImagePendingCache.delete(cacheKey);
+      return dataUrl;
+    })
+    .catch((error) => {
+      archiveImagePendingCache.delete(cacheKey);
+      throw error;
+    });
+  archiveImagePendingCache.set(cacheKey, task);
+  return task;
+}
+
+watchEffect(() => {
+  for (const message of visibleMessages.value) {
+    const images = messageImages(message);
+    images.forEach((image, index) => {
+      const key = archiveImageKey(message.id, index);
+      if (archiveResolvedImageMap.value[key]) return;
+      void readArchiveImageDataUrl(image)
+        .then((dataUrl) => {
+          if (!dataUrl) return;
+          archiveResolvedImageMap.value = {
+            ...archiveResolvedImageMap.value,
+            [key]: dataUrl,
+          };
+        })
+        .catch((error) => {
+          console.warn("[归档图片] 懒加载失败", {
+            messageId: message.id,
+            mediaRef: image.mediaRef,
+            error,
+          });
+        });
+    });
+  }
+});
+
+function resolvedArchiveImageSrc(
+  messageId: string,
+  image: { mime: string; bytesBase64?: string; mediaRef?: string },
+  index: number,
+): string {
+  const direct = String(image.bytesBase64 || "").trim();
+  if (direct) return `data:${image.mime};base64,${direct}`;
+  return String(archiveResolvedImageMap.value[archiveImageKey(messageId, index)] || "").trim();
 }
 </script>

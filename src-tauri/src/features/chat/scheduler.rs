@@ -779,6 +779,69 @@ async fn process_conversation_batch(
         message.parts = next_parts;
     }
 
+    fn defer_image_parts_for_history_flushed(
+        message: &ChatMessage,
+        data_path: &PathBuf,
+    ) -> (ChatMessage, usize, usize) {
+        let mut deferred_message = message.clone();
+        let mut deferred_image_count = 0usize;
+        let mut deferred_base64_chars = 0usize;
+        let mut next_parts = Vec::<MessagePart>::with_capacity(deferred_message.parts.len());
+
+        for part in deferred_message.parts.drain(..) {
+            match part {
+                MessagePart::Image {
+                    mime,
+                    bytes_base64,
+                    name,
+                    compressed,
+                } => {
+                    let next_ref = externalize_stored_binary_base64(data_path, &mime, &bytes_base64)
+                        .unwrap_or(bytes_base64.clone());
+                    if next_ref != bytes_base64 {
+                        deferred_image_count += 1;
+                        deferred_base64_chars += bytes_base64.len();
+                    }
+                    next_parts.push(MessagePart::Image {
+                        mime,
+                        bytes_base64: next_ref,
+                        name,
+                        compressed,
+                    });
+                }
+                other => next_parts.push(other),
+            }
+        }
+
+        if deferred_image_count > 0 {
+            let mut provider_meta = deferred_message
+                .provider_meta
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({}));
+            if !provider_meta.is_object() {
+                provider_meta = serde_json::json!({});
+            }
+            if let Some(obj) = provider_meta.as_object_mut() {
+                obj.insert(
+                    "historyFlushedImageDeferred".to_string(),
+                    serde_json::json!(true),
+                );
+                obj.insert(
+                    "historyFlushedDeferredImageCount".to_string(),
+                    serde_json::json!(deferred_image_count),
+                );
+            }
+            deferred_message.provider_meta = Some(provider_meta);
+        }
+
+        deferred_message.parts = next_parts;
+        (
+            deferred_message,
+            deferred_image_count,
+            deferred_base64_chars,
+        )
+    }
+
     // 1. 先写入所有消息到会话记录。
     //
     // 这里统一覆盖 created_at 为 history_flush_time，
@@ -958,12 +1021,33 @@ async fn process_conversation_batch(
             );
         }
     }
+    let mut history_flushed_messages = Vec::<ChatMessage>::with_capacity(persisted_batch_messages.len());
+    let mut history_flushed_deferred_image_count = 0usize;
+    let mut history_flushed_deferred_base64_chars = 0usize;
+    for message in &persisted_batch_messages {
+        let (deferred_message, deferred_image_count, deferred_base64_chars) =
+            defer_image_parts_for_history_flushed(message, &state.data_path);
+        history_flushed_deferred_image_count += deferred_image_count;
+        history_flushed_deferred_base64_chars += deferred_base64_chars;
+        history_flushed_messages.push(deferred_message);
+    }
     let history_flushed_payload = serde_json::json!({
         "conversationId": conversation_id,
         "messageCount": batch_message_count,
-        "messages": persisted_batch_messages,
+        "messages": history_flushed_messages,
         "activateAssistant": should_activate,
     });
+    let history_flushed_payload_bytes = serde_json::to_vec(&history_flushed_payload)
+        .map(|bytes| bytes.len())
+        .unwrap_or(0);
+    eprintln!(
+        "[聊天调度] history_flushed 图片已改为延迟读取: conversation_id={}, message_count={}, deferred_image_count={}, deferred_base64_chars={}, payload_bytes={}",
+        conversation_id,
+        batch_message_count,
+        history_flushed_deferred_image_count,
+        history_flushed_deferred_base64_chars,
+        history_flushed_payload_bytes
+    );
     emit_history_flushed_event(state, &history_flushed_payload, conversation_id, &event_ids);
 
     // 3. 如果需要激活，调用主助理。
