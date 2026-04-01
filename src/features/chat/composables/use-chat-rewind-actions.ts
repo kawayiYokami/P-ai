@@ -25,12 +25,21 @@ type UseChatRewindActionsOptions = {
   setChatErrorText: (text: string) => void;
   removeBinaryPlaceholders: (text: string) => string;
   messageText: (message: ChatMessage) => string;
-  extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
+  extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   requestRecallMode: (payload: { turnId: string }) => Promise<RecallConfirmMode>;
   stopChat: () => Promise<void> | void;
 };
 
 export function useChatRewindActions(options: UseChatRewindActionsOptions) {
+  function extractRecallableImages(message: ChatMessage): Array<{ mime: string; bytesBase64: string; savedPath?: string }> {
+    return options.extractMessageImages(message)
+      .filter((image) => !!String(image.bytesBase64 || "").trim())
+      .map((image) => ({
+        mime: image.mime,
+        bytesBase64: String(image.bytesBase64 || "").trim(),
+      }));
+  }
+
   function errorText(error: unknown): string {
     if (typeof error === "string") return error;
     if (error && typeof error === "object") {
@@ -194,7 +203,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       return;
     }
     options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
-    options.clipboardImages.value = options.extractMessageImages(recalledUserMessage);
+    options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
     console.info("[会话撤回] 已回填输入框", {
       textLength: options.chatInput.value.length,
       imageCount: options.clipboardImages.value.length,
@@ -208,7 +217,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
     if (!recalledUserMessage) return;
     options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
-    options.clipboardImages.value = options.extractMessageImages(recalledUserMessage);
+    options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
     await options.sendChat();
   }
 

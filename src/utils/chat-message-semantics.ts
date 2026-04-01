@@ -30,7 +30,7 @@ export type NormalizedToolHistoryEvent = {
 export type ChatMessageDisplayProjection = {
   speakerAgentId?: string;
   text: string;
-  images: Array<{ mime: string; bytesBase64: string }>;
+  images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   taskTrigger?: TaskTriggerMessageCard;

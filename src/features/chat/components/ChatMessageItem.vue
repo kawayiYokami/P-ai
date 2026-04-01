@@ -161,13 +161,20 @@
       <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
         <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
           <img
-            v-if="isImageMime(img.mime)"
-            :src="`data:${img.mime};base64,${img.bytesBase64}`"
+            v-if="isImageMime(img.mime) && resolvedImageSrc(img, idx)"
+            :src="resolvedImageSrc(img, idx)"
             loading="lazy"
             decoding="async"
             class="rounded max-h-28 object-contain bg-base-100/40 cursor-zoom-in"
-            @dblclick.stop="emit('openImagePreview', img)"
+            @dblclick.stop="openResolvedImagePreview(img, idx)"
           />
+          <div
+            v-else-if="isImageMime(img.mime)"
+            class="flex h-28 w-28 items-center justify-center rounded bg-base-200/70 text-[11px] text-base-content/55"
+          >
+            <span class="loading loading-spinner loading-xs mr-2"></span>
+            <span>图片加载中</span>
+          </div>
           <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
             <FileText class="h-3.5 w-3.5" />
             <span class="text-[11px]">PDF</span>
@@ -281,13 +288,20 @@
         <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
           <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
             <img
-              v-if="isImageMime(img.mime)"
-              :src="`data:${img.mime};base64,${img.bytesBase64}`"
+              v-if="isImageMime(img.mime) && resolvedImageSrc(img, idx)"
+              :src="resolvedImageSrc(img, idx)"
               loading="lazy"
               decoding="async"
               class="rounded max-h-28 object-contain bg-base-100/40 cursor-zoom-in"
-              @dblclick.stop="emit('openImagePreview', img)"
+              @dblclick.stop="openResolvedImagePreview(img, idx)"
             />
+            <div
+              v-else-if="isImageMime(img.mime)"
+              class="flex h-28 w-28 items-center justify-center rounded bg-base-200/70 text-[11px] text-base-content/55"
+            >
+              <span class="loading loading-spinner loading-xs mr-2"></span>
+              <span>图片加载中</span>
+            </div>
             <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
               <FileText class="h-3.5 w-3.5" />
               <span class="text-[11px]">PDF</span>
@@ -326,10 +340,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
+import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
 
@@ -360,6 +375,8 @@ const markdownMermaidProps = {
   showModeToggle: false,
   enableWheelZoom: false,
 };
+const imageDataUrlCache = new Map<string, string>();
+const imageDataUrlPromiseCache = new Map<string, Promise<string>>();
 
 const props = defineProps<{
   block: ChatMessageBlock;
@@ -380,12 +397,14 @@ const emit = defineEmits<{
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "copyMessage", block: ChatMessageBlock): void;
-  (e: "openImagePreview", image: { mime: string; bytesBase64: string }): void;
+  (e: "openImagePreview", image: { mime: string; bytesBase64?: string; dataUrl?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
 }>();
 
 const { t } = useI18n();
+const resolvedImageSrcMap = ref<Record<string, string>>({});
+let disposed = false;
 
 const displayName = computed(() => messageName(props.block));
 const avatarUrl = computed(() => messageAvatarUrl(props.block));
@@ -562,6 +581,115 @@ function isImageMime(mime: string): boolean {
 
 function isPdfMime(mime: string): boolean {
   return (mime || "").trim().toLowerCase() === "application/pdf";
+}
+
+function imageCacheKey(image: { mime: string; bytesBase64?: string; mediaRef?: string }): string {
+  const mime = String(image.mime || "").trim().toLowerCase();
+  const mediaRef = String(image.mediaRef || "").trim();
+  if (mediaRef) return `${mime}::${mediaRef}`;
+  const bytesBase64 = String(image.bytesBase64 || "").trim();
+  return `${mime}::inline::${bytesBase64}`;
+}
+
+function imageRenderKey(index: number): string {
+  return `${String(props.block.id || "").trim() || "message"}::${index}`;
+}
+
+async function loadImageDataUrl(image: { mime: string; bytesBase64?: string; mediaRef?: string }): Promise<string> {
+  const mime = String(image.mime || "").trim() || "image/webp";
+  const bytesBase64 = String(image.bytesBase64 || "").trim();
+  if (bytesBase64) {
+    return `data:${mime};base64,${bytesBase64}`;
+  }
+  const mediaRef = String(image.mediaRef || "").trim();
+  if (!mediaRef) return "";
+  const cacheKey = imageCacheKey(image);
+  const cached = imageDataUrlCache.get(cacheKey);
+  if (cached) return cached;
+  const pending = imageDataUrlPromiseCache.get(cacheKey);
+  if (pending) return pending;
+  const task = invokeTauri<{ dataUrl: string }>("read_chat_image_data_url", {
+    input: {
+      mediaRef,
+      mime,
+    },
+  })
+    .then((result) => {
+      const dataUrl = String(result?.dataUrl || "").trim();
+      if (dataUrl) imageDataUrlCache.set(cacheKey, dataUrl);
+      imageDataUrlPromiseCache.delete(cacheKey);
+      return dataUrl;
+    })
+    .catch((error) => {
+      imageDataUrlPromiseCache.delete(cacheKey);
+      throw error;
+    });
+  imageDataUrlPromiseCache.set(cacheKey, task);
+  return task;
+}
+
+watchEffect(() => {
+  const nextEntries = props.block.images
+    .map((image, index) => {
+      const src = image.bytesBase64
+        ? `data:${image.mime};base64,${image.bytesBase64}`
+        : "";
+      return [imageRenderKey(index), src] as const;
+    })
+    .filter((entry) => !!entry[1]);
+  if (nextEntries.length <= 0) return;
+  resolvedImageSrcMap.value = {
+    ...resolvedImageSrcMap.value,
+    ...Object.fromEntries(nextEntries),
+  };
+});
+
+watchEffect(() => {
+  for (const [index, image] of props.block.images.entries()) {
+    if (!isImageMime(image.mime) || image.bytesBase64 || !image.mediaRef) continue;
+    const key = imageRenderKey(index);
+    if (resolvedImageSrcMap.value[key]) continue;
+    void loadImageDataUrl(image)
+      .then((dataUrl) => {
+        if (!dataUrl || disposed) return;
+        resolvedImageSrcMap.value = {
+          ...resolvedImageSrcMap.value,
+          [key]: dataUrl,
+        };
+      })
+      .catch((error) => {
+        console.warn("[聊天图片] 懒加载失败", {
+          messageId: props.block.id,
+          mediaRef: image.mediaRef,
+          error,
+        });
+      });
+  }
+});
+
+onBeforeUnmount(() => {
+  disposed = true;
+});
+
+function resolvedImageSrc(
+  image: { mime: string; bytesBase64?: string; mediaRef?: string },
+  index: number,
+): string {
+  const direct = String(image.bytesBase64 || "").trim();
+  if (direct) return `data:${image.mime};base64,${direct}`;
+  return String(resolvedImageSrcMap.value[imageRenderKey(index)] || "").trim();
+}
+
+function openResolvedImagePreview(
+  image: { mime: string; bytesBase64?: string; mediaRef?: string },
+  index: number,
+) {
+  const dataUrl = resolvedImageSrc(image, index);
+  if (!dataUrl) return;
+  emit("openImagePreview", {
+    mime: image.mime,
+    dataUrl,
+  });
 }
 </script>
 

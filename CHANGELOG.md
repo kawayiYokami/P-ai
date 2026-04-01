@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新（未发布）：聊天图片改为前台轻载与按需懒加载
+
+- 调整（chat-image-frontend-lazy-load）：聊天图片不再默认随前台消息链路下发 base64
+  - `history_flushed` 事件发往前端前，会将图片 part 转为 `@media:` 引用，减少前台事件载荷体积
+  - 聊天/归档等前端消息读取链路统一不再默认展开图片 base64，暂时仅保留音频沿用旧行为
+  - 前端 `ChatMessageItem` 与归档视图改为按图片引用懒加载，并在内存中缓存已解析的数据 URL
+  - 新增 `read_chat_image_data_url` Tauri 命令，供前端按需读取本地图片内容
+
 ## 更新（未发布）：发布 0.8.8 版本
 
 - 发布（release-version-0-8-8）：同步更新应用版本号

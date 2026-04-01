@@ -357,7 +357,7 @@ const props = defineProps<{
   selectedRemoteImContactId: string;
   remoteImContactMessages: ChatMessage[];
   messageText: (message: ChatMessage) => string;
-  extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64: string }>;
+  extractMessageImages: (message?: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   memoryList: MemoryItem[];
   memoryPage: number;
   memoryPageCount: number;

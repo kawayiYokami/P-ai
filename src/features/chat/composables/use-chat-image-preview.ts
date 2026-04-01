@@ -1,6 +1,6 @@
 import { ref } from "vue";
 
-type BinaryAttachment = { mime: string; bytesBase64: string };
+type BinaryAttachment = { mime: string; bytesBase64?: string; dataUrl?: string };
 
 export function useChatImagePreview() {
   const imagePreviewOpen = ref(false);
@@ -53,9 +53,14 @@ export function useChatImagePreview() {
   function openImagePreview(image?: BinaryAttachment | null) {
     if (!image) return;
     const mime = String(image.mime || "").trim() || "image/webp";
+    const dataUrl = String(image.dataUrl || "").trim();
     const bytes = String(image.bytesBase64 || "").trim();
-    if (!bytes) return;
-    imagePreviewDataUrl.value = `data:${mime};base64,${bytes}`;
+    if (dataUrl) {
+      imagePreviewDataUrl.value = dataUrl;
+    } else {
+      if (!bytes) return;
+      imagePreviewDataUrl.value = `data:${mime};base64,${bytes}`;
+    }
     imagePreviewZoom.value = 1;
     previewOffsetX.value = 0;
     previewOffsetY.value = 0;

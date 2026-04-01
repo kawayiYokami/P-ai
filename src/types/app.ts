@@ -266,7 +266,7 @@ export type PersonaProfile = {
 
 export type MessagePart =
   | { type: "text"; text: string }
-  | { type: "image"; mime: string; bytesBase64: string }
+  | { type: "image"; mime: string; bytesBase64: string; name?: string; compressed?: boolean }
   | { type: "audio"; mime: string; bytesBase64: string };
 
 export type ChatRole = "user" | "assistant" | "tool" | "system";
@@ -338,7 +338,7 @@ export type ChatMessageBlock = {
   createdAt?: string;
   providerMeta?: ChatMessage["providerMeta"];
   text: string;
-  images: Array<{ mime: string; bytesBase64: string }>;
+  images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   taskTrigger?: TaskTriggerMessageCard;
