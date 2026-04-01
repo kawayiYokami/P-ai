@@ -7,7 +7,6 @@ export type ApiRequestFormat =
   | "openai_rerank"
   | "gemini"
   | "gemini_embedding"
-  | "deepseek/kimi"
   | "anthropic";
 
 export type ApiToolItem = {

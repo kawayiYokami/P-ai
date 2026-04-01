@@ -287,7 +287,7 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
     }
 
     match input.request_format {
-        RequestFormat::OpenAI | RequestFormat::OpenAIResponses | RequestFormat::DeepSeekKimi => {
+        RequestFormat::OpenAI | RequestFormat::OpenAIResponses => {
             fetch_models_openai(&input).await
         }
         RequestFormat::Gemini => fetch_models_gemini_native(&input).await,

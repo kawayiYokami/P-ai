@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新（未发布）：移除 DeepSeek/Kimi 旧协议通路
+
+- 重构（remove-legacy-deepseek-kimi-protocol）：清理独立 `deepseek/kimi` 请求格式与运行时分支
+  - Rust `RequestFormat` 移除 `DeepSeekKimi` 枚举与对应聊天、视觉、模型刷新、内存 Provider 的专用分支，统一回到标准 OpenAI 兼容链路
+  - 删除 `src-tauri/src/features/chat/model_runtime/provider_and_stream/deepseek.rs`，不再维护旧协议专用 provider 实现
+  - 前端 API 配置、部门模型过滤、类型定义与 Base URL 参考中移除 `deepseek/kimi` 选项，避免继续创建新配置
+  - 为旧配置保留兼容映射：历史 `deepseek/kimi` 值在读取时自动按 `openai` 处理，避免升级后配置失效
+
 ## 更新（未发布）：发布 0.8.9 版本
 
 - 发布（release-version-0-8-9）：同步更新应用版本号并收口本轮上下文整理修复

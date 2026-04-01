@@ -5,7 +5,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 function textCapableApiIds(apiConfigs: ApiConfigItem[]): Set<string> {
   return new Set(
     (apiConfigs || [])
-      .filter((api) => !!api.enableText && ["openai", "openai_responses", "gemini", "deepseek/kimi", "anthropic"].includes(api.requestFormat))
+      .filter((api) => !!api.enableText && ["openai", "openai_responses", "gemini", "anthropic"].includes(api.requestFormat))
       .map((api) => api.id),
   );
 }

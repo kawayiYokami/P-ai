@@ -772,7 +772,6 @@ const textCapableApiConfigs = computed(() =>
         a.requestFormat === "openai"
         || a.requestFormat === "openai_responses"
         || a.requestFormat === "gemini"
-        || a.requestFormat === "deepseek/kimi"
         || a.requestFormat === "anthropic"
       ),
   ),
@@ -1226,7 +1225,6 @@ const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com";
   if (format === "gemini_embedding") return "https://generativelanguage.googleapis.com";
-  if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
   if (format === "anthropic") return "https://api.anthropic.com";
   if (format === "openai_tts") return "https://api.openai.com/v1/audio/speech";
   if (format === "openai_stt") return "https://api.openai.com/v1";

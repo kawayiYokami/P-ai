@@ -481,14 +481,7 @@ const toolsToggleAvailable = computed(() => {
   return value === undefined ? true : !!value;
 });
 const currentProtocolOptions = computed(() => {
-  const base = protocolOptionsByCapability[activeCapability.value];
-  if (activeCapability.value !== "text" || currentProtocol.value !== "deepseek/kimi") {
-    return base;
-  }
-  return [
-    { value: "deepseek/kimi", label: "DeepSeek/Kimi（旧协议）" as const },
-    ...base,
-  ];
+  return protocolOptionsByCapability[activeCapability.value];
 });
 const capabilityScopedConfigs = computed(() =>
   props.config.apiConfigs.filter(
@@ -752,36 +745,22 @@ const providerPresets: ProviderPreset[] = [
   { id: "openai-official", name: "OpenAI", urls: { openai: "https://api.openai.com/v1", openai_responses: "https://api.openai.com/v1", openai_stt: "https://api.openai.com/v1", openai_tts: "https://api.openai.com/v1/audio/speech", openai_embedding: "https://api.openai.com/v1", openai_rerank: "https://api.openai.com/v1" }, docsUrl: "https://platform.openai.com/docs/overview" },
   { id: "anthropic-official", name: "Anthropic", urls: { anthropic: "https://api.anthropic.com" }, docsUrl: "https://docs.anthropic.com/en/api/overview" },
   { id: "google-gemini", name: "Google Gemini", urls: { gemini: "https://generativelanguage.googleapis.com", gemini_embedding: "https://generativelanguage.googleapis.com" }, docsUrl: "https://ai.google.dev/gemini-api/docs", hasFreeQuota: true },
-  { id: "deepseek", name: "DeepSeek", urls: { openai: "https://api.deepseek.com/v1", openai_responses: "https://api.deepseek.com/v1", "deepseek/kimi": "https://api.deepseek.com/v1" }, docsUrl: "https://api-docs.deepseek.com/" },
-  { id: "moonshot-kimi", name: "Moonshot/Kimi", urls: { openai: "https://api.moonshot.cn/v1", openai_responses: "https://api.moonshot.cn/v1", "deepseek/kimi": "https://api.moonshot.cn/v1" }, docsUrl: "https://platform.moonshot.cn/docs/api-reference" },
-  { id: "zhipu-glm", name: "Zhipu GLM", urls: { openai: "https://open.bigmodel.cn/api/paas/v4", openai_responses: "https://open.bigmodel.cn/api/paas/v4", "deepseek/kimi": "https://open.bigmodel.cn/api/paas/v4" }, docsUrl: "https://open.bigmodel.cn/dev/api", hasFreeQuota: true },
-  { id: "minimax", name: "MiniMax", urls: { openai: "https://api.minimax.chat/v1", openai_responses: "https://api.minimax.chat/v1", "deepseek/kimi": "https://api.minimax.chat/v1" }, docsUrl: "https://www.minimax.io/platform/document" },
-  { id: "siliconflow", name: "SiliconFlow", urls: { openai: "https://api.siliconflow.cn/v1", openai_responses: "https://api.siliconflow.cn/v1", openai_stt: "https://api.siliconflow.cn/v1", openai_embedding: "https://api.siliconflow.cn/v1", openai_rerank: "https://api.siliconflow.cn/v1", "deepseek/kimi": "https://api.siliconflow.cn/v1" }, docsUrl: "https://docs.siliconflow.cn/", hasFreeQuota: true },
+  { id: "deepseek", name: "DeepSeek", urls: { openai: "https://api.deepseek.com/v1", openai_responses: "https://api.deepseek.com/v1" }, docsUrl: "https://api-docs.deepseek.com/" },
+  { id: "moonshot-kimi", name: "Moonshot/Kimi", urls: { openai: "https://api.moonshot.cn/v1", openai_responses: "https://api.moonshot.cn/v1" }, docsUrl: "https://platform.moonshot.cn/docs/api-reference" },
+  { id: "zhipu-glm", name: "Zhipu GLM", urls: { openai: "https://open.bigmodel.cn/api/paas/v4", openai_responses: "https://open.bigmodel.cn/api/paas/v4" }, docsUrl: "https://open.bigmodel.cn/dev/api", hasFreeQuota: true },
+  { id: "minimax", name: "MiniMax", urls: { openai: "https://api.minimax.chat/v1", openai_responses: "https://api.minimax.chat/v1" }, docsUrl: "https://www.minimax.io/platform/document" },
+  { id: "siliconflow", name: "SiliconFlow", urls: { openai: "https://api.siliconflow.cn/v1", openai_responses: "https://api.siliconflow.cn/v1", openai_stt: "https://api.siliconflow.cn/v1", openai_embedding: "https://api.siliconflow.cn/v1", openai_rerank: "https://api.siliconflow.cn/v1" }, docsUrl: "https://docs.siliconflow.cn/", hasFreeQuota: true },
   { id: "iflow", name: "iFlow", urls: { openai: "https://apis.iflow.cn/v1", openai_responses: "https://apis.iflow.cn/v1" }, docsUrl: "https://platform.iflow.cn/models", hasFreeQuota: true },
   { id: "modelscope", name: "ModelScope", urls: { openai: "https://api-inference.modelscope.cn/v1", openai_responses: "https://api-inference.modelscope.cn/v1" }, docsUrl: "https://modelscope.cn/models", hasFreeQuota: true },
-  { id: "nvidia-nim", name: "NVIDIA NIM", urls: { openai: "https://integrate.api.nvidia.com/v1", openai_responses: "https://integrate.api.nvidia.com/v1", "deepseek/kimi": "https://integrate.api.nvidia.com/v1" }, docsUrl: "https://docs.api.nvidia.com/nim/", hasFreeQuota: true },
-  { id: "openrouter", name: "OpenRouter", urls: { openai: "https://openrouter.ai/api/v1", openai_responses: "https://openrouter.ai/api/v1", "deepseek/kimi": "https://openrouter.ai/api/v1" }, docsUrl: "https://openrouter.ai/docs/api-reference/overview", hasFreeQuota: true },
-  { id: "cloudflare-gateway", name: "Cloudflare Gateway", urls: { openai: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}", openai_responses: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}", "deepseek/kimi": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}" }, docsUrl: "https://developers.cloudflare.com/ai-gateway/" },
-  { id: "ollama-local", name: "Ollama (Local)", urls: { openai: "http://localhost:11434/v1", openai_responses: "http://localhost:11434/v1", "deepseek/kimi": "http://localhost:11434/v1" }, docsUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md" },
+  { id: "nvidia-nim", name: "NVIDIA NIM", urls: { openai: "https://integrate.api.nvidia.com/v1", openai_responses: "https://integrate.api.nvidia.com/v1" }, docsUrl: "https://docs.api.nvidia.com/nim/", hasFreeQuota: true },
+  { id: "openrouter", name: "OpenRouter", urls: { openai: "https://openrouter.ai/api/v1", openai_responses: "https://openrouter.ai/api/v1" }, docsUrl: "https://openrouter.ai/docs/api-reference/overview", hasFreeQuota: true },
+  { id: "cloudflare-gateway", name: "Cloudflare Gateway", urls: { openai: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}", openai_responses: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}" }, docsUrl: "https://developers.cloudflare.com/ai-gateway/" },
+  { id: "ollama-local", name: "Ollama (Local)", urls: { openai: "http://localhost:11434/v1", openai_responses: "http://localhost:11434/v1" }, docsUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md" },
 ];
-
-const DEEPSEEK_KIMI_PROVIDER_IDS = new Set<string>([
-  "deepseek",
-  "moonshot-kimi",
-  "cloudflare-gateway",
-]);
 
 const filteredProviderPresets = computed(() => {
   const sortFreeFirst = (list: ProviderPreset[]) =>
     [...list].sort((a, b) => Number(Boolean(b.hasFreeQuota)) - Number(Boolean(a.hasFreeQuota)));
-
-  if (currentProtocol.value === "deepseek/kimi") {
-    return sortFreeFirst(providerPresets.filter(
-      (p) =>
-        DEEPSEEK_KIMI_PROVIDER_IDS.has(p.id)
-        && Boolean(p.urls["deepseek/kimi"]),
-    ));
-  }
   return sortFreeFirst(providerPresets.filter((p) => Boolean(p.urls[currentProtocol.value])));
 });
 

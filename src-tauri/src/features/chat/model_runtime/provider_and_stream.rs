@@ -19,9 +19,6 @@ include!("provider_and_stream/tool_loop.rs");
 // ---- OpenAI provider ----
 include!("provider_and_stream/openai_style.rs");
 
-// ---- DeepSeek/Kimi provider ----
-include!("provider_and_stream/deepseek.rs");
-
 // ---- Gemini provider ----
 include!("provider_and_stream/gemini.rs");
 

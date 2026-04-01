@@ -164,20 +164,7 @@ async fn dispatch_openai_style_call(
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
-    if selected_api.request_format.is_deepseek_kimi() {
-        call_model_deepseek_with_tools(
-            api_config,
-            selected_api,
-            model_name,
-            prepared,
-            tool_assembly,
-            on_delta,
-            max_tool_iterations,
-            app_state,
-            chat_session_key,
-        )
-        .await
-    } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+    if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
         call_model_openai_responses_with_tools(
             api_config,
             selected_api,
@@ -215,7 +202,7 @@ async fn call_openai_style_non_stream_fallback(
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
     match selected_api.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
+        RequestFormat::OpenAI => {
             call_model_openai_non_stream_rig_style(api_config, model_name, prepared).await
         }
         _ => Err(format!(
@@ -362,8 +349,6 @@ async fn call_model_openai_style(
                     chat_session_key,
                 )
                 .await
-            } else if selected_api.request_format.is_deepseek_kimi() {
-                call_model_deepseek_rig_style(api_config, model_name, prepared.clone(), Some(on_delta)).await
             } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
                 call_model_openai_responses_rig_style(
                     api_config,
@@ -430,9 +415,7 @@ async fn call_model_openai_style(
         if prefer_non_stream {
             call_openai_style_non_stream_fallback(api_config, selected_api, model_name, prepared).await
         } else {
-            let rig_result = if selected_api.request_format.is_deepseek_kimi() {
-                call_model_deepseek_rig_style(api_config, model_name, prepared.clone(), Some(on_delta)).await
-            } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
+            let rig_result = if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
                 call_model_openai_responses_rig_style(
                     api_config,
                     model_name,
@@ -511,9 +494,6 @@ async fn call_model_openai_style(
                             chat_session_key,
                         )
                         .await
-                    } else if selected_api.request_format.is_deepseek_kimi() {
-                        call_model_deepseek_rig_style(api_config, model_name, fallback, Some(on_delta))
-                            .await
                     } else if matches!(selected_api.request_format, RequestFormat::OpenAIResponses) {
                         call_model_openai_responses_rig_style(
                             api_config,

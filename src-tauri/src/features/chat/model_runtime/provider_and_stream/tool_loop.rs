@@ -740,21 +740,21 @@ mod tool_loop_tests {
     }
 
     #[test]
-    fn deepseek_reasoning_prefers_current_turn_reasoning() {
+    fn tool_history_reasoning_prefers_current_turn_reasoning() {
         let chat_history = vec![assistant_with_reasoning("old-reasoning")];
         let chosen = resolve_reasoning_for_tool_history("new-reasoning", &chat_history);
         assert_eq!(chosen, "new-reasoning");
     }
 
     #[test]
-    fn deepseek_reasoning_inherits_assistant_reasoning_without_user_boundary() {
+    fn tool_history_reasoning_inherits_assistant_reasoning_without_user_boundary() {
         let chat_history = vec![assistant_with_reasoning("r1"), assistant_with_tool_only()];
         let chosen = resolve_reasoning_for_tool_history("", &chat_history);
         assert_eq!(chosen, "r1");
     }
 
     #[test]
-    fn deepseek_reasoning_must_not_cross_user_boundary() {
+    fn tool_history_reasoning_must_not_cross_user_boundary() {
         let chat_history = vec![
             assistant_with_reasoning("r-before-user"),
             user_text("new question"),
@@ -765,7 +765,7 @@ mod tool_loop_tests {
     }
 
     #[test]
-    fn deepseek_reasoning_fallback_is_space_when_none_available() {
+    fn tool_history_reasoning_fallback_is_space_when_none_available() {
         let chat_history = vec![user_text("first question"), assistant_with_tool_only()];
         let chosen = resolve_reasoning_for_tool_history("   ", &chat_history);
         assert_eq!(chosen, " ");

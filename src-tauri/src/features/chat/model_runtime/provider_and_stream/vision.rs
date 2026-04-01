@@ -27,7 +27,7 @@ async fn describe_image_with_vision_api(
     let prefer_non_stream = supports_non_stream_fallback
         && provider_streaming_disabled(Some(state), &vision_resolved.base_url);
     let reply = match vision_resolved.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
+        RequestFormat::OpenAI => {
             if prefer_non_stream {
                 call_model_openai_non_stream_rig_style(vision_resolved, &vision_api.model, prepared).await?
             } else {

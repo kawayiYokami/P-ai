@@ -73,7 +73,6 @@ function isTextRequestFormat(format: string): boolean {
     format === "openai"
     || format === "openai_responses"
     || format === "gemini"
-    || format === "deepseek/kimi"
     || format === "anthropic"
   );
 }

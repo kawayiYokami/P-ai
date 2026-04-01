@@ -17,7 +17,7 @@ fn memory_provider_matches_kind(kind: MemoryProviderKind, cfg: &ApiConfig) -> bo
         MemoryProviderKind::OpenAIEmbedding => {
             matches!(
                 cfg.request_format,
-                RequestFormat::OpenAI | RequestFormat::DeepSeekKimi | RequestFormat::OpenAIEmbedding
+                RequestFormat::OpenAI | RequestFormat::OpenAIEmbedding
             )
         }
         MemoryProviderKind::GeminiEmbedding => {

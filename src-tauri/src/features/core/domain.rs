@@ -167,8 +167,6 @@ enum RequestFormat {
     Gemini,
     #[serde(rename = "gemini_embedding")]
     GeminiEmbedding,
-    #[serde(rename = "deepseek/kimi")]
-    DeepSeekKimi,
     #[serde(rename = "anthropic")]
     Anthropic,
 }
@@ -184,7 +182,8 @@ impl RequestFormat {
             "openai_rerank" => Some(Self::OpenAIRerank),
             "gemini" => Some(Self::Gemini),
             "gemini_embedding" => Some(Self::GeminiEmbedding),
-            "deepseek/kimi" => Some(Self::DeepSeekKimi),
+            // 兼容旧配置：历史上的 deepseek/kimi 旧协议统一按 openai 兼容协议处理。
+            "deepseek/kimi" => Some(Self::OpenAI),
             "anthropic" => Some(Self::Anthropic),
             _ => None,
         }
@@ -200,7 +199,6 @@ impl RequestFormat {
             Self::OpenAIRerank => "openai_rerank",
             Self::Gemini => "gemini",
             Self::GeminiEmbedding => "gemini_embedding",
-            Self::DeepSeekKimi => "deepseek/kimi",
             Self::Anthropic => "anthropic",
         }
     }
@@ -217,15 +215,8 @@ impl RequestFormat {
         matches!(self, Self::Anthropic)
     }
 
-    fn is_deepseek_kimi(self) -> bool {
-        matches!(self, Self::DeepSeekKimi)
-    }
-
     fn is_openai_style(self) -> bool {
-        matches!(
-            self,
-            Self::OpenAI | Self::OpenAIResponses | Self::DeepSeekKimi
-        )
+        matches!(self, Self::OpenAI | Self::OpenAIResponses)
     }
 
     fn is_chat_text(self) -> bool {
@@ -233,7 +224,6 @@ impl RequestFormat {
             self,
             Self::OpenAI
                 | Self::OpenAIResponses
-                | Self::DeepSeekKimi
                 | Self::Gemini
                 | Self::Anthropic
         )
