@@ -46,15 +46,8 @@ export function validateDepartmentConfig(
     }
   }
 
-  const assistant = departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
-  if (!assistant) {
+  if (!departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant)) {
     return t("config.department.validation.missingAssistant");
-  }
-  const assistantIds = Array.isArray(assistant.apiConfigIds) && assistant.apiConfigIds.length > 0
-    ? assistant.apiConfigIds
-    : (assistant.apiConfigId ? [assistant.apiConfigId] : []);
-  if (assistantIds.map((item) => String(item || "").trim()).filter(Boolean).length === 0) {
-    return t("config.department.validation.assistantNeedsModel");
   }
 
   return "";

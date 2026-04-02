@@ -477,6 +477,16 @@ fn normalize_departments(config: &mut AppConfig) {
         out.push(default_front_desk_department(&fallback_api_id));
     }
 
+    let normalize_department_api_bindings =
+        |item: &mut DepartmentConfig, valid_text_chat_api_ids: &std::collections::HashSet<String>| {
+            let ids = department_api_config_ids(item)
+                .into_iter()
+                .filter(|id| valid_text_chat_api_ids.contains(id))
+                .collect::<Vec<_>>();
+            item.api_config_ids = ids;
+            item.api_config_id = item.api_config_ids.first().cloned().unwrap_or_default();
+        };
+
     for (idx, item) in out.iter_mut().enumerate() {
         item.order_index = (idx as i64) + 1;
         if item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant {
@@ -485,25 +495,7 @@ fn normalize_departments(config: &mut AppConfig) {
             if item.name.trim().is_empty() {
                 item.name = default_assistant_department_name(&config.ui_language);
             }
-            if item.api_config_id.trim().is_empty()
-                || !valid_text_chat_api_ids.contains(&item.api_config_id)
-            {
-                item.api_config_ids = if fallback_api_id.trim().is_empty() {
-                    Vec::new()
-                } else {
-                    vec![fallback_api_id.clone()]
-                };
-                item.api_config_id = fallback_api_id.clone();
-            } else {
-                item.api_config_ids = department_api_config_ids(item)
-                    .into_iter()
-                    .filter(|id| valid_text_chat_api_ids.contains(id))
-                    .collect();
-                if item.api_config_ids.is_empty() && !item.api_config_id.trim().is_empty() {
-                    item.api_config_ids.push(item.api_config_id.clone());
-                }
-                item.api_config_id = item.api_config_ids.first().cloned().unwrap_or_else(|| fallback_api_id.clone());
-            }
+            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
             if item.agent_ids.is_empty() {
                 item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
             }
@@ -517,16 +509,7 @@ fn normalize_departments(config: &mut AppConfig) {
             if item.guide.trim().is_empty() {
                 item.guide = "你是副手部门。你的核心原则是严格不越权、不擅自扩展需求、不多想。收到上级派发的任务后，用最少的工具调用、最快的速度完成明确目标；若信息不足或任务超出指令边界，就直接说明缺口并等待主部门继续决策。".to_string();
             }
-            if item.api_config_id.trim().is_empty()
-                || !valid_text_chat_api_ids.contains(&item.api_config_id)
-            {
-                item.api_config_ids = if fallback_api_id.trim().is_empty() {
-                    Vec::new()
-                } else {
-                    vec![fallback_api_id.clone()]
-                };
-                item.api_config_id = fallback_api_id.clone();
-            }
+            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
             if item.agent_ids.is_empty() {
                 item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
             }
@@ -540,16 +523,7 @@ fn normalize_departments(config: &mut AppConfig) {
             if item.guide.trim().is_empty() {
                 item.guide = "你是前台部门，专门负责承接各个远程 IM 联系人的消息。说话必须简短、友好、有耐心，优先直接回答简单问题；遇到复杂任务、涉及多步骤分析、需要明显调度或你无法稳妥处理的需求时，应明确告知将转交主部门处理，不要自己展开复杂推理。".to_string();
             }
-            if item.api_config_id.trim().is_empty()
-                || !valid_text_chat_api_ids.contains(&item.api_config_id)
-            {
-                item.api_config_ids = if fallback_api_id.trim().is_empty() {
-                    Vec::new()
-                } else {
-                    vec![fallback_api_id.clone()]
-                };
-                item.api_config_id = fallback_api_id.clone();
-            }
+            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
             if item.agent_ids.is_empty() {
                 item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
             }
@@ -609,15 +583,7 @@ fn normalize_app_config(config: &mut AppConfig) {
             && a.request_format.is_chat_text()
     });
     if !chat_valid {
-        if let Some(api) = config
-            .api_configs
-            .iter()
-            .find(|a| a.enable_text && a.request_format.is_chat_text())
-        {
-            config.assistant_department_api_config_id = api.id.clone();
-        } else {
-            config.assistant_department_api_config_id = config.api_configs[0].id.clone();
-        }
+        config.assistant_department_api_config_id.clear();
     }
 
     if config.record_hotkey.trim().is_empty() {

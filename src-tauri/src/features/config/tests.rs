@@ -222,7 +222,7 @@
     }
 
     #[test]
-    fn normalize_app_config_should_force_departments_to_use_text_chat_models() {
+    fn normalize_app_config_should_drop_invalid_department_models_without_frontend_fallback() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
@@ -337,9 +337,75 @@
 
         normalize_app_config(&mut cfg);
 
-        assert_eq!(cfg.assistant_department_api_config_id, "chat-a");
-        assert!(cfg.departments.iter().all(|department| department.api_config_id == "chat-a"));
-        assert!(cfg.departments.iter().all(|department| department.api_config_ids == vec!["chat-a".to_string()]));
+        assert_eq!(cfg.assistant_department_api_config_id, "");
+        assert_eq!(cfg.departments[0].api_config_id, "");
+        assert!(cfg.departments[0].api_config_ids.is_empty());
+        assert_eq!(cfg.departments[1].api_config_id, "");
+        assert!(cfg.departments[1].api_config_ids.is_empty());
+    }
+
+    #[test]
+    fn normalize_app_config_should_preserve_empty_assistant_department_model() {
+        let mut cfg = AppConfig {
+            hotkey: "Alt+·".to_string(),
+            ui_language: default_ui_language(),
+            ui_font: default_ui_font(),
+            record_hotkey: "Alt".to_string(),
+            record_background_wake_enabled: false,
+            min_record_seconds: 1,
+            max_record_seconds: 60,
+            tool_max_iterations: 10,
+            selected_api_config_id: "chat-a".to_string(),
+            assistant_department_api_config_id: String::new(),
+            vision_api_config_id: None,
+            stt_api_config_id: None,
+            stt_auto_send: false,
+            provider_non_stream_base_urls: Vec::new(),
+            terminal_shell_kind: default_terminal_shell_kind(),
+            shell_workspaces: Vec::new(),
+            mcp_servers: Vec::new(),
+            remote_im_channels: Vec::new(),
+            departments: vec![DepartmentConfig {
+                id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                name: "助理部门".to_string(),
+                summary: String::new(),
+                guide: String::new(),
+                api_config_ids: Vec::new(),
+                api_config_id: String::new(),
+                agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+                created_at: "2026-03-10T00:00:00Z".to_string(),
+                updated_at: "2026-03-10T00:00:00Z".to_string(),
+                order_index: 1,
+                is_built_in_assistant: true,
+                source: default_main_source(),
+                scope: default_global_scope(),
+            }],
+            api_configs: vec![ApiConfig {
+                id: "chat-a".to_string(),
+                name: "chat-a".to_string(),
+                request_format: RequestFormat::OpenAI,
+                enable_text: true,
+                enable_image: true,
+                enable_audio: false,
+                enable_tools: false,
+                tools: vec![],
+                base_url: "https://api.openai.com/v1".to_string(),
+                api_key: "k".to_string(),
+                model: "chat".to_string(),
+                temperature: 1.0,
+                custom_temperature_enabled: false,
+                context_window_tokens: 128_000,
+                max_output_tokens: 4_096,
+                custom_max_output_tokens_enabled: false,
+                failure_retry_count: 0,
+            }],
+        };
+
+        normalize_app_config(&mut cfg);
+
+        assert_eq!(cfg.assistant_department_api_config_id, "");
+        assert_eq!(cfg.departments[0].api_config_id, "");
+        assert!(cfg.departments[0].api_config_ids.is_empty());
     }
 
     #[test]

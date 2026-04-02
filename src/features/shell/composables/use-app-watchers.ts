@@ -97,7 +97,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       if (agentId && options.assistantDepartmentAgentId.value !== agentId) {
         options.assistantDepartmentAgentId.value = agentId;
       }
-      if (apiConfigId && options.config.assistantDepartmentApiConfigId !== apiConfigId) {
+      if (options.config.assistantDepartmentApiConfigId !== apiConfigId) {
         options.config.assistantDepartmentApiConfigId = apiConfigId;
       }
     },

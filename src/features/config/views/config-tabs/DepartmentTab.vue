@@ -110,6 +110,7 @@
                   :value="apiId"
                   @change="updateDepartmentApiConfigAt(idx, ($event.target as HTMLSelectElement).value)"
                 >
+                  <option value="">{{ t("config.memory.notConfigured") }}</option>
                   <option v-for="api in availableDepartmentApiConfigsForIndex(idx)" :key="api.id" :value="api.id">{{ api.name }}</option>
                 </select>
                 <div class="join">
@@ -210,13 +211,7 @@ const textDepartmentApiConfigs = computed(() =>
   props.apiConfigs.filter((api) => !!api.enableText && ["openai", "openai_responses", "gemini", "anthropic"].includes(api.requestFormat)),
 );
 const selectedDepartmentApiConfigIds = computed(() =>
-  Array.from(new Set(
-    (selectedDepartment.value?.apiConfigIds?.length
-      ? selectedDepartment.value.apiConfigIds
-      : [selectedDepartment.value?.apiConfigId || ""])
-      .map((id) => String(id || "").trim())
-      .filter(Boolean),
-  )),
+  currentDepartmentApiConfigIdsForEditor(selectedDepartment.value),
 );
 const remainingDepartmentApiConfigs = computed(() => {
   const selectedIds = new Set(selectedDepartmentApiConfigIds.value);
@@ -279,7 +274,7 @@ function syncAssistantDepartmentState() {
     emit("update:assistantDepartmentAssigneeId", nextAssistantId);
   }
   const assistantPrimaryApiId = String(assistant.apiConfigIds?.[0] || assistant.apiConfigId || "").trim();
-  if (assistantPrimaryApiId && props.config.assistantDepartmentApiConfigId !== assistantPrimaryApiId) {
+  if (props.config.assistantDepartmentApiConfigId !== assistantPrimaryApiId) {
     props.config.assistantDepartmentApiConfigId = assistantPrimaryApiId;
   }
 }
@@ -293,8 +288,8 @@ function addDepartment() {
     name,
     summary: "",
     guide: "",
-    apiConfigId: textDepartmentApiConfigs.value[0]?.id || "",
-    apiConfigIds: textDepartmentApiConfigs.value[0]?.id ? [textDepartmentApiConfigs.value[0].id] : [],
+    apiConfigId: "",
+    apiConfigIds: [],
     agentIds: [],
     createdAt: now,
     updatedAt: now,
@@ -347,6 +342,11 @@ function currentDepartmentApiConfigIds(target: DepartmentConfig | null | undefin
   return ids.map((id) => String(id || "").trim()).filter(Boolean);
 }
 
+function currentDepartmentApiConfigIdsForEditor(target: DepartmentConfig | null | undefined) {
+  const ids = currentDepartmentApiConfigIds(target);
+  return ids.length > 0 ? Array.from(new Set(ids)) : [""];
+}
+
 function availableDepartmentApiConfigsForIndex(index: number) {
   const currentIds = currentDepartmentApiConfigIds(selectedDepartment.value);
   const currentId = currentIds[index];
@@ -357,8 +357,13 @@ function updateDepartmentApiConfigAt(index: number, apiId: string) {
   const target = selectedDepartment.value;
   if (!target) return;
   const next = currentDepartmentApiConfigIds(target);
-  if (next[index] === apiId) return;
-  next[index] = apiId;
+  const trimmedApiId = String(apiId || "").trim();
+  if ((next[index] || "") === trimmedApiId) return;
+  if (!trimmedApiId) {
+    next.splice(index, 1);
+  } else {
+    next[index] = trimmedApiId;
+  }
   target.apiConfigIds = Array.from(new Set(next.filter(Boolean)));
   target.apiConfigId = target.apiConfigIds[0] || "";
   target.updatedAt = new Date().toISOString();
@@ -383,7 +388,7 @@ function removeDepartmentApiConfigAt(index: number) {
   if (!target) return;
   const next = currentDepartmentApiConfigIds(target);
   next.splice(index, 1);
-  target.apiConfigIds = next.length > 0 ? next : (textDepartmentApiConfigs.value[0]?.id ? [textDepartmentApiConfigs.value[0].id] : []);
+  target.apiConfigIds = next;
   target.apiConfigId = target.apiConfigIds[0] || "";
   target.updatedAt = new Date().toISOString();
   syncAssistantDepartmentState();

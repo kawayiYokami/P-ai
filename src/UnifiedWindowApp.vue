@@ -778,8 +778,55 @@ const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.
 const sttCapableApiConfigs = computed(() =>
   config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
 );
+const MIN_RECORD_SECONDS = 1;
+const MAX_MIN_RECORD_SECONDS = 30;
+const DEFAULT_MAX_RECORD_SECONDS = 60;
+const MAX_RECORD_SECONDS = 600;
+const DEFAULT_TOOL_MAX_ITERATIONS = 10;
+const MAX_TOOL_MAX_ITERATIONS = 100;
+
+function normalizeRuntimeConfigNumbers(
+  minValue: unknown,
+  maxValue: unknown,
+  toolValue: unknown,
+  fallback?: {
+    minRecordSeconds?: number;
+    maxRecordSeconds?: number;
+    toolMaxIterations?: number;
+  },
+): { minRecordSeconds: number; maxRecordSeconds: number; toolMaxIterations: number } {
+  const fallbackMin = Number(fallback?.minRecordSeconds);
+  const fallbackMax = Number(fallback?.maxRecordSeconds);
+  const fallbackTool = Number(fallback?.toolMaxIterations);
+  const nextMin = Number(minValue);
+  const nextMax = Number(maxValue);
+  const nextTool = Number(toolValue);
+  const resolvedMin = Number.isFinite(nextMin)
+    ? nextMin
+    : (Number.isFinite(fallbackMin) ? fallbackMin : MIN_RECORD_SECONDS);
+  const minRecordSeconds = Math.max(
+    MIN_RECORD_SECONDS,
+    Math.min(MAX_MIN_RECORD_SECONDS, Math.round(resolvedMin)),
+  );
+  const resolvedMax = Number.isFinite(nextMax)
+    ? nextMax
+    : (Number.isFinite(fallbackMax) ? fallbackMax : DEFAULT_MAX_RECORD_SECONDS);
+  const maxRecordSeconds = Math.max(
+    minRecordSeconds,
+    Math.min(MAX_RECORD_SECONDS, Math.round(resolvedMax)),
+  );
+  const resolvedTool = Number.isFinite(nextTool)
+    ? nextTool
+    : (Number.isFinite(fallbackTool) ? fallbackTool : DEFAULT_TOOL_MAX_ITERATIONS);
+  const toolMaxIterations = Math.max(
+    1,
+    Math.min(MAX_TOOL_MAX_ITERATIONS, Math.round(resolvedTool)),
+  );
+  return { minRecordSeconds, maxRecordSeconds, toolMaxIterations };
+}
+
 const assistantDepartmentApiConfigId = computed(
-  () => config.assistantDepartmentApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
+  () => String(config.assistantDepartmentApiConfigId || "").trim(),
 );
 const assistantDepartmentApiConfig = computed(
   () => config.apiConfigs.find((a) => a.id === assistantDepartmentApiConfigId.value) ?? null,
@@ -2056,10 +2103,12 @@ const appBootstrap = useAppBootstrap({
     enqueueTerminalApprovalRequest(payload);
   },
   onConversationApiUpdated: async (payload) => {
-    config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId || "");
-    config.visionApiConfigId = payload.visionApiConfigId || undefined;
-    config.sttApiConfigId = payload.sttApiConfigId || undefined;
-    config.sttAutoSend = !!payload.sttAutoSend;
+    config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId ?? "").trim();
+    config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
+    config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
+    if ("sttAutoSend" in payload) {
+      config.sttAutoSend = !!payload.sttAutoSend;
+    }
     if (chatErrorText.value.includes("不支持图片附件") || chatErrorText.value.includes("PDF 附件")) {
       chatErrorText.value = "";
     }
@@ -2068,47 +2117,80 @@ const appBootstrap = useAppBootstrap({
     }
   },
   onChatSettingsUpdated: async (payload) => {
-    const nextAgentId = String(payload.assistantDepartmentAgentId || "").trim();
-    if (nextAgentId) {
+    if ("assistantDepartmentAgentId" in payload) {
+      const nextAgentId = String(payload.assistantDepartmentAgentId ?? "").trim();
       assistantDepartmentAgentId.value = nextAgentId;
       if (personaEditorId.value !== nextAgentId) {
         personaEditorId.value = nextAgentId;
       }
     }
-    userAlias.value = String(payload.userAlias || "").trim() || t("archives.roleUser");
-    const nextStyleId = String(payload.responseStyleId || "").trim();
-    if (nextStyleId) {
+    if ("userAlias" in payload) {
+      userAlias.value = String(payload.userAlias ?? "");
+    }
+    if ("responseStyleId" in payload) {
+      const nextStyleId = String(payload.responseStyleId ?? "").trim();
       selectedResponseStyleId.value = nextStyleId;
     }
-    selectedPdfReadMode.value = payload.pdfReadMode === "text" ? "text" : "image";
-    backgroundVoiceScreenshotKeywords.value = String(payload.backgroundVoiceScreenshotKeywords || "").trim();
-    backgroundVoiceScreenshotMode.value =
-      payload.backgroundVoiceScreenshotMode === "focused_window" ? "focused_window" : "desktop";
+    if (payload.pdfReadMode === "text" || payload.pdfReadMode === "image") {
+      selectedPdfReadMode.value = payload.pdfReadMode;
+    }
+    if ("backgroundVoiceScreenshotKeywords" in payload) {
+      backgroundVoiceScreenshotKeywords.value = String(payload.backgroundVoiceScreenshotKeywords ?? "");
+    }
+    if (payload.backgroundVoiceScreenshotMode === "desktop" || payload.backgroundVoiceScreenshotMode === "focused_window") {
+      backgroundVoiceScreenshotMode.value = payload.backgroundVoiceScreenshotMode;
+    }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
     }
   },
   onConfigUpdated: (payload) => {
     if (!payload || typeof payload !== "object") return;
-    config.hotkey = String(payload.hotkey || config.hotkey || "").trim() || config.hotkey;
-    config.uiFont = normalizeUiFont(String(payload.uiFont || config.uiFont || "").trim() || config.uiFont);
-    config.recordHotkey = String(payload.recordHotkey || config.recordHotkey || "").trim() || config.recordHotkey;
-    config.recordBackgroundWakeEnabled = !!payload.recordBackgroundWakeEnabled;
-    config.minRecordSeconds = Math.max(1, Math.min(30, Math.round(Number(payload.minRecordSeconds) || config.minRecordSeconds)));
-    config.maxRecordSeconds = Math.max(
-      config.minRecordSeconds,
-      Math.min(600, Math.round(Number(payload.maxRecordSeconds) || config.maxRecordSeconds)),
-    );
-    config.toolMaxIterations = Math.max(1, Math.min(100, Number(payload.toolMaxIterations || config.toolMaxIterations)));
-    config.selectedApiConfigId = String(payload.selectedApiConfigId || config.selectedApiConfigId || "").trim() || config.selectedApiConfigId;
-    config.assistantDepartmentApiConfigId =
-      String(payload.assistantDepartmentApiConfigId || config.assistantDepartmentApiConfigId || "").trim()
-      || config.assistantDepartmentApiConfigId;
-    config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
-    config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
-    config.sttAutoSend = !!payload.sttAutoSend;
-    config.terminalShellKind =
-      String(payload.terminalShellKind || config.terminalShellKind || "auto").trim() || "auto";
+    if ("hotkey" in payload) {
+      config.hotkey = String(payload.hotkey ?? "").trim();
+    }
+    if ("uiFont" in payload) {
+      config.uiFont = String(payload.uiFont ?? "");
+    }
+    if ("recordHotkey" in payload) {
+      config.recordHotkey = String(payload.recordHotkey ?? "");
+    }
+    if ("recordBackgroundWakeEnabled" in payload) {
+      config.recordBackgroundWakeEnabled = !!payload.recordBackgroundWakeEnabled;
+    }
+    if ("minRecordSeconds" in payload || "maxRecordSeconds" in payload || "toolMaxIterations" in payload) {
+      const normalizedConfigNumbers = normalizeRuntimeConfigNumbers(
+        "minRecordSeconds" in payload ? payload.minRecordSeconds : config.minRecordSeconds,
+        "maxRecordSeconds" in payload ? payload.maxRecordSeconds : config.maxRecordSeconds,
+        "toolMaxIterations" in payload ? payload.toolMaxIterations : config.toolMaxIterations,
+        {
+          minRecordSeconds: config.minRecordSeconds,
+          maxRecordSeconds: config.maxRecordSeconds,
+          toolMaxIterations: config.toolMaxIterations,
+        },
+      );
+      config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
+      config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
+      config.toolMaxIterations = normalizedConfigNumbers.toolMaxIterations;
+    }
+    if ("selectedApiConfigId" in payload) {
+      config.selectedApiConfigId = String(payload.selectedApiConfigId ?? "").trim();
+    }
+    if ("assistantDepartmentApiConfigId" in payload) {
+      config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId ?? "").trim();
+    }
+    if ("visionApiConfigId" in payload) {
+      config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
+    }
+    if ("sttApiConfigId" in payload) {
+      config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
+    }
+    if ("sttAutoSend" in payload) {
+      config.sttAutoSend = !!payload.sttAutoSend;
+    }
+    if ("terminalShellKind" in payload) {
+      config.terminalShellKind = String(payload.terminalShellKind ?? "");
+    }
     config.apiConfigs.splice(
       0,
       config.apiConfigs.length,

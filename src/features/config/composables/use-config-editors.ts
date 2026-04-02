@@ -32,9 +32,24 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     if (idx < 0) return;
     const removedId = options.config.apiConfigs[idx].id;
     options.config.apiConfigs.splice(idx, 1);
+    for (const department of options.config.departments || []) {
+      const nextIds = (Array.isArray(department.apiConfigIds) ? department.apiConfigIds : [])
+        .map((id) => String(id || "").trim())
+        .filter((id) => !!id && id !== removedId);
+      department.apiConfigIds = nextIds;
+      if (String(department.apiConfigId || "").trim() === removedId) {
+        department.apiConfigId = nextIds[0] || "";
+      }
+    }
+    if (options.config.assistantDepartmentApiConfigId === removedId) {
+      options.config.assistantDepartmentApiConfigId = "";
+    }
     if (options.config.sttApiConfigId === removedId) {
       options.config.sttApiConfigId = undefined;
       options.config.sttAutoSend = false;
+    }
+    if (options.config.visionApiConfigId === removedId) {
+      options.config.visionApiConfigId = undefined;
     }
     if (options.config.apiConfigs.length > 0) {
       options.config.selectedApiConfigId = options.config.apiConfigs[0].id;

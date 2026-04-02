@@ -338,7 +338,6 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const CONTEXT_WINDOW_DEFAULT_MAX = 200000;
 const CONTEXT_WINDOW_HARD_MAX = 2000000;
-const LEGACY_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 const baseUrlHelperOpen = ref(false);
 const showApiKey = ref(false);
 const selectedProviderId = ref("openai-official");
@@ -564,46 +563,6 @@ watch(
 );
 
 watch(
-  () => props.selectedApiConfig,
-  (cfg) => {
-    if (!cfg) return;
-    if (capabilityFromConfig(cfg) === "text" && !cfg.enableText) {
-      cfg.enableText = true;
-    }
-    cfg.customMaxOutputTokensEnabled = cfg.requestFormat === "anthropic"
-      ? true
-      : !!cfg.customMaxOutputTokensEnabled;
-  },
-  { immediate: true, deep: true },
-);
-
-watch(
-  () => props.selectedApiConfig?.contextWindowTokens,
-  (value) => {
-    const cfg = props.selectedApiConfig;
-    if (!cfg || !isTextMode.value) return;
-    const next = Math.round(Number(value ?? 128000));
-    const clamped = Math.max(16000, Math.min(contextWindowMax.value, next));
-    if (next !== clamped) {
-      cfg.contextWindowTokens = clamped;
-    }
-  },
-);
-
-watch(
-  () => props.selectedApiConfig?.maxOutputTokens,
-  (value) => {
-    const cfg = props.selectedApiConfig;
-    if (!cfg || !isTextMode.value) return;
-    const next = Math.round(Number(value ?? maxOutputTokensMax.value));
-    const clamped = Math.max(256, Math.min(maxOutputTokensMax.value, next));
-    if (next !== clamped) {
-      cfg.maxOutputTokens = clamped;
-    }
-  },
-);
-
-watch(
   [selectedApiId, selectedModelSignature, activeCapability],
   () => {
     void syncSelectedModelMetadataIfNeeded();
@@ -659,7 +618,6 @@ function handleDocumentMouseDown(event: MouseEvent) {
 async function applySavedModelMetadata(target: ApiConfigItem) {
   const model = String(target.model || "").trim();
   if (!model) return;
-  const hadMetadataForCurrentModel = metadataModelSignatureByApiId.value[target.id] === model;
   const metadata = await invokeTauri<FetchModelMetadataOutput>("fetch_model_metadata", {
     input: {
       requestFormat: target.requestFormat,
@@ -685,25 +643,6 @@ async function applySavedModelMetadata(target: ApiConfigItem) {
     ...metadataModelSignatureByApiId.value,
     [target.id]: model,
   };
-  const currentContext = Math.round(Number(target.contextWindowTokens ?? contextMax));
-  if (!Number.isFinite(currentContext) || currentContext < 16000 || currentContext > contextMax) {
-    target.contextWindowTokens = contextMax;
-  }
-  const rawCurrentOutput = Number(target.maxOutputTokens);
-  const currentOutput = Math.round(rawCurrentOutput);
-  const shouldAdoptMetadataDefault = !Number.isFinite(rawCurrentOutput)
-    || (!hadMetadataForCurrentModel && currentOutput === LEGACY_DEFAULT_MAX_OUTPUT_TOKENS);
-  if (shouldAdoptMetadataDefault) {
-    target.maxOutputTokens = outputMax;
-  } else if (currentOutput < 256 || currentOutput > outputMax) {
-    target.maxOutputTokens = Math.max(256, Math.min(outputMax, currentOutput));
-  }
-  if (typeof metadata.enableImage === "boolean" && !metadata.enableImage) {
-    target.enableImage = false;
-  }
-  if (typeof metadata.enableTools === "boolean" && !metadata.enableTools) {
-    target.enableTools = false;
-  }
 }
 
 async function syncSelectedModelMetadataIfNeeded() {
@@ -750,7 +689,6 @@ const providerPresets: ProviderPreset[] = [
   { id: "zhipu-glm", name: "Zhipu GLM", urls: { openai: "https://open.bigmodel.cn/api/paas/v4", openai_responses: "https://open.bigmodel.cn/api/paas/v4" }, docsUrl: "https://open.bigmodel.cn/dev/api", hasFreeQuota: true },
   { id: "minimax", name: "MiniMax", urls: { openai: "https://api.minimax.chat/v1", openai_responses: "https://api.minimax.chat/v1" }, docsUrl: "https://www.minimax.io/platform/document" },
   { id: "siliconflow", name: "SiliconFlow", urls: { openai: "https://api.siliconflow.cn/v1", openai_responses: "https://api.siliconflow.cn/v1", openai_stt: "https://api.siliconflow.cn/v1", openai_embedding: "https://api.siliconflow.cn/v1", openai_rerank: "https://api.siliconflow.cn/v1" }, docsUrl: "https://docs.siliconflow.cn/", hasFreeQuota: true },
-  { id: "iflow", name: "iFlow", urls: { openai: "https://apis.iflow.cn/v1", openai_responses: "https://apis.iflow.cn/v1" }, docsUrl: "https://platform.iflow.cn/models", hasFreeQuota: true },
   { id: "modelscope", name: "ModelScope", urls: { openai: "https://api-inference.modelscope.cn/v1", openai_responses: "https://api-inference.modelscope.cn/v1" }, docsUrl: "https://modelscope.cn/models", hasFreeQuota: true },
   { id: "nvidia-nim", name: "NVIDIA NIM", urls: { openai: "https://integrate.api.nvidia.com/v1", openai_responses: "https://integrate.api.nvidia.com/v1" }, docsUrl: "https://docs.api.nvidia.com/nim/", hasFreeQuota: true },
   { id: "openrouter", name: "OpenRouter", urls: { openai: "https://openrouter.ai/api/v1", openai_responses: "https://openrouter.ai/api/v1" }, docsUrl: "https://openrouter.ai/docs/api-reference/overview", hasFreeQuota: true },

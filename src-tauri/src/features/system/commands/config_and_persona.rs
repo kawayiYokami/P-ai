@@ -1159,7 +1159,17 @@ fn save_conversation_api_settings(
     normalize_app_config(&mut config);
     let assistant_api_config_id = config.assistant_department_api_config_id.clone();
     if let Some(dept) = assistant_department_mut(&mut config) {
-        dept.api_config_id = assistant_api_config_id;
+        let cleaned = assistant_api_config_id.trim();
+        dept.api_config_ids = if cleaned.is_empty() {
+            Vec::new()
+        } else {
+            vec![cleaned.to_string()]
+        };
+        dept.api_config_id = if cleaned.is_empty() {
+            String::new()
+        } else {
+            cleaned.to_string()
+        };
         dept.updated_at = now_iso();
     }
     state_write_config_cached(&state, &config)?;

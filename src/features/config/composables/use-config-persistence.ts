@@ -2,7 +2,6 @@ import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { AppConfig, PdfReadMode, PersonaProfile, RemoteImChannelConfig } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
-import { normalizeToolBindings } from "../utils/builtin-tools";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -47,11 +46,6 @@ type UseConfigPersistenceOptions = {
   preloadPersonaAvatars: () => Promise<void>;
   syncTrayIcon: (agentId?: string) => Promise<void>;
 };
-
-const MIN_RECORD_SECONDS = 1;
-const MAX_MIN_RECORD_SECONDS = 30;
-const DEFAULT_MAX_RECORD_SECONDS = 60;
-const MAX_RECORD_SECONDS = 600;
 
 function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
   const apiConfigIds = Array.isArray((item as { apiConfigIds?: unknown[] })?.apiConfigIds)
@@ -103,6 +97,15 @@ function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
 }
 
 export function useConfigPersistence(options: UseConfigPersistenceOptions) {
+  let lastConversationApiSettingsJson = "";
+  let conversationApiSettingsSaving = false;
+  const MIN_RECORD_SECONDS = 1;
+  const MAX_MIN_RECORD_SECONDS = 30;
+  const DEFAULT_MAX_RECORD_SECONDS = 60;
+  const MAX_RECORD_SECONDS = 600;
+  const DEFAULT_TOOL_MAX_ITERATIONS = 10;
+  const MAX_TOOL_MAX_ITERATIONS = 100;
+
   function extractHttpStatus(error: unknown): number | null {
     if (!error || typeof error !== "object") return null;
     const err = error as Record<string, unknown>;
@@ -123,19 +126,44 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     return null;
   }
 
-  function normalizeRecordSeconds(
+  function normalizeConfigNumberFields(
     minValue: unknown,
     maxValue: unknown,
-  ): { minRecordSeconds: number; maxRecordSeconds: number } {
+    toolValue: unknown,
+    fallback?: {
+      minRecordSeconds?: number;
+      maxRecordSeconds?: number;
+      toolMaxIterations?: number;
+    },
+  ): { minRecordSeconds: number; maxRecordSeconds: number; toolMaxIterations: number } {
+    const fallbackMin = Number(fallback?.minRecordSeconds);
+    const fallbackMax = Number(fallback?.maxRecordSeconds);
+    const fallbackTool = Number(fallback?.toolMaxIterations);
+    const minSeed = Number(minValue);
+    const maxSeed = Number(maxValue);
+    const toolSeed = Number(toolValue);
+    const resolvedMin = Number.isFinite(minSeed)
+      ? minSeed
+      : (Number.isFinite(fallbackMin) ? fallbackMin : MIN_RECORD_SECONDS);
     const minRecordSeconds = Math.max(
       MIN_RECORD_SECONDS,
-      Math.min(MAX_MIN_RECORD_SECONDS, Math.round(Number(minValue) || MIN_RECORD_SECONDS)),
+      Math.min(MAX_MIN_RECORD_SECONDS, Math.round(resolvedMin)),
     );
+    const resolvedMax = Number.isFinite(maxSeed)
+      ? maxSeed
+      : (Number.isFinite(fallbackMax) ? fallbackMax : DEFAULT_MAX_RECORD_SECONDS);
     const maxRecordSeconds = Math.max(
       minRecordSeconds,
-      Math.min(MAX_RECORD_SECONDS, Math.round(Number(maxValue) || DEFAULT_MAX_RECORD_SECONDS)),
+      Math.min(MAX_RECORD_SECONDS, Math.round(resolvedMax)),
     );
-    return { minRecordSeconds, maxRecordSeconds };
+    const resolvedTool = Number.isFinite(toolSeed)
+      ? toolSeed
+      : (Number.isFinite(fallbackTool) ? fallbackTool : DEFAULT_TOOL_MAX_ITERATIONS);
+    const toolMaxIterations = Math.max(
+      1,
+      Math.min(MAX_TOOL_MAX_ITERATIONS, Math.round(resolvedTool)),
+    );
+    return { minRecordSeconds, maxRecordSeconds, toolMaxIterations };
   }
 
   function classifySaveConfigError(error: unknown): ConfigSaveErrorInfo {
@@ -177,20 +205,24 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const cfg = await invokeTauri<AppConfig>("load_config");
       options.config.hotkey = cfg.hotkey;
       options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
-      options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
+      options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
       options.locale.value = options.config.uiLanguage;
-      options.config.recordHotkey = cfg.recordHotkey || "Alt";
+      options.config.recordHotkey = String(cfg.recordHotkey ?? "");
       options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
-      const normalizedRecord = normalizeRecordSeconds(cfg.minRecordSeconds, cfg.maxRecordSeconds);
-      options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
-      options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
-      options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(cfg.toolMaxIterations || 10)));
+      const normalizedConfigNumbers = normalizeConfigNumberFields(
+        cfg.minRecordSeconds,
+        cfg.maxRecordSeconds,
+        cfg.toolMaxIterations,
+      );
+      options.config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
+      options.config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
+      options.config.toolMaxIterations = normalizedConfigNumbers.toolMaxIterations;
       options.config.selectedApiConfigId = cfg.selectedApiConfigId;
       options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!cfg.sttAutoSend;
-      options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind || "auto").trim() || "auto";
+      options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
       options.config.departments = Array.isArray((cfg as AppConfig).departments)
         ? (cfg.departments || []).map(mapDepartmentConfig)
         : [];
@@ -234,6 +266,12 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         options.config.apiConfigs.length,
         ...(cfg.apiConfigs.length ? cfg.apiConfigs : [options.createApiConfig("default")]),
       );
+      lastConversationApiSettingsJson = JSON.stringify({
+        assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+        visionApiConfigId: options.config.visionApiConfigId || null,
+        sttApiConfigId: options.config.sttApiConfigId || null,
+        sttAutoSend: !!options.config.sttAutoSend,
+      });
       // 注意：不在此处调用 normalizeApiBindingsLocal()，避免与 watch 的响应式更新产生竞态条件
       // apiConfigs 的变化会通过 use-app-watchers 中的 watch 自动触发 normalizeApiBindingsLocal()
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
@@ -255,20 +293,29 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const saved = await invokeTauri<AppConfig>("save_config", { config: options.buildConfigPayload() });
       options.config.hotkey = saved.hotkey;
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
-      options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont || "auto").trim() || "auto";
+      options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
       options.locale.value = options.config.uiLanguage;
-      options.config.recordHotkey = saved.recordHotkey || "Alt";
+      options.config.recordHotkey = String(saved.recordHotkey ?? "");
       options.config.recordBackgroundWakeEnabled = !!saved.recordBackgroundWakeEnabled;
-      const normalizedRecord = normalizeRecordSeconds(saved.minRecordSeconds, saved.maxRecordSeconds);
-      options.config.minRecordSeconds = normalizedRecord.minRecordSeconds;
-      options.config.maxRecordSeconds = normalizedRecord.maxRecordSeconds;
-      options.config.toolMaxIterations = Math.max(1, Math.min(100, Number(saved.toolMaxIterations || 10)));
+      const normalizedConfigNumbers = normalizeConfigNumberFields(
+        saved.minRecordSeconds,
+        saved.maxRecordSeconds,
+        saved.toolMaxIterations,
+        {
+          minRecordSeconds: options.config.minRecordSeconds,
+          maxRecordSeconds: options.config.maxRecordSeconds,
+          toolMaxIterations: options.config.toolMaxIterations,
+        },
+      );
+      options.config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
+      options.config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
+      options.config.toolMaxIterations = normalizedConfigNumbers.toolMaxIterations;
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
-      options.config.terminalShellKind = String((saved as AppConfig).terminalShellKind || "auto").trim() || "auto";
+      options.config.terminalShellKind = String((saved as AppConfig).terminalShellKind ?? "");
       options.config.departments = Array.isArray(saved.departments)
         ? (saved.departments || []).map(mapDepartmentConfig)
         : [];
@@ -346,7 +393,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const list = await invokeTauri<PersonaProfile[]>("load_agents");
       options.personas.value = list.map((item) => ({
         ...item,
-        tools: normalizeToolBindings(item.tools),
+        tools: Array.isArray(item.tools)
+          ? item.tools.map((tool) => ({
+              ...tool,
+              args: Array.isArray(tool.args) ? [...tool.args] : [],
+              values: { ...((tool.values || {}) as Record<string, unknown>) },
+            }))
+          : [],
       }));
       if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
         options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
@@ -378,22 +431,26 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       }>(
         "load_chat_settings",
       );
-      if (options.assistantPersonas.value.some((p) => p.id === settings.assistantDepartmentAgentId)) {
-        options.assistantDepartmentAgentId.value = settings.assistantDepartmentAgentId;
-      }
+      options.assistantDepartmentAgentId.value = String(settings.assistantDepartmentAgentId ?? "").trim();
       if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
         options.personaEditorId.value = options.assistantDepartmentAgentId.value;
       }
-      options.userAlias.value = settings.userAlias?.trim() || options.t("archives.roleUser");
-      if (options.responseStyleIds.value.includes(settings.responseStyleId)) {
+      options.userAlias.value = String(settings.userAlias ?? "");
+      if (typeof settings.responseStyleId === "string") {
         options.selectedResponseStyleId.value = settings.responseStyleId;
-      } else {
-        options.selectedResponseStyleId.value = "concise";
       }
-      options.selectedPdfReadMode.value = settings.pdfReadMode === "text" ? "text" : "image";
-      options.backgroundVoiceScreenshotKeywords.value = String(settings.backgroundVoiceScreenshotKeywords || "").trim();
-      options.backgroundVoiceScreenshotMode.value =
-        settings.backgroundVoiceScreenshotMode === "focused_window" ? "focused_window" : "desktop";
+      if (settings.pdfReadMode === "text" || settings.pdfReadMode === "image") {
+        options.selectedPdfReadMode.value = settings.pdfReadMode;
+      }
+      if ("backgroundVoiceScreenshotKeywords" in settings) {
+        options.backgroundVoiceScreenshotKeywords.value = String(settings.backgroundVoiceScreenshotKeywords ?? "");
+      }
+      if (
+        settings.backgroundVoiceScreenshotMode === "desktop"
+        || settings.backgroundVoiceScreenshotMode === "focused_window"
+      ) {
+        options.backgroundVoiceScreenshotMode.value = settings.backgroundVoiceScreenshotMode;
+      }
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
@@ -411,7 +468,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       });
       options.personas.value = options.personas.value.map((item) => ({
         ...item,
-        tools: normalizeToolBindings(item.tools),
+        tools: Array.isArray(item.tools)
+          ? item.tools.map((tool) => ({
+              ...tool,
+              args: Array.isArray(tool.args) ? [...tool.args] : [],
+              values: { ...((tool.values || {}) as Record<string, unknown>) },
+            }))
+          : [],
       }));
       options.syncUserAliasFromPersona();
       options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
@@ -456,6 +519,17 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
   async function saveConversationApiSettings() {
     if (options.suppressAutosave.value) return;
+    const payload = {
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+      visionApiConfigId: options.config.visionApiConfigId || null,
+      sttApiConfigId: options.config.sttApiConfigId || null,
+      sttAutoSend: !!options.config.sttAutoSend,
+    };
+    const payloadJson = JSON.stringify(payload);
+    if (conversationApiSettingsSaving || payloadJson === lastConversationApiSettingsJson) {
+      return;
+    }
+    conversationApiSettingsSaving = true;
     try {
       console.info("[CONFIG] save_conversation_api_settings invoked");
       const saved = await invokeTauri<{
@@ -464,12 +538,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         sttApiConfigId?: string;
         sttAutoSend?: boolean;
       }>("save_conversation_api_settings", {
-        input: {
-          assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
-          visionApiConfigId: options.config.visionApiConfigId || null,
-          sttApiConfigId: options.config.sttApiConfigId || null,
-          sttAutoSend: !!options.config.sttAutoSend,
-        },
+        input: payload,
       });
       options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
@@ -477,10 +546,18 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.sttAutoSend = !!saved.sttAutoSend;
       options.normalizeApiBindingsLocal();
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
+      lastConversationApiSettingsJson = JSON.stringify({
+        assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+        visionApiConfigId: options.config.visionApiConfigId || null,
+        sttApiConfigId: options.config.sttApiConfigId || null,
+        sttAutoSend: !!options.config.sttAutoSend,
+      });
       console.info("[CONFIG] save_conversation_api_settings success");
     } catch (e) {
       console.error("[CONFIG] save_conversation_api_settings failed:", e);
       options.setStatusError("status.saveConversationLlmFailed", e);
+    } finally {
+      conversationApiSettingsSaving = false;
     }
   }
 

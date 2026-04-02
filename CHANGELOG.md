@@ -1,5 +1,15 @@
 # 变更日志
 
+## 更新（未发布）：收口前端配置纠偏并修复部门模型空值语义
+
+- 修复（config-boundary-and-department-empty-model）：继续清理前端擅自改写配置语义的行为
+  - 前端配置加载、保存回流与事件回流链路改为更接近“原样接收后端结果”，不再用 `||` 默认值、自动夹紧或补默认选项覆盖后端返回
+  - 部门模型选择支持显式“未配置”，新增部门不再自动补第一个模型，删除最后一个模型时也不再自动切回其它模型
+  - 助手部门模型为空时，前后端统一保留空值语义；Rust 侧不再把无效或空的部门模型强行 fallback 到其它文本模型
+  - 配置数值字段补充防护：`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`maxOutputTokens` 统一增加有限值校验、默认值回退与范围约束，避免 `NaN` 或空白值写入状态
+  - API 页去掉基于模型元数据的自动回写，不再偷偷改 `contextWindowTokens`、`maxOutputTokens`、`enableImage`、`enableTools`
+  - 前端常见网站列表移除已失效的 `iFlow` 入口
+
 ## 更新（未发布）：聊天发送链路提速并收口默认日志
 
 - 优化（chat-send-latency-and-log-reduction）：重构聊天发送主链路的锁与持久化路径
