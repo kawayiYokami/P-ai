@@ -20,7 +20,7 @@
       <span>{{ chatErrorText }}</span>
     </div>
     <div v-if="clipboardImages.length > 0 || queuedAttachmentNotices.length > 0" class="mb-2 flex flex-wrap gap-1">
-      <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
+      <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-ghost gap-1 py-3">
         <ImageIcon v-if="isImageMime(img.mime)" class="h-3.5 w-3.5" />
         <FileText v-else-if="isPdfMime(img.mime)" class="h-3.5 w-3.5" />
         <ImageIcon v-else class="h-3.5 w-3.5" />
@@ -32,7 +32,7 @@
       <div
         v-for="(file, idx) in queuedAttachmentNotices"
         :key="file.id"
-        class="badge badge-outline gap-1 py-3"
+        class="badge badge-ghost gap-1 py-3"
       >
         <FileText class="h-3.5 w-3.5" />
         <span class="text-[11px]">{{ file.fileName }}</span>
@@ -49,7 +49,7 @@
       <textarea
         ref="chatInputRef"
         v-model="localChatInput"
-        class="w-full textarea textarea-sm resize-none overflow-y-auto chat-input-no-focus scrollbar-gutter-stable min-h-12.5"
+        class="w-full textarea resize-none overflow-y-auto chat-input-no-focus scrollbar-gutter-stable min-h-8"
         rows="1"
         :disabled="frozen"
         :placeholder="chatInputPlaceholder"
@@ -59,18 +59,18 @@
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
           <button
-            class="btn btn-sm btn-circle bg-base-100 shrink-0"
+            class="btn btn-sm btn-circle btn-ghost shrink-0"
             :class="{ 'btn-disabled': frozen }"
             :disabled="frozen"
             :title="t('chat.newConversation')"
             @click="handleCreateConversation"
           >
-            <Plus class="h-3.5 w-3.5" />
+            <Plus class="h-4 w-4" />
           </button>
         </div>
         <div v-if="!showSideConversationList" ref="conversationListPopoverRef" class="relative flex items-center gap-2">
           <button
-            class="btn btn-sm bg-base-100 shrink-0 gap-1.5 pl-3 pr-2"
+            class="btn btn-sm btn-ghost shrink-0 gap-1.5 pl-3 pr-2"
             :title="t('chat.conversationList')"
             @click="toggleConversationList"
           >
@@ -93,7 +93,7 @@
         <div class="ml-auto flex items-center gap-2">
           <div v-if="!showSideConversationList" class="h-5 w-px shrink-0 bg-base-300"></div>
           <button
-            class="btn btn-sm btn-circle bg-base-100 shrink-0"
+            class="btn btn-sm btn-circle btn-ghost shrink-0"
             :disabled="chatting || frozen"
             :title="t('chat.attach')"
             @click="emit('pickAttachments')"
@@ -102,7 +102,7 @@
           </button>
           <button
             class="btn btn-sm btn-circle shrink-0"
-            :class="recording ? 'btn-error' : 'bg-base-100'"
+            :class="recording ? 'btn-error' : 'btn-ghost'"
             :disabled="!canRecord || chatting || frozen"
             :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
             @mousedown.prevent="emit('startRecording')"
@@ -339,9 +339,10 @@ function pushChatInputHistory(rawText: string) {
 function resizeChatInput() {
   const el = chatInputRef.value;
   if (!el) return;
+  const minHeight = 32;
   const maxHeight = 160;
   el.style.height = "auto";
-  const nextHeight = Math.min(el.scrollHeight, maxHeight);
+  const nextHeight = Math.max(Math.min(el.scrollHeight, maxHeight), minHeight);
   el.style.height = `${nextHeight}px`;
   el.style.overflowY = "auto";
 }

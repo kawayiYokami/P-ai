@@ -1,7 +1,7 @@
 <template>
   <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
     <button
-      class="btn btn-sm bg-base-100"
+      class="btn btn-sm btn-ghost"
       :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
       :disabled="chatting || frozen || !workspaceLocked"
       @click="emit('unlockWorkspace')"
@@ -10,7 +10,7 @@
       <LockOpen v-else class="h-3.5 w-3.5" />
     </button>
     <button
-      class="btn btn-sm bg-base-100"
+      class="btn btn-sm btn-ghost"
       :disabled="chatting || frozen"
       @click="emit('lockWorkspace')"
     >

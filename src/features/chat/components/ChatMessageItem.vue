@@ -49,7 +49,7 @@
           ]">
             <div v-if="block.taskTrigger" class="space-y-2">
         <div class="flex items-center gap-2">
-          <span class="badge badge-sm badge-outline">{{ t("chat.taskTrigger.badge") }}</span>
+          <span class="badge badge-sm badge-ghost">{{ t("chat.taskTrigger.badge") }}</span>
         </div>
         <div v-if="block.taskTrigger.goal" class="space-y-0.5">
           <div class="text-[11px] opacity-55">{{ t("config.task.fields.goal") }}</div>
@@ -175,7 +175,7 @@
             <span class="loading loading-spinner loading-xs mr-2"></span>
             <span>图片加载中</span>
           </div>
-          <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
+          <div v-else-if="isPdfMime(img.mime)" class="badge badge-ghost gap-1 py-3 w-fit">
             <FileText class="h-3.5 w-3.5" />
             <span class="text-[11px]">PDF</span>
           </div>
@@ -200,7 +200,7 @@
         <div
           v-for="(file, idx) in block.attachmentFiles"
           :key="`${block.id}-file-${idx}`"
-          class="badge badge-outline gap-1 py-3"
+          class="badge badge-ghost gap-1 py-3"
           :title="file.relativePath"
         >
           <FileText class="h-3.5 w-3.5" />
@@ -302,7 +302,7 @@
               <span class="loading loading-spinner loading-xs mr-2"></span>
               <span>图片加载中</span>
             </div>
-            <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
+            <div v-else-if="isPdfMime(img.mime)" class="badge badge-ghost gap-1 py-3 w-fit">
               <FileText class="h-3.5 w-3.5" />
               <span class="text-[11px]">PDF</span>
             </div>
@@ -327,7 +327,7 @@
           <div
             v-for="(file, idx) in block.attachmentFiles"
             :key="`${block.id}-file-${idx}`"
-            class="badge badge-outline gap-1 py-3"
+            class="badge badge-ghost gap-1 py-3"
             :title="file.relativePath"
           >
             <FileText class="h-3.5 w-3.5" />
