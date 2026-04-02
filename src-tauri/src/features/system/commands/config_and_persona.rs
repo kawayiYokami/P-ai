@@ -1306,6 +1306,7 @@ struct UnarchivedConversationSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     last_message_at: Option<String>,
     message_count: usize,
+    unread_count: usize,
     agent_id: String,
     department_id: String,
     department_name: String,
@@ -1318,6 +1319,21 @@ struct UnarchivedConversationSummary {
     runtime_state: Option<MainSessionState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     preview_messages: Vec<ConversationPreviewMessage>,
+}
+
+fn conversation_unread_count(conversation: &Conversation) -> usize {
+    let anchor = conversation.last_read_message_id.trim();
+    if anchor.is_empty() {
+        return conversation.messages.len();
+    }
+    let Some(anchor_index) = conversation
+        .messages
+        .iter()
+        .position(|message| message.id.trim() == anchor)
+    else {
+        return conversation.messages.len();
+    };
+    conversation.messages.len().saturating_sub(anchor_index + 1)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1483,6 +1499,7 @@ fn build_unarchived_conversation_summary(
         updated_at: conversation.updated_at.clone(),
         last_message_at,
         message_count: conversation.messages.len(),
+        unread_count: conversation_unread_count(conversation),
         agent_id: conversation.agent_id.clone(),
         department_id,
         department_name,
@@ -1640,6 +1657,12 @@ struct SwitchActiveConversationSnapshotOutput {
     messages: Vec<ChatMessage>,
     has_more_history: bool,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkConversationReadInput {
+    conversation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2266,6 +2289,43 @@ fn get_active_conversation_messages(
     drop(guard);
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
+}
+
+#[tauri::command]
+fn mark_conversation_read(
+    input: MarkConversationReadInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(());
+    }
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let Some(conversation) = data
+        .conversations
+        .iter_mut()
+        .find(|conversation| conversation.id.trim() == conversation_id)
+    else {
+        drop(guard);
+        return Ok(());
+    };
+    let next_last_read_message_id = conversation
+        .messages
+        .last()
+        .map(|message| message.id.trim().to_string())
+        .unwrap_or_default();
+    if conversation.last_read_message_id.trim() == next_last_read_message_id {
+        drop(guard);
+        return Ok(());
+    }
+    conversation.last_read_message_id = next_last_read_message_id;
+    state_write_app_data_cached(&state, &data)?;
+    drop(guard);
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

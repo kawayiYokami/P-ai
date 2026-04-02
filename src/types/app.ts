@@ -376,6 +376,7 @@ export type UnarchivedConversationSummary = {
   updatedAt: string;
   lastMessageAt?: string;
   messageCount: number;
+  unreadCount: number;
   agentId: string;
   departmentId: string;
   departmentName: string;
@@ -403,6 +404,7 @@ export type ChatConversationOverviewItem = {
   conversationId: string;
   title: string;
   messageCount: number;
+  unreadCount?: number;
   agentId?: string;
   departmentId?: string;
   departmentName?: string;

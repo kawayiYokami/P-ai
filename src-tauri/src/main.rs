@@ -510,6 +510,7 @@ fn main() {
             set_active_unarchived_conversation,
             switch_active_conversation_snapshot,
             create_unarchived_conversation,
+            mark_conversation_read,
             get_unarchived_conversation_messages,
             get_unarchived_conversation_recent_messages,
             list_delegate_conversations,

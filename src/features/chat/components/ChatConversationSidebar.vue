@@ -43,13 +43,17 @@
 
             <div class="mt-1 flex items-center justify-between gap-2 text-xs">
               <span class="min-w-0 truncate font-medium">{{ item.workspaceLabel || t("chat.defaultWorkspace") }}</span>
-              <span class="shrink-0 text-[11px] text-base-content/60">{{ t("chat.messageCount", { count: item.messageCount }) }}</span>
+              <div class="flex shrink-0 items-center gap-2">
+                <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">{{ runtimeStateText(item.runtimeState) }}</span>
+                <span
+                  v-if="unreadCountBadge(item)"
+                  class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-300 px-1.5 text-[11px] font-medium text-base-content/80"
+                >
+                  {{ unreadCountBadge(item) }}
+                </span>
+              </div>
             </div>
           </div>
-
-          <span v-if="item.runtimeState" class="badge badge-ghost badge-xs shrink-0">
-            {{ runtimeStateText(item.runtimeState) }}
-          </span>
         </div>
 
         <div class="space-y-1 px-3 pb-3">
@@ -102,6 +106,15 @@ function normalizedPreviewMessages(item: ChatConversationOverviewItem): Conversa
 function conversationDisplayTitle(item: ChatConversationOverviewItem): string {
   if (item.isMainConversation) return t("chat.mainConversation");
   return item.title || t("chat.untitledConversation");
+}
+
+function unreadCountBadge(item: ChatConversationOverviewItem): string {
+  if (String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim()) {
+    return "";
+  }
+  const unreadCount = Math.max(0, Number(item.unreadCount || 0));
+  if (unreadCount <= 0) return "";
+  return unreadCount > 99 ? "99+" : String(unreadCount);
 }
 
 function runtimeStateText(runtimeState?: ChatConversationOverviewItem["runtimeState"]): string {

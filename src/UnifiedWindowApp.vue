@@ -1165,6 +1165,7 @@ const chatUnarchivedConversationItems = computed(() => {
       conversationId: item.conversationId,
       title: item.title,
       messageCount: Number(item.messageCount || 0),
+      unreadCount: Number(item.unreadCount || 0),
       agentId: String(item.agentId || "").trim(),
       departmentId: String(item.departmentId || "").trim(),
       departmentName: String(item.departmentName || "").trim(),
@@ -1678,6 +1679,7 @@ function pickForegroundConversationId(candidates: UnarchivedConversationSummary[
 function clearForegroundConversation(reason: string) {
   const previousConversationId = String(currentChatConversationId.value || "").trim();
   if (!previousConversationId) return;
+  void markConversationRead(previousConversationId);
   cacheConversationMessages(previousConversationId, allMessages.value);
   currentChatConversationId.value = "";
   allMessages.value = [];
@@ -1693,6 +1695,7 @@ function clearForegroundConversation(reason: string) {
 function freezeForegroundConversation(reason: string) {
   const currentConversationId = String(currentChatConversationId.value || "").trim();
   if (currentConversationId) {
+    void markConversationRead(currentConversationId);
     cacheConversationMessages(currentConversationId, allMessages.value);
   }
   chatFlow.freezeForegroundRoundState();
@@ -1941,6 +1944,23 @@ async function requestConversationSnapshot(conversationId?: string | null): Prom
   });
 }
 
+async function markConversationRead(conversationId?: string | null) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  try {
+    await invokeTauri("mark_conversation_read", {
+      input: {
+        conversationId: cid,
+      },
+    });
+  } catch (error) {
+    console.warn("[会话未读] 标记已读失败", {
+      conversationId: cid,
+      error,
+    });
+  }
+}
+
 async function recoverForegroundConversationFromOverview(reason: string, preferredConversationId?: string | null) {
   if (conversationForegroundSyncing.value) return;
   try {
@@ -2000,6 +2020,7 @@ async function switchUnarchivedConversation(conversationId: string) {
   try {
     conversationForegroundSyncing.value = true;
     if (previousConversationId) {
+      await markConversationRead(previousConversationId);
       cacheConversationMessages(previousConversationId, allMessages.value);
     }
     chatFlow.freezeForegroundRoundState();

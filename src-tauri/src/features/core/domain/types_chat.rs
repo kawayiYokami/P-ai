@@ -109,6 +109,8 @@ struct Conversation {
     #[serde(default)]
     department_id: String,
     #[serde(default)]
+    last_read_message_id: String,
+    #[serde(default)]
     conversation_kind: String,
     #[serde(default)]
     root_conversation_id: Option<String>,

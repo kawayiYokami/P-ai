@@ -86,6 +86,7 @@ fn get_prompt_preview(
             title: "Preview".to_string(),
             agent_id: effective_agent_id.clone(),
             department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            last_read_message_id: String::new(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
             delegate_id: None,
