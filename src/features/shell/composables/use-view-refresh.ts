@@ -5,6 +5,7 @@ type ViewMode = "chat" | "archives" | "config";
 type UseViewRefreshOptions = {
   viewMode: Ref<ViewMode>;
   loadConfig: () => Promise<void>;
+  loadBootstrapSnapshot?: () => Promise<boolean>;
   loadPersonas: () => Promise<void>;
   loadChatSettings: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
@@ -24,6 +25,14 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
     suppressChatReloadWatch.value = true;
     const startedAt = options.perfNow();
     try {
+      if (options.loadBootstrapSnapshot) {
+        const tLoadBootstrap = options.perfNow();
+        const bootstrapped = await options.loadBootstrapSnapshot();
+        options.perfLog("refreshAll/loadBootstrapSnapshot", tLoadBootstrap);
+        if (!bootstrapped) {
+          throw new Error("loadBootstrapSnapshot failed");
+        }
+      } else {
       const tLoadConfig = options.perfNow();
       await options.loadConfig();
       options.perfLog("refreshAll/loadConfig", tLoadConfig);
@@ -33,6 +42,7 @@ export function useViewRefresh(options: UseViewRefreshOptions) {
       const tLoadChatSettings = options.perfNow();
       await options.loadChatSettings();
       options.perfLog("refreshAll/loadChatSettings", tLoadChatSettings);
+      }
       if (options.viewMode.value === "config") {
         const tRefreshCache = options.perfNow();
         await options.refreshImageCacheStats();

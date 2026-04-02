@@ -295,6 +295,59 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     Ok(result)
 }
 
+fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot, String> {
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut config = state_read_config_cached(state)?;
+    normalize_app_config(&mut config);
+    let workspace_changed = ensure_default_shell_workspace_in_config(&mut config, state);
+    if workspace_changed {
+        state_write_config_cached(state, &config)?;
+    }
+    let mut data = state_read_app_data_cached(state)?;
+    let changed = ensure_default_agent(&mut data);
+    let assistant_agent_id =
+        assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
+    let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
+        data.assistant_department_agent_id = assistant_agent_id;
+        true
+    } else {
+        false
+    };
+    if changed || runtime_changed {
+        state_write_app_data_cached(state, &data)?;
+    }
+    let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
+    let mut runtime_config_for_agents = config.clone();
+    let mut runtime_data = data.clone();
+    merge_private_organization_into_runtime_data(
+        &state.data_path,
+        &mut runtime_config_for_agents,
+        &mut runtime_data,
+    )?;
+    let chat_settings = ChatSettings {
+        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
+        user_alias: user_persona_name(&runtime_data),
+        response_style_id: data.response_style_id.clone(),
+        pdf_read_mode: data.pdf_read_mode.clone(),
+        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
+        background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
+    };
+    drop(guard);
+    Ok(AppBootstrapSnapshot {
+        config: runtime_config,
+        agents: runtime_data.agents,
+        chat_settings,
+    })
+}
+
+#[tauri::command]
+fn load_app_bootstrap_snapshot(state: State<'_, AppState>) -> Result<AppBootstrapSnapshot, String> {
+    read_app_bootstrap_snapshot(&state)
+}
+
 #[tauri::command]
 fn list_system_fonts() -> Result<Vec<String>, String> {
     let mut families = font_kit::source::SystemSource::new()

@@ -488,6 +488,7 @@ fn main() {
             get_app_version,
             get_project_repository_url,
             load_config,
+            load_app_bootstrap_snapshot,
             list_system_fonts,
             save_config,
             load_agents,

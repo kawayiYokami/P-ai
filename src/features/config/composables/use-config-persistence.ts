@@ -1,6 +1,13 @@
 import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { AppConfig, PdfReadMode, PersonaProfile, RemoteImChannelConfig } from "../../../types/app";
+import type {
+  AppBootstrapSnapshot,
+  AppConfig,
+  ChatSettings,
+  PdfReadMode,
+  PersonaProfile,
+  RemoteImChannelConfig,
+} from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
@@ -184,82 +191,126 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     };
   }
 
+  function applyLoadedConfig(cfg: AppConfig) {
+    options.config.hotkey = cfg.hotkey;
+    options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
+    options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
+    options.locale.value = options.config.uiLanguage;
+    options.config.recordHotkey = String(cfg.recordHotkey ?? "");
+    options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
+    const normalizedConfigNumbers = normalizeConfigNumberFields(
+      cfg.minRecordSeconds,
+      cfg.maxRecordSeconds,
+    );
+    options.config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
+    options.config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
+    options.config.selectedApiConfigId = cfg.selectedApiConfigId;
+    options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
+    options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
+    options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
+    options.config.sttAutoSend = !!cfg.sttAutoSend;
+    options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
+    options.config.departments = Array.isArray((cfg as AppConfig).departments)
+      ? (cfg.departments || []).map(mapDepartmentConfig)
+      : [];
+    options.config.shellWorkspaces = Array.isArray(cfg.shellWorkspaces)
+      ? cfg.shellWorkspaces
+          .map((v) => ({
+            name: String((v as { name?: unknown })?.name || "").trim(),
+            path: String((v as { path?: unknown })?.path || "").trim(),
+            builtIn: !!(v as { builtIn?: unknown })?.builtIn,
+          }))
+          .filter((v) => v.name && v.path)
+      : [];
+    options.config.mcpServers = Array.isArray(cfg.mcpServers)
+      ? cfg.mcpServers.map((v) => ({
+          id: String((v as { id?: unknown })?.id || "").trim(),
+          name: String((v as { name?: unknown })?.name || "").trim(),
+          enabled: !!(v as { enabled?: unknown })?.enabled,
+          definitionJson: String((v as { definitionJson?: unknown })?.definitionJson || "").trim(),
+          toolPolicies: Array.isArray((v as { toolPolicies?: unknown[] })?.toolPolicies)
+            ? ((v as { toolPolicies?: unknown[] }).toolPolicies || []).map((p) => ({
+                toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),
+                enabled: !!(p as { enabled?: unknown })?.enabled,
+              }))
+            : [],
+          cachedTools: Array.isArray((v as { cachedTools?: unknown[] })?.cachedTools)
+            ? ((v as { cachedTools?: unknown[] }).cachedTools || []).map((p) => ({
+                toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),
+                description: String((p as { description?: unknown })?.description || "").trim(),
+              }))
+            : [],
+          lastStatus: String((v as { lastStatus?: unknown })?.lastStatus || "").trim(),
+          lastError: String((v as { lastError?: unknown })?.lastError || "").trim(),
+          updatedAt: String((v as { updatedAt?: unknown })?.updatedAt || "").trim(),
+        }))
+      : [];
+    options.config.remoteImChannels = Array.isArray((cfg as AppConfig).remoteImChannels)
+      ? (cfg.remoteImChannels || []).map(mapRemoteImChannel).filter((item) => !!item.id)
+      : [];
+    options.config.apiConfigs.splice(
+      0,
+      options.config.apiConfigs.length,
+      ...(cfg.apiConfigs.length ? cfg.apiConfigs : [options.createApiConfig("default")]),
+    );
+    lastConversationApiSettingsJson = JSON.stringify({
+      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+      visionApiConfigId: options.config.visionApiConfigId || null,
+      sttApiConfigId: options.config.sttApiConfigId || null,
+      sttAutoSend: !!options.config.sttAutoSend,
+    });
+    options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
+  }
+
+  function applyLoadedPersonas(list: PersonaProfile[]) {
+    options.personas.value = list.map((item) => ({
+      ...item,
+      tools: Array.isArray(item.tools)
+        ? item.tools.map((tool) => ({
+            ...tool,
+            args: Array.isArray(tool.args) ? [...tool.args] : [],
+            values: { ...((tool.values || {}) as Record<string, unknown>) },
+          }))
+        : [],
+    }));
+    if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
+      options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
+    }
+    if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
+      options.personaEditorId.value = options.assistantDepartmentAgentId.value;
+    }
+    options.syncUserAliasFromPersona();
+    options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
+  }
+
+  function applyLoadedChatSettings(settings: ChatSettings) {
+    options.assistantDepartmentAgentId.value = String(settings.assistantDepartmentAgentId ?? "").trim();
+    if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
+      options.personaEditorId.value = options.assistantDepartmentAgentId.value;
+    }
+    options.userAlias.value = String(settings.userAlias ?? "");
+    if (typeof settings.responseStyleId === "string") {
+      options.selectedResponseStyleId.value = settings.responseStyleId;
+    }
+    if (settings.pdfReadMode === "text" || settings.pdfReadMode === "image") {
+      options.selectedPdfReadMode.value = settings.pdfReadMode;
+    }
+    options.backgroundVoiceScreenshotKeywords.value = String(settings.backgroundVoiceScreenshotKeywords ?? "");
+    if (
+      settings.backgroundVoiceScreenshotMode === "desktop"
+      || settings.backgroundVoiceScreenshotMode === "focused_window"
+    ) {
+      options.backgroundVoiceScreenshotMode.value = settings.backgroundVoiceScreenshotMode;
+    }
+  }
+
   async function loadConfig() {
     options.suppressAutosave.value = true;
     options.loading.value = true;
     options.setStatus(options.t("status.loadingConfig"));
     try {
       const cfg = await invokeTauri<AppConfig>("load_config");
-      options.config.hotkey = cfg.hotkey;
-      options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
-      options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
-      options.locale.value = options.config.uiLanguage;
-      options.config.recordHotkey = String(cfg.recordHotkey ?? "");
-      options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
-      const normalizedConfigNumbers = normalizeConfigNumberFields(
-        cfg.minRecordSeconds,
-        cfg.maxRecordSeconds,
-      );
-      options.config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
-      options.config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
-      options.config.selectedApiConfigId = cfg.selectedApiConfigId;
-      options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
-      options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
-      options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
-      options.config.sttAutoSend = !!cfg.sttAutoSend;
-      options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
-      options.config.departments = Array.isArray((cfg as AppConfig).departments)
-        ? (cfg.departments || []).map(mapDepartmentConfig)
-        : [];
-      options.config.shellWorkspaces = Array.isArray(cfg.shellWorkspaces)
-        ? cfg.shellWorkspaces
-            .map((v) => ({
-              name: String((v as { name?: unknown })?.name || "").trim(),
-              path: String((v as { path?: unknown })?.path || "").trim(),
-              builtIn: !!(v as { builtIn?: unknown })?.builtIn,
-            }))
-            .filter((v) => v.name && v.path)
-        : [];
-      options.config.mcpServers = Array.isArray(cfg.mcpServers)
-        ? cfg.mcpServers.map((v) => ({
-            id: String((v as { id?: unknown })?.id || "").trim(),
-            name: String((v as { name?: unknown })?.name || "").trim(),
-            enabled: !!(v as { enabled?: unknown })?.enabled,
-            definitionJson: String((v as { definitionJson?: unknown })?.definitionJson || "").trim(),
-            toolPolicies: Array.isArray((v as { toolPolicies?: unknown[] })?.toolPolicies)
-              ? ((v as { toolPolicies?: unknown[] }).toolPolicies || []).map((p) => ({
-                  toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),
-                  enabled: !!(p as { enabled?: unknown })?.enabled,
-                }))
-              : [],
-            cachedTools: Array.isArray((v as { cachedTools?: unknown[] })?.cachedTools)
-              ? ((v as { cachedTools?: unknown[] }).cachedTools || []).map((p) => ({
-                  toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),
-                  description: String((p as { description?: unknown })?.description || "").trim(),
-                }))
-              : [],
-            lastStatus: String((v as { lastStatus?: unknown })?.lastStatus || "").trim(),
-            lastError: String((v as { lastError?: unknown })?.lastError || "").trim(),
-            updatedAt: String((v as { updatedAt?: unknown })?.updatedAt || "").trim(),
-          }))
-        : [];
-      options.config.remoteImChannels = Array.isArray((cfg as AppConfig).remoteImChannels)
-        ? (cfg.remoteImChannels || []).map(mapRemoteImChannel).filter((item) => !!item.id)
-        : [];
-      options.config.apiConfigs.splice(
-        0,
-        options.config.apiConfigs.length,
-        ...(cfg.apiConfigs.length ? cfg.apiConfigs : [options.createApiConfig("default")]),
-      );
-      lastConversationApiSettingsJson = JSON.stringify({
-        assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
-        visionApiConfigId: options.config.visionApiConfigId || null,
-        sttApiConfigId: options.config.sttApiConfigId || null,
-        sttAutoSend: !!options.config.sttAutoSend,
-      });
-      // 注意：不在此处调用 normalizeApiBindingsLocal()，避免与 watch 的响应式更新产生竞态条件
-      // apiConfigs 的变化会通过 use-app-watchers 中的 watch 自动触发 normalizeApiBindingsLocal()
-      options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
+      applyLoadedConfig(cfg);
       options.setStatus(options.t("status.configLoaded"));
     } catch (e) {
       options.setStatusError("status.loadConfigFailed", e);
@@ -373,26 +424,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.suppressAutosave.value = true;
     try {
       const list = await invokeTauri<PersonaProfile[]>("load_agents");
-      options.personas.value = list.map((item) => ({
-        ...item,
-        tools: Array.isArray(item.tools)
-          ? item.tools.map((tool) => ({
-              ...tool,
-              args: Array.isArray(tool.args) ? [...tool.args] : [],
-              values: { ...((tool.values || {}) as Record<string, unknown>) },
-            }))
-          : [],
-      }));
-      if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
-        options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
-      }
-      if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
-      }
-      options.syncUserAliasFromPersona();
+      applyLoadedPersonas(list);
       await options.preloadPersonaAvatars();
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
-      options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
     } catch (e) {
       options.setStatusError("status.loadPersonasFailed", e);
     } finally {
@@ -403,41 +437,35 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   async function loadChatSettings() {
     options.suppressAutosave.value = true;
     try {
-      const settings = await invokeTauri<{
-        assistantDepartmentAgentId: string;
-        userAlias: string;
-        responseStyleId: string;
-        pdfReadMode?: string;
-        backgroundVoiceScreenshotKeywords?: string;
-        backgroundVoiceScreenshotMode?: string;
-      }>(
-        "load_chat_settings",
-      );
-      options.assistantDepartmentAgentId.value = String(settings.assistantDepartmentAgentId ?? "").trim();
-      if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
-      }
-      options.userAlias.value = String(settings.userAlias ?? "");
-      if (typeof settings.responseStyleId === "string") {
-        options.selectedResponseStyleId.value = settings.responseStyleId;
-      }
-      if (settings.pdfReadMode === "text" || settings.pdfReadMode === "image") {
-        options.selectedPdfReadMode.value = settings.pdfReadMode;
-      }
-      if ("backgroundVoiceScreenshotKeywords" in settings) {
-        options.backgroundVoiceScreenshotKeywords.value = String(settings.backgroundVoiceScreenshotKeywords ?? "");
-      }
-      if (
-        settings.backgroundVoiceScreenshotMode === "desktop"
-        || settings.backgroundVoiceScreenshotMode === "focused_window"
-      ) {
-        options.backgroundVoiceScreenshotMode.value = settings.backgroundVoiceScreenshotMode;
-      }
+      const settings = await invokeTauri<ChatSettings>("load_chat_settings");
+      applyLoadedChatSettings(settings);
       await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
     } finally {
       options.suppressAutosave.value = false;
+    }
+  }
+
+  async function loadBootstrapSnapshot() {
+    options.suppressAutosave.value = true;
+    options.loading.value = true;
+    options.setStatus(options.t("status.loadingConfig"));
+    try {
+      const snapshot = await invokeTauri<AppBootstrapSnapshot>("load_app_bootstrap_snapshot");
+      applyLoadedConfig(snapshot.config);
+      applyLoadedPersonas(snapshot.agents);
+      applyLoadedChatSettings(snapshot.chatSettings);
+      await options.preloadPersonaAvatars();
+      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      options.setStatus(options.t("status.configLoaded"));
+      return true;
+    } catch (e) {
+      options.setStatusError("status.loadConfigFailed", e);
+      return false;
+    } finally {
+      options.suppressAutosave.value = false;
+      options.loading.value = false;
     }
   }
 
@@ -545,6 +573,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
   return {
     loadConfig,
+    loadBootstrapSnapshot,
     saveConfig,
     captureHotkey,
     loadPersonas,

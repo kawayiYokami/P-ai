@@ -1,5 +1,12 @@
 # 变更日志
 
+## 更新：启动阶段合并配置与人格初始化读取
+
+- 优化（app-bootstrap-snapshot-init）：新增启动快照接口，减少启动阶段重复持锁与重复读取
+  - 后端新增 `load_app_bootstrap_snapshot`，一次性返回配置、人格列表与聊天设置
+  - 前端窗口初始化改为优先走启动快照链路，不再串行请求 `load_config`、`load_agents`、`load_chat_settings`
+  - 保留原有独立读取接口作为局部刷新入口，降低改动风险并保持现有界面行为不变
+
 ## 更新：发送用户消息时前端即时回显
 
 - 优化（chat-user-message-optimistic-draft）：发送后立即显示用户消息，消除发送瞬间的空窗感

@@ -73,6 +73,14 @@ struct ChatSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AppBootstrapSnapshot {
+    config: AppConfig,
+    agents: Vec<AgentProfile>,
+    chat_settings: ChatSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ConversationApiSettings {
     #[serde(alias = "chatApiConfigId", alias = "chat_api_config_id")]
     assistant_department_api_config_id: String,

@@ -1663,6 +1663,7 @@ const configPersistence = useConfigPersistence({
 });
 const {
   loadConfig,
+  loadBootstrapSnapshot,
   saveConfig,
   captureHotkey,
   loadPersonas,
@@ -2208,6 +2209,7 @@ const {
 const { suppressChatReloadWatch, refreshAllViewData } = useViewRefresh({
   viewMode,
   loadConfig,
+  loadBootstrapSnapshot,
   loadPersonas,
   loadChatSettings,
   refreshImageCacheStats,

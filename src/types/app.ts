@@ -457,6 +457,12 @@ export type ChatSettings = {
   backgroundVoiceScreenshotMode: "desktop" | "focused_window";
 };
 
+export type AppBootstrapSnapshot = {
+  config: AppConfig;
+  agents: PersonaProfile[];
+  chatSettings: ChatSettings;
+};
+
 export type ToolLoadStatus = {
   id: string;
   status: "loaded" | "failed" | "timeout" | "disabled" | "unavailable";
