@@ -15,6 +15,45 @@ const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const DEFAULT_PDF_READ_MODE: &str = "image";
 const DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE: &str = "focused_window";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
+const APP_HTTP_ORIGINATOR: &str = "p_ai_desktop";
+
+fn app_http_user_agent() -> String {
+    format!(
+        "{}/{} ({}; tauri)",
+        APP_HTTP_ORIGINATOR,
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS
+    )
+}
+
+fn app_identity_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::HeaderName::from_static("originator"),
+        reqwest::header::HeaderValue::from_static(APP_HTTP_ORIGINATOR),
+    );
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_str(&app_http_user_agent())
+            .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static(APP_HTTP_ORIGINATOR)),
+    );
+    headers
+}
+
+fn app_identity_rig_headers() -> rig::http_client::HeaderMap {
+    let mut headers = rig::http_client::HeaderMap::new();
+    headers.insert(
+        "originator",
+        rig::http_client::HeaderValue::from_static(APP_HTTP_ORIGINATOR),
+    );
+    headers.insert(
+        "user-agent",
+        rig::http_client::HeaderValue::from_str(&app_http_user_agent()).unwrap_or_else(|_| {
+            rig::http_client::HeaderValue::from_static(APP_HTTP_ORIGINATOR)
+        }),
+    );
+    headers
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1860,6 +1899,8 @@ impl AppState {
         let terminal_shell_candidates = detect_terminal_shell_candidates();
         let terminal_shell = detect_default_terminal_shell();
         let shared_http_client = reqwest::Client::builder()
+            .user_agent(app_http_user_agent())
+            .default_headers(app_identity_headers())
             .timeout(std::time::Duration::from_secs(12))
             .connect_timeout(std::time::Duration::from_secs(8))
             .pool_idle_timeout(std::time::Duration::from_secs(90))

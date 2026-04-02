@@ -20,6 +20,11 @@
   - 新建会话弹窗新增提醒，明确“未归档的对话不会形成记忆，重要内容请及时归档或整理”
   - 同步补齐中英文与繁体文案，避免旧的“最多 8 个会话”提示继续误导用户
 
+- 调整（client-identity-headers-for-ai-requests）：统一 AI 请求的客户端身份标识
+  - 参考 Codex 风格，为主聊天链路统一补充稳定的 `User-Agent` 与 `originator`
+  - 默认标识统一为 `p_ai_desktop`，避免不同请求路径对外暴露的客户端身份不一致
+  - 共享 `reqwest` 客户端与 `rig` provider client 均接入该标识，覆盖 OpenAI/Gemini/Anthropic 主请求路径
+
 ## 更新（未发布）：收口聊天耗时与内置 MCP 噪音日志
 
 - 调整（log-noise-reduction-for-chat-and-mcp）：清理聊天链路中的低价值日志输出

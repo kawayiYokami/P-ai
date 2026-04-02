@@ -12,6 +12,7 @@ async fn call_model_anthropic_with_tools(
 ) -> Result<ModelReply, String> {
     let mut client_builder: anthropic::ClientBuilder =
         anthropic::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     if !api_config.base_url.trim().is_empty() {
         client_builder = client_builder.base_url(&api_config.base_url);
     }

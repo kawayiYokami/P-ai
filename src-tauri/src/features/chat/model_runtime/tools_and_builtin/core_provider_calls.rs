@@ -439,6 +439,7 @@ async fn call_model_openai_rig_style_internal(
     let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared, protocol_family)?;
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     if !api_config.base_url.is_empty() {
         client_builder = client_builder.base_url(&api_config.base_url);
     }
@@ -580,7 +581,11 @@ async fn call_model_openai_non_stream_rig_style(
         api_config.base_url.trim().trim_end_matches('/').to_string()
     };
     let endpoint = format!("{base_url}/chat/completions");
-    let response = reqwest::Client::new()
+    let response = reqwest::Client::builder()
+        .user_agent(app_http_user_agent())
+        .default_headers(app_identity_headers())
+        .build()
+        .map_err(|err| format!("openai non-stream build client failed: {err}"))?
         .post(&endpoint)
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, format!("Bearer {}", api_config.api_key))
@@ -672,6 +677,7 @@ async fn call_model_gemini_rig_style(
     let chat_history =
         prepared_history_to_rig_messages(&prepared, ToolCallProtocolFamily::Gemini)?;
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
     if !normalized_base.is_empty() {
         client_builder = client_builder.base_url(&normalized_base);
@@ -780,6 +786,7 @@ async fn call_model_anthropic_rig_style(
 
     let mut client_builder: anthropic::ClientBuilder =
         anthropic::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     if !api_config.base_url.is_empty() {
         client_builder = client_builder.base_url(&api_config.base_url);
     }

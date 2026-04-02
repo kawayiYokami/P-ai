@@ -12,6 +12,7 @@ async fn call_model_openai_with_tools(
 ) -> Result<ModelReply, String> {
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     if !api_config.base_url.trim().is_empty() {
         client_builder = client_builder.base_url(&api_config.base_url);
     }
@@ -66,6 +67,7 @@ async fn call_model_openai_responses_with_tools(
 ) -> Result<ModelReply, String> {
     let mut client_builder: openai::ClientBuilder =
         openai::Client::builder().api_key(&api_config.api_key);
+    client_builder = client_builder.http_headers(app_identity_rig_headers());
     if !api_config.base_url.trim().is_empty() {
         client_builder = client_builder.base_url(&api_config.base_url);
     }
