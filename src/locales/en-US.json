@@ -663,6 +663,7 @@
     "conversationListShort": "Chats",
     "untitledConversation": "Untitled",
     "maxConversations": "Max 8 conversations, please archive old ones",
+    "unarchivedConversationMemoryReminder": "Reminder: unarchived conversations do not become memories. Archive or organize important content in time.",
     "currentConversation": "Current",
     "mainConversation": "Main",
     "conversationNoPreview": "No messages",
