@@ -658,3 +658,51 @@ fn resolve_terminal_approval(
     Ok(())
 }
 
+#[tauri::command]
+fn open_local_file_directory(path: String) -> Result<(), String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(raw_path);
+
+    if file_path.is_file() {
+        #[cfg(target_os = "windows")]
+        {
+            let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+            let explorer_target = resolved_path.to_string_lossy().replace('/', "\\");
+            std::process::Command::new("explorer")
+                .args(["/select,", explorer_target.as_str()])
+                .status()
+                .map_err(|err| format!("Failed to open explorer: {err}"))?;
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .args(["-R", raw_path])
+                .status()
+                .map_err(|err| format!("Failed to open Finder: {err}"))?;
+            return Ok(());
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if let Some(parent) = file_path.parent() {
+                std::process::Command::new("xdg-open")
+                    .arg(parent)
+                    .status()
+                    .map_err(|err| format!("Failed to open file manager: {err}"))?;
+            } else {
+                std::process::Command::new("xdg-open")
+                    .arg(&file_path)
+                    .status()
+                    .map_err(|err| format!("Failed to open file manager: {err}"))?;
+            }
+            return Ok(());
+        }
+    }
+
+    open_shell_path_in_file_manager(&file_path)?;
+    Ok(())
+}
+

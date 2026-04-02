@@ -616,8 +616,8 @@ fn main() {
             task_list_run_logs,
             lock_chat_shell_workspace,
             unlock_chat_shell_workspace,
-            resolve_terminal_approval
-            ,
+            resolve_terminal_approval,
+            open_local_file_directory,
             mcp_list_servers,
             mcp_validate_definition,
             mcp_save_server,
