@@ -25,6 +25,11 @@
   - 默认标识统一为 `p_ai_desktop`，避免不同请求路径对外暴露的客户端身份不一致
   - 共享 `reqwest` 客户端与 `rig` provider client 均接入该标识，覆盖 OpenAI/Gemini/Anthropic 主请求路径
 
+- 重构（core-domain-file-split）：按职责拆分核心领域总文件
+  - `src-tauri/src/features/core/domain.rs` 改为仅保留 `include!` 入口，常量、客户端标识、类型、运行态分别落到独立文件
+  - 巨大的 `types.rs` 继续拆分为基础枚举、配置类型、请求类型、会话类型、存储类型 5 个子文件，降低后续导航和冲突成本
+  - 本次仅做结构整理，不改动现有业务语义，`cargo check` 已通过
+
 ## 更新（未发布）：收口聊天耗时与内置 MCP 噪音日志
 
 - 调整（log-noise-reduction-for-chat-and-mcp）：清理聊天链路中的低价值日志输出
