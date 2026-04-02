@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新（未发布）：聊天 Markdown 本地文件链接支持目录定位打开
+
+- 新增（chat-markdown-local-file-open）：聊天消息中的 Markdown 绝对路径链接支持直接打开本地目录并定位文件
+  - 前端聊天链接点击逻辑新增本地绝对路径识别，支持 Windows 盘符路径、UNC 路径与 Unix 风格绝对路径
+  - 后端新增 `open_local_file_directory` Tauri 命令，文件路径会尝试在系统文件管理器中定位选中，目录路径则直接打开目录
+  - Windows 下补充路径规范化与 `explorer /select,` 稳定传参，修复点击合法本地文件链接却意外打开桌面的情况
+  - 原有 `http/https` 外链打开行为保持不变
+
 ## 更新（未发布）：优化聊天界面 UI 样式统一
 
 - 优化（chat-ui-style-unification）：统一聊天界面按钮与标签样式，提升视觉一致性

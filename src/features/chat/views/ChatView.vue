@@ -439,19 +439,38 @@ function handleConversationListSelect(conversationId: string) {
   emit("switchConversation", normalizedConversationId);
 }
 
+function isAbsoluteLocalPath(href: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(href) || href.startsWith("\\\\") || href.startsWith("/");
+}
+
 async function handleAssistantLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
   const anchor = target?.closest("a") as HTMLAnchorElement | null;
   if (!anchor) return;
   const href = anchor.getAttribute("href")?.trim() || "";
-  if (!href || (!href.startsWith("http://") && !href.startsWith("https://"))) return;
-  event.preventDefault();
-  event.stopPropagation();
-  try {
-    await invokeTauri("open_external_url", { url: href });
-    linkOpenErrorText.value = "";
-  } catch (error) {
-    linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
+  if (!href) return;
+
+  if (isAbsoluteLocalPath(href)) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await invokeTauri("open_local_file_directory", { path: href });
+      linkOpenErrorText.value = "";
+    } catch (error) {
+      linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
+    }
+    return;
+  }
+
+  if (href.startsWith("http://") || href.startsWith("https://")) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await invokeTauri("open_external_url", { url: href });
+      linkOpenErrorText.value = "";
+    } catch (error) {
+      linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
+    }
   }
 }
 
