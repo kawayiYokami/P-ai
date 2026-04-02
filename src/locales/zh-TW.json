@@ -678,6 +678,7 @@
     "conversationListShort": "會話",
     "untitledConversation": "未命名會話",
     "maxConversations": "最多8個會話，請先歸檔舊對話",
+    "unarchivedConversationMemoryReminder": "提醒：未歸檔的對話不會形成記憶，重要內容請及時歸檔或整理。",
     "currentConversation": "當前",
     "mainConversation": "主會話",
     "conversationNoPreview": "暫無消息",

@@ -60,9 +60,9 @@
         <div class="flex items-center gap-2">
           <button
             class="btn btn-sm btn-circle bg-base-100 shrink-0"
-            :class="{ 'btn-disabled': frozen || !canCreateConversation }"
-            :disabled="frozen || !canCreateConversation"
-            :title="canCreateConversation ? t('chat.newConversation') : t('chat.maxConversations')"
+            :class="{ 'btn-disabled': frozen }"
+            :disabled="frozen"
+            :title="t('chat.newConversation')"
             @click="handleCreateConversation"
           >
             <Plus class="h-3.5 w-3.5" />
@@ -130,6 +130,9 @@
       <div class="modal-box max-w-md">
         <h3 class="text-base font-semibold">{{ t("chat.newConversation") }}</h3>
         <div class="mt-3 flex flex-col gap-3">
+          <div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm leading-6 text-base-content/80">
+            {{ t("chat.unarchivedConversationMemoryReminder") }}
+          </div>
           <input
             ref="createConversationInputRef"
             v-model="createConversationTitle"
@@ -220,10 +223,6 @@ const localChatInput = computed({
   get: () => props.chatInput,
   set: (value: string) => emit("update:chatInput", value),
 });
-const canCreateConversation = computed(
-  () => props.unarchivedConversationItems.length === 0 || !!props.unarchivedConversationItems[0]?.canCreateNew,
-);
-
 const CHAT_INPUT_HISTORY_STORAGE_KEY = "easy_call.chat_input_history.v1";
 const CHAT_INPUT_HISTORY_LIMIT = 100;
 const RECENT_CONVERSATION_TOPICS_STORAGE_KEY = "easy_call.recent_conversation_topics.v1";

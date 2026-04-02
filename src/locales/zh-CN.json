@@ -680,6 +680,7 @@
     "conversationListShort": "会话",
     "untitledConversation": "未命名会话",
     "maxConversations": "最多8个会话，请先归档旧对话",
+    "unarchivedConversationMemoryReminder": "提醒：未归档的对话不会形成记忆，重要内容请及时归档或整理。",
     "currentConversation": "当前",
     "mainConversation": "主会话",
     "conversationNoPreview": "暂无消息",
