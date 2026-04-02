@@ -332,6 +332,7 @@ export type ChatMessageBlock = {
   isStreaming?: boolean;
   streamSegments?: string[];
   streamTail?: string;
+  streamAnimatedDelta?: string;
   speakerAgentId?: string;
   createdAt?: string;
   providerMeta?: ChatMessage["providerMeta"];
@@ -385,6 +386,7 @@ export type UnarchivedConversationSummary = {
   isActive?: boolean;
   isMainConversation?: boolean;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  currentTodo?: string;
   previewMessages?: ConversationPreviewMessage[];
 };
 
@@ -413,6 +415,7 @@ export type ChatConversationOverviewItem = {
   isActive?: boolean;
   isMainConversation?: boolean;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  currentTodo?: string;
   color?: string;
   canCreateNew?: boolean;
   backgroundStatus?: "completed" | "failed";

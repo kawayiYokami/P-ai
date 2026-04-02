@@ -657,6 +657,7 @@
     "attach": "Attach",
     "send": "Send",
     "newConversation": "New Conversation",
+    "sessionManagement": "Session Management",
     "newConversationShort": "",
     "conversationList": "Conversation List",
     "conversationListShort": "Chats",

@@ -117,6 +117,8 @@
         :recording-ms="recordingMs"
         :transcribing="transcribing"
         :record-hotkey="recordHotkey"
+        :chat-usage-percent="chatUsagePercent"
+        :force-archive-tip="forceArchiveTip"
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
         :frozen="forcingArchive"
@@ -131,6 +133,7 @@
         :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
         :current-theme="currentTheme"
         @update:chat-input="updateChatInput"
+        @side-conversation-list-visible-change="setSideConversationListVisible"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
         @pick-attachments="pickAttachments"
@@ -141,6 +144,7 @@
         @reached-bottom="onReachedChatBottom"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
+        @force-archive="openForceArchiveActionDialog"
         @lock-workspace="onLockChatWorkspace"
         @unlock-workspace="onUnlockChatWorkspace"
         @switch-conversation="onSwitchConversation"
@@ -335,6 +339,8 @@ const props = defineProps<{
   recordingMs: number;
   transcribing: boolean;
   recordHotkey: string;
+  chatUsagePercent: number;
+  forceArchiveTip: string;
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
@@ -395,6 +401,7 @@ const props = defineProps<{
   savePersonas: () => Promise<boolean> | boolean;
   importPersonaMemories: (payload: { agentId: string; file: File }) => void;
   openCurrentHistory: () => void;
+  openForceArchiveActionDialog: () => void;
   openPromptPreview: () => void;
   openSystemPromptPreview: () => void;
   openMemoryViewer: () => void;
@@ -409,6 +416,7 @@ const props = defineProps<{
   saveAgentAvatar: (input: { agentId: string; mime: string; bytesBase64: string }) => void;
   clearAgentAvatar: (input: { agentId: string }) => void;
   updateChatInput: (value: string) => void;
+  setSideConversationListVisible: (value: boolean) => void;
   removeClipboardImage: (index: number) => void;
   removeQueuedAttachmentNotice: (index: number) => void;
   pickAttachments: () => void;

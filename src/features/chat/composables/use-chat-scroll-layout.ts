@@ -21,6 +21,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const jumpToBottomOffset = ref(96);
   const showSideConversationList = ref(false);
   const lastBottomState = ref(false);
+  const lastScrollTop = ref(0);
+  const userScrollingDown = ref(false);
   const suppressNextAnimatedConversationScroll = ref(false);
 
   let composerResizeObserver: ResizeObserver | null = null;
@@ -29,7 +31,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   const CHAT_SIDE_LIST_RATIO_THRESHOLD = 1.5;
 
-  const showJumpToBottom = computed(() => !lastBottomState.value);
+  const showJumpToBottom = computed(() => !lastBottomState.value && userScrollingDown.value);
   const jumpToBottomStyle = computed(() => ({
     bottom: `${jumpToBottomOffset.value}px`,
   }));
@@ -67,9 +69,14 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   function onScroll() {
     const el = scrollContainer.value;
     if (!el) return;
+    userScrollingDown.value = el.scrollTop > lastScrollTop.value;
+    lastScrollTop.value = el.scrollTop;
     const nearBottom = isNearBottom(el);
     if (nearBottom && !lastBottomState.value) {
       options.onReachedBottom();
+    }
+    if (nearBottom) {
+      userScrollingDown.value = false;
     }
     lastBottomState.value = nearBottom;
   }
@@ -159,6 +166,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       const el = scrollContainer.value;
       if (el) {
         lastBottomState.value = isNearBottom(el);
+        lastScrollTop.value = el.scrollTop;
+        userScrollingDown.value = false;
       }
     });
   });
@@ -199,6 +208,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);
+          lastScrollTop.value = el.scrollTop;
+          userScrollingDown.value = false;
         }
       });
     },
@@ -231,6 +242,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);
+          lastScrollTop.value = el.scrollTop;
+          userScrollingDown.value = false;
         }
       });
     },
@@ -245,7 +258,11 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
         const el = scrollContainer.value;
-        if (el) lastBottomState.value = isNearBottom(el);
+        if (el) {
+          lastBottomState.value = isNearBottom(el);
+          lastScrollTop.value = el.scrollTop;
+          userScrollingDown.value = false;
+        }
       });
     },
   );
@@ -257,6 +274,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       nextTick(() => {
         requestAnimationFrame(() => {
           scrollToBottom("auto");
+          const el = scrollContainer.value;
+          if (el) {
+            lastBottomState.value = isNearBottom(el);
+            lastScrollTop.value = el.scrollTop;
+            userScrollingDown.value = false;
+          }
         });
       });
     },

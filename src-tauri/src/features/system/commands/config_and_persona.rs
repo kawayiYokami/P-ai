@@ -1317,8 +1317,24 @@ struct UnarchivedConversationSummary {
     is_main_conversation: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_state: Option<MainSessionState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_todo: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     preview_messages: Vec<ConversationPreviewMessage>,
+}
+
+fn conversation_current_todo_text(conversation: &Conversation) -> Option<String> {
+    conversation
+        .current_todos
+        .iter()
+        .find(|item| item.status.trim().eq_ignore_ascii_case("in_progress"))
+        .or_else(|| {
+            conversation.current_todos.iter().find(|item| {
+                !item.status.trim().eq_ignore_ascii_case("completed") && !item.content.trim().is_empty()
+            })
+        })
+        .map(|item| item.content.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn conversation_unread_count(conversation: &Conversation) -> usize {
@@ -1507,6 +1523,7 @@ fn build_unarchived_conversation_summary(
         is_active: conversation.status.trim() == "active",
         is_main_conversation: conversation.id.trim() == main_conversation_id,
         runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
+        current_todo: conversation_current_todo_text(conversation),
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
 }

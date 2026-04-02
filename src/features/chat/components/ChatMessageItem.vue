@@ -139,22 +139,20 @@
           style="overflow-wrap: anywhere;"
         >{{ block.text }}</div>
         <MarkdownRender
-          v-else
-          :class="[
-            'ecall-markdown-content max-w-none',
-            block.isStreaming ? 'ecall-stream-content' : 'ecall-stream-content-done',
-          ]"
+          class="ecall-markdown-content max-w-none"
           custom-id="chat-markstream"
           :nodes="markdownNodesForBlock(block)"
           :is-dark="markdownIsDark"
           :final="!block.isStreaming"
           :max-live-nodes="0"
-          :batch-rendering="true"
-          :render-batch-size="16"
-          :render-batch-delay="32"
+          :batch-rendering="!!block.isStreaming"
+          :initial-render-batch-size="block.isStreaming ? STREAM_INITIAL_RENDER_BATCH_SIZE : 0"
+          :render-batch-size="block.isStreaming ? STREAM_RENDER_BATCH_SIZE : 0"
+          :render-batch-delay="block.isStreaming ? STREAM_RENDER_BATCH_DELAY : 0"
+          :render-batch-budget-ms="block.isStreaming ? STREAM_RENDER_BATCH_BUDGET_MS : 0"
           :code-block-props="markdownCodeBlockProps"
           :mermaid-props="markdownMermaidProps"
-          :typewriter="false"
+          :typewriter="true"
           @click="emit('assistantLinkClick', $event)"
         />
       </div>
@@ -347,20 +345,26 @@ import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownT
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
+import { registerChatMarkstreamComponents } from "../markdown/register-chat-markstream";
 
 enableMermaid();
 enableKatex();
+registerChatMarkstreamComponents();
 
 const STREAM_MARKDOWN_PARSE_THROTTLE_MS = 100;
 const MARKDOWN_NODE_CACHE_LIMIT = 100;
+const STREAM_INITIAL_RENDER_BATCH_SIZE = 20;
+const STREAM_RENDER_BATCH_SIZE = 10;
+const STREAM_RENDER_BATCH_DELAY = 24;
+const STREAM_RENDER_BATCH_BUDGET_MS = 4;
 const markstreamMarkdown = getMarkdown();
 const markdownNodeCache = new Map<string, { text: string; final: boolean; nodes: any[]; lastParseTime: number }>();
 const markdownCodeBlockProps = {
   showHeader: true,
   showCopyButton: true,
   showPreviewButton: false,
-  showExpandButton: false,
-  showCollapseButton: false,
+  showExpandButton: true,
+  showCollapseButton: true,
   showFontSizeButtons: false,
   enableFontSizeControl: false,
   isShowPreview: false,
@@ -369,11 +373,11 @@ const markdownMermaidProps = {
   showHeader: true,
   showCopyButton: true,
   showExportButton: false,
-  showFullscreenButton: false,
+  showFullscreenButton: true,
   showCollapseButton: false,
-  showZoomControls: false,
+  showZoomControls: true,
   showModeToggle: false,
-  enableWheelZoom: false,
+  enableWheelZoom: true,
 };
 const imageDataUrlCache = new Map<string, string>();
 const imageDataUrlPromiseCache = new Map<string, Promise<string>>();
@@ -516,10 +520,14 @@ function splitThinkText(raw: string): { visible: string; inline: string } {
   };
 }
 
-function markdownNodesForBlock(block: ChatMessageBlock): any[] {
-  const text = splitThinkText(block.text).visible;
-  const final = !block.isStreaming;
-  const cacheKey = String(block.id || "");
+function markdownNodesForText(
+  block: ChatMessageBlock,
+  rawText: string,
+  final: boolean,
+  cacheSuffix = "main",
+): any[] {
+  const text = splitThinkText(rawText).visible;
+  const cacheKey = `${String(block.id || "")}::${cacheSuffix}`;
   const cached = markdownNodeCache.get(cacheKey);
   if (cached && cached.text === text && cached.final === final) {
     markdownNodeCache.delete(cacheKey);
@@ -539,6 +547,10 @@ function markdownNodesForBlock(block: ChatMessageBlock): any[] {
   }
   markdownNodeCache.set(cacheKey, { text, final, nodes, lastParseTime: now });
   return nodes;
+}
+
+function markdownNodesForBlock(block: ChatMessageBlock): any[] {
+  return markdownNodesForText(block, block.text, !block.isStreaming, "main");
 }
 
 function blockHasMermaid(block: ChatMessageBlock): boolean {
@@ -701,16 +713,18 @@ function openResolvedImagePreview(
 
 .ecall-message-stack {
   min-height: 100%;
+  flex: 1 1 auto;
+  width: 100%;
 }
 
 .ecall-message-content {
   min-width: 0;
-  flex-shrink: 0;
+  flex: 0 1 auto;
 }
 
 .ecall-message-content-wide {
   width: 100%;
-  max-width: 100%;
+  max-width: none;
 }
 
 .ecall-time-loading {
@@ -723,15 +737,6 @@ function openResolvedImagePreview(
 
 .ecall-message-enter {
   animation: ecall-message-enter 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.ecall-stream-content {
-  opacity: 0;
-  animation: ecall-stream-fade-in 1s ease-out forwards;
-}
-
-.ecall-stream-content-done {
-  opacity: 1;
 }
 
 .ecall-shimmer-text {
@@ -762,19 +767,6 @@ function openResolvedImagePreview(
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: ecall-reasoning-shimmer 2.5s linear infinite;
-}
-
-.assistant-markdown :deep(.ecall-markdown-content.ecall-stream-content) > * {
-  animation: ecall-stream-fade-in 0.5s ease-out forwards;
-}
-
-@keyframes ecall-stream-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 @keyframes ecall-message-enter {
@@ -822,6 +814,32 @@ function openResolvedImagePreview(
   overflow-x: hidden;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.assistant-markdown :deep(.ecall-markdown-content.markdown-renderer) {
+  content-visibility: visible !important;
+  contain: none !important;
+  contain-intrinsic-size: auto !important;
+}
+
+.assistant-markdown :deep(.markstream-vue .typewriter-enter-from) {
+  opacity: 0;
+}
+
+.assistant-markdown :deep(.markstream-vue .typewriter-enter-active) {
+  transition: opacity 600ms ease-out;
+  will-change: opacity;
+}
+
+.assistant-markdown :deep(.markstream-vue .typewriter-enter-to) {
+  opacity: 1;
+}
+
+.assistant-markdown :deep(.ecall-markdown-content .code-block-container),
+.assistant-markdown :deep(.ecall-markdown-content ._mermaid) {
+  content-visibility: visible !important;
+  contain: none !important;
+  contain-intrinsic-size: auto !important;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content > :first-child) {
@@ -909,21 +927,6 @@ function openResolvedImagePreview(
   font-weight: 500;
 }
 
-.assistant-markdown :deep(.ecall-markdown-content pre) {
-  overflow-x: auto;
-  border: 1px solid hsl(var(--bc) / 0.12);
-  border-radius: 0.85rem;
-  background: hsl(var(--b2));
-  padding: 0.62rem 0.78rem;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
-}
-
-.assistant-markdown :deep(.ecall-markdown-content pre code) {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-size: 0.88em;
-}
 
 .assistant-markdown :deep(.ecall-markdown-content table) {
   width: 100%;
@@ -955,10 +958,17 @@ function openResolvedImagePreview(
 .ecall-assistant-bubble {
   min-width: 3rem;
   min-height: 2.25rem;
+  transition:
+    box-shadow 220ms ease,
+    transform 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease;
+  transform-origin: top left;
 }
 
 .ecall-assistant-bubble-wide {
+  display: block;
   width: 100%;
-  max-width: 100%;
+  max-width: none;
 }
 </style>

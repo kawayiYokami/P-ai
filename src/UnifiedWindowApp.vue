@@ -7,22 +7,28 @@
       :chat-usage-percent="chatUsagePercent"
       :forcing-archive="forcingArchive"
       :chatting="chatting"
-      :always-on-top="alwaysOnTop"
+      :current-persona-name="String(currentForegroundPersona?.name || '').trim() || t('archives.roleAssistant')"
+      :side-conversation-list-visible="sideConversationListVisible"
+      :active-conversation-id="currentChatConversationId"
+      :conversation-items="chatUnarchivedConversationItems"
+      :user-alias="userAlias"
+      :user-avatar-url="userAvatarUrl"
+      :persona-name-map="chatPersonaNameMap"
+      :persona-avatar-url-map="chatPersonaAvatarUrlMap"
+      :create-conversation-department-options="createConversationDepartmentOptions"
+      :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
+      :force-archive-tip="t('chat.forceArchiveTip')"
       :maximized="maximized"
       :window-ready="windowReady"
-      :force-archive-tip="t('chat.forceArchiveTip')"
-      :always-on-top-on-title="t('chat.alwaysOnTopOn')"
-      :always-on-top-off-title="t('chat.alwaysOnTopOff')"
       :open-config-title="t('window.configTitle')"
-      :open-logs-title="'运行日志'"
       :close-title="t('common.close')"
-      @force-archive="openForceArchiveActionDialog"
-      @toggle-always-on-top="toggleAlwaysOnTop"
+      @open-archives="openCurrentHistory"
+      @open-config="openConfigWindow"
       @minimize-window="minimizeWindowAndClearForeground"
       @toggle-maximize-window="toggleMaximizeWindow"
-      @open-config="openConfigWindow"
-      @open-archives="openCurrentHistory"
-      @open-runtime-logs="openRuntimeLogsDialog"
+      @switch-conversation="switchUnarchivedConversation"
+      @create-conversation="createUnarchivedConversation"
+      @force-archive="openForceArchiveActionDialog"
       @close-window="closeWindowAndClearForeground"
     />
 
@@ -96,6 +102,8 @@
       :recording-ms="recordingMs"
       :transcribing="transcribing"
       :record-hotkey="config.recordHotkey"
+      :chat-usage-percent="chatUsagePercent"
+      :force-archive-tip="t('chat.forceArchiveTip')"
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
@@ -155,6 +163,7 @@
       :save-personas="savePersonas"
       :import-persona-memories="importPersonaMemories"
       :open-current-history="openCurrentHistory"
+      :open-force-archive-action-dialog="openForceArchiveActionDialog"
       :open-prompt-preview="openPromptPreview"
       :open-system-prompt-preview="openSystemPromptPreview"
       :open-memory-viewer="openMemoryViewer"
@@ -168,7 +177,8 @@
       :summon-chat-now="summonChatWindowFromConfig"
       :save-agent-avatar="saveAgentAvatar"
       :clear-agent-avatar="clearAgentAvatar"
-      :update-chat-input="(value) => { chatInput = value; }"
+      :update-chat-input="handleChatInputUpdate"
+      :set-side-conversation-list-visible="handleSideConversationListVisibleChange"
       :remove-clipboard-image="removeClipboardImage"
       :remove-queued-attachment-notice="removeQueuedAttachmentNotice"
       :pick-attachments="pickChatAttachments"
@@ -570,6 +580,7 @@ const backgroundVoiceScreenshotKeywords = ref("");
 const backgroundVoiceScreenshotMode = ref<"desktop" | "focused_window">("focused_window");
 const chatInput = ref("");
 const currentChatConversationId = ref("");
+const sideConversationListVisible = ref(false);
 const conversationForegroundSyncing = ref(false);
 const backgroundConversationBadgeMap = ref<Record<string, BackgroundConversationBadgeState>>({});
 const conversationMessageCache = ref<Record<string, ChatMessage[]>>({});
@@ -585,6 +596,14 @@ const streamToolCalls = ref<Array<{ name: string; argsText: string }>>([]);
 const chatErrorText = ref("");
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
 const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>([]);
+
+function handleChatInputUpdate(value: string) {
+  chatInput.value = value;
+}
+
+function handleSideConversationListVisibleChange(value: boolean) {
+  sideConversationListVisible.value = value;
+}
 
 const allMessages = shallowRef<ChatMessage[]>([]);
 
@@ -1173,6 +1192,7 @@ const chatUnarchivedConversationItems = computed(() => {
       isActive: !!item.isActive,
       isMainConversation: !!item.isMainConversation,
       runtimeState: item.runtimeState,
+      currentTodo: String(item.currentTodo || "").trim(),
       updatedAt: item.lastMessageAt || item.updatedAt || "",
       previewMessages: Array.isArray(item.previewMessages) ? item.previewMessages : [],
       backgroundStatus:

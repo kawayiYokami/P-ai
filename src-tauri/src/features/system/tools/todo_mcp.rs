@@ -237,6 +237,9 @@ impl TodoMcpServer {
                     })),
                 )
             })?;
+        if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(&self.app_state) {
+            eprintln!("[Todo] 推送会话概览更新失败：conversation_id={}，error={}", conversation_id, err);
+        }
         Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
             response_text,
         )]))

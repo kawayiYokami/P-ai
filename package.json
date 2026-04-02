@@ -25,7 +25,6 @@
     "mermaid": "^11.12.3",
     "shiki": "^3.23.0",
     "stream-markdown": "^0.0.14",
-    "stream-monaco": "^0.0.19",
     "vue": "^3.5.13",
     "vue-i18n": "^10.0.8"
   },

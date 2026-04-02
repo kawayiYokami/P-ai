@@ -30,6 +30,19 @@
         class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
         @scroll="onScroll"
       >
+        <div v-if="activeConversationTodo" class="pointer-events-none sticky top-0 z-20 flex justify-center">
+          <div
+            class="ecall-floating-todo pointer-events-none inline-flex max-w-[min(88vw,30rem)] items-center gap-2 rounded-full bg-base-100 px-4 py-2 text-[12px] text-base-content"
+            :title="activeConversationTodo"
+          >
+            <ListTodo class="h-4 w-4 shrink-0 text-base-content/65" />
+            <span
+              class="ecall-floating-todo-text truncate"
+              :data-text="activeConversationTodo"
+            >{{ activeConversationTodo }}</span>
+          </div>
+        </div>
+
         <template v-for="item in chatRenderItems" :key="item.id">
           <div
             v-if="item.kind === 'compaction'"
@@ -113,15 +126,15 @@
 
       <div
         v-show="showJumpToBottom"
-        class="pointer-events-none absolute inset-x-0 z-30 flex justify-center"
+        class="pointer-events-none absolute bottom-3 right-5 z-30 flex justify-end"
         :style="jumpToBottomStyle"
       >
         <button
-          class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-md"
+          class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-lg"
           :title="t('chat.jumpToBottom')"
           @click="jumpToBottom"
         >
-          <ArrowDown class="h-4 w-4" />
+          <ChevronsDown class="h-4 w-4" />
         </button>
       </div>
 
@@ -149,6 +162,8 @@
           :recording="recording"
           :recording-ms="recordingMs"
           :record-hotkey="recordHotkey"
+          :chat-usage-percent="chatUsagePercent"
+          :force-archive-tip="forceArchiveTip"
           :chatting="chatting"
           :frozen="frozen"
           :show-side-conversation-list="showSideConversationList"
@@ -168,6 +183,7 @@
           @pick-attachments="$emit('pickAttachments')"
           @send-chat="$emit('sendChat')"
           @stop-chat="$emit('stopChat')"
+          @force-archive="$emit('forceArchive')"
           @switch-conversation="$emit('switchConversation', $event)"
           @create-conversation="$emit('createConversation', $event)"
         />
@@ -197,10 +213,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, toRef } from "vue";
+import { computed, onBeforeUnmount, ref, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
-import { ArrowDown } from "lucide-vue-next";
+import { ChevronsDown, ListTodo } from "lucide-vue-next";
 import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatConversationOverviewItem, ChatMessageBlock, ChatPersonaPresenceChip } from "../../../types/app";
@@ -244,6 +260,8 @@ const props = defineProps<{
   recordingMs: number;
   transcribing: boolean;
   recordHotkey: string;
+  chatUsagePercent: number;
+  forceArchiveTip: string;
   mediaDragActive: boolean;
   chatting: boolean;
   frozen: boolean;
@@ -270,6 +288,15 @@ function isOrganizeContextToolCall(call: { name: string; argsText: string }): bo
 const visibleStreamToolCalls = computed(() =>
   props.streamToolCalls.filter((call) => !isOrganizeContextToolCall(call))
 );
+
+const activeConversationTodo = computed(() => {
+  const activeConversationId = String(props.activeConversationId || "").trim();
+  if (!activeConversationId) return "";
+  const matched = props.unarchivedConversationItems.find(
+    (item) => String(item.conversationId || "").trim() === activeConversationId
+  );
+  return String(matched?.currentTodo || "").trim();
+});
 
 const organizingContextBannerText = computed(() => {
   if (props.toolStatusState !== "running") return "";
@@ -331,6 +358,7 @@ const activeTurnUserId = computed(() => activeTurnGroupId.value);
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
+  (e: "sideConversationListVisibleChange", value: boolean): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "startRecording"): void;
@@ -338,6 +366,7 @@ const emit = defineEmits<{
   (e: "pickAttachments"): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
+  (e: "forceArchive"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "lockWorkspace"): void;
@@ -376,6 +405,14 @@ const {
   onReachedBottom: () => emit("reachedBottom"),
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
+
+watch(
+  showSideConversationList,
+  (value) => {
+    emit("sideConversationListVisibleChange", value);
+  },
+  { immediate: true },
+);
 const {
   imagePreviewOpen,
   imagePreviewDataUrl,
@@ -508,6 +545,55 @@ onBeforeUnmount(() => {
   display: flow-root;
   width: 100%;
   min-height: 0;
+}
+
+.ecall-floating-todo {
+  border: 1px solid hsl(var(--bc) / 0.15);
+  isolation: isolate;
+  overflow: hidden;
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 0.16),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+.ecall-floating-todo-text {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  line-height: 1;
+  color: currentColor;
+}
+
+.ecall-floating-todo-text::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 38%,
+    rgb(255 255 255 / 0.92) 50%,
+    transparent 62%,
+    transparent 100%
+  );
+  background-size: 240px 100%;
+  background-position: -240px 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ecall-floating-todo-shimmer 3.2s linear infinite;
+}
+
+@keyframes ecall-floating-todo-shimmer {
+  from {
+    background-position: -240px 0;
+  }
+  to {
+    background-position: 240px 0;
+  }
 }
 
 .ecall-chat-avatar-col {

@@ -60,12 +60,14 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
         .filter((item) => item.length > 0)
       : [];
     const streamTail = String(meta._streamTail ?? "");
+    const streamAnimatedDelta = String(meta._streamAnimatedDelta ?? "");
     const block = {
       id: message.id,
       role: message.role,
       isStreaming: !!meta._streaming,
       streamSegments,
       streamTail,
+      streamAnimatedDelta,
       speakerAgentId: projection.speakerAgentId,
       createdAt: String(message.createdAt || "").trim() || undefined,
       providerMeta: message.providerMeta,

@@ -1,5 +1,27 @@
 # 变更日志
 
+## 更新（未发布）：重构聊天窗口前端与 Markdown 渲染链路
+
+- 重构（chat-window-frontend-refactor）：重构聊天窗口标题栏、工具栏、消息区、输入区与会话侧栏布局
+  - 重新编排宽窗与窄窗下的聊天窗口结构，恢复宽窗常驻会话列表，并收口标题栏按钮与工具栏入口
+  - 调整输入面板、新建会话、会话切换、归档入口、滚到底部按钮与悬浮 todo 的展示位置和交互逻辑
+  - 修复宽窗布局下消息区偶发消失、标题栏拖动失效、弹层层级不正确等一批前端窗口问题
+
+- 调整（chat-markdown-rendering-refactor）：重构聊天 Markdown 渲染与代码块呈现方案
+  - 聊天消息中的 `code_block` 节点改为通过 `setCustomComponents('chat-markstream', ...)` 覆盖为 `MarkdownCodeBlockNode`
+  - 新增聊天专用 Shiki 代码块包装组件，移除 Monaco 路线，代码块固定使用暗色主题并稳定保留语法高亮
+  - 修复 ````diff```` 代码块在新渲染链路下被错误改写成空的 `Plain Text` 块，改为直接按原始 diff 文本交给 Shiki 渲染
+  - 优化 Mermaid 与宽消息气泡布局，收口消息区滚动、宽块占位与滚动到底按钮显示时机
+
+- 调整（theme-system-cleanup）：精简主题系统并调整主题配置页展示
+  - 默认主题改为 `business`，移除一批低质量或不再保留的 DaisyUI 主题选项
+  - 主题选择面板改为按亮色组与暗色组分开展示，避免不同风格混排
+  - 收口聊天代码块与应用主题的耦合，避免前后台切换或主题切换时代码块尺寸与配色抖动
+
+- 扩展（conversation-todo-and-local-link-surface）：补充当前会话 todo 与本地文件链接相关能力
+  - 前端补充当前会话 todo 展示所需的数据透出，支持在聊天区悬浮显示当前进行中的 todo
+  - 聊天 Markdown 绝对路径链接支持直接打开本地目录并定位文件，保持原有外链打开行为不变
+
 ## 更新（未发布）：聊天 Markdown 本地文件链接支持目录定位打开
 
 - 新增（chat-markdown-local-file-open）：聊天消息中的 Markdown 绝对路径链接支持直接打开本地目录并定位文件

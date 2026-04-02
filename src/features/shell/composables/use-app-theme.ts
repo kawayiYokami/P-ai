@@ -5,60 +5,38 @@ export const APP_THEMES = [
   "light",
   "dark",
   "cupcake",
-  "bumblebee",
   "emerald",
   "corporate",
-  "synthwave",
-  "retro",
-  "cyberpunk",
-  "valentine",
   "halloween",
   "garden",
   "forest",
-  "aqua",
   "lofi",
   "pastel",
-  "fantasy",
-  "wireframe",
-  "black",
   "luxury",
   "dracula",
-  "cmyk",
   "autumn",
   "business",
-  "acid",
-  "lemonade",
   "night",
   "coffee",
   "winter",
   "dim",
-  "nord",
-  "sunset",
-  "caramellatte",
-  "abyss",
-  "silk",
 ] as const;
 
 export const DARK_APP_THEMES = new Set<string>([
   "dark",
-  "synthwave",
   "halloween",
   "forest",
-  "black",
   "luxury",
   "dracula",
   "business",
   "night",
   "coffee",
   "dim",
-  "abyss",
-  "sunset",
-  "aqua",
 ]);
 
 export type AppTheme = (typeof APP_THEMES)[number];
 const THEME_SET = new Set<string>(APP_THEMES);
-const currentTheme = ref<AppTheme>("light");
+const currentTheme = ref<AppTheme>("business");
 
 function isValidTheme(value: unknown): value is AppTheme {
   return typeof value === "string" && THEME_SET.has(value);

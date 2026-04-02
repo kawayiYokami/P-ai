@@ -106,6 +106,7 @@ type UseChatFlowOptions = {
 // ---------------------------------------------------------------------------
 
 const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
+const STREAM_SMOOTH_CATCHUP_MS = 600;
 
 // ---------------------------------------------------------------------------
 // 3. 状态机
@@ -153,6 +154,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // ── 流式统计 ──
   let streamToolCallCount = 0;
   let streamLastToolName = "";
+  let pendingAssistantDeltaBuffer = "";
+  let streamFlushFrameId: number | null = null;
+  let streamFlushLastAt = 0;
+  let streamFlushCarryChars = 0;
 
   let activeHistoryMessageCount = 0;
   const reasoningStartedAtMs = ref(0);
@@ -384,7 +389,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return { chunks, tail };
   }
 
-  function updateDraftText(draftId: string, streamSegments?: string[], streamTail?: string) {
+  function updateDraftText(
+    draftId: string,
+    streamSegments?: string[],
+    streamTail?: string,
+    streamAnimatedDelta = "",
+  ) {
     if (!draftId) return;
     const agentId = String(options.getSession()?.agentId || "").trim();
     const nextStreamSegments = streamSegments || readDraftStreamSegments(draftId);
@@ -402,6 +412,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         _streaming: true,
         _streamSegments: nextStreamSegments,
         _streamTail: nextStreamTail,
+        _streamAnimatedDelta: String(streamAnimatedDelta || ""),
       },
     };
     const cur = options.allMessages.value;
@@ -444,16 +455,89 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // 流式输出
   // =========================================================================
 
-  function enqueueStreamDelta(gen: number, delta: string) {
-    if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
+  function applyAssistantDeltaToDraft(draftId: string, delta: string) {
+    if (!draftId || !delta) return;
     options.latestAssistantText.value += delta;
-    const currentSegments = readDraftStreamSegments(round.draftId);
-    const currentTail = readDraftStreamTail(round.draftId);
+    const currentSegments = readDraftStreamSegments(draftId);
+    const currentTail = readDraftStreamTail(draftId);
     const parsed = consumeClosedMarkdownBlocks(`${currentTail}${delta}`);
     const nextStreamSegments = parsed.chunks.length > 0
       ? [...currentSegments, ...parsed.chunks]
       : currentSegments;
-    updateDraftText(round.draftId, nextStreamSegments, parsed.tail);
+    updateDraftText(draftId, nextStreamSegments, parsed.tail, delta);
+  }
+
+  function stopStreamFlushLoop() {
+    if (streamFlushFrameId !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(streamFlushFrameId);
+    }
+    streamFlushFrameId = null;
+    streamFlushLastAt = 0;
+    streamFlushCarryChars = 0;
+  }
+
+  function flushPendingAssistantDelta(immediate = false) {
+    if (round.phase !== "streaming") {
+      pendingAssistantDeltaBuffer = "";
+      stopStreamFlushLoop();
+      return;
+    }
+    const draftId = round.draftId;
+    if (!pendingAssistantDeltaBuffer) {
+      stopStreamFlushLoop();
+      return;
+    }
+    if (immediate) {
+      const chunk = pendingAssistantDeltaBuffer;
+      pendingAssistantDeltaBuffer = "";
+      applyAssistantDeltaToDraft(draftId, chunk);
+      stopStreamFlushLoop();
+      return;
+    }
+
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (streamFlushLastAt <= 0) {
+      streamFlushLastAt = now;
+    }
+    const elapsed = Math.max(0, now - streamFlushLastAt);
+    streamFlushLastAt = now;
+
+    streamFlushCarryChars += (pendingAssistantDeltaBuffer.length * elapsed) / STREAM_SMOOTH_CATCHUP_MS;
+    const emitCount = Math.floor(streamFlushCarryChars);
+    if (emitCount > 0) {
+      streamFlushCarryChars = Math.max(0, streamFlushCarryChars - emitCount);
+      const nextChunk = pendingAssistantDeltaBuffer.slice(0, emitCount);
+      pendingAssistantDeltaBuffer = pendingAssistantDeltaBuffer.slice(emitCount);
+      applyAssistantDeltaToDraft(draftId, nextChunk);
+    }
+
+    if (!pendingAssistantDeltaBuffer) {
+      stopStreamFlushLoop();
+      return;
+    }
+    if (typeof requestAnimationFrame === "function") {
+      streamFlushFrameId = requestAnimationFrame(() => flushPendingAssistantDelta(false));
+      return;
+    }
+    streamFlushFrameId = null;
+    setTimeout(() => flushPendingAssistantDelta(false), 16);
+  }
+
+  function ensureStreamFlushLoop() {
+    if (streamFlushFrameId !== null || !pendingAssistantDeltaBuffer) return;
+    streamFlushLastAt = 0;
+    streamFlushCarryChars = 0;
+    if (typeof requestAnimationFrame === "function") {
+      streamFlushFrameId = requestAnimationFrame(() => flushPendingAssistantDelta(false));
+      return;
+    }
+    setTimeout(() => flushPendingAssistantDelta(false), 16);
+  }
+
+  function enqueueStreamDelta(gen: number, delta: string) {
+    if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
+    pendingAssistantDeltaBuffer += delta;
+    ensureStreamFlushLoop();
   }
 
   // =========================================================================
@@ -461,6 +545,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   function resetDisplayState() {
+    pendingAssistantDeltaBuffer = "";
+    stopStreamFlushLoop();
     streamToolCallCount = 0;
     streamLastToolName = "";
     options.latestUserText.value = "";
@@ -476,6 +562,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function clearForegroundRoundState() {
     ++generation;
     sendChatActiveGen = 0;
+    pendingAssistantDeltaBuffer = "";
+    stopStreamFlushLoop();
     if (round.phase === "streaming") {
       removeDraft(round.draftId);
     }
@@ -499,6 +587,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function freezeForegroundRoundState() {
     ++generation;
     sendChatActiveGen = 0;
+    flushPendingAssistantDelta(true);
     if (round.phase === "streaming") {
       finalizeDraft(round.draftId);
     }
@@ -524,6 +613,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
     options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
     activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
+    pendingAssistantDeltaBuffer = "";
+    stopStreamFlushLoop();
     const draftId = existingDraftId || insertDraft(gen);
     if (existingDraftId) {
       updateDraftText(draftId);
@@ -663,6 +754,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   ) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
+    flushPendingAssistantDelta(true);
 
     // 对齐最终文本（delta 直写后只做最终兜底对齐）
     options.latestAssistantText.value = mergeAssistantText(
@@ -692,6 +784,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function handleRoundFailed(gen: number, error: unknown) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
+    pendingAssistantDeltaBuffer = "";
+    stopStreamFlushLoop();
 
     options.latestAssistantText.value = "";
     options.latestReasoningStandardText.value = "";
@@ -1125,6 +1219,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
       ++generation;
       sendChatActiveGen = 0;
       pendingTerminalEvent = null;
+      pendingAssistantDeltaBuffer = "";
+      stopStreamFlushLoop();
       round = { phase: "idle" };
       options.chatting.value = false;
       reasoningStartedAtMs.value = 0;
@@ -1187,6 +1283,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     // stop 失败时，回退本地中断，避免 UI 挂在 streaming 态。
     ++generation;
     sendChatActiveGen = 0;
+    pendingAssistantDeltaBuffer = "";
+    stopStreamFlushLoop();
     if (round.phase === "streaming") {
       removeDraft(round.draftId);
     }

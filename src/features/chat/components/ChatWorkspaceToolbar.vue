@@ -1,22 +1,24 @@
 <template>
   <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
-    <button
-      class="btn btn-sm btn-ghost"
-      :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
-      :disabled="chatting || frozen || !workspaceLocked"
-      @click="emit('unlockWorkspace')"
-    >
-      <Lock v-if="workspaceLocked" class="h-3.5 w-3.5" />
-      <LockOpen v-else class="h-3.5 w-3.5" />
-    </button>
-    <button
-      class="btn btn-sm btn-ghost"
-      :disabled="chatting || frozen"
-      @click="emit('lockWorkspace')"
-    >
-      {{ currentWorkspaceName }}{{ workspaceLocked ? " (临时)" : "" }}
-    </button>
-    <div class="ml-auto flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
+    <div class="join">
+      <button
+        class="btn btn-sm btn-ghost join-item"
+        :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
+        :disabled="chatting || frozen || !workspaceLocked"
+        @click="emit('unlockWorkspace')"
+      >
+        <House class="h-3.5 w-3.5" />
+      </button>
+      <button
+        class="btn btn-sm btn-ghost join-item gap-1.5"
+        :disabled="chatting || frozen"
+        @click="emit('lockWorkspace')"
+      >
+        <Folder class="h-3.5 w-3.5" />
+        /{{ currentWorkspaceName }}
+      </button>
+    </div>
+    <div class="ml-auto flex items-center gap-1.5 overflow-hidden">
       <button
         v-for="persona in personaPresenceChips"
         :key="persona.id"
@@ -24,6 +26,7 @@
         class="btn btn-ghost btn-sm btn-circle p-0 shrink-0 border relative"
         :class="persona.isFrontSpeaking ? 'border-primary/60 bg-primary/10' : 'border-base-300/70 bg-base-100/70'"
         :title="`部门：${persona.departmentName}\n人格：${persona.name}`"
+        disabled
         @click.prevent
       >
         <div class="avatar">
@@ -52,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { Lock, LockOpen } from "lucide-vue-next";
+import { Folder, House } from "lucide-vue-next";
 import type { ChatPersonaPresenceChip } from "../../../types/app";
 
 defineProps<{

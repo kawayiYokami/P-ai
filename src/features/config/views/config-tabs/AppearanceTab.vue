@@ -20,7 +20,12 @@
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
         <h3 class="card-title text-base">{{ t("appearance.theme") }}</h3>
-        <ThemePreviewGrid :themes="themes" :current-theme="props.currentTheme" @select="$emit('setTheme', $event)" />
+        <ThemePreviewGrid
+          :light-themes="lightThemes"
+          :dark-themes="darkThemes"
+          :current-theme="props.currentTheme"
+          @select="$emit('setTheme', $event)"
+        />
       </div>
     </div>
   </div>
@@ -28,7 +33,8 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { APP_THEMES } from "../../../shell/composables/use-app-theme";
+import { computed } from "vue";
+import { APP_THEMES, DARK_APP_THEMES } from "../../../shell/composables/use-app-theme";
 import ThemePreviewGrid from "../../components/ThemePreviewGrid.vue";
 
 const props = defineProps<{
@@ -43,5 +49,6 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
-const themes = [...APP_THEMES];
+const lightThemes = computed(() => APP_THEMES.filter((theme) => !DARK_APP_THEMES.has(theme)));
+const darkThemes = computed(() => APP_THEMES.filter((theme) => DARK_APP_THEMES.has(theme)));
 </script>
