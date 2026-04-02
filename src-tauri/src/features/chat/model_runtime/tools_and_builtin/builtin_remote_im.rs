@@ -33,19 +33,19 @@ impl Tool for BuiltinRemoteImSendTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=remote_im_send args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
+        ));
         let result = builtin_remote_im_send(&self.app_state, args)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=remote_im_send result={}",
                 debug_value_snippet(v, 240)
-            ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=remote_im_send err={err}"),
+            )),
+            Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=remote_im_send err={err}")),
         }
         result
     }

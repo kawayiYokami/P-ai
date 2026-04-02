@@ -95,15 +95,15 @@ impl ConversationDomainLock {
         if waited_ms >= CONVERSATION_LOCK_SLOW_WAIT_MS {
             if let Some(owner) = owner_before_wait {
                 let owner_held_ms = owner.acquired_at.elapsed().as_millis();
-                eprintln!(
+                runtime_log_debug(format!(
                     "[会话锁] 等待完成: task={}, waited_ms={}, owner={}, owner_held_ms={}",
                     task_name, waited_ms, owner.task_name, owner_held_ms
-                );
+                ));
             } else {
-                eprintln!(
+                runtime_log_debug(format!(
                     "[会话锁] 等待完成: task={}, waited_ms={}",
                     task_name, waited_ms
-                );
+                ));
             }
         }
         Ok(self.build_guard(guard, task_name.to_string()))
@@ -144,10 +144,10 @@ impl Drop for TimedConversationLockGuard<'_> {
             owner.take();
         }
         if held_ms >= CONVERSATION_LOCK_SLOW_HOLD_MS {
-            eprintln!(
+            runtime_log_debug(format!(
                 "[会话锁] 持有完成: task={}, held_ms={}",
                 self.task_name, held_ms
-            );
+            ));
         }
     }
 }

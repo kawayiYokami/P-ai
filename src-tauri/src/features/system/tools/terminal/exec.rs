@@ -270,20 +270,20 @@ async fn builtin_shell_exec(
     match classify_terminal_write_risk(&cwd, cmd) {
         TerminalWriteRisk::None => {}
         TerminalWriteRisk::NewOnly { count } => {
-            eprintln!(
+            runtime_log_debug(format!(
                 "[TOOL-DEBUG] shell_exec write-risk=NewOnly new_path_count={} session={}",
                 count, normalized_session
-            );
+            ));
         }
         TerminalWriteRisk::Existing { paths } => {
             if session_root_locked || cwd_in_default_workspace {
-                eprintln!(
+                runtime_log_debug(format!(
                     "[TOOL-DEBUG] shell_exec approval skipped: trusted workspace session={} existing_path_count={} locked={} in_default_workspace={}",
                     normalized_session,
                     paths.len(),
                     session_root_locked,
                     cwd_in_default_workspace
-                );
+                ));
             } else {
             let mut lines = vec![
                 "该命令将修改/删除已有文件，是否批准本次执行？".to_string(),
@@ -341,12 +341,12 @@ async fn builtin_shell_exec(
         }
         TerminalWriteRisk::Unknown => {
             if session_root_locked || cwd_in_default_workspace {
-                eprintln!(
+                runtime_log_debug(format!(
                     "[TOOL-DEBUG] shell_exec approval skipped: trusted workspace session={} write-risk=Unknown locked={} in_default_workspace={}",
                     normalized_session,
                     session_root_locked,
                     cwd_in_default_workspace
-                );
+                ));
             } else {
                 let message = format!(
                     "无法判定该命令是否会修改已有文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",

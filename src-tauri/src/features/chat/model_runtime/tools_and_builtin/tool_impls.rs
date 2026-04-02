@@ -25,18 +25,18 @@ impl Tool for BuiltinFetchTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=fetch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
+        ));
         let result = builtin_fetch(&self.app_state, &args.url, args.max_length.unwrap_or(1800))
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=fetch result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => eprintln!("[工具执行] 内置工具 fetch 执行失败: 错误={err}"),
         }
         result
@@ -69,18 +69,18 @@ impl Tool for BuiltinBingSearchTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=websearch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
+        ));
         let result = builtin_bing_search(&self.app_state, &args.query)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=websearch result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => {
                 eprintln!("[工具执行] 内置工具 websearch 执行失败: 错误={err}")
             }
@@ -139,16 +139,16 @@ impl Tool for BuiltinRememberTool {
             "reasoning": args.reasoning.unwrap_or_default(),
             "tags": args.tags,
         });
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=remember args={}",
             debug_value_snippet(&args_json, 240)
-        );
+        ));
         let result = builtin_memory_save(&self.app_state, args_json).map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=remember result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => {
                 eprintln!("[工具执行] 内置工具 remember 执行失败: 错误={err}")
             }
@@ -185,16 +185,16 @@ impl Tool for BuiltinRecallTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=recall args={}",
             debug_value_snippet(&args_json, 240)
-        );
+        ));
         let result = builtin_recall(&self.app_state, &args.query).map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=recall result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => eprintln!("[工具执行] 内置工具 recall 执行失败: 错误={err}"),
         }
         result
@@ -248,10 +248,10 @@ impl Tool for BuiltinCommandTool {
                 "command.command 不能为空，可先执行 `help`。".to_string(),
             ));
         }
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=command command={}",
             debug_text_snippet(raw, 220)
-        );
+        ));
         let mut parts = raw.split_whitespace();
         let op = parts
             .next()
@@ -332,11 +332,11 @@ impl Tool for BuiltinCommandTool {
             ))),
         };
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=command result={}",
                 debug_value_snippet(v, 240)
-            ),
-            Err(err) => eprintln!("[TOOL-DEBUG] execute_builtin_tool.err name=command err={err}"),
+            )),
+            Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=command err={err}")),
         }
         result
     }
@@ -373,10 +373,10 @@ impl Tool for BuiltinTerminalExecTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=exec args={}",
             debug_value_snippet(&args_json, 240)
-        );
+        ));
         let resolved_session_id = args
             .session_id
             .as_deref()
@@ -406,14 +406,14 @@ impl Tool for BuiltinTerminalExecTool {
         .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => {
-                eprintln!(
+                runtime_log_debug(format!(
                     "[TOOL-DEBUG] execute_builtin_tool.ok name=exec result={}",
                     debug_value_snippet(v, 240)
-                );
-                eprintln!(
+                ));
+                runtime_log_debug(format!(
                     "[TOOL-DEBUG] execute_builtin_tool.ok name=exec summary={}",
                     debug_exec_result_summary(v)
-                );
+                ));
             }
             Err(err) => {
                 eprintln!("[工具执行] 内置工具 exec 执行失败: 错误={err}")
@@ -461,10 +461,10 @@ impl Tool for BuiltinApplyPatchTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=apply_patch args={}",
             debug_value_snippet(&args_json, 240)
-        );
+        ));
         let resolved_session_id = args
             .session_id
             .as_deref()
@@ -475,10 +475,10 @@ impl Tool for BuiltinApplyPatchTool {
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=apply_patch result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => eprintln!("[工具执行] 内置工具 apply_patch 执行失败: 错误={err}"),
         }
         result
@@ -529,18 +529,18 @@ impl Tool for BuiltinTaskTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=task args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
+        ));
         let result = builtin_task(&self.app_state, &self.session_id, args)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=task result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => eprintln!("[工具执行] 内置工具 task 执行失败: 错误={err}"),
         }
         result
@@ -581,18 +581,18 @@ impl Tool for BuiltinDelegateTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=delegate args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        );
+        ));
         let result = builtin_delegate(&self.app_state, &self.session_id, args)
             .await
             .map_err(ToolInvokeError::from);
         match &result {
-            Ok(v) => eprintln!(
+            Ok(v) => runtime_log_debug(format!(
                 "[TOOL-DEBUG] execute_builtin_tool.ok name=delegate result={}",
                 debug_value_snippet(v, 240)
-            ),
+            )),
             Err(err) => eprintln!("[工具执行] 内置工具 delegate 执行失败: 错误={err}"),
         }
         result

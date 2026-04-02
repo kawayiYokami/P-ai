@@ -95,11 +95,11 @@ fn state_read_app_data_cached(state: &AppState) -> Result<AppData, String> {
     state
         .cached_app_data_dirty
         .store(false, std::sync::atomic::Ordering::Release);
-    eprintln!(
+    runtime_log_debug(format!(
         "[应用数据耗时] 读取完成 source=disk_read conversations={} elapsed_ms={}",
         data.conversations.len(),
         started.elapsed().as_millis()
-    );
+    ));
     Ok(data)
 }
 

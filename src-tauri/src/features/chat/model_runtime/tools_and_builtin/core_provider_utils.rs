@@ -35,10 +35,10 @@ fn send_tool_status_event(
     } else {
         "投递失败"
     };
-    eprintln!(
+    runtime_log_debug(format!(
         "[工具调用] 名称={} 状态={} 消息={} 事件投递结果={}",
         tool_name, unified_status, message, delivery_desc
-    );
+    ));
 }
 
 fn tool_failure_result_json(tool_name: &str, err_text: &str) -> String {

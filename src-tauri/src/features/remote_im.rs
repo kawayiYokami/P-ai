@@ -983,7 +983,7 @@ fn remote_im_list_contact_conversations(
     state: State<'_, AppState>,
 ) -> Result<Vec<RemoteImContactConversationSummary>, String> {
     let started_at = std::time::Instant::now();
-    eprintln!("[远程IM][联系人会话][列表] 开始");
+    runtime_log_debug("[远程IM][联系人会话][列表] 开始".to_string());
     let guard = state
         .conversation_lock
         .lock()
@@ -1026,11 +1026,11 @@ fn remote_im_list_contact_conversations(
         bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
     });
     drop(guard);
-    eprintln!(
+    runtime_log_debug(format!(
         "[远程IM][联系人会话][列表] 完成: contact_count={}, elapsed_ms={}",
         items.len(),
         started_at.elapsed().as_millis()
-    );
+    ));
     Ok(items)
 }
 
@@ -1044,10 +1044,10 @@ fn remote_im_get_contact_conversation_messages(
         return Err("contact_id 为必填项。".to_string());
     }
     let started_at = std::time::Instant::now();
-    eprintln!(
+    runtime_log_debug(format!(
         "[远程IM][联系人会话][读取] 开始: contact_id={}",
         contact_id
-    );
+    ));
     let guard = state
         .conversation_lock
         .lock()
@@ -1078,12 +1078,12 @@ fn remote_im_get_contact_conversation_messages(
         .ok_or_else(|| format!("联系人会话不存在：{conversation_id}"))?;
     drop(guard);
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-    eprintln!(
+    runtime_log_debug(format!(
         "[远程IM][联系人会话][读取] 完成: contact_id={}, message_count={}, elapsed_ms={}",
         contact_id,
         messages.len(),
         started_at.elapsed().as_millis()
-    );
+    ));
     Ok(messages)
 }
 

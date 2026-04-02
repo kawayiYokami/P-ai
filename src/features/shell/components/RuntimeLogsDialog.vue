@@ -4,12 +4,14 @@
       <div class="flex items-center justify-between gap-2">
         <h3 class="font-semibold text-base">运行日志（内存）</h3>
         <div class="join">
+          <button class="btn btn-sm join-item" :disabled="logs.length === 0" @click="copyVisibleLogs">复制</button>
           <button class="btn btn-sm join-item" :disabled="loading" @click="$emit('refresh')">刷新</button>
           <button class="btn btn-sm join-item" :disabled="loading || logs.length === 0" @click="$emit('clear')">清空</button>
           <button class="btn btn-sm btn-primary join-item" @click="$emit('close')">关闭</button>
         </div>
       </div>
       <div class="text-xs opacity-70 mt-1">仅保留内存日志，容量上限 10MB，进程退出即清空。</div>
+      <div v-if="copyStatus" class="mt-1 text-xs opacity-70">{{ copyStatus }}</div>
       <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <label class="flex items-center gap-1">
           <span class="opacity-70">级别</span>
@@ -84,8 +86,9 @@ const levelOptions = ["info", "warn", "error", "debug", "trace"] as const;
 const viewportRef = ref<HTMLElement | null>(null);
 const scrollTop = ref(0);
 const viewportHeight = ref(400);
-const selectedLevel = ref<"all" | (typeof levelOptions)[number]>("all");
+const selectedLevel = ref<"all" | (typeof levelOptions)[number]>("info");
 const selectedModule = ref("all");
+const copyStatus = ref("");
 
 function onScroll() {
   const el = viewportRef.value;
@@ -149,6 +152,32 @@ const endIndex = computed(() =>
 );
 const offsetTop = computed(() => startIndex.value * ITEM_HEIGHT);
 const visibleLogs = computed(() => filteredLogs.value.slice(startIndex.value, endIndex.value));
+
+function formatLogLine(item: RuntimeLogEntry): string {
+  const segments = [
+    `[${formatLogTime(item.createdAt)}]`,
+    item.level.toUpperCase(),
+    item.message,
+  ];
+  if (item.repeat > 1) {
+    segments.push(`x${item.repeat}`);
+  }
+  return segments.join(" ");
+}
+
+async function copyVisibleLogs() {
+  const text = filteredLogs.value.map(formatLogLine).join("\n");
+  if (!text) {
+    copyStatus.value = "当前没有可复制的日志";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    copyStatus.value = `已复制 ${filteredLogs.value.length} 条日志`;
+  } catch {
+    copyStatus.value = "复制失败，请检查系统剪贴板权限";
+  }
+}
 
 function extractModuleName(message: string): string | null {
   const text = String(message || "").trim();

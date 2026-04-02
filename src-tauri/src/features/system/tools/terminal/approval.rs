@@ -317,18 +317,18 @@ fn resolve_terminal_approval_request(
     };
 
     let Some(sender) = sender else {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] terminal approval request not found: {}",
             trimmed
-        );
+        ));
         return Ok(false);
     };
 
     if sender.send(approved).is_err() {
-        eprintln!(
+        runtime_log_debug(format!(
             "[TOOL-DEBUG] terminal approval receiver dropped: {}",
             trimmed
-        );
+        ));
         return Ok(false);
     }
     Ok(true)
