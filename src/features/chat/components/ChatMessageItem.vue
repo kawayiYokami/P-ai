@@ -827,7 +827,7 @@ function openResolvedImagePreview(
 }
 
 .assistant-markdown :deep(.markstream-vue .typewriter-enter-active) {
-  transition: opacity 600ms ease-out;
+  transition: opacity 1000ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity;
 }
 
