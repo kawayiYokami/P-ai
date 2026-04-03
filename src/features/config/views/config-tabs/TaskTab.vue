@@ -89,6 +89,40 @@
         <button aria-label="close" @click.prevent="requestCloseEditor">close</button>
       </form>
     </dialog>
+    <dialog ref="discardConfirmDialog" class="modal">
+      <div class="modal-box max-w-md p-4">
+        <h3 class="text-sm font-semibold">{{ t("common.confirm") }}</h3>
+        <p class="mt-3 text-sm whitespace-pre-wrap">{{ t("config.task.discardConfirm") }}</p>
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm btn-ghost" type="button" @click="closeDiscardConfirmDialog(false)">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-warning" type="button" @click="closeDiscardConfirmDialog(true)">
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click.prevent="closeDiscardConfirmDialog(false)">close</button>
+      </form>
+    </dialog>
+    <dialog ref="deleteConfirmDialog" class="modal">
+      <div class="modal-box max-w-md p-4">
+        <h3 class="text-sm font-semibold">{{ t("common.delete") }}</h3>
+        <p class="mt-3 text-sm whitespace-pre-wrap">{{ t("config.task.deleteConfirm") }}</p>
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm btn-ghost" type="button" @click="closeDeleteConfirmDialog(false)">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-error" type="button" @click="closeDeleteConfirmDialog(true)">
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click.prevent="closeDeleteConfirmDialog(false)">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -155,6 +189,8 @@ const filter = ref<TaskFilter>("active");
 const page = ref(1);
 
 const editorDialog = ref<HTMLDialogElement | null>(null);
+const discardConfirmDialog = ref<HTMLDialogElement | null>(null);
+const deleteConfirmDialog = ref<HTMLDialogElement | null>(null);
 const editorOpen = ref(false);
 const editorMode = ref<TaskEditorMode>("create");
 const editorLoading = ref(false);
@@ -163,6 +199,8 @@ const editorError = ref("");
 const editorTask = ref<TaskEntry | null>(null);
 const editorForm = ref<TaskEditorForm>(createEmptyTaskEditorForm());
 const editorInitialSnapshot = ref(taskEditorSnapshot(editorForm.value));
+let resolveDiscardConfirm: ((value: boolean) => void) | null = null;
+let resolveDeleteConfirm: ((value: boolean) => void) | null = null;
 
 const filteredTasks = computed(() => {
   if (!filter.value) return tasks.value;
@@ -257,7 +295,25 @@ async function confirmDiscardIfNeeded(): Promise<boolean> {
   if (!editorOpen.value || editorSaving.value || !editorDirty.value) {
     return true;
   }
-  return window.confirm(t("config.task.discardConfirm"));
+  return requestDiscardConfirmDialog();
+}
+
+function requestDiscardConfirmDialog(): Promise<boolean> {
+  const dialog = discardConfirmDialog.value;
+  if (!dialog) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    resolveDiscardConfirm = resolve;
+    dialog.showModal();
+  });
+}
+
+function closeDiscardConfirmDialog(value: boolean) {
+  const dialog = discardConfirmDialog.value;
+  if (dialog?.open) {
+    dialog.close();
+  }
+  resolveDiscardConfirm?.(value);
+  resolveDiscardConfirm = null;
 }
 
 function buildTriggerInputFromForm(): TaskTriggerInputLocalWire | null {
@@ -479,7 +535,8 @@ async function deleteEditorTask() {
   if (editorSaving.value || editorMode.value !== "edit") return;
   const payload = editorDeletePayload();
   if (!payload) return;
-  if (!window.confirm(t("config.task.deleteConfirm"))) {
+  const confirmed = await requestDeleteConfirmDialog();
+  if (!confirmed) {
     return;
   }
 
@@ -499,6 +556,24 @@ async function deleteEditorTask() {
   } finally {
     editorSaving.value = false;
   }
+}
+
+function requestDeleteConfirmDialog(): Promise<boolean> {
+  const dialog = deleteConfirmDialog.value;
+  if (!dialog) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    resolveDeleteConfirm = resolve;
+    dialog.showModal();
+  });
+}
+
+function closeDeleteConfirmDialog(value: boolean) {
+  const dialog = deleteConfirmDialog.value;
+  if (dialog?.open) {
+    dialog.close();
+  }
+  resolveDeleteConfirm?.(value);
+  resolveDeleteConfirm = null;
 }
 
 async function reloadEditorTask() {
