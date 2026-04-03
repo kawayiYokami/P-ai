@@ -388,8 +388,7 @@ fn resolve_chat_tool_session_id(
     if !config.api_configs.iter().any(|v| v.id == api_id) {
         return Err(format!("Selected API config '{api_id}' not found."));
     }
-    let mut data = state_read_app_data_cached(state)?;
-    ensure_default_agent(&mut data);
+    let data = state_read_app_data_cached(state)?;
     if !data.agents.iter().any(|v| v.id == agent && !v.is_built_in_user) {
         return Err(format!("Selected agent '{agent}' not found."));
     }

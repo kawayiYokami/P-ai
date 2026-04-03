@@ -192,42 +192,72 @@ pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
     lines.join("\n")
 }
 
-pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
+fn render_hidden_skill_snapshot_block(
+    state: &AppState,
+    skills: &[SkillSummaryItem],
+    scan_error: Option<&str>,
+) -> String {
     let skills_root_path = llm_workspace_skills_root(state);
     let skills_root = skills_root_path.to_string_lossy();
-    match load_workspace_skill_summaries_with_errors(state) {
-        Ok((skills, _errors)) => {
-            let example_path = skills
-                .iter()
-                .find(|item| item.name.trim().eq_ignore_ascii_case("workspace-guide"))
-                .map(|item| item.path.trim().to_string())
-                .unwrap_or_else(|| {
-                    skills_root_path
-                        .join("workspace-guide")
-                        .join("SKILL.md")
-                        .to_string_lossy()
-                        .to_string()
-                });
-            let summary = render_skill_summary(&skills);
-            format!(
-                "{}\n\n{}",
-                prompt_xml_block(
-                    "skill usage",
-                    format!(
-                        "System skill directory path: {}\n\nhow to read skill:\nexample:\nworkspace-guide\nread this path: {}",
-                        skills_root, example_path
-                    ),
-                ),
-                prompt_xml_block("skill index", summary)
-            )
-        }
-        Err(err) => prompt_xml_block(
+    if let Some(err) = scan_error {
+        return prompt_xml_block(
             "skill usage",
             format!(
                 "System skill directory path: {}\nscan failed: {}",
                 skills_root, err
             ),
+        );
+    }
+    let example_path = skills
+        .iter()
+        .find(|item| item.name.trim().eq_ignore_ascii_case("workspace-guide"))
+        .map(|item| item.path.trim().to_string())
+        .unwrap_or_else(|| {
+            skills_root_path
+                .join("workspace-guide")
+                .join("SKILL.md")
+                .to_string_lossy()
+                .to_string()
+        });
+    let summary = render_skill_summary(skills);
+    format!(
+        "{}\n\n{}",
+        prompt_xml_block(
+            "skill usage",
+            format!(
+                "System skill directory path: {}\n\nhow to read skill:\nexample:\nworkspace-guide\nread this path: {}",
+                skills_root, example_path
+            ),
         ),
+        prompt_xml_block("skill index", summary)
+    )
+}
+
+pub(crate) fn update_hidden_skill_snapshot_cache(
+    state: &AppState,
+    skills: &[SkillSummaryItem],
+    scan_error: Option<&str>,
+) -> Result<String, String> {
+    let snapshot = render_hidden_skill_snapshot_block(state, skills, scan_error);
+    let mut guard = state
+        .hidden_skill_snapshot_cache
+        .lock()
+        .map_err(|_| "Failed to lock hidden skill snapshot cache".to_string())?;
+    *guard = snapshot.clone();
+    Ok(snapshot)
+}
+
+pub(crate) fn warm_hidden_skill_snapshot_cache(state: &AppState) -> Result<String, String> {
+    match load_workspace_skill_summaries_with_errors(state) {
+        Ok((skills, _errors)) => update_hidden_skill_snapshot_cache(state, &skills, None),
+        Err(err) => update_hidden_skill_snapshot_cache(state, &[], Some(err.as_str())),
+    }
+}
+
+pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
+    match state.hidden_skill_snapshot_cache.lock() {
+        Ok(guard) if !guard.trim().is_empty() => guard.clone(),
+        _ => String::new(),
     }
 }
 
@@ -237,9 +267,15 @@ pub(crate) fn refresh_workspace_mcp_and_skills(state: &AppState) -> Result<Refre
     ensure_workspace_private_organization_layout(state)?;
     let (servers, mcp_errors) = load_workspace_mcp_servers_with_errors(state)?;
     let (skills, skill_errors) = load_workspace_skill_summaries_with_errors(state)?;
+    if let Err(err) = update_hidden_skill_snapshot_cache(state, &skills, None) {
+        runtime_log_error(format!(
+            "[技能工作区] 更新隐藏技能快照缓存失败: skills={}, error={}",
+            skills.len(),
+            err
+        ));
+    }
     let mut config = read_config(&state.config_path)?;
     let mut data = read_app_data(&state.data_path)?;
-    let _ = ensure_default_agent(&mut data);
     let private_org = merge_private_organization_into_runtime(&state.data_path, &mut config, &mut data.agents)?;
     let mcp_loaded = servers.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
     let skills_loaded = skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>();

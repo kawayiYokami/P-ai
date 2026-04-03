@@ -284,11 +284,7 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     if workspace_changed {
         state_write_config_cached(&state, &result)?;
     }
-    let mut data = state_read_app_data_cached(&state)?;
-    let changed = ensure_default_agent(&mut data);
-    if changed {
-        state_write_app_data_cached(&state, &data)?;
-    }
+    let data = state_read_app_data_cached(&state)?;
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut result, &mut runtime_data)?;
     drop(guard);
@@ -307,7 +303,6 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
         state_write_config_cached(state, &config)?;
     }
     let mut data = state_read_app_data_cached(state)?;
-    let changed = ensure_default_agent(&mut data);
     let assistant_agent_id =
         assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
     let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
@@ -316,7 +311,7 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
     } else {
         false
     };
-    if changed || runtime_changed {
+    if runtime_changed {
         state_write_app_data_cached(state, &data)?;
     }
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
@@ -378,7 +373,6 @@ fn save_config(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let _ = ensure_default_agent(&mut data);
     let base_config = state_read_config_cached(&state)?;
     let (_private_agent_ids, private_department_ids) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -406,11 +400,7 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut config = state_read_config_cached(&state)?;
-    let mut data = state_read_app_data_cached(&state)?;
-    let changed = ensure_default_agent(&mut data);
-    if changed {
-        state_write_app_data_cached(&state, &data)?;
-    }
+    let data = state_read_app_data_cached(&state)?;
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut runtime_data)?;
     drop(guard);
@@ -461,8 +451,6 @@ fn save_agents(
             data.agents.push(system_persona);
         }
     }
-    ensure_default_agent(&mut data);
-
     let next_ids = data
         .agents
         .iter()
@@ -648,7 +636,6 @@ fn set_agent_private_memory_enabled(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -741,7 +728,6 @@ fn disable_agent_private_memory(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -791,8 +777,7 @@ fn import_agent_memories(
         .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
+    let data = state_read_app_data_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -828,7 +813,6 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
 
     let mut config = read_config(&state.config_path)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let changed = ensure_default_agent(&mut data);
     let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
     let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
         data.assistant_department_agent_id = assistant_agent_id.clone();
@@ -836,7 +820,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
     } else {
         false
     };
-    if changed || runtime_changed {
+    if runtime_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
@@ -865,7 +849,6 @@ fn save_chat_settings(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let config = read_config(&state.config_path)?;
     let mut runtime_config = config.clone();
     let mut runtime_data = data.clone();
@@ -999,7 +982,6 @@ fn save_agent_avatar(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let _ = ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -1052,7 +1034,6 @@ fn clear_agent_avatar(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let _ = ensure_default_agent(&mut data);
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
@@ -1173,11 +1154,7 @@ fn sync_tray_icon(
         .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let mut data = state_read_app_data_cached(&state)?;
-    let changed = ensure_default_agent(&mut data);
-    if changed {
-        state_write_app_data_cached(&state, &data)?;
-    }
+    let data = state_read_app_data_cached(&state)?;
     let target_agent_id = input
         .agent_id
         .as_deref()
@@ -1253,10 +1230,6 @@ fn get_chat_snapshot(
     let mut app_config = state_read_config_cached(&state)?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
-    if defaults_changed {
-        state_write_app_data_cached(&state, &data)?;
-    }
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.agent_id.trim();
@@ -1685,11 +1658,10 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
     let app_config = state_read_config_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let summaries = collect_unarchived_conversation_summaries(state.inner(), &app_config, &data);
-    if defaults_changed || normalized_changed || department_changed {
+    if normalized_changed || department_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     drop(guard);
@@ -1782,10 +1754,9 @@ fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) ->
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
     let app_config = state_read_config_cached(state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
-    if defaults_changed || normalized_changed || department_changed {
+    if normalized_changed || department_changed {
         state_write_app_data_cached(state, &data)?;
     }
     let payload = build_unarchived_conversation_overview_payload(state, &app_config, &data);
@@ -1806,7 +1777,6 @@ fn set_active_unarchived_conversation(
 
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let requested_conversation_id = input
@@ -1858,7 +1828,7 @@ fn set_active_unarchived_conversation(
         .ok_or_else(|| "Unarchived conversation index out of bounds.".to_string())?;
     ensure_unarchived_conversation_not_organizing(state.inner(), &conversation_id)?;
 
-    let mut changed = defaults_changed || normalized_changed || department_changed;
+    let mut changed = normalized_changed || department_changed;
     for (_idx, conversation) in data.conversations.iter_mut().enumerate() {
         if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
@@ -1889,7 +1859,6 @@ fn switch_active_conversation_snapshot(
 
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let requested_conversation_id = input
@@ -1917,7 +1886,7 @@ fn switch_active_conversation_snapshot(
         .ok_or_else(|| "Unarchived conversation index out of bounds.".to_string())?;
     ensure_unarchived_conversation_not_organizing(state.inner(), &target_conversation_id)?;
 
-    let mut changed = defaults_changed || normalized_changed || department_changed;
+    let mut changed = normalized_changed || department_changed;
     for (_idx, conversation) in data.conversations.iter_mut().enumerate() {
         if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
             continue;
@@ -1992,7 +1961,6 @@ fn create_unarchived_conversation(
 
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let requested_department_id = input
         .department_id
         .as_deref()
@@ -2305,10 +2273,9 @@ fn get_active_conversation_messages(
     let mut app_config = state_read_config_cached(&state)?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
-    if defaults_changed || normalized_changed || department_changed {
+    if normalized_changed || department_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
@@ -2566,10 +2533,9 @@ fn get_active_conversation_messages_before(
 
     let mut app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
-    if defaults_changed || normalized_changed || department_changed {
+    if normalized_changed || department_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
@@ -2652,10 +2618,9 @@ fn get_active_conversation_messages_after(
 
     let mut app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
-    if defaults_changed || normalized_changed || department_changed {
+    if normalized_changed || department_changed {
         state_write_app_data_cached(&state, &data)?;
     }
     let mut runtime_data = data.clone();
@@ -2858,10 +2823,6 @@ fn rewind_conversation_from_message(
     let mut app_config = read_config(&state.config_path)?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let defaults_changed = ensure_default_agent(&mut data);
-    if defaults_changed {
-        state_write_app_data_cached(&state, &data)?;
-    }
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     let requested_agent_id = input.session.agent_id.trim();

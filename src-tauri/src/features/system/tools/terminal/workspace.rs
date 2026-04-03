@@ -297,8 +297,9 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
         return None;
     }
 
-    let current_root = terminal_default_session_root_canonical(state).ok()?;
-    let current_root_text = terminal_path_for_user(&current_root);
+    // Prompt 展示只需要稳定的工作区文本，不应在聊天热路径里重复做
+    // read_config + canonicalize 路径求真。真正的执行边界校验仍由 exec 路径负责。
+    let current_root_text = terminal_path_for_user(&state.llm_workspace_path);
 
     let mut lines = Vec::<String>::new();
     lines.push(format!("当前工作路径: {}", current_root_text));
@@ -459,6 +460,7 @@ mod terminal_workspace_tests {
             delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(HashSet::new())),
             provider_system_message_user_fallback_keys: Arc::new(Mutex::new(HashSet::new())),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
             preferred_release_source: Arc::new(Mutex::new(String::new())),
         }
     }

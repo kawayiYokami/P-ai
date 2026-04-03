@@ -10,7 +10,6 @@ fn check_tools_status(
     let mut config = state_read_config_cached(&state)?;
     normalize_api_tools(&mut config);
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut data)?;
     drop(guard);
 

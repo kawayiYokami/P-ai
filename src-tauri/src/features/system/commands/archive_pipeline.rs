@@ -216,7 +216,6 @@ fn resolve_archive_target_conversation(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut app_config = read_config(&state.config_path)?;
     let mut data = state_read_app_data_cached(state)?;
-    ensure_default_agent(&mut data);
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
     let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
         .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
@@ -275,7 +274,6 @@ fn prepare_background_archive_active_conversation(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
-    let _ = ensure_default_agent(&mut data);
     let _ = normalize_single_active_main_conversation(&mut data);
 
     let _source_idx = data
@@ -971,7 +969,6 @@ fn delete_main_conversation_and_activate_latest(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
-    ensure_default_agent(&mut data);
 
     let before = data.conversations.len();
     data.conversations.retain(|conversation| {
@@ -1602,8 +1599,7 @@ async fn run_context_compaction_pipeline_inner(
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = state_read_app_data_cached(&state)?;
-        ensure_default_agent(&mut data);
+        let data = state_read_app_data_cached(&state)?;
         let user_alias = data.user_alias.clone();
         let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
         let host_agent = data
@@ -1653,7 +1649,6 @@ async fn run_context_compaction_pipeline_inner(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
 
     let conversation_idx = data
         .conversations
@@ -1860,8 +1855,7 @@ async fn run_archive_pipeline_inner(
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = state_read_app_data_cached(&state)?;
-        ensure_default_agent(&mut data);
+        let data = state_read_app_data_cached(&state)?;
         let user_alias = data.user_alias.clone();
         let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
         let host_agent = data
@@ -1911,7 +1905,6 @@ async fn run_archive_pipeline_inner(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let _source_conversation_idx = data
         .conversations
         .iter()

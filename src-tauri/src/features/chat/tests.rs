@@ -1276,6 +1276,7 @@
             provider_system_message_user_fallback_keys: Arc::new(Mutex::new(
                 std::collections::HashSet::new(),
             )),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
         }
     }

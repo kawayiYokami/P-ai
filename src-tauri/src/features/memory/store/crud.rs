@@ -331,6 +331,87 @@ fn memory_store_list_memories(data_path: &PathBuf) -> Result<Vec<MemoryEntry>, S
     Ok(out)
 }
 
+fn memory_store_list_memories_by_ids(
+    data_path: &PathBuf,
+    memory_ids: &[String],
+) -> Result<Vec<MemoryEntry>, String> {
+    let normalized_ids = memory_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if normalized_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = memory_store_open(data_path)?;
+    let placeholders = normalized_ids
+        .iter()
+        .map(|_| "?".to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT id, memory_no, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at
+         FROM memory_record
+         WHERE id IN ({placeholders})
+         ORDER BY updated_at DESC"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|err| format!("Prepare list memories by ids failed: {err}"))?;
+    let params = rusqlite::params_from_iter(normalized_ids.iter().copied());
+    let rows = stmt
+        .query_map(params, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(|err| format!("Query list memories by ids failed: {err}"))?;
+
+    let mut out = Vec::<MemoryEntry>::new();
+    for row in rows {
+        let (id, memory_no, memory_type, judgment, reasoning, owner_agent_id, created_at, updated_at) =
+            row.map_err(|err| format!("Read memory row by ids failed: {err}"))?;
+        let mut tag_stmt = conn
+            .prepare(
+                "SELECT t.name
+                 FROM memory_tag_rel r
+                 JOIN global_tag t ON t.id=r.tag_id
+                 WHERE r.memory_id=?1
+                 ORDER BY t.name ASC",
+            )
+            .map_err(|err| format!("Prepare list tags by ids failed: {err}"))?;
+        let tags_iter = tag_stmt
+            .query_map(params![id.clone()], |tag_row| tag_row.get::<_, String>(0))
+            .map_err(|err| format!("Query list tags by ids failed: {err}"))?;
+        let mut tags = Vec::<String>::new();
+        for tag in tags_iter {
+            tags.push(tag.map_err(|err| format!("Read tag row by ids failed: {err}"))?);
+        }
+
+        out.push(MemoryEntry {
+            id,
+            memory_no: memory_no.map(|value| value.max(0) as u64),
+            memory_type,
+            judgment,
+            reasoning,
+            tags,
+            owner_agent_id,
+            created_at,
+            updated_at,
+        });
+    }
+
+    Ok(out)
+}
+
 fn memory_store_delete_memory(data_path: &PathBuf, memory_id: &str) -> Result<(), String> {
     let target_id = memory_id.trim();
     if target_id.is_empty() {

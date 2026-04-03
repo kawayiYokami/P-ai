@@ -30,7 +30,6 @@ fn get_prompt_preview(
     let resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
 
     let mut data = read_app_data(&state.data_path)?;
-    let _ = ensure_default_agent(&mut data);
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
     let requested_agent_id = input.agent_id.trim();
     let effective_agent_id = if !requested_agent_id.is_empty()

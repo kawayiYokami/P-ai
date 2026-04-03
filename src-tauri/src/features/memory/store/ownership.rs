@@ -18,6 +18,26 @@ fn memory_store_list_memories_visible_for_agent(
     Ok(filtered)
 }
 
+fn memory_store_list_memories_by_ids_visible_for_agent(
+    data_path: &PathBuf,
+    memory_ids: &[String],
+    agent_id: &str,
+    private_memory_enabled: bool,
+) -> Result<Vec<MemoryEntry>, String> {
+    let target = agent_id.trim();
+    if target.is_empty() {
+        return memory_store_list_memories_by_ids(data_path, memory_ids);
+    }
+    let filtered = memory_store_list_memories_by_ids(data_path, memory_ids)?
+        .into_iter()
+        .filter(|m| match m.owner_agent_id.as_deref() {
+            None => true,
+            Some(owner) => private_memory_enabled && owner == target,
+        })
+        .collect::<Vec<_>>();
+    Ok(filtered)
+}
+
 fn memory_store_list_private_memories_by_agent(
     data_path: &PathBuf,
     agent_id: &str,

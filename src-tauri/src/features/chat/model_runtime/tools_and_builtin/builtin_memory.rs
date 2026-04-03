@@ -97,8 +97,7 @@ fn upsert_memories(
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = read_app_data(&app_state.data_path)?;
-        ensure_default_agent(&mut data);
+        let data = read_app_data(&app_state.data_path)?;
         drop(guard);
         data.agents
             .iter()
@@ -210,8 +209,7 @@ fn builtin_recall(app_state: &AppState, query: &str) -> Result<Value, String> {
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = read_app_data(&app_state.data_path)?;
-        ensure_default_agent(&mut data);
+        let data = read_app_data(&app_state.data_path)?;
         let assistant_department_agent_id = data.assistant_department_agent_id.clone();
         let private_memory_enabled = data
             .agents

@@ -327,26 +327,20 @@ fn main() {
                 eprintln!("[启动] 构建托盘失败: {err}");
             }
             let app_state = app_handle.state::<AppState>();
+            if let Err(err) = warm_hidden_skill_snapshot_cache(app_state.inner()) {
+                eprintln!("[启动] 预热技能快照缓存失败: {err}");
+            }
             let guard = app_state
                 .conversation_lock
                 .lock()
                 .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-            let mut data = match state_read_app_data_cached(&app_state) {
+            let data = match state_read_app_data_cached(&app_state) {
                 Ok(data) => data,
                 Err(err) => {
                     eprintln!("[启动] 读取应用数据失败（main::setup）: {err}");
                     AppData::default()
                 }
             };
-            let changed = ensure_default_agent(&mut data);
-            if changed {
-                if let Err(err) = state_write_app_data_cached(&app_state, &data) {
-                    eprintln!(
-                        "[启动] 写入应用数据失败(main::setup): changed={}, error={}",
-                        changed, err
-                    );
-                }
-            }
             if let Err(err) = memory_store_open(&app_state.data_path) {
                 eprintln!("[启动] 初始化记忆存储失败: {err}");
             }

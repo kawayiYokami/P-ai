@@ -63,7 +63,6 @@ async fn builtin_organize_context(
             })?;
         let mut app_config = read_config(&app_state.config_path)?;
         let mut data = state_read_app_data_cached(app_state)?;
-        ensure_default_agent(&mut data);
         merge_private_organization_into_runtime_data(
             &app_state.data_path,
             &mut app_config,

@@ -36,6 +36,7 @@ pub(crate) fn mcp_list_skills(state: State<'_, AppState>) -> Result<SkillListRes
         .lock()
         .map_err(|err| named_lock_error("conversation_lock", file!(), line!(), module_path!(), &err))?;
     let (skills, errors) = load_workspace_skill_summaries_with_errors(&state)?;
+    let _ = update_hidden_skill_snapshot_cache(&state, &skills, None);
     drop(guard);
     Ok(SkillListResult { skills, errors })
 }

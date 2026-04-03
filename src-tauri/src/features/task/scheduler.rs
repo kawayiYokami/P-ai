@@ -117,7 +117,7 @@ fn task_resolve_dispatch_session(
     let selected_api = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config configured for task dispatch.".to_string())?;
     let mut data = state_read_app_data_cached(state)?;
-    let mut changed = ensure_default_agent(&mut data);
+    let mut changed = false;
     let before_conversation_count = data.conversations.len();
     let agent_id = if data
         .agents

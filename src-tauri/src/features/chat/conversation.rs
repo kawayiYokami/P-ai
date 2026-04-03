@@ -428,6 +428,15 @@ fn ensure_active_foreground_conversation_index_atomic(
     data.conversations.len() - 1
 }
 
+fn active_foreground_conversation_index_read_only(
+    data: &AppData,
+    agent_id: &str,
+) -> Option<usize> {
+    main_conversation_index(data, agent_id)
+        .or_else(|| latest_active_conversation_index(data, "", agent_id))
+        .or_else(|| latest_main_conversation_index(data, agent_id))
+}
+
 #[derive(Debug, Clone)]
 struct ArchiveDecision {
     should_archive: bool,
@@ -1062,6 +1071,19 @@ fn prompt_retrieved_memory_ids_from_message(message: &ChatMessage) -> Vec<String
         .collect::<Vec<_>>()
 }
 
+fn collect_prompt_retrieved_memory_ids(messages: &[ChatMessage]) -> Vec<String> {
+    let mut seen = HashSet::<String>::new();
+    let mut collected = Vec::<String>::new();
+    for message in messages {
+        for memory_id in prompt_retrieved_memory_ids_from_message(message) {
+            if seen.insert(memory_id.clone()) {
+                collected.push(memory_id);
+            }
+        }
+    }
+    collected
+}
+
 fn prompt_recall_memory_block_for_message(
     message: &ChatMessage,
     recall_memories: Option<&[MemoryEntry]>,
@@ -1659,16 +1681,26 @@ fn build_prompt_with_mode(
         current_todos: conversation.current_todos.clone(),
         memory_recall_table: conversation.memory_recall_table.clone(),
     };
-    let recall_memories = data_path.and_then(|path| {
-        match memory_store_list_memories_visible_for_agent(
+    let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
+    let recall_memories = if recall_memory_ids.is_empty() {
+        None
+    } else {
+        data_path.and_then(|path| match memory_store_list_memories_by_ids_visible_for_agent(
             path,
+            &recall_memory_ids,
             &agent.id,
             agent.private_memory_enabled,
         ) {
             Ok(memories) => Some(memories),
-            Err(_) => None,
-        }
-    });
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[提示词] 读取召回记忆失败: agent_id={}, recall_ids={:?}, error={:?}",
+                    agent.id, recall_memory_ids, err
+                ));
+                None
+            }
+        })
+    };
 
     let prompt_user_name = user_profile.map(|(user_name, _)| user_name).unwrap_or("");
     let mut seen_remote_contacts = std::collections::HashSet::<String>::new();

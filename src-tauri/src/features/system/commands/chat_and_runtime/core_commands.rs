@@ -322,7 +322,6 @@ async fn stop_chat_message(
     let _guard = lock_conversation_with_metrics(&state, "stop_chat_generation_persist_partial")?;
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    ensure_default_agent(&mut data);
     let api_config_id = if let Some(_conversation_id) = requested_conversation_id.as_deref() {
         requested_department_id
             .as_deref()
