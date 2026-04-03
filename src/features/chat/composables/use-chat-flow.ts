@@ -107,8 +107,6 @@ type UseChatFlowOptions = {
 
 const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 const DRAFT_USER_ID_PREFIX = "__draft_user__:";
-const STREAM_SMOOTH_CATCHUP_MS = 600;
-
 // ---------------------------------------------------------------------------
 // 3. 状态机
 //
@@ -144,6 +142,16 @@ type PendingTerminalEvent =
       error: unknown;
     };
 
+type DeferredRoundCompletion = {
+  gen: number;
+  result: {
+    assistantText: string;
+    reasoningStandard?: string;
+    reasoningInline?: string;
+    assistantMessage?: ChatMessage;
+  };
+};
+
 export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
   let round: RoundState = { phase: "idle" };
@@ -151,15 +159,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let sendChatActiveGen = 0; // 防止 bound channel 抢占 sendChat 轮次
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
   let pendingTerminalEvent: PendingTerminalEvent | null = null;
+  let deferredRoundCompletion: DeferredRoundCompletion | null = null;
 
   // ── 流式统计 ──
   let streamToolCallCount = 0;
   let streamLastToolName = "";
-  let pendingAssistantDeltaBuffer = "";
-  let streamFlushFrameId: number | null = null;
-  let streamFlushLastAt = 0;
-  let streamFlushCarryChars = 0;
-
   let activeHistoryMessageCount = 0;
   const reasoningStartedAtMs = ref(0);
   let pendingUserDraftId = "";
@@ -508,77 +512,44 @@ export function useChatFlow(options: UseChatFlowOptions) {
     updateDraftText(draftId, nextStreamSegments, parsed.tail, delta);
   }
 
-  function stopStreamFlushLoop() {
-    if (streamFlushFrameId !== null && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(streamFlushFrameId);
-    }
-    streamFlushFrameId = null;
-    streamFlushLastAt = 0;
-    streamFlushCarryChars = 0;
-  }
-
-  function flushPendingAssistantDelta(immediate = false) {
-    if (round.phase !== "streaming") {
-      pendingAssistantDeltaBuffer = "";
-      stopStreamFlushLoop();
+  function finalizeDeferredRoundCompletion() {
+    if (!deferredRoundCompletion) return;
+    if (round.phase !== "streaming" || round.gen !== deferredRoundCompletion.gen) {
+      deferredRoundCompletion = null;
       return;
     }
-    const draftId = round.draftId;
-    if (!pendingAssistantDeltaBuffer) {
-      stopStreamFlushLoop();
-      return;
-    }
-    if (immediate) {
-      const chunk = pendingAssistantDeltaBuffer;
-      pendingAssistantDeltaBuffer = "";
-      applyAssistantDeltaToDraft(draftId, chunk);
-      stopStreamFlushLoop();
-      return;
-    }
+    const { draftId } = round;
+    const { result } = deferredRoundCompletion;
+    deferredRoundCompletion = null;
 
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-    if (streamFlushLastAt <= 0) {
-      streamFlushLastAt = now;
-    }
-    const elapsed = Math.max(0, now - streamFlushLastAt);
-    streamFlushLastAt = now;
+    options.latestAssistantText.value = mergeAssistantText(
+      options.latestAssistantText.value,
+      String(result.assistantText || ""),
+    );
 
-    streamFlushCarryChars += (pendingAssistantDeltaBuffer.length * elapsed) / STREAM_SMOOTH_CATCHUP_MS;
-    const emitCount = Math.floor(streamFlushCarryChars);
-    if (emitCount > 0) {
-      streamFlushCarryChars = Math.max(0, streamFlushCarryChars - emitCount);
-      const nextChunk = pendingAssistantDeltaBuffer.slice(0, emitCount);
-      pendingAssistantDeltaBuffer = pendingAssistantDeltaBuffer.slice(emitCount);
-      applyAssistantDeltaToDraft(draftId, nextChunk);
+    if (typeof result.reasoningStandard === "string") {
+      options.latestReasoningStandardText.value = result.reasoningStandard;
+    }
+    if (typeof result.reasoningInline === "string") {
+      options.latestReasoningInlineText.value = result.reasoningInline;
+    }
+    options.chatErrorText.value = "";
+    if ((options.toolStatusState.value as string) === "running") {
+      options.toolStatusState.value = "done";
+      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallDone");
     }
 
-    if (!pendingAssistantDeltaBuffer) {
-      stopStreamFlushLoop();
-      return;
-    }
-    if (typeof requestAnimationFrame === "function") {
-      streamFlushFrameId = requestAnimationFrame(() => flushPendingAssistantDelta(false));
-      return;
-    }
-    streamFlushFrameId = null;
-    setTimeout(() => flushPendingAssistantDelta(false), 16);
-  }
-
-  function ensureStreamFlushLoop() {
-    if (streamFlushFrameId !== null || !pendingAssistantDeltaBuffer) return;
-    streamFlushLastAt = 0;
-    streamFlushCarryChars = 0;
-    if (typeof requestAnimationFrame === "function") {
-      streamFlushFrameId = requestAnimationFrame(() => flushPendingAssistantDelta(false));
-      return;
-    }
-    setTimeout(() => flushPendingAssistantDelta(false), 16);
+    updateDraftText(draftId);
+    finalizeDraft(draftId, result.assistantMessage);
+    round = { phase: "idle" };
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
   }
 
   function enqueueStreamDelta(gen: number, delta: string) {
     if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
-    pendingAssistantDeltaBuffer += delta;
-    ensureStreamFlushLoop();
+    applyAssistantDeltaToDraft(round.draftId, delta);
+    finalizeDeferredRoundCompletion();
   }
 
   // =========================================================================
@@ -586,8 +557,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   function resetDisplayState() {
-    pendingAssistantDeltaBuffer = "";
-    stopStreamFlushLoop();
+    deferredRoundCompletion = null;
     streamToolCallCount = 0;
     streamLastToolName = "";
     options.latestUserText.value = "";
@@ -603,8 +573,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function clearForegroundRoundState() {
     ++generation;
     sendChatActiveGen = 0;
-    pendingAssistantDeltaBuffer = "";
-    stopStreamFlushLoop();
+    deferredRoundCompletion = null;
     if (pendingUserDraftId) {
       removeDraft(pendingUserDraftId);
     }
@@ -631,7 +600,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function freezeForegroundRoundState() {
     ++generation;
     sendChatActiveGen = 0;
-    flushPendingAssistantDelta(true);
     if (pendingUserDraftId) {
       removeDraft(pendingUserDraftId);
     }
@@ -660,8 +628,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
     options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
     activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-    pendingAssistantDeltaBuffer = "";
-    stopStreamFlushLoop();
     const draftId = existingDraftId || insertDraft(gen);
     if (existingDraftId) {
       updateDraftText(draftId);
@@ -806,39 +772,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
     },
   ) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
-    const { draftId } = round;
-    flushPendingAssistantDelta(true);
-
-    // 对齐最终文本（delta 直写后只做最终兜底对齐）
-    options.latestAssistantText.value = mergeAssistantText(
-      options.latestAssistantText.value,
-      String(result.assistantText || ""),
-    );
-
-    if (typeof result.reasoningStandard === "string") {
-      options.latestReasoningStandardText.value = result.reasoningStandard;
-    }
-    if (typeof result.reasoningInline === "string") {
-      options.latestReasoningInlineText.value = result.reasoningInline;
-    }
-    options.chatErrorText.value = "";
-    if ((options.toolStatusState.value as string) === "running") {
-      options.toolStatusState.value = "done";
-      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallDone");
-    }
-
-    updateDraftText(draftId);
-    finalizeDraft(draftId, result.assistantMessage);
-    round = { phase: "idle" };
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
+    deferredRoundCompletion = { gen, result };
+    finalizeDeferredRoundCompletion();
   }
 
   function handleRoundFailed(gen: number, error: unknown) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
-    pendingAssistantDeltaBuffer = "";
-    stopStreamFlushLoop();
+    deferredRoundCompletion = null;
 
     options.latestAssistantText.value = "";
     options.latestReasoningStandardText.value = "";
@@ -858,6 +799,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (!pendingTerminalEvent || pendingTerminalEvent.gen !== gen) return false;
     const pending = pendingTerminalEvent;
     pendingTerminalEvent = null;
+    deferredRoundCompletion = null;
     if (pending.kind === "completed") {
       handleRoundCompleted(gen, pending.result);
       return true;
@@ -1287,8 +1229,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       ++generation;
       sendChatActiveGen = 0;
       pendingTerminalEvent = null;
-      pendingAssistantDeltaBuffer = "";
-      stopStreamFlushLoop();
+      deferredRoundCompletion = null;
       if (pendingUserDraftId) {
         removeDraft(pendingUserDraftId);
       }
@@ -1354,8 +1295,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     // stop 失败时，回退本地中断，避免 UI 挂在 streaming 态。
     ++generation;
     sendChatActiveGen = 0;
-    pendingAssistantDeltaBuffer = "";
-    stopStreamFlushLoop();
+    deferredRoundCompletion = null;
     if (pendingUserDraftId) {
       removeDraft(pendingUserDraftId);
     }
