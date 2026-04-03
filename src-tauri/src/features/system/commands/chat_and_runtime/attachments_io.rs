@@ -74,7 +74,9 @@ fn media_mime_from_path(path: &std::path::Path) -> Option<&'static str> {
 
 fn workspace_downloads_dir(state: &AppState) -> PathBuf {
     // downloads 是用户与 LLM 共用的附件落地区；允许 LLM 后续自行清理和管理空间占用。
-    state.llm_workspace_path.join("downloads")
+    configured_workspace_root_path(state)
+        .unwrap_or_else(|_| state.llm_workspace_path.clone())
+        .join("downloads")
 }
 
 fn media_extension_from_mime_for_download(mime: &str) -> &'static str {
@@ -247,8 +249,10 @@ fn existing_file_content_equals_raw(path: &std::path::Path, raw: &[u8]) -> Resul
 }
 
 fn workspace_relative_path(state: &AppState, absolute: &std::path::Path) -> String {
+    let workspace_root = configured_workspace_root_path(state)
+        .unwrap_or_else(|_| state.llm_workspace_path.clone());
     absolute
-        .strip_prefix(&state.llm_workspace_path)
+        .strip_prefix(&workspace_root)
         .ok()
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|| absolute.to_string_lossy().replace('\\', "/"))

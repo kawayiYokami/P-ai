@@ -15,22 +15,26 @@ struct McpToolPoliciesFile {
     tools: Vec<McpToolPolicy>,
 }
 
-fn llm_workspace_mcp_root(state: &AppState) -> PathBuf {
-    state.llm_workspace_path.join("mcp")
+fn llm_workspace_mcp_root_at(workspace_root: &Path) -> PathBuf {
+    workspace_root.join("mcp")
 }
 
-fn llm_workspace_mcp_servers_dir(state: &AppState) -> PathBuf {
-    llm_workspace_mcp_root(state).join("servers")
+fn llm_workspace_mcp_root(state: &AppState) -> Result<PathBuf, String> {
+    Ok(llm_workspace_mcp_root_at(&configured_workspace_root_path(state)?))
 }
 
-fn llm_workspace_mcp_policies_dir(state: &AppState) -> PathBuf {
-    llm_workspace_mcp_root(state).join("policies")
+fn llm_workspace_mcp_servers_dir(state: &AppState) -> Result<PathBuf, String> {
+    Ok(llm_workspace_mcp_root(state)?.join("servers"))
 }
 
-fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
-    let mcp_root = llm_workspace_mcp_root(state);
-    let mcp_servers = llm_workspace_mcp_servers_dir(state);
-    let mcp_policies = llm_workspace_mcp_policies_dir(state);
+fn llm_workspace_mcp_policies_dir(state: &AppState) -> Result<PathBuf, String> {
+    Ok(llm_workspace_mcp_root(state)?.join("policies"))
+}
+
+fn ensure_workspace_mcp_layout_at_root(workspace_root: &Path) -> Result<(), String> {
+    let mcp_root = llm_workspace_mcp_root_at(workspace_root);
+    let mcp_servers = mcp_root.join("servers");
+    let mcp_policies = mcp_root.join("policies");
     fs::create_dir_all(&mcp_servers)
         .map_err(|err| format!("Create MCP servers dir failed ({}): {err}", mcp_servers.display()))?;
     fs::create_dir_all(&mcp_policies)
@@ -40,6 +44,11 @@ fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
         let _ = fs::remove_file(&legacy_readme);
     }
     Ok(())
+}
+
+fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
+    let root = ensure_workspace_root_ready(&configured_workspace_root_path(state)?)?;
+    ensure_workspace_mcp_layout_at_root(&root)
 }
 
 fn sanitize_mcp_server_id_for_filename(raw: &str) -> String {
@@ -59,14 +68,14 @@ fn sanitize_mcp_server_id_for_filename(raw: &str) -> String {
     }
 }
 
-fn mcp_server_file_path(state: &AppState, server_id: &str) -> PathBuf {
+fn mcp_server_file_path(state: &AppState, server_id: &str) -> Result<PathBuf, String> {
     let file = format!("{}.json", sanitize_mcp_server_id_for_filename(server_id));
-    llm_workspace_mcp_servers_dir(state).join(file)
+    Ok(llm_workspace_mcp_servers_dir(state)?.join(file))
 }
 
-fn mcp_tool_policies_file_path(state: &AppState, server_id: &str) -> PathBuf {
+fn mcp_tool_policies_file_path(state: &AppState, server_id: &str) -> Result<PathBuf, String> {
     let file = format!("{}.json", sanitize_mcp_server_id_for_filename(server_id));
-    llm_workspace_mcp_policies_dir(state).join(file)
+    Ok(llm_workspace_mcp_policies_dir(state)?.join(file))
 }
 
 fn parse_workspace_mcp_server_from_file(path: &PathBuf) -> Result<McpServerConfig, String> {
@@ -116,7 +125,7 @@ fn load_workspace_mcp_servers_with_errors(
     ensure_workspace_mcp_layout(state)?;
     let mut servers = Vec::<McpServerConfig>::new();
     let mut errors = Vec::<McpWorkspaceLoadError>::new();
-    let servers_dir = llm_workspace_mcp_servers_dir(state);
+    let servers_dir = llm_workspace_mcp_servers_dir(state)?;
     let mut files = fs::read_dir(&servers_dir)
         .map_err(|err| format!("Read MCP servers dir failed ({}): {err}", servers_dir.display()))?
         .filter_map(|entry| entry.ok().map(|v| v.path()))
@@ -161,7 +170,7 @@ fn load_workspace_mcp_server_policy(
     server_id: &str,
 ) -> Result<McpToolPoliciesFile, String> {
     ensure_workspace_mcp_layout(state)?;
-    let path = mcp_tool_policies_file_path(state, server_id);
+    let path = mcp_tool_policies_file_path(state, server_id)?;
     if !path.exists() {
         return Ok(McpToolPoliciesFile {
             server_id: server_id.to_string(),
@@ -210,7 +219,7 @@ fn save_workspace_mcp_server_policy(
     payload: &McpToolPoliciesFile,
 ) -> Result<(), String> {
     ensure_workspace_mcp_layout(state)?;
-    let path = mcp_tool_policies_file_path(state, server_id);
+    let path = mcp_tool_policies_file_path(state, server_id)?;
     let out = McpToolPoliciesFile {
         server_id: if payload.server_id.trim().is_empty() {
             server_id.to_string()
@@ -288,21 +297,21 @@ fn save_workspace_mcp_server(state: &AppState, server: &McpServerConfig) -> Resu
         .map_err(|err| format!("Parse MCP definition JSON failed before write: {err}"))?;
     let payload = serde_json::to_string_pretty(&value)
         .map_err(|err| format!("序列化 MCP 定义 JSON 失败：{err}"))?;
-    let target = mcp_server_file_path(state, &server.id);
+    let target = mcp_server_file_path(state, &server.id)?;
     fs::write(&target, payload)
         .map_err(|err| format!("Write MCP file failed ({}): {err}", target.display()))
 }
 
 fn remove_workspace_mcp_server(state: &AppState, server_id: &str) -> Result<bool, String> {
     ensure_workspace_mcp_layout(state)?;
-    let target = mcp_server_file_path(state, server_id);
+    let target = mcp_server_file_path(state, server_id)?;
     let mut removed = false;
     if target.exists() {
         fs::remove_file(&target)
             .map_err(|err| format!("Delete MCP file failed ({}): {err}", target.display()))?;
         removed = true;
     } else {
-        let servers_dir = llm_workspace_mcp_servers_dir(state);
+        let servers_dir = llm_workspace_mcp_servers_dir(state)?;
         for path in fs::read_dir(&servers_dir)
             .map_err(|err| format!("Read MCP servers dir failed ({}): {err}", servers_dir.display()))?
             .filter_map(|entry| entry.ok().map(|v| v.path()))
@@ -320,7 +329,7 @@ fn remove_workspace_mcp_server(state: &AppState, server_id: &str) -> Result<bool
         }
     }
 
-    let policy_path = mcp_tool_policies_file_path(state, server_id);
+    let policy_path = mcp_tool_policies_file_path(state, server_id)?;
     if policy_path.exists() {
         let _ = fs::remove_file(&policy_path);
     }
@@ -358,7 +367,7 @@ fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 
 fn open_mcp_workspace_dir(state: &AppState) -> Result<String, String> {
     ensure_workspace_mcp_layout(state)?;
-    let path = llm_workspace_mcp_root(state);
+    let path = llm_workspace_mcp_root(state)?;
     open_path_in_file_manager(&path)?;
     Ok(path.to_string_lossy().to_string())
 }

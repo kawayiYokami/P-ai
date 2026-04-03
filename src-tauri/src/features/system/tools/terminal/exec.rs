@@ -216,7 +216,9 @@ async fn builtin_shell_exec(
         .collect::<Vec<_>>();
     let session_root = terminal_session_root_canonical(state, &normalized_session)?;
     let session_root_text = terminal_path_for_user(&session_root);
-    let workspace_path_text = terminal_path_for_user(&state.llm_workspace_path);
+    let workspace_path_text = configured_workspace_root_path(state)
+        .map(|path| terminal_path_for_user(&path))
+        .unwrap_or_else(|_| terminal_path_for_user(&state.llm_workspace_path));
     let cwd = match resolve_terminal_cwd(state, &normalized_session, None) {
         Ok(path) => path,
         Err(err) if err.contains("Call shell_switch_workspace first.") => {

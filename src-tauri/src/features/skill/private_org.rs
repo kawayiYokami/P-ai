@@ -36,22 +36,44 @@ pub(crate) struct PrivateOrganizationMergeResult {
     pub private_departments_failed: Vec<WorkspaceLoadError>,
 }
 
-fn private_organization_root_from_data_path(data_path: &PathBuf) -> PathBuf {
-    app_root_from_data_path(data_path)
-        .join("llm-workspace")
-        .join("private-organization")
+fn private_workspace_root_from_config(data_path: &PathBuf, config: &AppConfig) -> PathBuf {
+    config
+        .shell_workspaces
+        .iter()
+        .find_map(|workspace| {
+            let path = normalize_terminal_path_input_for_current_platform(workspace.path.trim());
+            if workspace.name.trim().is_empty() || path.is_empty() {
+                return None;
+            }
+            let candidate = PathBuf::from(&path);
+            if candidate.is_absolute() {
+                Some(candidate)
+            } else {
+                Some(app_root_from_data_path(data_path).join("llm-workspace").join(candidate))
+            }
+        })
+        .unwrap_or_else(|| app_root_from_data_path(data_path).join("llm-workspace"))
 }
 
-fn private_personas_root_from_data_path(data_path: &PathBuf) -> PathBuf {
-    private_organization_root_from_data_path(data_path).join("personas")
+fn private_organization_root_from_config(data_path: &PathBuf, config: &AppConfig) -> PathBuf {
+    private_workspace_root_from_config(data_path, config).join("private-organization")
 }
 
-fn private_departments_root_from_data_path(data_path: &PathBuf) -> PathBuf {
-    private_organization_root_from_data_path(data_path).join("departments")
+fn private_personas_root_from_config(data_path: &PathBuf, config: &AppConfig) -> PathBuf {
+    private_organization_root_from_config(data_path, config).join("personas")
+}
+
+fn private_departments_root_from_config(data_path: &PathBuf, config: &AppConfig) -> PathBuf {
+    private_organization_root_from_config(data_path, config).join("departments")
 }
 
 pub(crate) fn ensure_workspace_private_organization_layout(state: &AppState) -> Result<(), String> {
-    let root = state.llm_workspace_path.join("private-organization");
+    let workspace_root = ensure_workspace_root_ready(&configured_workspace_root_path(state)?)?;
+    ensure_workspace_private_organization_layout_at_root(&workspace_root)
+}
+
+pub(crate) fn ensure_workspace_private_organization_layout_at_root(workspace_root: &Path) -> Result<(), String> {
+    let root = workspace_root.join("private-organization");
     let personas = root.join("personas");
     let departments = root.join("departments");
     fs::create_dir_all(&personas)
@@ -103,13 +125,14 @@ fn default_private_department_api_config_id(base_config: &AppConfig) -> String {
 
 fn load_private_agents_from_workspace(
     data_path: &PathBuf,
+    base_config: &AppConfig,
     base_agents: &[AgentProfile],
 ) -> Result<(Vec<AgentProfile>, Vec<String>, Vec<WorkspaceLoadError>), String> {
     let mut merged = base_agents.to_vec();
     let mut loaded = Vec::<String>::new();
     let mut errors = Vec::<WorkspaceLoadError>::new();
     let mut seen_private_ids = std::collections::HashSet::<String>::new();
-    let root = private_personas_root_from_data_path(data_path);
+    let root = private_personas_root_from_config(data_path, base_config);
     for path in json_files_sorted(&root)? {
         let raw = match fs::read_to_string(&path) {
             Ok(value) => value,
@@ -211,7 +234,7 @@ fn load_private_departments_from_workspace(
     let mut loaded = Vec::<String>::new();
     let mut errors = Vec::<WorkspaceLoadError>::new();
     let mut seen_private_ids = std::collections::HashSet::<String>::new();
-    let root = private_departments_root_from_data_path(data_path);
+    let root = private_departments_root_from_config(data_path, base_config);
     for path in json_files_sorted(&root)? {
         let raw = match fs::read_to_string(&path) {
             Ok(value) => value,
@@ -347,7 +370,7 @@ pub(crate) fn merge_private_organization_into_runtime(
     agents: &mut Vec<AgentProfile>,
 ) -> Result<PrivateOrganizationMergeResult, String> {
     let (merged_agents, private_agents_loaded, private_agents_failed) =
-        load_private_agents_from_workspace(data_path, agents)?;
+        load_private_agents_from_workspace(data_path, config, agents)?;
     let (merged_departments, private_departments_loaded, private_departments_failed) =
         load_private_departments_from_workspace(data_path, config, &merged_agents)?;
     *agents = merged_agents;

@@ -1584,7 +1584,9 @@ fn build_prompt_with_mode(
                         }
                         let file_name = item.get("fileName").and_then(Value::as_str).unwrap_or("");
                         let include_images = enable_pdf_images;
-                        let file_path = state.llm_workspace_path.join(relative_path);
+                        let workspace_root = configured_workspace_root_path(state)
+                            .unwrap_or_else(|_| state.llm_workspace_path.clone());
+                        let file_path = workspace_root.join(relative_path);
                         let Some(file_path_str) = file_path.to_str() else {
                             eprintln!(
                                 "[PDF提取] 跳过 路径包含非UTF-8字符, conversation_id={}, relative_path={}",

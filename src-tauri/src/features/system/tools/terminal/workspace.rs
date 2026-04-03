@@ -117,11 +117,50 @@ fn resolve_terminal_path(base_dir: &Path, raw: &str) -> Result<PathBuf, String> 
     Ok(canonical)
 }
 
+fn configured_workspace_root_from_shell_workspaces(
+    shell_workspaces: &[ShellWorkspaceConfig],
+    state: &AppState,
+) -> PathBuf {
+    for workspace in shell_workspaces {
+        let path = normalize_terminal_path_input_for_current_platform(workspace.path.trim());
+        if workspace.name.trim().is_empty() || path.is_empty() {
+            continue;
+        }
+        let candidate = PathBuf::from(&path);
+        if candidate.is_absolute() {
+            return candidate;
+        }
+        return state.llm_workspace_path.join(candidate);
+    }
+    state.llm_workspace_path.clone()
+}
+
+fn configured_workspace_root_from_config(config: &AppConfig, state: &AppState) -> PathBuf {
+    configured_workspace_root_from_shell_workspaces(&config.shell_workspaces, state)
+}
+
+fn configured_workspace_root_path(state: &AppState) -> Result<PathBuf, String> {
+    let mut config = state_read_config_cached(state)?;
+    normalize_app_config(&mut config);
+    let _ = ensure_default_shell_workspace_in_config(&mut config, state);
+    Ok(configured_workspace_root_from_config(&config, state))
+}
+
+fn configured_workspace_root_canonical(state: &AppState) -> Result<PathBuf, String> {
+    let root = configured_workspace_root_path(state)?;
+    root.canonicalize()
+        .map_err(|err| format!("Resolve configured workspace failed: {err}"))
+}
+
+fn ensure_workspace_root_ready(root: &Path) -> Result<PathBuf, String> {
+    fs::create_dir_all(root)
+        .map_err(|err| format!("Create workspace root failed ({}): {err}", root.display()))?;
+    root.canonicalize()
+        .map_err(|err| format!("Resolve workspace root failed ({}): {err}", root.display()))
+}
+
 fn terminal_workspace_canonical(state: &AppState) -> Result<PathBuf, String> {
-    state
-        .llm_workspace_path
-        .canonicalize()
-        .map_err(|err| format!("Resolve llm workspace failed: {err}"))
+    configured_workspace_root_canonical(state)
 }
 
 fn terminal_cwd_in_agent_default_workspace(state: &AppState, cwd: &Path) -> bool {
@@ -158,7 +197,8 @@ fn legacy_default_shell_workspace_path() -> Option<PathBuf> {
 }
 
 fn ensure_default_shell_workspace_in_config(config: &mut AppConfig, state: &AppState) -> bool {
-    let default_path = terminal_path_for_user(&state.llm_workspace_path);
+    let configured_default_root = configured_workspace_root_from_config(config, state);
+    let default_path = terminal_path_for_user(&configured_default_root);
     let default_path_buf = PathBuf::from(&default_path);
     let legacy_default_path = legacy_default_shell_workspace_path();
 
@@ -302,7 +342,9 @@ fn terminal_prompt_trusted_roots_block(state: &AppState, selected_api: &ApiConfi
 
     // Prompt 展示只需要稳定的工作区文本，不应在聊天热路径里重复做
     // read_config + canonicalize 路径求真。真正的执行边界校验仍由 exec 路径负责。
-    let current_root_text = terminal_path_for_user(&state.llm_workspace_path);
+    let current_root_text = configured_workspace_root_path(state)
+        .map(|path| terminal_path_for_user(&path))
+        .unwrap_or_else(|_| terminal_path_for_user(&state.llm_workspace_path));
 
     let mut lines = Vec::<String>::new();
     lines.push(format!("当前工作路径: {}", current_root_text));

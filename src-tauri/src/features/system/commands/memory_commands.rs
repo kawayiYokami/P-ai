@@ -246,12 +246,12 @@ fn open_workspace_file(relative_path: String, state: State<'_, AppState>) -> Res
     if trimmed.is_empty() {
         return Err("文件路径不能为空".to_string());
     }
-    let target = state.llm_workspace_path.join(&trimmed);
+    let workspace_root = configured_workspace_root_path(&state)?;
+    let target = workspace_root.join(&trimmed);
     let canonical = target
         .canonicalize()
         .map_err(|err| format!("解析文件路径失败: {err}"))?;
-    let workspace = state
-        .llm_workspace_path
+    let workspace = workspace_root
         .canonicalize()
         .map_err(|err| format!("解析工作区路径失败: {err}"))?;
     if !canonical.starts_with(&workspace) {

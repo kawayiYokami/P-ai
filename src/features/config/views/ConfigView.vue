@@ -266,6 +266,57 @@
       <button aria-label="close">close</button>
     </form>
     </dialog>
+    <dialog ref="migrateWorkspaceDialog" class="modal">
+      <div class="modal-box max-w-lg p-4">
+        <h3 class="text-sm font-semibold">{{ t("config.tools.migrateWorkspaceTitle") }}</h3>
+        <p v-if="workspaceMigrationUi.mode === 'confirm'" class="mt-3 text-sm whitespace-pre-wrap">
+          {{ t("config.tools.migrateWorkspaceConfirm", { oldPath: pendingWorkspaceMigration.oldPath, newPath: pendingWorkspaceMigration.newPath }) }}
+        </p>
+        <div v-else class="mt-3 grid gap-3">
+          <div class="text-sm">{{ workspaceMigrationUi.message || t("config.tools.migrateWorkspacePreparing") }}</div>
+          <progress class="progress progress-primary w-full" :value="workspaceMigrationProgressValue" max="100"></progress>
+          <div class="flex items-center justify-between text-xs opacity-70">
+            <span>{{ workspaceMigrationStageLabel }}</span>
+            <span>{{ workspaceMigrationUi.processed }}/{{ workspaceMigrationUi.total }}</span>
+          </div>
+          <div v-if="workspaceMigrationUi.currentPath" class="text-xs font-mono break-all opacity-70">
+            {{ workspaceMigrationUi.currentPath }}
+          </div>
+          <div v-if="workspaceMigrationUi.error" class="rounded bg-error/10 px-3 py-2 text-sm text-error whitespace-pre-wrap break-all">
+            {{ workspaceMigrationUi.error }}
+          </div>
+        </div>
+        <div class="modal-action mt-4">
+          <button
+            class="btn btn-sm btn-ghost"
+            type="button"
+            :disabled="workspaceMigrationUi.mode === 'running'"
+            @click="cancelWorkspaceMigration"
+          >
+            {{ workspaceMigrationUi.mode === 'error' ? t("common.close") : t("common.cancel") }}
+          </button>
+          <button
+            v-if="workspaceMigrationUi.mode === 'confirm'"
+            class="btn btn-sm btn-outline"
+            type="button"
+            @click="skipWorkspaceMigration"
+          >
+            {{ t("config.tools.migrateWorkspaceSkip") }}
+          </button>
+          <button
+            v-if="workspaceMigrationUi.mode === 'confirm'"
+            class="btn btn-sm btn-primary"
+            type="button"
+            @click="confirmWorkspaceMigration"
+          >
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click="cancelWorkspaceMigration">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -290,6 +341,9 @@ import TaskTab from "./config-tabs/TaskTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invokeTauri } from "../../../services/tauri-api";
+import { toErrorMessage } from "../../../utils/error";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about";
 type AvatarTarget = { agentId: string };
@@ -387,8 +441,23 @@ const { t } = useI18n();
 const avatarFileInput = ref<HTMLInputElement | null>(null);
 const avatarEditorDialog = ref<HTMLDialogElement | null>(null);
 const cropDialog = ref<HTMLDialogElement | null>(null);
+const migrateWorkspaceDialog = ref<HTMLDialogElement | null>(null);
 const cropImageEl = ref<HTMLImageElement | null>(null);
 const cropSource = ref("");
+const pendingWorkspaceMigration = ref({ oldPath: "", newPath: "" });
+const workspaceMigrationUi = ref({
+  taskId: "",
+  mode: "confirm" as "confirm" | "running" | "error",
+  stage: "idle",
+  message: "",
+  processed: 0,
+  total: 0,
+  currentPath: "",
+  error: "",
+});
+type WorkspaceMigrationDecision = "migrate" | "skip" | "cancel";
+let resolveWorkspaceMigrationConfirm: ((value: WorkspaceMigrationDecision) => void) | null = null;
+let workspaceMigrationProgressUnlisten: UnlistenFn | null = null;
 const cropperReady = ref(false);
 const localCropError = ref("");
 const avatarEditorTargetId = ref("");
@@ -399,6 +468,19 @@ let cropTarget: AvatarTarget | null = null;
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
 const MAX_RECORD_SECONDS = 600;
+const workspaceMigrationProgressValue = computed(() => {
+  if (workspaceMigrationUi.value.total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((workspaceMigrationUi.value.processed / workspaceMigrationUi.value.total) * 100)));
+});
+const workspaceMigrationStageLabel = computed(() => {
+  const stage = workspaceMigrationUi.value.stage;
+  if (stage === "scanning") return t("config.tools.migrateWorkspaceStageScanning");
+  if (stage === "copying") return t("config.tools.migrateWorkspaceStageCopying");
+  if (stage === "deleting") return t("config.tools.migrateWorkspaceStageDeleting");
+  if (stage === "completed") return t("config.tools.migrateWorkspaceStageCompleted");
+  if (stage === "failed") return t("config.tools.migrateWorkspaceStageFailed");
+  return t("config.tools.migrateWorkspacePreparing");
+});
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();
@@ -562,6 +644,32 @@ async function onSaveToolsConfig() {
     : [];
   const previousTerminalShellKind = String(props.config.terminalShellKind || "auto").trim() || "auto";
   try {
+    let savedSnapshot: { shellWorkspaces?: Array<{ path?: string }> } = {};
+    try {
+      savedSnapshot = JSON.parse(props.lastSavedConfigJson || "{}") as { shellWorkspaces?: Array<{ path?: string }> };
+    } catch {
+      savedSnapshot = {};
+    }
+    const previousSavedPath = String(savedSnapshot.shellWorkspaces?.[0]?.path || "").trim();
+    const nextPath = String(props.config.shellWorkspaces?.[0]?.path || "").trim();
+    const normalizedPreviousSavedPath = previousSavedPath.replace(/[\\/]+$/g, "");
+    const normalizedNextPath = nextPath.replace(/[\\/]+$/g, "");
+    if (
+      normalizedPreviousSavedPath
+      && normalizedNextPath
+      && normalizedPreviousSavedPath !== normalizedNextPath
+    ) {
+      const decision = await requestWorkspaceMigrationConfirm(previousSavedPath, nextPath);
+      if (decision === "cancel") {
+        props.config.shellWorkspaces = previousShellWorkspaces;
+        props.config.terminalShellKind = previousTerminalShellKind;
+        return;
+      }
+      if (decision === "migrate") {
+        const migratedPath = await migrateWorkspaceWithProgress(previousSavedPath, nextPath);
+        props.setStatusAction(t("config.tools.migrateWorkspaceDone", { path: migratedPath }));
+      }
+    }
     const saved = await Promise.resolve(props.saveConfigAction());
     if (!saved) {
       props.config.shellWorkspaces = previousShellWorkspaces;
@@ -571,10 +679,114 @@ async function onSaveToolsConfig() {
   } catch (error) {
     props.config.shellWorkspaces = previousShellWorkspaces;
     props.config.terminalShellKind = previousTerminalShellKind;
-    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+    props.setStatusAction(t("status.saveConfigFailed", { err: toErrorMessage(error) }));
     throw error;
   } finally {
     savingToolsConfig.value = false;
+  }
+}
+
+function requestWorkspaceMigrationConfirm(oldPath: string, newPath: string): Promise<WorkspaceMigrationDecision> {
+  const dialog = migrateWorkspaceDialog.value;
+  if (!dialog) return Promise.resolve("cancel");
+  pendingWorkspaceMigration.value = { oldPath, newPath };
+  workspaceMigrationUi.value = {
+    taskId: "",
+    mode: "confirm",
+    stage: "idle",
+    message: "",
+    processed: 0,
+    total: 0,
+    currentPath: "",
+    error: "",
+  };
+  return new Promise<WorkspaceMigrationDecision>((resolve) => {
+    resolveWorkspaceMigrationConfirm = resolve;
+    dialog.showModal();
+  });
+}
+
+function finishWorkspaceMigrationConfirm(value: WorkspaceMigrationDecision) {
+  const dialog = migrateWorkspaceDialog.value;
+  if (dialog?.open && value !== "migrate") {
+    dialog.close();
+  }
+  resolveWorkspaceMigrationConfirm?.(value);
+  resolveWorkspaceMigrationConfirm = null;
+}
+
+function confirmWorkspaceMigration() {
+  workspaceMigrationUi.value.mode = "running";
+  workspaceMigrationUi.value.stage = "scanning";
+  workspaceMigrationUi.value.message = t("config.tools.migrateWorkspacePreparing");
+  finishWorkspaceMigrationConfirm("migrate");
+}
+
+function skipWorkspaceMigration() {
+  finishWorkspaceMigrationConfirm("skip");
+}
+
+function cancelWorkspaceMigration() {
+  if (workspaceMigrationUi.value.mode === "running") return;
+  finishWorkspaceMigrationConfirm("cancel");
+}
+
+async function ensureWorkspaceMigrationListener() {
+  if (workspaceMigrationProgressUnlisten) return;
+  workspaceMigrationProgressUnlisten = await listen<{
+    taskId: string;
+    stage: string;
+    processed: number;
+    total: number;
+    currentPath?: string | null;
+    message: string;
+    done: boolean;
+    error?: string | null;
+  }>("easy-call:workspace-migration-progress", (event) => {
+    const payload = event.payload;
+    if (!payload || payload.taskId !== workspaceMigrationUi.value.taskId) return;
+    workspaceMigrationUi.value.stage = String(payload.stage || "");
+    workspaceMigrationUi.value.message = String(payload.message || "");
+    workspaceMigrationUi.value.processed = Number(payload.processed || 0);
+    workspaceMigrationUi.value.total = Number(payload.total || 0);
+    workspaceMigrationUi.value.currentPath = String(payload.currentPath || "");
+    workspaceMigrationUi.value.error = String(payload.error || "");
+    if (payload.error) {
+      workspaceMigrationUi.value.mode = "error";
+    }
+  });
+}
+
+async function migrateWorkspaceWithProgress(oldPath: string, newPath: string): Promise<string> {
+  await ensureWorkspaceMigrationListener();
+  const taskId = `workspace-migration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  workspaceMigrationUi.value.taskId = taskId;
+  workspaceMigrationUi.value.mode = "running";
+  workspaceMigrationUi.value.stage = "scanning";
+  workspaceMigrationUi.value.message = t("config.tools.migrateWorkspacePreparing");
+  workspaceMigrationUi.value.processed = 0;
+  workspaceMigrationUi.value.total = 0;
+  workspaceMigrationUi.value.currentPath = oldPath;
+  workspaceMigrationUi.value.error = "";
+  try {
+    const migratedPath = await invokeTauri<string>("migrate_shell_workspace_directory", {
+      input: {
+        oldPath,
+        newPath,
+        taskId,
+      },
+    });
+    const dialog = migrateWorkspaceDialog.value;
+    if (dialog?.open) {
+      dialog.close();
+    }
+    return migratedPath;
+  } catch (error) {
+    workspaceMigrationUi.value.mode = "error";
+    workspaceMigrationUi.value.stage = "failed";
+    workspaceMigrationUi.value.message = t("config.tools.migrateWorkspaceFailed");
+    workspaceMigrationUi.value.error = toErrorMessage(error);
+    throw error;
   }
 }
 
@@ -670,6 +882,7 @@ function confirmCrop() {
 
 onBeforeUnmount(() => {
   window.removeEventListener("paste", handleAvatarPaste);
+  workspaceMigrationProgressUnlisten?.();
   destroyCropper();
 });
 </script>

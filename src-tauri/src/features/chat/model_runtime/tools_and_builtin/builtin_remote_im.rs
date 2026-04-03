@@ -57,10 +57,12 @@ async fn remote_im_resolve_file_path(state: &AppState, raw: &str) -> Result<Path
         return Err("file_paths 包含空路径".to_string());
     }
     let direct = PathBuf::from(trimmed);
+    let workspace_root = configured_workspace_root_path(state)
+        .unwrap_or_else(|_| state.llm_workspace_path.clone());
     let candidate = if direct.is_absolute() {
         direct
     } else {
-        state.llm_workspace_path.join(direct)
+        workspace_root.join(direct)
     };
     let metadata = tokio::fs::metadata(candidate.clone())
         .await

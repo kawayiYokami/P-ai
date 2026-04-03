@@ -360,6 +360,34 @@ struct UnlockChatShellWorkspaceInput {
     conversation_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShellWorkspacePathInput {
+    #[serde(default)]
+    workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MigrateWorkspaceDirectoryInput {
+    old_path: String,
+    new_path: String,
+    task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMigrationProgressPayload {
+    task_id: String,
+    stage: String,
+    processed: usize,
+    total: usize,
+    current_path: Option<String>,
+    message: String,
+    done: bool,
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ChatShellWorkspaceOutput {
@@ -504,9 +532,189 @@ fn open_shell_path_in_file_manager(path: &Path) -> Result<(), String> {
     Err("Open in file manager is not supported on this platform".to_string())
 }
 
+fn resolve_requested_shell_workspace_root(
+    state: &AppState,
+    requested: Option<&str>,
+    create_if_missing: bool,
+) -> Result<PathBuf, String> {
+    let root = if let Some(raw) = requested.map(str::trim).filter(|value| !value.is_empty()) {
+        let normalized = normalize_terminal_path_input_for_current_platform(raw);
+        if normalized.is_empty() {
+            return Err("工作区路径不能为空".to_string());
+        }
+        let candidate = PathBuf::from(&normalized);
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            state.llm_workspace_path.join(candidate)
+        }
+    } else {
+        configured_workspace_root_path(state)?
+    };
+
+    if create_if_missing {
+        return ensure_workspace_root_ready(&root);
+    }
+    let canonical = root
+        .canonicalize()
+        .map_err(|err| format!("解析工作区路径失败 ({}): {err}", root.display()))?;
+    if !canonical.is_dir() {
+        return Err(format!("工作区目录不存在：{}", canonical.display()));
+    }
+    Ok(canonical)
+}
+
+const WORKSPACE_MIGRATION_EVENT: &str = "easy-call:workspace-migration-progress";
+
+fn emit_workspace_migration_progress(
+    app: &AppHandle,
+    payload: &WorkspaceMigrationProgressPayload,
+) {
+    let _ = app.emit(WORKSPACE_MIGRATION_EVENT, payload);
+}
+
+fn collect_workspace_entries(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in fs::read_dir(path)
+        .map_err(|err| format!("读取目录失败 ({}): {err}", path.display()))?
+    {
+        let entry = entry.map_err(|err| format!("读取目录项失败 ({}): {err}", path.display()))?;
+        let child = entry.path();
+        out.push(child.clone());
+        if child.is_dir() {
+            collect_workspace_entries(&child, out)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_workspace_entry_recursive(
+    from: &Path,
+    to: &Path,
+    app: &AppHandle,
+    task_id: &str,
+    processed: &mut usize,
+    total: usize,
+) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(from)
+        .map_err(|err| format!("读取路径信息失败 ({}): {err}", from.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!("暂不支持迁移符号链接：{}", from.display()));
+    }
+    if metadata.is_dir() {
+        if to.exists() && !to.is_dir() {
+            return Err(format!("迁移失败，目标路径已存在同名文件：{}", to.display()));
+        }
+        fs::create_dir_all(to)
+            .map_err(|err| format!("创建目录失败 ({}): {err}", to.display()))?;
+        *processed += 1;
+        emit_workspace_migration_progress(
+            app,
+            &WorkspaceMigrationProgressPayload {
+                task_id: task_id.to_string(),
+                stage: "copying".to_string(),
+                processed: *processed,
+                total,
+                current_path: Some(to.to_string_lossy().to_string()),
+                message: "正在复制目录".to_string(),
+                done: false,
+                error: None,
+            },
+        );
+        for entry in fs::read_dir(from)
+            .map_err(|err| format!("读取目录失败 ({}): {err}", from.display()))?
+        {
+            let entry = entry.map_err(|err| format!("读取目录项失败 ({}): {err}", from.display()))?;
+            let child_from = entry.path();
+            let child_to = to.join(entry.file_name());
+            copy_workspace_entry_recursive(&child_from, &child_to, app, task_id, processed, total)?;
+        }
+        return Ok(());
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("创建目标目录失败 ({}): {err}", parent.display()))?;
+    }
+    if to.exists() {
+        return Err(format!("迁移失败，目标路径已存在同名文件：{}", to.display()));
+    }
+    fs::copy(from, to).map_err(|err| {
+        format!(
+            "复制文件失败 ({} -> {}): {err}",
+            from.display(),
+            to.display()
+        )
+    })?;
+    let target_meta = fs::metadata(to)
+        .map_err(|err| format!("读取复制后文件失败 ({}): {err}", to.display()))?;
+    if target_meta.len() != metadata.len() {
+        return Err(format!("复制校验失败，文件大小不一致：{}", to.display()));
+    }
+    *processed += 1;
+    emit_workspace_migration_progress(
+        app,
+        &WorkspaceMigrationProgressPayload {
+            task_id: task_id.to_string(),
+            stage: "copying".to_string(),
+            processed: *processed,
+            total,
+            current_path: Some(to.to_string_lossy().to_string()),
+            message: "正在复制文件".to_string(),
+            done: false,
+            error: None,
+        },
+    );
+    Ok(())
+}
+
+fn remove_workspace_entry_recursive(
+    path: &Path,
+    app: &AppHandle,
+    task_id: &str,
+    processed: &mut usize,
+    total: usize,
+) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|err| format!("读取路径信息失败 ({}): {err}", path.display()))?;
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path)
+            .map_err(|err| format!("读取目录失败 ({}): {err}", path.display()))?
+        {
+            let entry = entry.map_err(|err| format!("读取目录项失败 ({}): {err}", path.display()))?;
+            remove_workspace_entry_recursive(&entry.path(), app, task_id, processed, total)?;
+        }
+        fs::remove_dir(path)
+            .map_err(|err| format!("删除目录失败 ({}): {err}", path.display()))?;
+    } else {
+        fs::remove_file(path)
+            .map_err(|err| format!("删除文件失败 ({}): {err}", path.display()))?;
+    }
+    *processed += 1;
+    emit_workspace_migration_progress(
+        app,
+        &WorkspaceMigrationProgressPayload {
+            task_id: task_id.to_string(),
+            stage: "deleting".to_string(),
+            processed: *processed,
+            total,
+            current_path: Some(path.to_string_lossy().to_string()),
+            message: "正在清理旧目录".to_string(),
+            done: false,
+            error: None,
+        },
+    );
+    Ok(())
+}
+
 #[tauri::command]
-fn open_chat_shell_workspace_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let root = terminal_default_session_root_canonical(&state)?;
+fn open_chat_shell_workspace_dir(
+    input: Option<ShellWorkspacePathInput>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let root = resolve_requested_shell_workspace_root(
+        &state,
+        input.as_ref().and_then(|value| value.workspace_path.as_deref()),
+        true,
+    )?;
     open_shell_path_in_file_manager(&root)?;
     Ok(shell_workspace_display_path(&root))
 }
@@ -530,10 +738,18 @@ fn shell_workspace_display_path(path: &Path) -> String {
 }
 
 #[tauri::command]
-fn reset_chat_shell_workspace(state: State<'_, AppState>) -> Result<String, String> {
-    let root = terminal_default_session_root_canonical(&state)?;
-    ensure_workspace_mcp_layout(&state)?;
-    ensure_workspace_skills_layout(&state)?;
+fn reset_chat_shell_workspace(
+    input: Option<ShellWorkspacePathInput>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let root = resolve_requested_shell_workspace_root(
+        &state,
+        input.as_ref().and_then(|value| value.workspace_path.as_deref()),
+        true,
+    )?;
+    ensure_workspace_mcp_layout_at_root(&root)?;
+    ensure_workspace_skills_layout_at_root(&root)?;
+    ensure_workspace_private_organization_layout_at_root(&root)?;
     Ok(shell_workspace_display_path(&root))
 }
 
@@ -541,6 +757,122 @@ fn reset_chat_shell_workspace(state: State<'_, AppState>) -> Result<String, Stri
 fn get_default_chat_shell_workspace_path(state: State<'_, AppState>) -> Result<String, String> {
     let root = terminal_default_session_root_canonical(&state)?;
     Ok(shell_workspace_display_path(&root))
+}
+
+#[tauri::command]
+async fn migrate_shell_workspace_directory(
+    input: MigrateWorkspaceDirectoryInput,
+    app: AppHandle,
+) -> Result<String, String> {
+    let old_root = PathBuf::from(normalize_terminal_path_input_for_current_platform(&input.old_path));
+    let new_root = PathBuf::from(normalize_terminal_path_input_for_current_platform(&input.new_path));
+    if input.old_path.trim().is_empty() || input.new_path.trim().is_empty() {
+        return Err("工作区迁移路径不能为空".to_string());
+    }
+    let task_id = input.task_id.trim().to_string();
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let old_root = old_root
+            .canonicalize()
+            .map_err(|err| format!("解析旧工作区失败 ({}): {err}", old_root.display()))?;
+        let new_root = ensure_workspace_root_ready(&new_root)?;
+        emit_workspace_migration_progress(
+            &app_handle,
+            &WorkspaceMigrationProgressPayload {
+                task_id: task_id.clone(),
+                stage: "scanning".to_string(),
+                processed: 0,
+                total: 0,
+                current_path: Some(old_root.to_string_lossy().to_string()),
+                message: "正在扫描旧工作区".to_string(),
+                done: false,
+                error: None,
+            },
+        );
+        let mut entries = Vec::<PathBuf>::new();
+        collect_workspace_entries(&old_root, &mut entries)?;
+        let total = entries.len();
+        emit_workspace_migration_progress(
+            &app_handle,
+            &WorkspaceMigrationProgressPayload {
+                task_id: task_id.clone(),
+                stage: "copying".to_string(),
+                processed: 0,
+                total,
+                current_path: Some(old_root.to_string_lossy().to_string()),
+                message: "开始复制工作区内容".to_string(),
+                done: false,
+                error: None,
+            },
+        );
+        let mut copy_processed = 0usize;
+        for entry in fs::read_dir(&old_root)
+            .map_err(|err| format!("读取旧工作区失败 ({}): {err}", old_root.display()))?
+        {
+            let entry = entry.map_err(|err| format!("读取旧工作区目录项失败 ({}): {err}", old_root.display()))?;
+            let from = entry.path();
+            let to = new_root.join(entry.file_name());
+            copy_workspace_entry_recursive(&from, &to, &app_handle, &task_id, &mut copy_processed, total)?;
+        }
+        emit_workspace_migration_progress(
+            &app_handle,
+            &WorkspaceMigrationProgressPayload {
+                task_id: task_id.clone(),
+                stage: "deleting".to_string(),
+                processed: 0,
+                total,
+                current_path: Some(old_root.to_string_lossy().to_string()),
+                message: "开始清理旧工作区".to_string(),
+                done: false,
+                error: None,
+            },
+        );
+        let mut delete_processed = 0usize;
+        for entry in fs::read_dir(&old_root)
+            .map_err(|err| format!("读取旧工作区失败 ({}): {err}", old_root.display()))?
+        {
+            let entry = entry.map_err(|err| format!("读取旧工作区目录项失败 ({}): {err}", old_root.display()))?;
+            remove_workspace_entry_recursive(&entry.path(), &app_handle, &task_id, &mut delete_processed, total)?;
+        }
+        runtime_log_info(format!(
+            "[工作区迁移] 完成: old='{}', new='{}', moved_entries={}",
+            old_root.display(),
+            new_root.display(),
+            total
+        ));
+        emit_workspace_migration_progress(
+            &app_handle,
+            &WorkspaceMigrationProgressPayload {
+                task_id: task_id.clone(),
+                stage: "completed".to_string(),
+                processed: total,
+                total,
+                current_path: Some(new_root.to_string_lossy().to_string()),
+                message: "工作区迁移完成".to_string(),
+                done: true,
+                error: None,
+            },
+        );
+        Ok(shell_workspace_display_path(&new_root))
+    })
+    .await
+    .map_err(|err| format!("工作区迁移任务执行失败: {err}"))?
+    .map_err(|err: String| {
+        emit_workspace_migration_progress(
+            &app,
+            &WorkspaceMigrationProgressPayload {
+                task_id: input.task_id.trim().to_string(),
+                stage: "failed".to_string(),
+                processed: 0,
+                total: 0,
+                current_path: None,
+                message: "工作区迁移失败".to_string(),
+                done: true,
+                error: Some(err.clone()),
+            },
+        );
+        err
+    })
 }
 
 #[tauri::command]

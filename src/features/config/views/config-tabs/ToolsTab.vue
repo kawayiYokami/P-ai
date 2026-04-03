@@ -150,6 +150,23 @@
       </div>
       <div v-else class="text-sm opacity-50 text-center py-4">{{ t("config.mcpToolList.empty") }}</div>
     </div>
+    <dialog ref="initializeWorkspaceDialog" class="modal">
+      <div class="modal-box max-w-md p-4">
+        <h3 class="text-sm font-semibold">{{ t("config.tools.initializeWorkspace") }}</h3>
+        <p class="mt-3 text-sm whitespace-pre-wrap">{{ t("config.tools.initializeWorkspaceConfirm") }}</p>
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm btn-ghost" type="button" @click="cancelInitializeWorkspace">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-primary" type="button" @click="confirmInitializeWorkspace">
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click="cancelInitializeWorkspace">close</button>
+      </form>
+    </dialog>
   </template>
   <div v-else class="text-sm opacity-70">{{ t("config.tools.noChatLlmProvider") }}</div>
 </template>
@@ -207,6 +224,8 @@ const shellWorkspaceInitializing = ref(false);
 const shellWorkspacePathResetting = ref(false);
 const shellWorkspaceStatus = ref("");
 const shellWorkspaceStatusError = ref(false);
+const initializeWorkspaceDialog = ref<HTMLDialogElement | null>(null);
+let resolveInitializeWorkspaceConfirm: ((value: boolean) => void) | null = null;
 const terminalShellOptionsLoading = ref(false);
 const terminalShellOptions = ref<TerminalShellCandidate[]>([]);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
@@ -262,7 +281,9 @@ function onTerminalShellKindChange(event: Event) {
 
 async function openShellWorkspaceDir() {
   try {
-    const opened = await invokeTauri<string>("open_chat_shell_workspace_dir");
+    const opened = await invokeTauri<string>("open_chat_shell_workspace_dir", {
+      input: { workspacePath: props.config.shellWorkspaces[0]?.path || "" },
+    });
     setShellWorkspaceStatus(t("config.tools.openDirOpened", { path: opened }));
   } catch (error) {
     setShellWorkspaceStatus(t("config.tools.openDirFailed", { err: toErrorMessage(error) }), true);
@@ -271,16 +292,45 @@ async function openShellWorkspaceDir() {
 
 async function initializeShellWorkspace() {
   if (shellWorkspaceInitializing.value) return;
-  if (!window.confirm(t("config.tools.initializeWorkspaceConfirm"))) return;
+  const confirmed = await requestInitializeWorkspaceConfirm();
+  if (!confirmed) return;
   shellWorkspaceInitializing.value = true;
   try {
-    const root = await invokeTauri<string>("reset_chat_shell_workspace");
+    const root = await invokeTauri<string>("reset_chat_shell_workspace", {
+      input: { workspacePath: props.config.shellWorkspaces[0]?.path || "" },
+    });
     setShellWorkspaceStatus(t("config.tools.initializeWorkspaceDone", { path: root }));
   } catch (error) {
     setShellWorkspaceStatus(t("config.tools.initializeWorkspaceFailed", { err: toErrorMessage(error) }), true);
   } finally {
     shellWorkspaceInitializing.value = false;
   }
+}
+
+function requestInitializeWorkspaceConfirm(): Promise<boolean> {
+  const dialog = initializeWorkspaceDialog.value;
+  if (!dialog) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    resolveInitializeWorkspaceConfirm = resolve;
+    dialog.showModal();
+  });
+}
+
+function finishInitializeWorkspaceConfirm(value: boolean) {
+  const dialog = initializeWorkspaceDialog.value;
+  if (dialog?.open) {
+    dialog.close();
+  }
+  resolveInitializeWorkspaceConfirm?.(value);
+  resolveInitializeWorkspaceConfirm = null;
+}
+
+function confirmInitializeWorkspace() {
+  finishInitializeWorkspaceConfirm(true);
+}
+
+function cancelInitializeWorkspace() {
+  finishInitializeWorkspaceConfirm(false);
 }
 
 async function resetShellWorkspacePath() {

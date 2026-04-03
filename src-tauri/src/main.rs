@@ -600,6 +600,7 @@ fn main() {
             list_terminal_shell_candidates,
             open_chat_shell_workspace_dir,
             reset_chat_shell_workspace,
+            migrate_shell_workspace_directory,
             get_default_chat_shell_workspace_path,
             get_chat_shell_workspace,
             task_list_tasks,

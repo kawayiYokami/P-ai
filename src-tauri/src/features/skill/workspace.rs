@@ -1,7 +1,11 @@
 use super::*;
 
-fn llm_workspace_skills_root(state: &AppState) -> PathBuf {
-    state.llm_workspace_path.join("skills")
+fn llm_workspace_skills_root_at(workspace_root: &Path) -> PathBuf {
+    workspace_root.join("skills")
+}
+
+fn llm_workspace_skills_root(state: &AppState) -> Result<PathBuf, String> {
+    Ok(llm_workspace_skills_root_at(&configured_workspace_root_path(state)?))
 }
 
 fn sync_skill_template_file(path: &PathBuf, content: &str) -> Result<(), String> {
@@ -23,7 +27,12 @@ fn sync_workspace_preset_skill(
 }
 
 pub(crate) fn ensure_workspace_skills_layout(state: &AppState) -> Result<(), String> {
-    let skills_root = llm_workspace_skills_root(state);
+    let workspace_root = ensure_workspace_root_ready(&configured_workspace_root_path(state)?)?;
+    ensure_workspace_skills_layout_at_root(&workspace_root)
+}
+
+pub(crate) fn ensure_workspace_skills_layout_at_root(workspace_root: &Path) -> Result<(), String> {
+    let skills_root = llm_workspace_skills_root_at(&workspace_root);
     fs::create_dir_all(&skills_root)
         .map_err(|err| format!("Create skills dir failed ({}): {err}", skills_root.display()))?;
 
@@ -142,7 +151,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
     ensure_workspace_skills_layout(state)?;
     let mut skills = Vec::<SkillSummaryItem>::new();
     let mut errors = Vec::<WorkspaceLoadError>::new();
-    let skills_dir = llm_workspace_skills_root(state);
+    let skills_dir = llm_workspace_skills_root(state)?;
     let mut dirs = fs::read_dir(&skills_dir)
         .map_err(|err| format!("Read skills dir failed ({}): {err}", skills_dir.display()))?
         .filter_map(|entry| entry.ok().map(|v| v.path()))
@@ -197,7 +206,8 @@ fn render_hidden_skill_snapshot_block(
     skills: &[SkillSummaryItem],
     scan_error: Option<&str>,
 ) -> String {
-    let skills_root_path = llm_workspace_skills_root(state);
+    let skills_root_path = llm_workspace_skills_root(state)
+        .unwrap_or_else(|_| state.llm_workspace_path.join("skills"));
     let skills_root = skills_root_path.to_string_lossy();
     if let Some(err) = scan_error {
         return prompt_xml_block(
@@ -302,7 +312,7 @@ pub(crate) fn refresh_workspace_mcp_and_skills(state: &AppState) -> Result<Refre
 
 pub(crate) fn open_skills_workspace_dir(state: &AppState) -> Result<String, String> {
     ensure_workspace_skills_layout(state)?;
-    let path = llm_workspace_skills_root(state);
+    let path = llm_workspace_skills_root(state)?;
     open_path_in_file_manager(&path)?;
     Ok(path.to_string_lossy().to_string())
 }
