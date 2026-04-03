@@ -161,6 +161,23 @@
         </div>
       </div>
     </div>
+    <dialog ref="confirmDialog" class="modal">
+      <div class="modal-box max-w-md p-4">
+        <h3 class="text-sm font-semibold">{{ confirmDialogState.title }}</h3>
+        <p class="mt-3 text-sm whitespace-pre-wrap">{{ confirmDialogState.message }}</p>
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm btn-ghost" type="button" @click="closeConfirmDialog(false)">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-error" type="button" @click="closeConfirmDialog(true)">
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button aria-label="close" @click.prevent="closeConfirmDialog(false)">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -215,6 +232,12 @@ const ARCHIVE_FOCUS_REQUEST_TTL_MS = 30_000;
 const archiveImageDataUrlCache = new Map<string, string>();
 const archiveImagePendingCache = new Map<string, Promise<string>>();
 const archiveResolvedImageMap = ref<Record<string, string>>({});
+const confirmDialog = ref<HTMLDialogElement | null>(null);
+const confirmDialogState = ref({
+  title: "",
+  message: "",
+});
+let resolveConfirmDialog: ((value: boolean) => void) | null = null;
 
 const visibleMessages = computed(() =>
   viewMode.value === "current"
@@ -330,22 +353,47 @@ function onArchiveImportChange(event: Event) {
   emit("importArchiveFile", file);
 }
 
-function onDeleteArchiveClick(archiveId: string) {
+async function onDeleteArchiveClick(archiveId: string) {
   if (!archiveId) return;
-  if (!window.confirm(t("archives.deleteConfirm"))) return;
+  const confirmed = await requestConfirmDialog(t("common.delete"), t("archives.deleteConfirm"));
+  if (!confirmed) return;
   emit("deleteArchive", archiveId);
 }
 
-function onDeleteUnarchivedClick(conversationId: string) {
+async function onDeleteUnarchivedClick(conversationId: string) {
   if (!conversationId) return;
-  if (!window.confirm(t("archives.deleteUnarchivedConfirm"))) return;
+  const confirmed = await requestConfirmDialog(t("common.delete"), t("archives.deleteUnarchivedConfirm"));
+  if (!confirmed) return;
   emit("deleteUnarchivedConversation", conversationId);
 }
 
-function onDeleteRemoteImContactClick(contactId: string) {
+async function onDeleteRemoteImContactClick(contactId: string) {
   if (!contactId) return;
-  if (!window.confirm(t("archives.deleteUnarchivedConfirm"))) return;
+  const confirmed = await requestConfirmDialog(t("common.delete"), t("archives.deleteUnarchivedConfirm"));
+  if (!confirmed) return;
   emit("deleteRemoteImContactConversation", contactId);
+}
+
+function requestConfirmDialog(title: string, message: string): Promise<boolean> {
+  const dialog = confirmDialog.value;
+  if (!dialog) return Promise.resolve(false);
+  confirmDialogState.value = {
+    title,
+    message,
+  };
+  return new Promise<boolean>((resolve) => {
+    resolveConfirmDialog = resolve;
+    dialog.showModal();
+  });
+}
+
+function closeConfirmDialog(value: boolean) {
+  const dialog = confirmDialog.value;
+  if (dialog?.open) {
+    dialog.close();
+  }
+  resolveConfirmDialog?.(value);
+  resolveConfirmDialog = null;
 }
 
 function messageText(msg: ChatMessage): string {

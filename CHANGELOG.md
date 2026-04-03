@@ -1,5 +1,11 @@
 # 变更日志
 
+## 更新：清理剩余原生确认框
+
+- 修复（replace-remaining-window-confirm-dialogs）：将归档页与任务页残留的原生 `window.confirm` 全部替换为 DaisyUI 模态框
+  - 归档页删除归档、删除未归档会话、删除联系人消息统一改为页面内确认弹窗
+  - 任务页放弃未保存修改、删除任务改为页面内确认弹窗，避免继续弹出浏览器原生确认框
+
 ## 更新：工作目录迁移支持三选一保存与全链路生效
 
 - 修复（workspace-migration-and-effective-root-fixes）：补齐工作目录修改、迁移确认、初始化与真实运行根目录之间的断裂
