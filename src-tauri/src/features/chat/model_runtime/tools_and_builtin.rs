@@ -1,5 +1,5 @@
 // ==================== tools_and_builtin 模块导图 ====================
-// 1) core_provider: provider rig 调用与通用错误/工具开关
+// 1) core_provider: provider 调用与通用错误/工具开关
 // 2) builtin_*: 内置工具业务实现（网络/记忆/上下文/task/delegate/remote_im）
 // 3) tool_arg_types: 各工具参数类型与反序列化辅助
 // 4) tool_impls: Builtin*Tool 的 Tool trait 封装层

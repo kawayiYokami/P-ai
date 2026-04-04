@@ -5,6 +5,162 @@ struct CachedMcpClient {
     client: DynamicMcpClient,
 }
 
+#[derive(Clone)]
+struct McpRuntimeTool {
+    definition: rmcp::model::Tool,
+    client: rmcp::service::Peer<rmcp::RoleClient>,
+}
+
+fn provider_tool_definition_from_mcp(definition: &rmcp::model::Tool) -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        definition.name.to_string(),
+        definition
+            .description
+            .clone()
+            .unwrap_or_default()
+            .to_string(),
+        definition.schema_as_json_value(),
+    )
+}
+
+fn provider_tool_result_from_mcp_call(
+    tool_name: &str,
+    result: rmcp::model::CallToolResult,
+) -> ProviderToolResult {
+    let mut parts = Vec::<ProviderToolResultPart>::new();
+    let mut display_lines = Vec::<String>::new();
+
+    if let Some(structured) = result.structured_content.as_ref() {
+        display_lines.push(structured.to_string());
+    }
+
+    for content in result.content {
+        match content.raw {
+            rmcp::model::RawContent::Text(raw) => {
+                if !raw.text.trim().is_empty() {
+                    display_lines.push(raw.text.clone());
+                }
+                parts.push(ProviderToolResultPart::Text { text: raw.text });
+            }
+            rmcp::model::RawContent::Image(raw) => {
+                display_lines.push(format!("[image:{}]", raw.mime_type));
+                parts.push(ProviderToolResultPart::Image {
+                    mime: raw.mime_type,
+                    data_base64: raw.data,
+                });
+            }
+            rmcp::model::RawContent::Audio(raw) => {
+                display_lines.push(format!("[audio:{}]", raw.mime_type));
+                parts.push(ProviderToolResultPart::Audio {
+                    mime: raw.mime_type,
+                    data_base64: raw.data,
+                });
+            }
+            rmcp::model::RawContent::Resource(raw) => match raw.resource {
+                rmcp::model::ResourceContents::TextResourceContents {
+                    uri,
+                    mime_type,
+                    text,
+                    ..
+                } => {
+                    if !text.trim().is_empty() {
+                        display_lines.push(text.clone());
+                    } else {
+                        display_lines.push(format!("[resource:{uri}]"));
+                    }
+                    parts.push(ProviderToolResultPart::Resource {
+                        mime: mime_type,
+                        uri: Some(uri),
+                        text,
+                    });
+                }
+                rmcp::model::ResourceContents::BlobResourceContents {
+                    uri,
+                    mime_type,
+                    blob,
+                    ..
+                } => {
+                    display_lines.push(format!("[resource:{uri}]"));
+                    parts.push(ProviderToolResultPart::Resource {
+                        mime: mime_type,
+                        uri: Some(uri),
+                        text: blob,
+                    });
+                }
+            },
+            rmcp::model::RawContent::ResourceLink(raw) => {
+                let text = raw
+                    .description
+                    .clone()
+                    .or(raw.title.clone())
+                    .unwrap_or_else(|| raw.name.clone());
+                if !text.trim().is_empty() {
+                    display_lines.push(text.clone());
+                } else {
+                    display_lines.push(format!("[resource_link:{}]", raw.uri));
+                }
+                parts.push(ProviderToolResultPart::Resource {
+                    mime: raw.mime_type,
+                    uri: Some(raw.uri),
+                    text,
+                });
+            }
+        }
+    }
+
+    let display_text = if display_lines.is_empty() {
+        format!("工具 `{tool_name}` 返回空结果。")
+    } else {
+        display_lines.join("\n")
+    };
+
+    ProviderToolResult {
+        display_text,
+        parts,
+        is_error: result.is_error.unwrap_or(false),
+    }
+}
+
+impl RuntimeToolDyn for McpRuntimeTool {
+    fn name(&self) -> String {
+        self.definition.name.to_string()
+    }
+
+    fn definition(&self) -> RuntimeToolDefFuture<'_> {
+        Box::pin(async move { provider_tool_definition_from_mcp(&self.definition) })
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        let name = self.definition.name.clone();
+        Box::pin(async move {
+            let arguments = if args_json.trim().is_empty() {
+                serde_json::Map::new()
+            } else {
+                serde_json::from_str::<serde_json::Map<String, Value>>(&args_json)
+                    .map_err(|err| format!("Parse MCP tool args failed: {err}"))?
+            };
+            let result = self
+                .client
+                .call_tool(rmcp::model::CallToolRequestParams {
+                    name: name.clone(),
+                    arguments: Some(arguments),
+                    meta: None,
+                    task: None,
+                })
+                .await
+                .map_err(|err| format!("Call MCP tool '{}' failed: {err}", name.as_ref()))?;
+            Ok(provider_tool_result_from_mcp_call(name.as_ref(), result))
+        })
+    }
+}
+
+fn boxed_mcp_runtime_tool(
+    definition: rmcp::model::Tool,
+    client: rmcp::service::Peer<rmcp::RoleClient>,
+) -> Box<dyn RuntimeToolDyn> {
+    Box::new(McpRuntimeTool { definition, client })
+}
+
 fn mcp_client_cache(
 ) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, CachedMcpClient>> {
     static CACHE: OnceLock<
@@ -228,7 +384,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         message: rmcp::model::ClientJsonRpcMessage,
         session_id: Option<std::sync::Arc<str>>,
         auth_header: Option<String>,
-        _headers: std::collections::HashMap<tauri::http::HeaderName, rig::http_client::HeaderValue>,
+        _headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
     ) -> Result<
         rmcp::transport::streamable_http_client::StreamableHttpPostResponse,
         rmcp::transport::streamable_http_client::StreamableHttpError<Self::Error>,
@@ -607,7 +763,7 @@ struct McpRuntimeAttachOutcome {
 }
 
 async fn attach_enabled_mcp_tools_for_runtime(
-    tools: &mut Vec<Box<dyn ToolDyn>>,
+    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
     app_state: Option<&AppState>,
 ) -> Result<McpRuntimeAttachOutcome, String> {
     let Some(state) = app_state else {
@@ -651,10 +807,7 @@ async fn attach_enabled_mcp_tools_for_runtime(
             if !mcp_tool_allowed_by_definition(server, &tool_name) {
                 continue;
             }
-            tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
-                def,
-                peer.clone(),
-            )));
+            tools.push(boxed_mcp_runtime_tool(def, peer.clone()));
             outcome
                 .attached_tool_names
                 .push(format!("{}::{}", server.name, tool_name));

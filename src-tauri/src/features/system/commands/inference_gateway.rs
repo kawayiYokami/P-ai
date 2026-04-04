@@ -115,22 +115,18 @@ fn request_format_supports_non_stream_fallback(format: RequestFormat) -> bool {
     matches!(format, RequestFormat::OpenAI)
 }
 
-async fn invoke_model_rig_by_format(
+async fn invoke_model_by_format(
     resolved_api: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
     match resolved_api.request_format {
-        RequestFormat::OpenAI => {
-            call_model_openai_rig_style(resolved_api, model_name, prepared).await
-        }
+        RequestFormat::OpenAI => call_model_openai_stream(resolved_api, model_name, prepared).await,
         RequestFormat::OpenAIResponses => {
-            call_model_openai_responses_rig_style(resolved_api, model_name, prepared, None).await
+            call_model_openai_responses(resolved_api, model_name, prepared, None).await
         }
-        RequestFormat::Gemini => call_model_gemini_rig_style(resolved_api, model_name, prepared).await,
-        RequestFormat::Anthropic => {
-            call_model_anthropic_rig_style(resolved_api, model_name, prepared).await
-        }
+        RequestFormat::Gemini => call_model_gemini(resolved_api, model_name, prepared).await,
+        RequestFormat::Anthropic => call_model_anthropic(resolved_api, model_name, prepared).await,
         RequestFormat::OpenAITts
         | RequestFormat::OpenAIStt
         | RequestFormat::GeminiEmbedding
@@ -148,14 +144,12 @@ async fn invoke_model_non_stream_by_format(
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
     match resolved_api.request_format {
-        RequestFormat::OpenAI => {
-            call_model_openai_non_stream_rig_style(resolved_api, model_name, prepared).await
-        }
-        _ => invoke_model_rig_by_format(resolved_api, model_name, prepared).await,
+        RequestFormat::OpenAI => call_model_openai_non_stream(resolved_api, model_name, prepared).await,
+        _ => invoke_model_by_format(resolved_api, model_name, prepared).await,
     }
 }
 
-async fn invoke_model_rig_by_format_with_timeout(
+async fn invoke_model_by_format_with_timeout(
     resolved_api: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
@@ -165,7 +159,7 @@ async fn invoke_model_rig_by_format_with_timeout(
     let call_started = std::time::Instant::now();
     tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        invoke_model_rig_by_format(resolved_api, model_name, prepared),
+        invoke_model_by_format(resolved_api, model_name, prepared),
     )
     .await
     .map_err(|_| {
@@ -244,7 +238,7 @@ async fn invoke_model_with_policy(
         }
     } else {
         if let Some(timeout_secs) = policy.timeout_secs {
-            invoke_model_rig_by_format_with_timeout(
+            invoke_model_by_format_with_timeout(
                 resolved_api,
                 model_name,
                 prepared.clone(),
@@ -253,7 +247,7 @@ async fn invoke_model_with_policy(
             )
             .await
         } else {
-            invoke_model_rig_by_format(resolved_api, model_name, prepared.clone()).await
+            invoke_model_by_format(resolved_api, model_name, prepared.clone()).await
         }
     };
     let result = match first_result {
@@ -285,7 +279,7 @@ async fn invoke_model_with_policy(
                     resolved_api.max_output_tokens,
                 );
                 if let Some(timeout_secs) = policy.timeout_secs {
-                    invoke_model_rig_by_format_with_timeout(
+                    invoke_model_by_format_with_timeout(
                         resolved_api,
                         model_name,
                         fallback,
@@ -294,7 +288,7 @@ async fn invoke_model_with_policy(
                     )
                     .await
                 } else {
-                    invoke_model_rig_by_format(resolved_api, model_name, fallback).await
+                    invoke_model_by_format(resolved_api, model_name, fallback).await
                 }
             }
         }
@@ -393,7 +387,7 @@ mod inference_gateway_tests {
     #[test]
     fn streaming_error_detector_should_match_known_patterns() {
         assert!(is_streaming_format_error(
-            "rig streaming failed: ResponseError: Failed to parse JSON: missing field `role`"
+            "streaming failed: ResponseError: Failed to parse JSON: missing field `role`"
         ));
         assert!(is_streaming_format_error(
             "streaming failed: message_start unexpected"

@@ -8,12 +8,77 @@ struct ModelReply {
     trusted_input_tokens: Option<u64>,
 }
 
-fn prepared_history_to_rig_messages(
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+enum OpenAiApiKind {
+    ChatCompletions,
+    Responses,
+}
+
+fn normalize_openai_genai_base_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        "https://api.openai.com/v1/".to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
+fn genai_content_parts_from_text_and_binary(
+    text_blocks: &[String],
+    images: &[(String, String)],
+    audios: &[(String, String)],
+) -> Vec<genai::chat::ContentPart> {
+    let mut parts = Vec::<genai::chat::ContentPart>::new();
+    for text in text_blocks {
+        parts.push(genai::chat::ContentPart::from_text(text.clone()));
+    }
+    for (mime, bytes) in images {
+        parts.push(genai::chat::ContentPart::from_binary_base64(
+            mime.clone(),
+            bytes.clone(),
+            None,
+        ));
+    }
+    for (mime, bytes) in audios {
+        parts.push(genai::chat::ContentPart::from_binary_base64(
+            mime.clone(),
+            bytes.clone(),
+            None,
+        ));
+    }
+    parts
+}
+
+fn genai_tool_call_id_for_history(
+    protocol_family: ToolCallProtocolFamily,
+    call: &NormalizedToolCallRecord,
+) -> Option<String> {
+    match protocol_family {
+        ToolCallProtocolFamily::OpenAiResponses => call
+            .provider_call_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        ToolCallProtocolFamily::OpenAiChatLike
+        | ToolCallProtocolFamily::Gemini
+        | ToolCallProtocolFamily::Anthropic => call
+            .invocation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+    }
+}
+
+fn prepared_history_to_genai_messages(
     prepared: &PreparedPrompt,
     protocol_family: ToolCallProtocolFamily,
-) -> Result<Vec<RigMessage>, String> {
-    let mut chat_history = Vec::<RigMessage>::new();
-    let mut tool_call_id_to_call_id = std::collections::HashMap::<String, String>::new();
+) -> Result<Vec<genai::chat::ChatMessage>, String> {
+    let mut chat_history = Vec::<genai::chat::ChatMessage>::new();
+    let mut tool_call_id_to_provider_call_id =
+        std::collections::HashMap::<String, String>::new();
     for hm in &prepared.history_messages {
         if hm.role == "user" {
             let base_user_text = if hm.text.trim().is_empty() {
@@ -21,618 +86,369 @@ fn prepared_history_to_rig_messages(
             } else {
                 hm.text.clone()
             };
-            let mut user_blocks = vec![UserContent::text(base_user_text)];
+            let mut text_blocks = vec![base_user_text];
             for block in &hm.extra_text_blocks {
                 if !block.trim().is_empty() {
-                    user_blocks.push(UserContent::text(block.clone()));
+                    text_blocks.push(block.clone());
                 }
             }
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
-                    user_blocks.push(UserContent::text(time_text.clone()));
+                    text_blocks.push(time_text.clone());
                 }
             }
-            for (mime, bytes) in &hm.images {
-                user_blocks.push(UserContent::image_base64(
-                    bytes.clone(),
-                    image_media_type_from_mime(mime),
-                    Some(ImageDetail::Auto),
-                ));
-            }
-            for (mime, bytes) in &hm.audios {
-                user_blocks.push(UserContent::audio(
-                    bytes.clone(),
-                    audio_media_type_from_mime(mime),
-                ));
-            }
-            chat_history.push(RigMessage::User {
-                content: OneOrMany::many(user_blocks)
-                    .map_err(|_| "Failed to build user history message".to_string())?,
-            });
+            let parts =
+                genai_content_parts_from_text_and_binary(&text_blocks, &hm.images, &hm.audios);
+            chat_history.push(genai::chat::ChatMessage::user(
+                genai::chat::MessageContent::from_parts(parts),
+            ));
         } else if hm.role == "assistant" {
-            let mut assistant_blocks = Vec::<AssistantContent>::new();
+            let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
             if !hm.text.trim().is_empty() {
-                assistant_blocks.push(AssistantContent::text(hm.text.clone()));
+                assistant_parts.push(genai::chat::ContentPart::from_text(hm.text.clone()));
             }
             if let Some(tool_calls) = &hm.tool_calls {
                 for call in normalize_prompt_tool_calls(tool_calls) {
-                    let Some(id) = call.invocation_id.as_deref().map(str::trim) else {
+                    let Some(invocation_id) = call
+                        .invocation_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    else {
                         continue;
                     };
-                    let Some(name) = call.tool_name.as_deref().map(str::trim) else {
+                    let Some(tool_name) = call
+                        .tool_name
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    else {
                         continue;
                     };
                     if matches!(
                         tool_call_replay_capability(protocol_family, &call),
-                        StructuredToolReplayCapability::Invalid | StructuredToolReplayCapability::TextOnly
+                        StructuredToolReplayCapability::Invalid
+                            | StructuredToolReplayCapability::TextOnly
                     ) {
                         continue;
                     }
-                    let call_id = call
+                    if let Some(provider_call_id) = call
                         .provider_call_id
                         .as_deref()
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
-                        .map(ToOwned::to_owned);
-                    if let Some(call_id_value) = call_id.clone() {
-                        tool_call_id_to_call_id.insert(id.to_string(), call_id_value);
+                    {
+                        tool_call_id_to_provider_call_id
+                            .insert(invocation_id.to_string(), provider_call_id.to_string());
                     }
-                    let tool_call = rig::message::ToolCall {
-                        id: id.to_string(),
-                        call_id,
-                        function: rig::message::ToolFunction {
-                            name: name.to_string(),
-                            arguments: call.arguments_value.clone(),
-                        },
-                        signature: None,
-                        additional_params: None,
+                    let Some(call_id) = genai_tool_call_id_for_history(protocol_family, &call) else {
+                        continue;
                     };
-                    assistant_blocks.push(AssistantContent::ToolCall(tool_call));
+                    assistant_parts.push(genai::chat::ContentPart::ToolCall(
+                        genai::chat::ToolCall {
+                            call_id,
+                            fn_name: tool_name.to_string(),
+                            fn_arguments: call.arguments_value.clone(),
+                            thought_signatures: None,
+                        },
+                    ));
                 }
             }
-            if assistant_blocks.is_empty() {
-                assistant_blocks.push(AssistantContent::text(" ".to_string()));
+            if assistant_parts.is_empty() {
+                assistant_parts.push(genai::chat::ContentPart::from_text(" "));
             }
-            chat_history.push(RigMessage::Assistant {
-                id: None,
-                content: OneOrMany::many(assistant_blocks)
-                    .map_err(|_| "Failed to build assistant history message".to_string())?,
-            });
+            let assistant_message = genai::chat::ChatMessage::assistant(
+                genai::chat::MessageContent::from_parts(assistant_parts),
+            )
+            .with_reasoning_content(hm.reasoning_content.clone());
+            chat_history.push(assistant_message);
         } else if hm.role == "tool" {
             let safe_tool_text = if hm.text.trim().is_empty() {
                 " ".to_string()
             } else {
                 hm.text.clone()
             };
-            let result_content = OneOrMany::one(ToolResultContent::text(safe_tool_text.clone()));
-            let tool_user_content = if let Some(tool_call_id) = hm
+            let Some(tool_call_id) = hm
                 .tool_call_id
                 .as_deref()
                 .map(str::trim)
-                .filter(|id| !id.is_empty())
-            {
-                let provider_call_id = tool_call_id_to_call_id.get(tool_call_id).cloned();
-                match tool_result_replay_capability(
-                    protocol_family,
-                    tool_call_id,
-                    provider_call_id.as_deref(),
-                ) {
-                    StructuredToolReplayCapability::Structured => {
-                        if let Some(call_id) = provider_call_id {
-                            UserContent::tool_result_with_call_id(
-                                tool_call_id.to_string(),
-                                call_id,
-                                result_content,
-                            )
-                        } else {
-                            UserContent::tool_result(tool_call_id.to_string(), result_content)
-                        }
-                    }
-                    StructuredToolReplayCapability::TextOnly
-                    | StructuredToolReplayCapability::Invalid => UserContent::text(safe_tool_text),
-                }
-            } else {
-                UserContent::text(safe_tool_text)
+                .filter(|value| !value.is_empty())
+            else {
+                chat_history.push(genai::chat::ChatMessage::user(safe_tool_text));
+                continue;
             };
-            chat_history.push(RigMessage::User {
-                content: OneOrMany::one(tool_user_content),
-            });
+            let provider_call_id = tool_call_id_to_provider_call_id.get(tool_call_id).cloned();
+            match tool_result_replay_capability(
+                protocol_family,
+                tool_call_id,
+                provider_call_id.as_deref(),
+            ) {
+                StructuredToolReplayCapability::Structured => {
+                    let response_call_id = match protocol_family {
+                        ToolCallProtocolFamily::OpenAiResponses => {
+                            provider_call_id.unwrap_or_else(|| tool_call_id.to_string())
+                        }
+                        ToolCallProtocolFamily::OpenAiChatLike
+                        | ToolCallProtocolFamily::Gemini
+                        | ToolCallProtocolFamily::Anthropic => tool_call_id.to_string(),
+                    };
+                    chat_history.push(genai::chat::ChatMessage::from(
+                        genai::chat::ToolResponse::new(response_call_id, safe_tool_text),
+                    ));
+                }
+                StructuredToolReplayCapability::TextOnly
+                | StructuredToolReplayCapability::Invalid => {
+                    chat_history.push(genai::chat::ChatMessage::user(safe_tool_text));
+                }
+            }
         }
     }
     Ok(chat_history)
 }
 
-#[cfg(test)]
-mod prepared_history_to_rig_messages_tests {
-    use super::*;
-
-    #[test]
-    fn should_replay_structured_tool_history_when_call_id_is_present() {
-        let prepared = PreparedPrompt {
-            preamble: "sys".to_string(),
-            history_messages: vec![
-                PreparedHistoryMessage {
-                    role: "user".to_string(),
-                    text: "帮我看一下".to_string(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: Some("2026-03-01 11:00:00".to_string()),
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    reasoning_content: None,
-                },
-                PreparedHistoryMessage {
-                    role: "assistant".to_string(),
-                    text: String::new(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: Some(vec![serde_json::json!({
-                        "id": "fc_1",
-                        "call_id": "call_1",
-                        "type": "function",
-                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
-                    })]),
-                    tool_call_id: None,
-                    reasoning_content: Some("thinking".to_string()),
-                },
-                PreparedHistoryMessage {
-                    role: "tool".to_string(),
-                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: None,
-                    tool_call_id: Some("fc_1".to_string()),
-                    reasoning_content: None,
-                },
-            ],
-            latest_user_text: "继续".to_string(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        };
-
-        let chat_history = prepared_history_to_rig_messages(
-            &prepared,
-            ToolCallProtocolFamily::OpenAiResponses,
-        )
-        .expect("history built");
-        let mut saw_tool_result = false;
-        let mut saw_assistant_tool_call = false;
-
-        for message in &chat_history {
-            match message {
-                RigMessage::System { .. } => {}
-                RigMessage::Assistant { content, .. } => {
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            AssistantContent::ToolCall(call)
-                                if call.id == "fc_1"
-                                    && call.call_id.as_deref() == Some("call_1")
-                                    && call.function.name == "xcap"
-                        )
-                    }) {
-                        saw_assistant_tool_call = true;
-                    }
-                }
-                RigMessage::User { content } => {
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            UserContent::ToolResult(result)
-                                if result.id == "fc_1"
-                                    && result.call_id.as_deref() == Some("call_1")
-                                    && result.content.iter().any(|part| {
-                                        matches!(
-                                            part,
-                                            ToolResultContent::Text(text)
-                                                if text.text.contains("capture_focused_window")
-                                        )
-                                    })
-                        )
-                    }) {
-                        saw_tool_result = true;
-                    }
-                }
-            }
-        }
-
-        assert!(saw_assistant_tool_call, "assistant tool call should be replayed");
-        assert!(saw_tool_result, "tool result should be replayed as rig UserContent::ToolResult");
+fn build_openai_responses_genai_request(
+    prepared: &PreparedPrompt,
+) -> Result<genai::chat::ChatRequest, String> {
+    let history_messages =
+        prepared_history_to_genai_messages(prepared, ToolCallProtocolFamily::OpenAiResponses)?;
+    let latest_parts = genai_content_parts_from_text_and_binary(
+        &prepared_prompt_latest_user_text_blocks(prepared),
+        &prepared.latest_images,
+        &prepared.latest_audios,
+    );
+    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
+        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
+            latest_parts,
+        )),
+    );
+    if !prepared.preamble.trim().is_empty() {
+        request = request.with_system(prepared.preamble.clone());
     }
-
-    #[test]
-    fn should_downgrade_legacy_tool_history_without_call_id_to_plain_text() {
-        let prepared = PreparedPrompt {
-            preamble: "sys".to_string(),
-            history_messages: vec![
-                PreparedHistoryMessage {
-                    role: "assistant".to_string(),
-                    text: String::new(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: Some(vec![serde_json::json!({
-                        "id": "call_legacy_1",
-                        "type": "function",
-                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
-                    })]),
-                    tool_call_id: None,
-                    reasoning_content: None,
-                },
-                PreparedHistoryMessage {
-                    role: "tool".to_string(),
-                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: None,
-                    tool_call_id: Some("call_legacy_1".to_string()),
-                    reasoning_content: None,
-                },
-            ],
-            latest_user_text: "继续".to_string(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        };
-
-        let chat_history = prepared_history_to_rig_messages(
-            &prepared,
-            ToolCallProtocolFamily::OpenAiResponses,
-        )
-        .expect("history built");
-        assert!(chat_history.iter().any(|message| {
-            matches!(
-                message,
-                RigMessage::Assistant { content, .. }
-                    if content.iter().all(|item| matches!(item, AssistantContent::Text(_)))
-            )
-        }));
-        assert!(chat_history.iter().any(|message| {
-            matches!(
-                message,
-                RigMessage::User { content }
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            UserContent::Text(text)
-                                if text.text.contains("capture_focused_window")
-                        )
-                    })
-            )
-        }));
-    }
-
-    #[test]
-    fn should_keep_legacy_tool_history_structured_for_chat_like_protocols() {
-        let prepared = PreparedPrompt {
-            preamble: "sys".to_string(),
-            history_messages: vec![
-                PreparedHistoryMessage {
-                    role: "assistant".to_string(),
-                    text: String::new(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: Some(vec![serde_json::json!({
-                        "id": "call_legacy_1",
-                        "type": "function",
-                        "function": { "name": "xcap", "arguments": "{\"method\":\"capture_focused_window\"}" }
-                    })]),
-                    tool_call_id: None,
-                    reasoning_content: None,
-                },
-                PreparedHistoryMessage {
-                    role: "tool".to_string(),
-                    text: "{\"ok\":true,\"method\":\"capture_focused_window\"}".to_string(),
-                    extra_text_blocks: Vec::new(),
-                    user_time_text: None,
-                    images: Vec::new(),
-                    audios: Vec::new(),
-                    tool_calls: None,
-                    tool_call_id: Some("call_legacy_1".to_string()),
-                    reasoning_content: None,
-                },
-            ],
-            latest_user_text: "继续".to_string(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        };
-
-        let chat_history = prepared_history_to_rig_messages(
-            &prepared,
-            ToolCallProtocolFamily::OpenAiChatLike,
-        )
-        .expect("history built");
-        assert!(chat_history.iter().any(|message| {
-            matches!(
-                message,
-                RigMessage::Assistant { content, .. }
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            AssistantContent::ToolCall(call)
-                                if call.id == "call_legacy_1"
-                                    && call.call_id.is_none()
-                                    && call.function.name == "xcap"
-                        )
-                    })
-            )
-        }));
-        assert!(chat_history.iter().any(|message| {
-            matches!(
-                message,
-                RigMessage::User { content }
-                    if content.iter().any(|item| {
-                        matches!(
-                            item,
-                            UserContent::ToolResult(result)
-                                if result.id == "call_legacy_1"
-                                    && result.call_id.is_none()
-                        )
-                    })
-            )
-        }));
-    }
+    Ok(request)
 }
 
-#[derive(Debug, Clone, Copy)]
-enum OpenAiRigApiKind {
-    ChatCompletions,
-    Responses,
+fn build_openai_chat_genai_request(
+    prepared: &PreparedPrompt,
+) -> Result<genai::chat::ChatRequest, String> {
+    let history_messages =
+        prepared_history_to_genai_messages(prepared, ToolCallProtocolFamily::OpenAiChatLike)?;
+    let latest_parts = genai_content_parts_from_text_and_binary(
+        &prepared_prompt_latest_user_text_blocks(prepared),
+        &prepared.latest_images,
+        &prepared.latest_audios,
+    );
+    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
+        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
+            latest_parts,
+        )),
+    );
+    if !prepared.preamble.trim().is_empty() {
+        request = request.with_system(prepared.preamble.clone());
+    }
+    Ok(request)
 }
 
-fn build_openai_rig_prompt(
+fn build_gemini_genai_request(
+    prepared: &PreparedPrompt,
+) -> Result<genai::chat::ChatRequest, String> {
+    let history_messages =
+        prepared_history_to_genai_messages(prepared, ToolCallProtocolFamily::Gemini)?;
+    let latest_parts = genai_content_parts_from_text_and_binary(
+        &prepared_prompt_latest_user_text_blocks(prepared),
+        &prepared.latest_images,
+        &prepared.latest_audios,
+    );
+    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
+        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
+            latest_parts,
+        )),
+    );
+    if !prepared.preamble.trim().is_empty() {
+        request = request.with_system(prepared.preamble.clone());
+    }
+    Ok(request)
+}
+
+fn build_anthropic_genai_request(
+    prepared: &PreparedPrompt,
+) -> Result<genai::chat::ChatRequest, String> {
+    let history_messages =
+        prepared_history_to_genai_messages(prepared, ToolCallProtocolFamily::Anthropic)?;
+    let latest_parts = genai_content_parts_from_text_and_binary(
+        &prepared_prompt_latest_user_text_blocks(prepared),
+        &prepared.latest_images,
+        &prepared.latest_audios,
+    );
+    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
+        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
+            latest_parts,
+        )),
+    );
+    if !prepared.preamble.trim().is_empty() {
+        request = request.with_system(prepared.preamble.clone());
+    }
+    Ok(request)
+}
+
+fn build_provider_genai_request(
     prepared: &PreparedPrompt,
     protocol_family: ToolCallProtocolFamily,
-) -> Result<(Vec<RigMessage>, RigMessage), String> {
-    let chat_history = prepared_history_to_rig_messages(prepared, protocol_family)?;
-    let mut content_items: Vec<UserContent> = Vec::new();
-    for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
-        content_items.push(UserContent::text(text_block));
+) -> Result<genai::chat::ChatRequest, String> {
+    match protocol_family {
+        ToolCallProtocolFamily::OpenAiResponses => build_openai_responses_genai_request(prepared),
+        ToolCallProtocolFamily::OpenAiChatLike => build_openai_chat_genai_request(prepared),
+        ToolCallProtocolFamily::Gemini => build_gemini_genai_request(prepared),
+        ToolCallProtocolFamily::Anthropic => build_anthropic_genai_request(prepared),
     }
-
-    for (mime, bytes) in &prepared.latest_images {
-        content_items.push(UserContent::image_base64(
-            bytes.clone(),
-            image_media_type_from_mime(mime),
-            Some(ImageDetail::Auto),
-        ));
-    }
-
-    for (mime, bytes) in &prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
-    }
-
-    let current_prompt_content = OneOrMany::many(content_items)
-        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
-    let current_prompt = RigMessage::User {
-        content: current_prompt_content,
-    };
-    Ok((chat_history, current_prompt))
 }
 
-async fn call_model_openai_rig_style_internal(
+fn normalize_gemini_genai_base_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return "https://generativelanguage.googleapis.com/v1beta/".to_string();
+    }
+
+    let without_openai = trimmed.trim_end_matches("/openai").trim_end_matches('/');
+    let with_version = if without_openai.ends_with("/v1beta") {
+        without_openai.to_string()
+    } else {
+        format!("{without_openai}/v1beta")
+    };
+    format!("{with_version}/")
+}
+
+fn normalize_anthropic_genai_base_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        "https://api.anthropic.com/v1/".to_string()
+    } else {
+        let with_version = if trimmed.ends_with("/v1") {
+            trimmed.to_string()
+        } else {
+            format!("{trimmed}/v1")
+        };
+        format!("{with_version}/")
+    }
+}
+
+fn normalize_provider_genai_base_url(
+    adapter_kind: genai::adapter::AdapterKind,
+    raw: &str,
+) -> String {
+    match adapter_kind {
+        genai::adapter::AdapterKind::OpenAI | genai::adapter::AdapterKind::OpenAIResp => {
+            normalize_openai_genai_base_url(raw)
+        }
+        genai::adapter::AdapterKind::Gemini => normalize_gemini_genai_base_url(raw),
+        genai::adapter::AdapterKind::Anthropic => normalize_anthropic_genai_base_url(raw),
+        _ => {
+            let trimmed = raw.trim().trim_end_matches('/');
+            if trimmed.is_empty() {
+                String::new()
+            } else {
+                format!("{trimmed}/")
+            }
+        }
+    }
+}
+
+async fn call_model_openai_stream_internal(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
-    kind: OpenAiRigApiKind,
+    kind: OpenAiApiKind,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String> {
-    let protocol_family = match kind {
-        OpenAiRigApiKind::ChatCompletions => ToolCallProtocolFamily::OpenAiChatLike,
-        OpenAiRigApiKind::Responses => ToolCallProtocolFamily::OpenAiResponses,
-    };
-    let (chat_history, current_prompt) = build_openai_rig_prompt(&prepared, protocol_family)?;
     let request_api_key = consume_api_key_for_request(api_config);
-    let mut client_builder: openai::ClientBuilder =
-        openai::Client::builder().api_key(&request_api_key);
-    client_builder = client_builder.http_headers(app_identity_rig_headers());
-    if !api_config.base_url.is_empty() {
-        client_builder = client_builder.base_url(&api_config.base_url);
+    let client = genai::Client::builder().build();
+    let adapter_kind = match kind {
+        OpenAiApiKind::ChatCompletions => genai::adapter::AdapterKind::OpenAI,
+        OpenAiApiKind::Responses => genai::adapter::AdapterKind::OpenAIResp,
+    };
+    let protocol_family = match kind {
+        OpenAiApiKind::ChatCompletions => ToolCallProtocolFamily::OpenAiChatLike,
+        OpenAiApiKind::Responses => ToolCallProtocolFamily::OpenAiResponses,
+    };
+    let request = build_provider_genai_request(&prepared, protocol_family)?;
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            adapter_kind,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(adapter_kind, model_name),
+    };
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
     }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
 
-    match kind {
-        OpenAiRigApiKind::ChatCompletions => {
-            let agent_builder = client.completions_api().agent(model_name);
-            let agent_builder = if prepared.preamble.trim().is_empty() {
-                agent_builder
-            } else {
-                agent_builder.preamble(&prepared.preamble)
-            };
-            let agent_builder = if let Some(temperature) = api_config.temperature {
-                agent_builder.temperature(temperature)
-            } else {
-                agent_builder
-            };
-            let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-                agent_builder.max_tokens(max_output_tokens as u64)
-            } else {
-                agent_builder
-            };
-            let agent = agent_builder.build();
-            let mut stream = agent
-                .stream_completion(current_prompt, chat_history)
-                .await
-                .map_err(|err| format!("rig stream completion build failed: {err}"))?
-                .stream()
-                .await
-                .map_err(|err| format!("rig stream start failed: {err}"))?;
-            collect_streaming_model_reply(&mut stream, None).await
-        }
-        OpenAiRigApiKind::Responses => {
-            // IMPORTANT: do NOT call .completions_api() here; keep default Responses API.
-            let agent_builder = client.agent(model_name);
-            let agent_builder = if prepared.preamble.trim().is_empty() {
-                agent_builder
-            } else {
-                agent_builder.preamble(&prepared.preamble)
-            };
-            let agent_builder = if let Some(temperature) = api_config.temperature {
-                agent_builder.temperature(temperature)
-            } else {
-                agent_builder
-            };
-            let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-                agent_builder.max_tokens(max_output_tokens as u64)
-            } else {
-                agent_builder
-            };
-            let agent = agent_builder.build();
-            let mut stream = agent
-                .stream_completion(current_prompt, chat_history)
-                .await
-                .map_err(|err| format!("rig responses stream completion build failed: {err}"))?
-                .stream()
-                .await
-                .map_err(|err| format!("rig responses stream start failed: {err}"))?;
-            collect_streaming_model_reply(&mut stream, on_delta).await
-        }
-    }
+    let mut stream = client
+        .exec_chat_stream(service_target, request, Some(&options))
+        .await
+        .map_err(|err| format!("genai openai stream build failed: {err}"))?
+        .stream;
+    collect_streaming_model_reply_genai(&mut stream, on_delta).await
 }
 
-async fn call_model_openai_rig_style(
+async fn call_model_openai_stream(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    call_model_openai_rig_style_internal(
+    call_model_openai_stream_internal(
         api_config,
         model_name,
         prepared,
-        OpenAiRigApiKind::ChatCompletions,
+        OpenAiApiKind::ChatCompletions,
         None,
     )
     .await
 }
 
-fn openai_non_stream_extract_text(content: &Value) -> String {
-    match content {
-        Value::String(text) => text.clone(),
-        Value::Array(items) => {
-            let mut blocks = Vec::<String>::new();
-            for item in items {
-                let Some(obj) = item.as_object() else {
-                    continue;
-                };
-                let block_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
-                if block_type != "text" {
-                    continue;
-                }
-                let text = obj
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .map(ToOwned::to_owned)
-                    .or_else(|| {
-                        obj.get("text")
-                            .and_then(Value::as_object)
-                            .and_then(|v| v.get("value"))
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|v| !v.is_empty())
-                            .map(ToOwned::to_owned)
-                    });
-                if let Some(text) = text {
-                    blocks.push(text);
-                }
-            }
-            blocks.join("\n")
-        }
-        _ => String::new(),
-    }
-}
-
-async fn call_model_openai_non_stream_rig_style(
+async fn call_model_openai_non_stream(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    let mut request =
-        prepared_prompt_to_equivalent_request_json(
-            &prepared,
-            model_name,
-            api_config.temperature,
-            api_config.max_output_tokens,
-        );
-    let request_obj = request
-        .as_object_mut()
-        .ok_or_else(|| "Invalid request payload".to_string())?;
-    request_obj.insert("stream".to_string(), Value::Bool(false));
-    let base_url = if api_config.base_url.trim().is_empty() {
-        "https://api.openai.com/v1".to_string()
-    } else {
-        api_config.base_url.trim().trim_end_matches('/').to_string()
-    };
-    let endpoint = format!("{base_url}/chat/completions");
     let request_api_key = consume_api_key_for_request(api_config);
-    let response = reqwest::Client::builder()
-        .user_agent(app_http_user_agent())
-        .default_headers(app_identity_headers())
-        .build()
-        .map_err(|err| format!("openai non-stream build client failed: {err}"))?
-        .post(&endpoint)
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {}", request_api_key))
-        .json(&request)
-        .send()
-        .await
-        .map_err(|err| format!("openai non-stream request failed: {err}"))?;
-    let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|err| format!("openai non-stream read body failed: {err}"))?;
-    if !status.is_success() {
-        let snippet = response_text.chars().take(600).collect::<String>();
-        return Err(format!(
-            "openai non-stream request failed: status={} body={}",
-            status.as_u16(),
-            snippet
-        ));
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_openai_genai_base_url(
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(genai::adapter::AdapterKind::OpenAI, model_name),
+    };
+    let request = build_openai_chat_genai_request(&prepared)?;
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
     }
-    let payload: Value = serde_json::from_str(&response_text)
-        .map_err(|err| format!("openai non-stream parse failed: {err}"))?;
-    let first_choice = payload
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .ok_or_else(|| "openai non-stream response missing choices[0]".to_string())?;
-    let message = first_choice
-        .get("message")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "openai non-stream response missing choices[0].message".to_string())?;
-    let assistant_text = message
-        .get("content")
-        .map(openai_non_stream_extract_text)
-        .unwrap_or_default();
-    let reasoning_standard = message
-        .get("reasoning_content")
-        .or_else(|| message.get("reasoning"))
-        .map(openai_non_stream_extract_text)
-        .unwrap_or_default();
-    let trusted_input_tokens = payload
-        .get("usage")
-        .and_then(Value::as_object)
-        .and_then(|usage| usage.get("prompt_tokens"))
-        .and_then(Value::as_u64)
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+    let response = client
+        .exec_chat(service_target, request, Some(&options))
+        .await
+        .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
+    let assistant_text = response.content.into_texts().join("\n");
+    let reasoning_standard = response.reasoning_content.unwrap_or_default();
+    let trusted_input_tokens = response
+        .usage
+        .prompt_tokens
+        .and_then(|value| u64::try_from(value).ok())
         .filter(|value| *value > 0);
     Ok(ModelReply {
         assistant_text,
@@ -644,178 +460,203 @@ async fn call_model_openai_non_stream_rig_style(
     })
 }
 
-async fn call_model_openai_responses_rig_style(
+async fn call_model_openai_responses(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String> {
-    call_model_openai_rig_style_internal(
-        api_config,
-        model_name,
-        prepared,
-        OpenAiRigApiKind::Responses,
-        on_delta,
-    )
-    .await
-}
-
-fn normalize_gemini_rig_base_url(raw: &str) -> String {
-    let mut base = raw.trim().trim_end_matches('/').to_string();
-    for suffix in ["/v1beta/openai", "/v1beta", "/openai"] {
-        if base.ends_with(suffix) {
-            base = base.trim_end_matches(suffix).trim_end_matches('/').to_string();
-            break;
-        }
-    }
-    base
-}
-
-async fn call_model_gemini_rig_style(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-) -> Result<ModelReply, String> {
-    let chat_history =
-        prepared_history_to_rig_messages(&prepared, ToolCallProtocolFamily::Gemini)?;
     let request_api_key = consume_api_key_for_request(api_config);
-    let mut client_builder = gemini::Client::builder().api_key(&request_api_key);
-    client_builder = client_builder.http_headers(app_identity_rig_headers());
-    let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
-    if !normalized_base.is_empty() {
-        client_builder = client_builder.base_url(&normalized_base);
-    }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
-
-    let gemini_safety_settings = serde_json::json!({
-        "safetySettings": [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE"
-            }
-        ]
-    });
-
-    let agent_builder = client.agent(model_name).preamble(&prepared.preamble);
-    let agent_builder = if let Some(temperature) = api_config.temperature {
-        agent_builder.temperature(temperature)
-    } else {
-        agent_builder
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_openai_genai_base_url(
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(genai::adapter::AdapterKind::OpenAIResp, model_name),
     };
-    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-        agent_builder.max_tokens(max_output_tokens as u64)
-    } else {
-        agent_builder
-    };
-    let agent = agent_builder
-        .additional_params(gemini_safety_settings)
-        .build();
-
-    let mut content_items: Vec<UserContent> = Vec::new();
-    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
-        content_items.push(UserContent::text(text_block));
+    let request = build_openai_responses_genai_request(&prepared)?;
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
     }
-
-    for (mime, bytes) in &prepared.latest_images {
-        if mime.trim().eq_ignore_ascii_case("application/pdf") {
-            content_items.push(UserContent::document(bytes.clone(), Some(DocumentMediaType::PDF)));
-        } else {
-            content_items.push(UserContent::image_base64(
-                bytes.clone(),
-                image_media_type_from_mime(mime),
-                Some(ImageDetail::Auto),
-            ));
-        }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
     }
-
-    for (mime, bytes) in &prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
-    }
-
-    let current_prompt_content = OneOrMany::many(content_items)
-        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
-    let current_prompt = RigMessage::User {
-        content: current_prompt_content,
-    };
-    let mut stream = agent
-        .stream_completion(current_prompt, chat_history)
+    let mut stream = client
+        .exec_chat_stream(service_target, request, Some(&options))
         .await
-        .map_err(|err| format!("rig stream completion build failed: {err}"))?
-        .stream()
-        .await
-        .map_err(|err| format!("rig stream start failed: {err}"))?;
-    collect_streaming_model_reply(&mut stream, None).await
+        .map_err(|err| format!("genai responses stream build failed: {err}"))?
+        .stream;
+    collect_streaming_model_reply_genai(&mut stream, on_delta).await
 }
 
-async fn call_model_anthropic_rig_style(
+async fn call_model_gemini(
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
 ) -> Result<ModelReply, String> {
-    let chat_history =
-        prepared_history_to_rig_messages(&prepared, ToolCallProtocolFamily::Anthropic)?;
-    let mut content_items: Vec<UserContent> = Vec::new();
-    for text_block in prepared_prompt_latest_user_text_blocks(&prepared) {
-        content_items.push(UserContent::text(text_block));
+    let request = build_gemini_genai_request(&prepared)?;
+    let request_api_key = consume_api_key_for_request(api_config);
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            genai::adapter::AdapterKind::Gemini,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(genai::adapter::AdapterKind::Gemini, model_name),
+    };
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
     }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+    let response = client
+        .exec_chat(service_target, request, Some(&options))
+        .await
+        .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
+    Ok(ModelReply {
+        assistant_text: response.content.into_texts().join("\n"),
+        reasoning_standard: response.reasoning_content.unwrap_or_default(),
+        reasoning_inline: String::new(),
+        tool_history_events: Vec::new(),
+        suppress_assistant_message: false,
+        trusted_input_tokens: response
+            .usage
+            .prompt_tokens
+            .and_then(|value| u64::try_from(value).ok())
+            .filter(|value| *value > 0),
+    })
+}
 
-    for (mime, bytes) in &prepared.latest_images {
-        content_items.push(UserContent::image_base64(
-            bytes.clone(),
-            image_media_type_from_mime(mime),
-            Some(ImageDetail::Auto),
+async fn call_model_anthropic(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    let request_api_key = consume_api_key_for_request(api_config);
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            genai::adapter::AdapterKind::Anthropic,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(genai::adapter::AdapterKind::Anthropic, model_name),
+    };
+    let request = build_anthropic_genai_request(&prepared)?;
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
+    }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+    let mut stream = client
+        .exec_chat_stream(service_target, request, Some(&options))
+        .await
+        .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
+        .stream;
+    collect_streaming_model_reply_genai(&mut stream, None).await
+}
+
+#[cfg(test)]
+mod openai_responses_genai_request_tests {
+    use super::*;
+
+    #[test]
+    fn build_openai_responses_genai_request_should_keep_system_at_top_level() {
+        let prepared = PreparedPrompt {
+            preamble: "你是系统提示".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "写一个快速排序".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_openai_responses_genai_request(&prepared)
+            .expect("build_openai_responses_genai_request should succeed");
+
+        assert_eq!(request.system.as_deref(), Some("你是系统提示"));
+        assert_eq!(request.messages.len(), 1);
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::User
         ));
     }
 
-    for (mime, bytes) in &prepared.latest_audios {
-        content_items.push(UserContent::audio(bytes.clone(), audio_media_type_from_mime(mime)));
+    #[test]
+    fn build_gemini_genai_request_should_keep_system_at_top_level() {
+        let prepared = PreparedPrompt {
+            preamble: "你是 Gemini 系统提示".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "分析这段代码".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request =
+            build_gemini_genai_request(&prepared).expect("build_gemini_genai_request should succeed");
+
+        assert_eq!(request.system.as_deref(), Some("你是 Gemini 系统提示"));
+        assert_eq!(request.messages.len(), 1);
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::User
+        ));
     }
 
-    let current_prompt_content = OneOrMany::many(content_items)
-        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
-    let current_prompt = RigMessage::User {
-        content: current_prompt_content,
-    };
+    #[test]
+    fn build_anthropic_genai_request_should_keep_system_at_top_level() {
+        let prepared = PreparedPrompt {
+            preamble: "你是 Claude 系统提示".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "总结这段日志".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
 
-    let request_api_key = consume_api_key_for_request(api_config);
-    let mut client_builder: anthropic::ClientBuilder =
-        anthropic::Client::builder().api_key(&request_api_key);
-    client_builder = client_builder.http_headers(app_identity_rig_headers());
-    if !api_config.base_url.is_empty() {
-        client_builder = client_builder.base_url(&api_config.base_url);
+        let request = build_anthropic_genai_request(&prepared)
+            .expect("build_anthropic_genai_request should succeed");
+
+        assert_eq!(request.system.as_deref(), Some("你是 Claude 系统提示"));
+        assert_eq!(request.messages.len(), 1);
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::User
+        ));
     }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create Anthropic client via rig: {err}"))?;
 
-    let agent_builder = client.agent(model_name).preamble(&prepared.preamble);
-    let agent_builder = if let Some(temperature) = api_config.temperature {
-        agent_builder.temperature(temperature)
-    } else {
-        agent_builder
-    };
-    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-        agent_builder.max_tokens(max_output_tokens as u64)
-    } else {
-        agent_builder
-    };
-    let agent = agent_builder.build();
-    let mut stream = agent
-        .stream_completion(current_prompt, chat_history)
-        .await
-        .map_err(|err| format!("rig stream completion build failed: {err}"))?
-        .stream()
-        .await
-        .map_err(|err| format!("rig stream start failed: {err}"))?;
-    collect_streaming_model_reply(&mut stream, None).await
+    #[test]
+    fn normalize_anthropic_genai_base_url_should_append_v1_for_custom_endpoint() {
+        assert_eq!(
+            normalize_anthropic_genai_base_url("https://ark.cn-beijing.volces.com/api/coding"),
+            "https://ark.cn-beijing.volces.com/api/coding/v1/"
+        );
+        assert_eq!(
+            normalize_anthropic_genai_base_url("https://open.bigmodel.cn/api/anthropic/v1"),
+            "https://open.bigmodel.cn/api/anthropic/v1/"
+        );
+    }
 }

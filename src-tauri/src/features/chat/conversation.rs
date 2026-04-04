@@ -2082,28 +2082,3 @@ fn build_prompt_with_mode(
         latest_audios,
     }
 }
-
-fn image_media_type_from_mime(mime: &str) -> Option<ImageMediaType> {
-    match mime.trim().to_ascii_lowercase().as_str() {
-        "image/jpeg" | "image/jpg" => Some(ImageMediaType::JPEG),
-        "image/png" => Some(ImageMediaType::PNG),
-        "image/gif" => Some(ImageMediaType::GIF),
-        "image/webp" => Some(ImageMediaType::WEBP),
-        "image/heic" => Some(ImageMediaType::HEIC),
-        "image/heif" => Some(ImageMediaType::HEIF),
-        "image/svg+xml" => Some(ImageMediaType::SVG),
-        _ => None,
-    }
-}
-
-fn audio_media_type_from_mime(mime: &str) -> Option<AudioMediaType> {
-    match mime.trim().to_ascii_lowercase().as_str() {
-        "audio/wav" | "audio/wave" => Some(AudioMediaType::WAV),
-        "audio/mp3" | "audio/mpeg" => Some(AudioMediaType::MP3),
-        "audio/aiff" => Some(AudioMediaType::AIFF),
-        "audio/aac" => Some(AudioMediaType::AAC),
-        "audio/ogg" => Some(AudioMediaType::OGG),
-        "audio/flac" => Some(AudioMediaType::FLAC),
-        _ => None,
-    }
-}

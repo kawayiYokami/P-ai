@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新：完成 rust-genai 全量迁移并移除 rig 依赖
+
+- 重构（rust-genai-full-migration-and-remove-rig）：完成聊天运行时向 `rust-genai` 的全量迁移，并正式移除 `rig-core` 依赖
+  - OpenAI / OpenAI Responses / Gemini / Anthropic 的主链与工具循环统一收口到项目自有 `genai` 运行时，不再保留 `rig` 运行链路
+  - MCP 工具桥接、运行时工具抽象、Gemini schema 清洗与工具多模态回传统一切到项目自有实现，继续保留图片、音频与资源结果转发
+  - 修复忙碌态发送时误插入用户草稿的问题，避免“排队中”消息与主消息区草稿同时出现
+  - 补充运行时迁移护栏测试与中文错误日志，最终从 `Cargo.toml` / `Cargo.lock` 中彻底移除 `rig-core`
+
 ## 更新：会话处理补回丢弃入口并提前校验发布签名
 
 - 修复（discard-entry-and-release-signing-precheck）：恢复会话处理弹窗中的正式“丢弃”能力，并让远程发布在开头就校验签名配置

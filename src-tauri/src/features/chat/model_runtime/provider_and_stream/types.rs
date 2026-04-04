@@ -24,7 +24,7 @@ type OperateMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 type TodoMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 
 struct RuntimeToolAssembly {
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<Box<dyn RuntimeToolDyn>>,
     tool_manifest: Vec<Value>,
     unavailable_tool_notices: Vec<String>,
     _mcp_read_file_client: Option<ReadFileMcpClient>,

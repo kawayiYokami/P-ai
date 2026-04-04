@@ -1,4 +1,4 @@
-fn frontend_tool_definition(function: ToolDefinition) -> FrontendToolDefinition {
+fn frontend_tool_definition(function: ProviderToolDefinition) -> FrontendToolDefinition {
     FrontendToolDefinition {
         kind: "function".to_string(),
         function: FrontendToolFunctionDefinition {
@@ -163,100 +163,70 @@ async fn builtin_tool_definitions_for_frontend(
     };
     let mut out = vec![
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinFetchTool {
-                    app_state: state.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinFetchTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinBingSearchTool {
-                    app_state: state.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinBingSearchTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinRememberTool {
-                    app_state: state.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinRememberTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinRecallTool {
-                    app_state: state.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinRecallTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinCommandTool {
-                    app_state: state.clone(),
-                    api_config_id: preview_api_id.clone(),
-                    agent_id: preview_agent_id,
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinCommandTool {
+                app_state: state.clone(),
+                api_config_id: preview_api_id.clone(),
+                agent_id: preview_agent_id,
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinTerminalExecTool {
-                    app_state: state.clone(),
-                    session_id: preview_session_id.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinTerminalExecTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinApplyPatchTool {
-                    app_state: state.clone(),
-                    session_id: preview_session_id.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinApplyPatchTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinTaskTool {
-                    app_state: state.clone(),
-                    session_id: preview_session_id.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinTaskTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinDelegateTool {
-                    app_state: state.clone(),
-                    session_id: preview_session_id,
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinDelegateTool {
+                app_state: state.clone(),
+                session_id: preview_session_id,
+            }
+            .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            rig::tool::Tool::definition(
-                &BuiltinRemoteImSendTool {
-                    app_state: state.clone(),
-                },
-                String::new(),
-            )
-            .await,
+            BuiltinRemoteImSendTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
         ),
     ];
     if let Some(def) = operate_definition {

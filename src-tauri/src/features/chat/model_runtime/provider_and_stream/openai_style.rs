@@ -3,45 +3,20 @@ async fn call_model_openai_with_tools(
     selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
-    mut tool_assembly: RuntimeToolAssembly,
+    tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
-    let request_api_key = consume_api_key_for_request(api_config);
-    let mut client_builder: openai::ClientBuilder =
-        openai::Client::builder().api_key(&request_api_key);
-    client_builder = client_builder.http_headers(app_identity_rig_headers());
-    if !api_config.base_url.trim().is_empty() {
-        client_builder = client_builder.base_url(&api_config.base_url);
-    }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
-    let tools = std::mem::take(&mut tool_assembly.tools);
-    let agent_builder = client.clone().completions_api().agent(model_name);
-    let agent_builder = if prepared.preamble.trim().is_empty() {
-        agent_builder
-    } else {
-        agent_builder.preamble(&prepared.preamble)
-    };
-    let agent_builder = if let Some(temperature) = api_config.temperature {
-        agent_builder.temperature(temperature)
-    } else {
-        agent_builder
-    };
-    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-        agent_builder.max_tokens(max_output_tokens as u64)
-    } else {
-        agent_builder
-    };
-    let agent = agent_builder.tools(tools).build();
-    run_unified_tool_loop(
-        agent,
+    run_genai_tool_loop(
+        api_config,
+        model_name,
         prepared,
+        tool_assembly,
         ToolCallProtocolFamily::OpenAiChatLike,
+        genai::adapter::AdapterKind::OpenAI,
         selected_api,
         api_config,
         auto_compaction_context,
@@ -59,45 +34,20 @@ async fn call_model_openai_responses_with_tools(
     selected_api: &ApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
-    mut tool_assembly: RuntimeToolAssembly,
+    tool_assembly: RuntimeToolAssembly,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
-    let request_api_key = consume_api_key_for_request(api_config);
-    let mut client_builder: openai::ClientBuilder =
-        openai::Client::builder().api_key(&request_api_key);
-    client_builder = client_builder.http_headers(app_identity_rig_headers());
-    if !api_config.base_url.trim().is_empty() {
-        client_builder = client_builder.base_url(&api_config.base_url);
-    }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
-    let tools = std::mem::take(&mut tool_assembly.tools);
-    let agent_builder = client.agent(model_name);
-    let agent_builder = if prepared.preamble.trim().is_empty() {
-        agent_builder
-    } else {
-        agent_builder.preamble(&prepared.preamble)
-    };
-    let agent_builder = if let Some(temperature) = api_config.temperature {
-        agent_builder.temperature(temperature)
-    } else {
-        agent_builder
-    };
-    let agent_builder = if let Some(max_output_tokens) = api_config.max_output_tokens {
-        agent_builder.max_tokens(max_output_tokens as u64)
-    } else {
-        agent_builder
-    };
-    let agent = agent_builder.tools(tools).build();
-    run_unified_tool_loop(
-        agent,
+    run_genai_tool_loop(
+        api_config,
+        model_name,
         prepared,
+        tool_assembly,
         ToolCallProtocolFamily::OpenAiResponses,
+        genai::adapter::AdapterKind::OpenAIResp,
         selected_api,
         api_config,
         auto_compaction_context,

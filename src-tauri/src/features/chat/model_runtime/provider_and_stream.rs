@@ -4,9 +4,6 @@ include!("provider_and_stream/types.rs");
 // ---- 截图缓存基础设施 ----
 include!("provider_and_stream/screenshot_cache.rs");
 
-// ---- prompt 构建 ----
-include!("provider_and_stream/prompt_build.rs");
-
 // ---- 流式收集 ----
 include!("provider_and_stream/stream_collect.rs");
 

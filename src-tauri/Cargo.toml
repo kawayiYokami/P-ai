@@ -25,13 +25,13 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 time = { version = "=0.3.36", features = ["local-offset"] }
-rig = { package = "rig-core", version = "0.33.0", features = ["rmcp"] }
 rmcp = { version = "0.16.0", features = ["client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "sync"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 dingtalk-stream = "0.1.5"
 reqwest = { version = "0.11.27", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
 async-openai = { version = "0.33.0", default-features = false, features = ["rustls", "chat-completion", "byot"] }
+genai = { git = "https://github.com/jeremychone/rust-genai", rev = "d40abb2583f2aacdda0a51b79b164965ebda03a9" }
 base64 = "0.22"
 aes = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

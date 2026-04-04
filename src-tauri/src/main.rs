@@ -12,18 +12,6 @@ use directories::ProjectDirs;
 use futures_util::{future::AbortHandle, StreamExt};
 use image::ImageFormat;
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use rig::{
-    completion::{
-        message::{AudioMediaType, DocumentMediaType, ImageDetail, ImageMediaType, UserContent},
-        Message as RigMessage, ToolDefinition,
-    },
-    message::{AssistantContent, ToolResultContent},
-    prelude::CompletionClient,
-    providers::{anthropic, gemini, openai},
-    streaming::{StreamedAssistantContent, StreamingCompletion},
-    tool::{Tool, ToolDyn},
-    OneOrMany,
-};
 use rmcp::{schemars, ServiceExt};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};

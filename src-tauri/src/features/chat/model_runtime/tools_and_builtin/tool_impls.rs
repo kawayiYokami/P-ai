@@ -3,17 +3,12 @@ struct BuiltinFetchTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinFetchTool {
-    const NAME: &'static str = "fetch";
-    type Error = ToolInvokeError;
-    type Args = FetchToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "fetch".to_string(),
-            description: "静态网页抓取工具。抓取网页内容并提取正文。".to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinFetchTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "fetch",
+            "静态网页抓取工具。抓取网页内容并提取正文。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "url": { "type": "string", "description": "要抓取的网页地址" },
@@ -21,10 +16,17 @@ impl Tool for BuiltinFetchTool {
               },
               "required": ["url"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinFetchTool {
+    const NAME: &'static str = "fetch";
+    type Args = FetchToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=fetch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
@@ -40,6 +42,7 @@ impl Tool for BuiltinFetchTool {
             Err(err) => eprintln!("[工具执行] 内置工具 fetch 执行失败: 错误={err}"),
         }
         result
+        })
     }
 }
 
@@ -48,27 +51,29 @@ struct BuiltinBingSearchTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinBingSearchTool {
-    const NAME: &'static str = "websearch";
-    type Error = ToolInvokeError;
-    type Args = BingSearchToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "websearch".to_string(),
-            description: "搜索互联网内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。".to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinBingSearchTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "websearch",
+            "搜索互联网内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "query": { "type": "string", "description": "搜索关键词或问题" }
               },
               "required": ["query"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinBingSearchTool {
+    const NAME: &'static str = "websearch";
+    type Args = BingSearchToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=websearch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
@@ -86,6 +91,7 @@ impl Tool for BuiltinBingSearchTool {
             }
         }
         result
+        })
     }
 }
 
@@ -94,18 +100,12 @@ struct BuiltinRememberTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinRememberTool {
-    const NAME: &'static str = "remember";
-    type Error = ToolInvokeError;
-    type Args = MemorySaveToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "remember".to_string(),
-            description: "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。"
-                .to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinRememberTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "remember",
+            "保存与用户相关、长期有价值的记忆。禁止保存密码、密钥等敏感信息。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "memory_type": {
@@ -129,10 +129,17 @@ impl Tool for BuiltinRememberTool {
               },
               "required": ["memory_type", "judgment", "tags"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinRememberTool {
+    const NAME: &'static str = "remember";
+    type Args = MemorySaveToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         let args_json = serde_json::json!({
             "memoryType": args.memory_type,
             "judgment": args.judgment,
@@ -154,6 +161,7 @@ impl Tool for BuiltinRememberTool {
             }
         }
         result
+        })
     }
 }
 
@@ -162,28 +170,29 @@ struct BuiltinRecallTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinRecallTool {
-    const NAME: &'static str = "recall";
-    type Error = ToolInvokeError;
-    type Args = RecallToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "recall".to_string(),
-            description: "按查询回忆相关记忆，并返回可直接注入提示词的记忆板。"
-                .to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinRecallTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "recall",
+            "按查询回忆相关记忆，并返回可直接注入提示词的记忆板。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "query": { "type": "string", "description": "回忆查询文本" }
               },
               "required": ["query"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinRecallTool {
+    const NAME: &'static str = "recall";
+    type Args = RecallToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=recall args={}",
@@ -198,6 +207,7 @@ impl Tool for BuiltinRecallTool {
             Err(err) => eprintln!("[工具执行] 内置工具 recall 执行失败: 错误={err}"),
         }
         result
+        })
     }
 }
 
@@ -219,29 +229,13 @@ fn command_help_text() -> String {
     .join("\n")
 }
 
-impl Tool for BuiltinCommandTool {
+impl RuntimeJsonTool for BuiltinCommandTool {
     const NAME: &'static str = "command";
-    type Error = ToolInvokeError;
     type Args = CommandToolArgs;
-    type Output = Value;
+    type Error = ToolInvokeError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "command".to_string(),
-            description: "统一命令工具。通过 command 文本调用系统能力（help/reload/organize_context/wait）。"
-                .to_string(),
-            parameters: serde_json::json!({
-              "type": "object",
-              "properties": {
-                "command": { "type": "string", "description": "命令文本" }
-              },
-              "required": ["command"],
-              "additionalProperties": false
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         let raw = args.command.trim();
         if raw.is_empty() {
             return Err(ToolInvokeError::from(
@@ -339,6 +333,24 @@ impl Tool for BuiltinCommandTool {
             Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=command err={err}")),
         }
         result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinCommandTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "command",
+            "统一命令工具。通过 command 文本调用系统能力（help/reload/organize_context/wait）。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "command": { "type": "string", "description": "命令文本" }
+              },
+              "required": ["command"],
+              "additionalProperties": false
+            }),
+        )
     }
 }
 
@@ -348,17 +360,12 @@ struct BuiltinTerminalExecTool {
     session_id: String,
 }
 
-impl Tool for BuiltinTerminalExecTool {
-    const NAME: &'static str = "exec";
-    type Error = ToolInvokeError;
-    type Args = TerminalExecToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "exec".to_string(),
-            description: terminal_exec_tool_description(&terminal_shell_for_state(&self.app_state)),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinTerminalExecTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "exec",
+            terminal_exec_tool_description(&terminal_shell_for_state(&self.app_state)),
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["run", "list", "close"], "default": "run" },
@@ -368,10 +375,17 @@ impl Tool for BuiltinTerminalExecTool {
               },
               "required": []
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinTerminalExecTool {
+    const NAME: &'static str = "exec";
+    type Args = TerminalExecToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=exec args={}",
@@ -420,6 +434,7 @@ impl Tool for BuiltinTerminalExecTool {
             }
         }
         result
+        })
     }
 }
 
@@ -429,16 +444,11 @@ struct BuiltinApplyPatchTool {
     session_id: String,
 }
 
-impl Tool for BuiltinApplyPatchTool {
-    const NAME: &'static str = "apply_patch";
-    type Error = ToolInvokeError;
-    type Args = ApplyPatchToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "apply_patch".to_string(),
-            description: [
+impl RuntimeToolMetadata for BuiltinApplyPatchTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "apply_patch",
+            [
                 "编辑文件的结构化补丁工具。",
                 "输入必须是固定补丁格式：以 *** Begin Patch 开始，以 *** End Patch 结束。",
                 "支持的文件头有：*** Add File:、*** Delete File:、*** Update File:，以及可选的 *** Move to:。",
@@ -446,8 +456,9 @@ impl Tool for BuiltinApplyPatchTool {
                 "在 @@ 头之后，hunk 中空格前缀表示上下文，- 表示删除，+ 表示新增。",
                 "文件路径必须是绝对路径。",
                 "不接受 git diff；不要使用 diff --git、---、+++ 等格式。",
-            ].join("\n"),
-            parameters: serde_json::json!({
+            ]
+            .join("\n"),
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "input": { "type": "string", "description": "完整补丁文本；必须以 *** Begin Patch 开始并以 *** End Patch 结束" },
@@ -456,10 +467,17 @@ impl Tool for BuiltinApplyPatchTool {
               "required": ["input"],
               "additionalProperties": false
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinApplyPatchTool {
+    const NAME: &'static str = "apply_patch";
+    type Args = ApplyPatchToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=apply_patch args={}",
@@ -482,6 +500,7 @@ impl Tool for BuiltinApplyPatchTool {
             Err(err) => eprintln!("[工具执行] 内置工具 apply_patch 执行失败: 错误={err}"),
         }
         result
+        })
     }
 }
 
@@ -494,17 +513,12 @@ struct BuiltinTaskTool {
     session_id: String,
 }
 
-impl Tool for BuiltinTaskTool {
-    const NAME: &'static str = "task";
-    type Error = ToolInvokeError;
-    type Args = TaskToolArgsWire;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "task".to_string(),
-            description: "管理持久化任务板。支持 list、get、create、update、complete 五种动作。任务主字段统一使用 goal / why / todo：goal 是任务目标与标题，why 用来防止后续推进走偏，todo 表示当前下一步。若未填写 trigger.runAtLocal，任务会立即生效；若填写 trigger.runAtLocal，则在该本地时间执行一次；若同时填写 trigger.everyMinutes，则会从 trigger.runAtLocal 开始按分钟重复执行，并且必须同时填写 trigger.endAtLocal 作为停止时间。trigger.runAtLocal 与 trigger.endAtLocal 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒；系统会在数据层自动转成 UTC 真实时间存储与调度。".to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinTaskTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "task",
+            "管理持久化任务板。支持 list、get、create、update、complete 五种动作。任务主字段统一使用 goal / why / todo：goal 是任务目标与标题，why 用来防止后续推进走偏，todo 表示当前下一步。若未填写 trigger.runAtLocal，任务会立即生效；若填写 trigger.runAtLocal，则在该本地时间执行一次；若同时填写 trigger.everyMinutes，则会从 trigger.runAtLocal 开始按分钟重复执行，并且必须同时填写 trigger.endAtLocal 作为停止时间。trigger.runAtLocal 与 trigger.endAtLocal 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒；系统会在数据层自动转成 UTC 真实时间存储与调度。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["list", "get", "create", "update", "complete"] },
@@ -525,10 +539,17 @@ impl Tool for BuiltinTaskTool {
               },
               "required": ["action"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinTaskTool {
+    const NAME: &'static str = "task";
+    type Args = TaskToolArgsWire;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=task args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
@@ -544,6 +565,7 @@ impl Tool for BuiltinTaskTool {
             Err(err) => eprintln!("[工具执行] 内置工具 task 执行失败: 错误={err}"),
         }
         result
+        })
     }
 }
 
@@ -553,17 +575,12 @@ struct BuiltinDelegateTool {
     session_id: String,
 }
 
-impl Tool for BuiltinDelegateTool {
-    const NAME: &'static str = "delegate";
-    type Error = ToolInvokeError;
-    type Args = DelegateToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "delegate".to_string(),
-            description: "向某个部门发起委托。mode=async 仅主助理可用，表示后台处理并立即返回送达结果；mode=sync 表示当前线程等待下级完成后再继续。".to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinDelegateTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "delegate",
+            "向某个部门发起委托。mode=async 仅主助理可用，表示后台处理并立即返回送达结果；mode=sync 表示当前线程等待下级完成后再继续。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "department_id": { "type": "string", "description": "目标部门 ID" },
@@ -577,10 +594,17 @@ impl Tool for BuiltinDelegateTool {
               },
               "required": ["department_id", "mode", "instruction"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinDelegateTool {
+    const NAME: &'static str = "delegate";
+    type Args = DelegateToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=delegate args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
@@ -596,5 +620,6 @@ impl Tool for BuiltinDelegateTool {
             Err(err) => eprintln!("[工具执行] 内置工具 delegate 执行失败: 错误={err}"),
         }
         result
+        })
     }
 }

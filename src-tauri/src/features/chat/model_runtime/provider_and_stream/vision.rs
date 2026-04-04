@@ -29,9 +29,9 @@ async fn describe_image_with_vision_api(
     let reply = match vision_resolved.request_format {
         RequestFormat::OpenAI => {
             if prefer_non_stream {
-                call_model_openai_non_stream_rig_style(vision_resolved, &vision_api.model, prepared).await?
+                call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared).await?
             } else {
-                match call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared.clone()).await {
+                match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone()).await {
                     Ok(reply) => reply,
                     Err(err) if supports_non_stream_fallback => {
                         if let Err(mark_err) =
@@ -46,7 +46,7 @@ async fn describe_image_with_vision_api(
                             "[视觉] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
                             vision_resolved.base_url, vision_api.model, err
                         ));
-                        call_model_openai_non_stream_rig_style(
+                        call_model_openai_non_stream(
                             vision_resolved,
                             &vision_api.model,
                             prepared,
@@ -58,7 +58,7 @@ async fn describe_image_with_vision_api(
             }
         }
         RequestFormat::OpenAIResponses => {
-            call_model_openai_responses_rig_style(
+            call_model_openai_responses(
                 vision_resolved,
                 &vision_api.model,
                 prepared,
@@ -67,10 +67,10 @@ async fn describe_image_with_vision_api(
             .await?
         }
         RequestFormat::Gemini => {
-            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?
+            call_model_gemini(vision_resolved, &vision_api.model, prepared).await?
         }
         RequestFormat::Anthropic => {
-            call_model_anthropic_rig_style(vision_resolved, &vision_api.model, prepared).await?
+            call_model_anthropic(vision_resolved, &vision_api.model, prepared).await?
         }
         RequestFormat::OpenAITts
         | RequestFormat::OpenAIStt

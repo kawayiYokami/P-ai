@@ -637,6 +637,40 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return gen;
   }
 
+  function promoteQueuedRoundToStreaming(gen: number) {
+    if (round.phase === "streaming" && round.gen === gen) {
+      return gen;
+    }
+    if (round.phase !== "queued" || round.gen !== gen) {
+      return 0;
+    }
+    const existingDraft = [...options.allMessages.value]
+      .reverse()
+      .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
+    const existingDraftId = String(existingDraft?.id || "").trim();
+    const existingDraftMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
+    options.latestAssistantText.value = readMessagePlainText(existingDraft);
+    options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
+    options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
+    activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
+    const draftId = existingDraftId || insertDraft(gen);
+    if (existingDraftId) {
+      updateDraftText(draftId);
+    }
+    round = { phase: "streaming", gen, draftId };
+    options.chatting.value = true;
+    return gen;
+  }
+
+  function assistantEventHasVisibleProgress(parsed: AssistantDeltaEvent): boolean {
+    return (
+      !!readDeltaMessage(parsed)
+      || parsed.kind === "reasoning_standard"
+      || parsed.kind === "reasoning_inline"
+      || parsed.kind === "tool_status"
+    );
+  }
+
   function formalizeMessages(messages: ChatMessage[]): ChatMessage[] {
     return messages.filter((item) => {
       const messageId = String(item?.id || "").trim();
@@ -701,6 +735,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const payloadMessageCount = Math.max(0, Math.round(Number(flushed?.messageCount || 0)));
     const batchVisibleCount = Math.max(1, replayMessages.length, payloadMessageCount);
     activeHistoryMessageCount = batchVisibleCount;
+    const shouldPreserveStreamingState =
+      shouldActivate && round.phase === "streaming" && round.gen === gen;
+    const preservedStreamingState = shouldPreserveStreamingState ? {
+      assistantText: options.latestAssistantText.value,
+      reasoningStandard: options.latestReasoningStandardText.value,
+      reasoningInline: options.latestReasoningInlineText.value,
+      toolStatusText: options.toolStatusText.value,
+      toolStatusState: options.toolStatusState.value,
+      streamToolCalls: options.streamToolCalls ? [...options.streamToolCalls.value] : [],
+      streamToolCallCount,
+      streamLastToolName,
+    } : null;
     if (shouldActivate || shouldForceReset) {
       // 激活助理或上下文整理改写消息序列时，先强制收口当前显示态。
       const oldDraftId = round.phase === "streaming" ? round.draftId : "";
@@ -755,6 +801,19 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const draftId = insertDraft(gen);
     round = { phase: "streaming", gen, draftId };
     options.chatting.value = true;
+    if (preservedStreamingState) {
+      options.latestAssistantText.value = preservedStreamingState.assistantText;
+      options.latestReasoningStandardText.value = preservedStreamingState.reasoningStandard;
+      options.latestReasoningInlineText.value = preservedStreamingState.reasoningInline;
+      options.toolStatusText.value = preservedStreamingState.toolStatusText;
+      options.toolStatusState.value = preservedStreamingState.toolStatusState;
+      if (options.streamToolCalls) {
+        options.streamToolCalls.value = preservedStreamingState.streamToolCalls;
+      }
+      streamToolCallCount = preservedStreamingState.streamToolCallCount;
+      streamLastToolName = preservedStreamingState.streamLastToolName;
+      updateDraftText(draftId);
+    }
     applyPendingTerminalEvent(gen);
   }
 
@@ -814,6 +873,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {
     if (!currentGen) return;
+    if (round.phase === "queued" && round.gen === currentGen && assistantEventHasVisibleProgress(parsed)) {
+      promoteQueuedRoundToStreaming(currentGen);
+    }
     const currentRound = round;
     if (currentRound.phase !== "streaming" && currentRound.phase !== "queued") return;
     if (currentRound.gen !== currentGen) return;
@@ -1084,12 +1146,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const parsed = readAssistantEvent(rawObj?.event ?? payload);
     const shouldResumeForegroundRound =
       round.phase !== "streaming"
-      && (
-        !!readDeltaMessage(parsed)
-        || parsed.kind === "reasoning_standard"
-        || parsed.kind === "reasoning_inline"
-        || parsed.kind === "tool_status"
-      );
+      && assistantEventHasVisibleProgress(parsed);
     const currentGen = shouldResumeForegroundRound
       ? ensureForegroundStreamingRound()
       : (round.phase === "streaming" ? round.gen : 0);
@@ -1107,11 +1164,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const sendSession = options.getSession();
     if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
-    const wasChatting = options.chatting.value;
-    options.toolStatusText.value = "";
-    options.toolStatusState.value = "";
-    if (options.streamToolCalls) options.streamToolCalls.value = [];
-    options.chatErrorText.value = "";
+    const hasForegroundRoundInFlight = options.chatting.value || round.phase !== "idle";
+    if (!hasForegroundRoundInFlight) {
+      options.toolStatusText.value = "";
+      options.toolStatusState.value = "";
+      if (options.streamToolCalls) options.streamToolCalls.value = [];
+      options.chatErrorText.value = "";
+    }
 
     const sentImages = [...options.clipboardImages.value];
     options.latestUserText.value = plainText;
@@ -1126,9 +1185,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const gen = ++generation;
     sendChatActiveGen = gen;
     pendingTerminalEvent = null;
-    insertUserDraft(gen, plainText, sentImages, attachments);
+    if (!hasForegroundRoundInFlight) {
+      insertUserDraft(gen, plainText, sentImages, attachments);
+    }
 
-    if (!wasChatting) {
+    if (!hasForegroundRoundInFlight) {
       resetDisplayState();
       if (round.phase === "streaming") removeDraft(round.draftId);
       round = { phase: "queued", gen };

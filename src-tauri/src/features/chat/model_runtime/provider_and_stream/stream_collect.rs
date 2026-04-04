@@ -1,23 +1,21 @@
-async fn collect_streaming_model_reply<R, S>(
+async fn collect_streaming_model_reply_genai<S>(
     mut stream: S,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
 ) -> Result<ModelReply, String>
 where
-    R: rig::completion::GetTokenUsage,
-    S: futures_util::Stream<
-            Item = Result<StreamedAssistantContent<R>, rig::completion::CompletionError>,
-        > + Unpin,
+    S: futures_util::Stream<Item = Result<genai::chat::ChatStreamEvent, genai::Error>> + Unpin,
 {
     let mut assistant_text = String::new();
     let mut reasoning_standard = String::new();
     let mut trusted_input_tokens: Option<u64> = None;
     while let Some(chunk) = stream.next().await {
         match chunk {
-            Ok(StreamedAssistantContent::Text(text)) => {
-                assistant_text.push_str(&text.text);
+            Ok(genai::chat::ChatStreamEvent::Start) => {}
+            Ok(genai::chat::ChatStreamEvent::Chunk(text)) => {
+                assistant_text.push_str(&text.content);
                 if let Some(channel) = on_delta {
                     let _ = channel.send(AssistantDeltaEvent {
-                        delta: text.text,
+                        delta: text.content,
                         kind: None,
                         tool_name: None,
                         tool_status: None,
@@ -26,16 +24,12 @@ where
                     });
                 }
             }
-            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                let merged = reasoning.display_text();
-                if !merged.is_empty() {
-                    if !reasoning_standard.is_empty() {
-                        reasoning_standard.push('\n');
-                    }
-                    reasoning_standard.push_str(&merged);
+            Ok(genai::chat::ChatStreamEvent::ReasoningChunk(reasoning)) => {
+                if !reasoning.content.is_empty() {
+                    reasoning_standard.push_str(&reasoning.content);
                     if let Some(channel) = on_delta {
                         let _ = channel.send(AssistantDeltaEvent {
-                            delta: merged,
+                            delta: reasoning.content,
                             kind: Some("reasoning_standard".to_string()),
                             tool_name: None,
                             tool_status: None,
@@ -45,29 +39,33 @@ where
                     }
                 }
             }
-            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
-                if !reasoning.is_empty() {
-                    reasoning_standard.push_str(&reasoning);
-                    if let Some(channel) = on_delta {
-                        let _ = channel.send(AssistantDeltaEvent {
-                            delta: reasoning,
-                            kind: Some("reasoning_standard".to_string()),
-                            tool_name: None,
-                            tool_status: None,
-                            tool_args: None,
-                            message: None,
-                        });
+            Ok(genai::chat::ChatStreamEvent::ThoughtSignatureChunk(_)) => {}
+            Ok(genai::chat::ChatStreamEvent::ToolCallChunk(_)) => {}
+            Ok(genai::chat::ChatStreamEvent::End(end)) => {
+                if reasoning_standard.is_empty() {
+                    if let Some(captured_reasoning) = end
+                        .captured_reasoning_content
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        reasoning_standard = captured_reasoning.to_string();
                     }
                 }
-            }
-            Ok(StreamedAssistantContent::ToolCall { .. }) => {}
-            Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
-            Ok(StreamedAssistantContent::Final(res)) => {
-                trusted_input_tokens = rig::completion::GetTokenUsage::token_usage(&res)
-                    .map(|usage| usage.input_tokens.saturating_add(usage.cached_input_tokens))
+                trusted_input_tokens = end
+                    .captured_usage
+                    .as_ref()
+                    .and_then(|usage| usage.prompt_tokens)
+                    .and_then(|value| u64::try_from(value).ok())
                     .filter(|value| *value > 0);
             }
-            Err(err) => return Err(format!("rig streaming failed: {err}")),
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[聊天] GenAI 流式收集失败: error={:?}",
+                    err
+                ));
+                return Err(format!("GenAI 流式收集失败：{:?}", err));
+            }
         }
     }
     Ok(ModelReply {

@@ -59,7 +59,12 @@ async fn fetch_models_gemini_native(input: &RefreshModelsInput) -> Result<Vec<St
 
 async fn fetch_models_anthropic(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
     let base = input.base_url.trim().trim_end_matches('/');
-    let url = format!("{base}/v1/models");
+    let base_with_version = if base.ends_with("/v1") {
+        base.to_string()
+    } else {
+        format!("{base}/v1")
+    };
+    let url = format!("{}/models", base_with_version.trim_end_matches('/'));
     let api_key = input.api_key.trim();
 
     if api_key.contains('\r') || api_key.contains('\n') {

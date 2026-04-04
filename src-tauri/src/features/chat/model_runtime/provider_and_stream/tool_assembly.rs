@@ -114,7 +114,7 @@ async fn assemble_runtime_tools(
         || remote_im_activation_runtime_forces_send_tool(app_state, tool_session_id);
     let has_remote_im_send =
         force_remote_im_send || tool_enabled(selected_api, agent, current_department, "remote_im_send");
-    let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+    let mut tools: Vec<Box<dyn RuntimeToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
     let mut unavailable_tool_notices = Vec::<String>::new();
     let mut mcp_read_file_client: Option<ReadFileMcpClient> = None;
@@ -460,7 +460,7 @@ async fn assemble_runtime_tools(
 }
 
 async fn try_attach_read_file_mcp_tool(
-    tools: &mut Vec<Box<dyn ToolDyn>>,
+    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
     tool_session_id: &str,
     api_config_id: &str,
 ) -> Result<ReadFileMcpClient, String> {
@@ -487,10 +487,7 @@ async fn try_attach_read_file_mcp_tool(
         if def.name.as_ref() != MCP_READ_FILE_TOOL_NAME {
             continue;
         }
-        tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
-            def,
-            sink.clone(),
-        )));
+        tools.push(boxed_mcp_runtime_tool(def, sink.clone()));
         attached = true;
         break;
     }
@@ -502,7 +499,7 @@ async fn try_attach_read_file_mcp_tool(
 }
 
 async fn try_attach_operate_mcp_tool(
-    tools: &mut Vec<Box<dyn ToolDyn>>,
+    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
 ) -> Result<OperateMcpClient, String> {
     let exe = std::env::current_exe()
         .map_err(|err| format!("Resolve current executable for MCP operate failed: {err}"))?;
@@ -526,10 +523,7 @@ async fn try_attach_operate_mcp_tool(
         if def.name.as_ref() != MCP_OPERATE_TOOL_NAME {
             continue;
         }
-        tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
-            def,
-            sink.clone(),
-        )));
+        tools.push(boxed_mcp_runtime_tool(def, sink.clone()));
         attached = true;
         break;
     }
@@ -541,7 +535,7 @@ async fn try_attach_operate_mcp_tool(
 }
 
 async fn try_attach_todo_mcp_tool(
-    tools: &mut Vec<Box<dyn ToolDyn>>,
+    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
     tool_session_id: &str,
 ) -> Result<TodoMcpClient, String> {
     let exe = std::env::current_exe()
@@ -567,10 +561,7 @@ async fn try_attach_todo_mcp_tool(
         if def.name.as_ref() != MCP_TODO_TOOL_NAME {
             continue;
         }
-        tools.push(Box::new(rig::tool::rmcp::McpTool::from_mcp_server(
-            def,
-            sink.clone(),
-        )));
+        tools.push(boxed_mcp_runtime_tool(def, sink.clone()));
         attached = true;
         break;
     }

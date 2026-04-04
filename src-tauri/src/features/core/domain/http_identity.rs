@@ -22,17 +22,9 @@ fn app_identity_headers() -> reqwest::header::HeaderMap {
     headers
 }
 
-fn app_identity_rig_headers() -> rig::http_client::HeaderMap {
-    let mut headers = rig::http_client::HeaderMap::new();
-    headers.insert(
-        "originator",
-        rig::http_client::HeaderValue::from_static(APP_HTTP_ORIGINATOR),
-    );
-    headers.insert(
-        "user-agent",
-        rig::http_client::HeaderValue::from_str(&app_http_user_agent()).unwrap_or_else(|_| {
-            rig::http_client::HeaderValue::from_static(APP_HTTP_ORIGINATOR)
-        }),
-    );
-    headers
+fn app_identity_genai_headers() -> genai::Headers {
+    genai::Headers::from([
+        ("originator".to_string(), APP_HTTP_ORIGINATOR.to_string()),
+        ("user-agent".to_string(), app_http_user_agent()),
+    ])
 }

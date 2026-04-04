@@ -1,41 +1,3 @@
-fn latest_assistant_reasoning_since_last_user(chat_history: &[RigMessage]) -> Option<String> {
-    for msg in chat_history.iter().rev() {
-        match msg {
-            RigMessage::User { .. } => break,
-            RigMessage::System { .. } => continue,
-            RigMessage::Assistant { content, .. } => {
-                let mut merged = String::new();
-                for item in content.iter() {
-                    if let AssistantContent::Reasoning(reasoning) = item {
-                        let text = reasoning.display_text();
-                        if !text.trim().is_empty() {
-                            if !merged.is_empty() {
-                                merged.push('\n');
-                            }
-                            merged.push_str(&text);
-                        }
-                    }
-                }
-                if !merged.trim().is_empty() {
-                    return Some(merged);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn resolve_reasoning_for_tool_history(turn_reasoning: &str, chat_history: &[RigMessage]) -> String {
-    let turn = turn_reasoning.trim();
-    if !turn.is_empty() {
-        return turn_reasoning.to_string();
-    }
-    if let Some(inherited) = latest_assistant_reasoning_since_last_user(chat_history) {
-        return inherited;
-    }
-    " ".to_string()
-}
-
 const INTERNAL_MAX_TOOL_LOOP_ROUNDS: usize = 100;
 const REPEATED_TOOL_CALL_BLOCK_THRESHOLD: usize = 10;
 
@@ -244,120 +206,6 @@ fn build_tool_loop_prepared_for_continuation(
     Ok(Some((conversation, prepared)))
 }
 
-async fn maybe_apply_auto_compaction_before_tool_continue(
-    state: Option<&AppState>,
-    context: Option<&ToolLoopAutoCompactionContext>,
-    selected_api: &ApiConfig,
-    resolved_api: &ResolvedApiConfig,
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-    protocol_family: ToolCallProtocolFamily,
-    transient_tool_history: &[Value],
-    current_prompt: &mut RigMessage,
-    chat_history: &mut Vec<RigMessage>,
-) -> Result<bool, String> {
-    let Some(state) = state else {
-        return Ok(false);
-    };
-    let Some(context) = context else {
-        return Ok(false);
-    };
-    if transient_tool_history.is_empty() {
-        return Ok(false);
-    }
-
-    let Some((source, prepared_before)) = build_tool_loop_prepared_for_continuation(
-        state,
-        context,
-        resolved_api,
-        transient_tool_history,
-    )?
-    else {
-        runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} 原因=会话不存在或已归档",
-            context.conversation_id
-        ));
-        return Ok(false);
-    };
-
-    let estimated_prompt_tokens =
-        estimate_prepared_prompt_tokens(&prepared_before, selected_api, &context.agent);
-    let context_window = u64::from(selected_api.context_window_tokens.max(1));
-    let usage_ratio = estimated_prompt_tokens as f64 / context_window as f64;
-    if usage_ratio < 0.82 {
-        runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} usage_ratio={:.4}",
-            context.conversation_id, usage_ratio
-        ));
-        return Ok(false);
-    }
-
-    let _ = on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("tool_status".to_string()),
-        tool_name: Some("archive".to_string()),
-        tool_status: Some("running".to_string()),
-        tool_args: None,
-        message: Some("上下文接近上限，正在整理后继续执行...".to_string()),
-    });
-
-    let archive_res = run_context_compaction_pipeline(
-        state,
-        selected_api,
-        resolved_api,
-        &source,
-        &context.agent.id,
-        "force_context_usage_82_before_tool_continue",
-        "COMPACTION-BEFORE-TOOL-CONTINUE",
-    )
-    .await;
-
-    let archive_result = match archive_res {
-        Ok(result) => result,
-        Err(err) => {
-            let _ = on_delta.send(AssistantDeltaEvent {
-                delta: String::new(),
-                kind: Some("tool_status".to_string()),
-                tool_name: Some("archive".to_string()),
-                tool_status: Some("failed".to_string()),
-                tool_args: None,
-                message: Some(format!("自动整理失败：{err}")),
-            });
-            return Err(format!("自动整理失败：{err}"));
-        }
-    };
-
-    if let Some(warning) = archive_result
-        .warning
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        runtime_log_warn(format!(
-            "[聊天] 工具续调前上下文整理 完成 conversation_id={} warning={}",
-            context.conversation_id, warning
-        ));
-    } else {
-        runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} estimated_prompt_tokens={}",
-            context.conversation_id, usage_ratio, estimated_prompt_tokens
-        ));
-    }
-
-    let Some((_compacted_source, prepared_after)) = build_tool_loop_prepared_for_continuation(
-        state,
-        context,
-        resolved_api,
-        transient_tool_history,
-    )?
-    else {
-        return Err("自动整理完成后未找到当前会话，无法继续工具续调。".to_string());
-    };
-    let (next_prompt, next_history) = build_tool_loop_prompt(&prepared_after, protocol_family)?;
-    *current_prompt = next_prompt;
-    *chat_history = next_history;
-    Ok(true)
-}
-
 fn organize_context_succeeded(tool_name: &str, tool_result: &str) -> bool {
     if tool_name != "organize_context" {
         return false;
@@ -472,10 +320,225 @@ where
     }
 }
 
-async fn run_unified_tool_loop<M>(
-    agent: rig::agent::Agent<M>,
-    prepared: PreparedPrompt,
+async fn runtime_tool_definitions_for_genai(
+    tools: &[Box<dyn RuntimeToolDyn>],
     protocol_family: ToolCallProtocolFamily,
+) -> Result<Vec<genai::chat::Tool>, String> {
+    let mut out = Vec::<genai::chat::Tool>::new();
+    for tool in tools {
+        let definition = tool.definition().await;
+        let mut genai_tool = genai::chat::Tool::new(definition.name);
+        if !definition.description.trim().is_empty() {
+            genai_tool = genai_tool.with_description(definition.description);
+        }
+        let mut parameters = definition.parameters;
+        if matches!(protocol_family, ToolCallProtocolFamily::Gemini) {
+            gemini_to_openapi_schema(&mut parameters);
+        }
+        genai_tool = genai_tool.with_schema(parameters);
+        out.push(genai_tool);
+    }
+    Ok(out)
+}
+
+async fn call_runtime_tool_by_name(
+    tools: &[Box<dyn RuntimeToolDyn>],
+    tool_name: &str,
+    tool_args: &str,
+) -> Result<ProviderToolResult, String> {
+    let Some(tool) = tools.iter().find(|tool| tool.name() == tool_name) else {
+        return Err(format!("未找到工具：{tool_name}"));
+    };
+    tool.call_json(tool_args.to_string()).await
+}
+
+fn runtime_tool_result_followup_message(
+    tool_name: &str,
+    tool_result: &ProviderToolResult,
+) -> Option<genai::chat::ChatMessage> {
+    let mut forwarded_parts = Vec::<genai::chat::ContentPart>::new();
+
+    for part in &tool_result.parts {
+        match part {
+            ProviderToolResultPart::Text { .. } => {}
+            ProviderToolResultPart::Image { mime, data_base64 } => {
+                forwarded_parts.push(genai::chat::ContentPart::from_binary_base64(
+                    mime.clone(),
+                    data_base64.clone(),
+                    None,
+                ));
+            }
+            ProviderToolResultPart::Audio { mime, data_base64 } => {
+                forwarded_parts.push(genai::chat::ContentPart::from_binary_base64(
+                    mime.clone(),
+                    data_base64.clone(),
+                    None,
+                ));
+            }
+            ProviderToolResultPart::Resource { mime, uri, text } => {
+                let mut lines = vec![format!("工具 `{tool_name}` 返回了资源内容。")];
+                if let Some(uri) = uri.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+                    lines.push(format!("resource uri: {uri}"));
+                }
+                if let Some(mime) = mime
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    lines.push(format!("resource mime: {mime}"));
+                }
+                if !text.trim().is_empty() {
+                    lines.push(text.clone());
+                }
+                forwarded_parts.push(genai::chat::ContentPart::from_text(lines.join("\n")));
+            }
+        }
+    }
+
+    if forwarded_parts.is_empty() {
+        return None;
+    }
+
+    let mut parts = vec![genai::chat::ContentPart::from_text(format!(
+        "工具 `{tool_name}` 返回了额外模态内容，以下内容已继续提供给模型。"
+    ))];
+    parts.extend(forwarded_parts);
+    Some(genai::chat::ChatMessage::user(
+        genai::chat::MessageContent::from_parts(parts),
+    ))
+}
+
+fn build_genai_message_state(
+    prepared: &PreparedPrompt,
+    protocol_family: ToolCallProtocolFamily,
+) -> Result<(Option<String>, Vec<genai::chat::ChatMessage>), String> {
+    let request = build_provider_genai_request(prepared, protocol_family)?;
+    Ok((request.system, request.messages))
+}
+
+async fn maybe_apply_auto_compaction_before_tool_continue_genai(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    transient_tool_history: &[Value],
+    protocol_family: ToolCallProtocolFamily,
+    system_prompt: &mut Option<String>,
+    messages: &mut Vec<genai::chat::ChatMessage>,
+) -> Result<bool, String> {
+    let Some(state) = state else {
+        return Ok(false);
+    };
+    let Some(context) = context else {
+        return Ok(false);
+    };
+    if transient_tool_history.is_empty() {
+        return Ok(false);
+    }
+
+    let Some((source, prepared_before)) = build_tool_loop_prepared_for_continuation(
+        state,
+        context,
+        resolved_api,
+        transient_tool_history,
+    )?
+    else {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} 原因=会话不存在或已归档",
+            context.conversation_id
+        ));
+        return Ok(false);
+    };
+
+    let estimated_prompt_tokens =
+        estimate_prepared_prompt_tokens(&prepared_before, selected_api, &context.agent);
+    let context_window = u64::from(selected_api.context_window_tokens.max(1));
+    let usage_ratio = estimated_prompt_tokens as f64 / context_window as f64;
+    if usage_ratio < 0.82 {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} usage_ratio={:.4}",
+            context.conversation_id, usage_ratio
+        ));
+        return Ok(false);
+    }
+
+    let _ = on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("tool_status".to_string()),
+        tool_name: Some("archive".to_string()),
+        tool_status: Some("running".to_string()),
+        tool_args: None,
+        message: Some("上下文接近上限，正在整理后继续执行...".to_string()),
+    });
+
+    let archive_res = run_context_compaction_pipeline(
+        state,
+        selected_api,
+        resolved_api,
+        &source,
+        &context.agent.id,
+        "force_context_usage_82_before_tool_continue",
+        "COMPACTION-BEFORE-TOOL-CONTINUE",
+    )
+    .await;
+
+    let archive_result = match archive_res {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = on_delta.send(AssistantDeltaEvent {
+                delta: String::new(),
+                kind: Some("tool_status".to_string()),
+                tool_name: Some("archive".to_string()),
+                tool_status: Some("failed".to_string()),
+                tool_args: None,
+                message: Some(format!("自动整理失败：{err}")),
+            });
+            return Err(format!("自动整理失败：{err}"));
+        }
+    };
+
+    if let Some(warning) = archive_result
+        .warning
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        runtime_log_warn(format!(
+            "[聊天] 工具续调前上下文整理 完成 conversation_id={} warning={}",
+            context.conversation_id, warning
+        ));
+    } else {
+        runtime_log_info(format!(
+            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} estimated_prompt_tokens={}",
+            context.conversation_id, usage_ratio, estimated_prompt_tokens
+        ));
+    }
+
+    let Some((_compacted_source, prepared_after)) = build_tool_loop_prepared_for_continuation(
+        state,
+        context,
+        resolved_api,
+        transient_tool_history,
+    )?
+    else {
+        return Err("自动整理完成后未找到当前会话，无法继续工具续调。".to_string());
+    };
+
+    let (next_system_prompt, next_messages) =
+        build_genai_message_state(&prepared_after, protocol_family)?;
+    *system_prompt = next_system_prompt;
+    *messages = next_messages;
+    Ok(true)
+}
+
+async fn run_genai_tool_loop(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    tool_assembly: RuntimeToolAssembly,
+    protocol_family: ToolCallProtocolFamily,
+    adapter_kind: genai::adapter::AdapterKind,
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
@@ -484,246 +547,134 @@ async fn run_unified_tool_loop<M>(
     include_reasoning_before_tool_calls: bool,
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
-) -> Result<ModelReply, String>
-where
-    M: rig::completion::CompletionModel,
-    <M as rig::completion::CompletionModel>::StreamingResponse: rig::completion::GetTokenUsage,
-{
+) -> Result<ModelReply, String> {
+    let request_api_key = consume_api_key_for_request(api_config);
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            adapter_kind,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(adapter_kind, model_name),
+    };
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_capture_tool_calls(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
+    }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tools, protocol_family).await?;
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut trusted_input_tokens: Option<u64> = None;
-    let (mut current_prompt, mut chat_history) =
-        build_tool_loop_prompt(&prepared, protocol_family)?;
+    let (mut system_prompt, mut messages) = build_genai_message_state(&prepared, protocol_family)?;
 
     let mut auto_compaction_applied = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
     for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
         if round_index > 0 && !auto_compaction_applied {
-            auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue(
+            auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue_genai(
                 tool_abort_state,
                 auto_compaction_context,
                 selected_api,
                 resolved_api,
                 on_delta,
-                protocol_family,
                 &tool_history_events,
-                &mut current_prompt,
-                &mut chat_history,
+                protocol_family,
+                &mut system_prompt,
+                &mut messages,
             )
             .await?;
         }
-        let mut stream = agent
-            .stream_completion(current_prompt.clone(), chat_history.clone())
-            .await
-            .map_err(|err| format!("rig stream completion build failed: {err}"))?
-            .stream()
-            .await
-            .map_err(|err| format!("rig stream start failed: {err}"))?;
 
-        chat_history.push(current_prompt.clone());
+        let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+        if let Some(system) = system_prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request = request.with_system(system.to_string());
+        }
+        if !genai_tools.is_empty() {
+            request = request.with_tools(genai_tools.clone());
+        }
 
         let mut turn_text = String::new();
         let mut turn_reasoning = String::new();
-        let mut tool_calls = Vec::<AssistantContent>::new();
-        let mut tool_results = Vec::<(String, String, Option<String>, String)>::new();
-        let mut did_call_tool = false;
+        let mut turn_tool_calls = Vec::<genai::chat::ToolCall>::new();
         let mut stop_after_remote_im_done_in_turn = false;
+
+        let mut stream = client
+            .exec_chat_stream(service_target.clone(), request, Some(&options))
+            .await
+            .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
+            .stream;
 
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(StreamedAssistantContent::Text(text)) => {
+                Ok(genai::chat::ChatStreamEvent::Start) => {}
+                Ok(genai::chat::ChatStreamEvent::Chunk(text)) => {
                     let _ = on_delta.send(AssistantDeltaEvent {
-                        delta: text.text.clone(),
+                        delta: text.content.clone(),
                         kind: None,
                         tool_name: None,
                         tool_status: None,
                         tool_args: None,
                         message: None,
                     });
-                    turn_text.push_str(&text.text);
+                    turn_text.push_str(&text.content);
                 }
-                Ok(StreamedAssistantContent::ToolCall {
-                    tool_call,
-                    internal_call_id: _,
-                }) => {
-                    did_call_tool = true;
-                    let tool_call_id = tool_call.id.clone();
-                    let tool_name = tool_call.function.name.clone();
-                    let tool_args_value = tool_call.function.arguments.clone();
-                    let tool_args = match &tool_args_value {
-                        Value::String(raw) => raw.clone(),
-                        other => other.to_string(),
-                    };
-                    let repeat_streak =
-                        register_tool_repeat_attempt(&mut tool_repeat_guard, &tool_name, &tool_args);
-                    if tool_name.trim() == "todo" {
-                        let (_, _, bound_conversation_id) = delegate_parse_session_parts(chat_session_key);
-                        if let (Some(state), Some(conversation_id)) =
-                            (tool_abort_state, bound_conversation_id.as_deref())
-                        {
-                            if let Err(err) = update_conversation_todos_and_emit(
-                                state,
-                                conversation_id,
-                                parse_conversation_todos_from_tool_args(&tool_args),
-                            ) {
-                                runtime_log_error(format!(
-                                    "[Todo] 更新会话步骤失败: conversation_id={}, error={}",
-                                    conversation_id, err
-                                ));
-                            }
-                        }
-                    }
-                    send_tool_status_event(
-                        on_delta,
-                        &tool_name,
-                        "running",
-                        Some(tool_args.as_str()),
-                        &format!("正在调用工具：{}", tool_name),
-                    );
-                    let tool_result = if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
-                        let err_text = format!(
-                            "工具调用已被系统阻止：相同工具与相同参数已连续调用 {} 次，请调整参数或停止调用。",
-                            REPEATED_TOOL_CALL_BLOCK_THRESHOLD
-                        );
-                        runtime_log_info(format!(
-                            "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, args={}",
-                            chat_session_key, tool_name, repeat_streak, tool_args
-                        ));
-                        send_tool_status_event(
-                            on_delta,
-                            &tool_name,
-                            "failed",
-                            Some(tool_args.as_str()),
-                            &err_text,
-                        );
-                        tool_failure_result_json(&tool_name, &err_text)
-                    } else {
-                        match call_tool_with_user_abort(
-                            tool_abort_state,
-                            chat_session_key,
-                            agent.tool_server_handle.call_tool(&tool_name, &tool_args),
-                        )
-                        .await
-                        {
-                            Ok(output) => {
-                                send_tool_status_event(
-                                    on_delta,
-                                    &tool_name,
-                                    "done",
-                                    None,
-                                    &format!("工具调用完成：{}", tool_name),
-                                );
-                                output
-                            }
-                            Err(err) => {
-                                if err == CHAT_ABORTED_BY_USER_ERROR {
-                                    eprintln!(
-                                        "[聊天] 收到停止请求，立即退出工具循环 (session={})",
-                                        chat_session_key
-                                    );
-                                    return Err(err);
-                                }
-                                let err_text = err.to_string();
-                                send_tool_status_event(
-                                    on_delta,
-                                    &tool_name,
-                                    "failed",
-                                    None,
-                                    &format!("工具调用失败：{} ({})", tool_name, err_text),
-                                );
-                                tool_failure_result_json(&tool_name, &err_text)
-                            }
-                        }
-                    };
-                    let tool_call_call_id = tool_call.call_id.clone();
-                    let mut tc_json = serde_json::json!({
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "arguments": tool_args
-                        }
-                    });
-                    if let Some(cid) = &tool_call_call_id {
-                        if let Some(obj) = tc_json.as_object_mut() {
-                            obj.insert("call_id".to_string(), Value::String(cid.clone()));
-                        }
-                    }
-                    tool_history_events.push(serde_json::json!({
-                        "role": "assistant",
-                        "content": Value::Null,
-                        "tool_calls": [tc_json]
-                    }));
-                    let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result);
-                    tool_history_events.push(serde_json::json!({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": history_content
-                    }));
-
-                    tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
-                    tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
-                    if let Some((last_tool_name, _, _, last_tool_result)) = tool_results.last() {
-                        if should_stop_after_remote_im_send(last_tool_name, last_tool_result) {
-                            eprintln!(
-                                "[聊天] remote_im_send done=true，当前轮次立即停止后续工具调用 (session={})",
-                                chat_session_key
-                            );
-                            stop_after_remote_im_done_in_turn = true;
-                            break;
-                        }
+                Ok(genai::chat::ChatStreamEvent::ReasoningChunk(reasoning)) => {
+                    if !reasoning.content.is_empty() {
+                        turn_reasoning.push_str(&reasoning.content);
+                        full_reasoning_standard.push_str(&reasoning.content);
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: reasoning.content,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            tool_args: None,
+                            message: None,
+                        });
                     }
                 }
-                Ok(StreamedAssistantContent::Final(res)) => {
-                    trusted_input_tokens = rig::completion::GetTokenUsage::token_usage(&res)
-                        .map(|usage| usage.input_tokens.saturating_add(usage.cached_input_tokens))
+                Ok(genai::chat::ChatStreamEvent::ThoughtSignatureChunk(_)) => {}
+                Ok(genai::chat::ChatStreamEvent::ToolCallChunk(_)) => {}
+                Ok(genai::chat::ChatStreamEvent::End(end)) => {
+                    trusted_input_tokens = end
+                        .captured_usage
+                        .as_ref()
+                        .and_then(|usage| usage.prompt_tokens)
+                        .and_then(|value| u64::try_from(value).ok())
                         .filter(|value| *value > 0);
-                }
-                Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                    let merged = reasoning.display_text();
-                    if !merged.is_empty() {
-                        if !turn_reasoning.is_empty() {
-                            turn_reasoning.push('\n');
+                    if turn_reasoning.is_empty() {
+                        if let Some(captured_reasoning) = end
+                            .captured_reasoning_content
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                        {
+                            turn_reasoning = captured_reasoning.to_string();
+                            if full_reasoning_standard.is_empty() {
+                                full_reasoning_standard = captured_reasoning.to_string();
+                            }
                         }
-                        turn_reasoning.push_str(&merged);
-                        if !full_reasoning_standard.is_empty() {
-                            full_reasoning_standard.push('\n');
-                        }
-                        full_reasoning_standard.push_str(&merged);
-                        let _ = on_delta.send(AssistantDeltaEvent {
-                            delta: merged,
-                            kind: Some("reasoning_standard".to_string()),
-                            tool_name: None,
-                            tool_status: None,
-                            tool_args: None,
-                            message: None,
-                        });
+                    }
+                    if let Some(captured_content) = end.captured_content {
+                        turn_tool_calls = captured_content.into_tool_calls();
                     }
                 }
-                Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
-                    if !reasoning.is_empty() {
-                        turn_reasoning.push_str(&reasoning);
-                        full_reasoning_standard.push_str(&reasoning);
-                        let _ = on_delta.send(AssistantDeltaEvent {
-                            delta: reasoning,
-                            kind: Some("reasoning_standard".to_string()),
-                            tool_name: None,
-                            tool_status: None,
-                            tool_args: None,
-                            message: None,
-                        });
-                    }
-                }
-                Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
-                Err(err) => return Err(format!("rig streaming failed: {err}")),
+                Err(err) => return Err(format!("GenAI 流式处理失败：{err}")),
             }
-        }
-        if stop_after_remote_im_done_in_turn {
-            eprintln!(
-                "[聊天] 结束当前工具轮次：remote_im_send 已返回 done (session={})",
-                chat_session_key
-            );
         }
 
         if !turn_text.is_empty() {
@@ -733,7 +684,7 @@ where
             full_assistant_text.push_str(&turn_text);
         }
 
-        if !did_call_tool {
+        if turn_tool_calls.is_empty() {
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
                 reasoning_standard: full_reasoning_standard,
@@ -744,23 +695,141 @@ where
             });
         }
 
-        if !tool_calls.is_empty() {
-            let mut assistant_items = Vec::<AssistantContent>::new();
-            if include_reasoning_before_tool_calls {
-                let reasoning_for_history =
-                    resolve_reasoning_for_tool_history(&turn_reasoning, &chat_history);
-                assistant_items.push(AssistantContent::reasoning(reasoning_for_history));
-            }
-            assistant_items.extend(tool_calls);
-            chat_history.push(RigMessage::Assistant {
-                id: None,
-                content: OneOrMany::many(assistant_items)
-                    .map_err(|_| "Failed to build assistant tool-call message".to_string())?,
-            });
+        let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
+        for tool_call in &turn_tool_calls {
+            assistant_parts.push(genai::chat::ContentPart::ToolCall(tool_call.clone()));
         }
+        let mut assistant_message = genai::chat::ChatMessage::assistant(
+            genai::chat::MessageContent::from_parts(assistant_parts),
+        );
+        if include_reasoning_before_tool_calls {
+            let reasoning_for_history = turn_reasoning.trim();
+            if !reasoning_for_history.is_empty() {
+                assistant_message = assistant_message.with_reasoning_content(Some(
+                    reasoning_for_history.to_string(),
+                ));
+            }
+        }
+        messages.push(assistant_message);
 
-        for (tool_name, tool_id, call_id, tool_result) in tool_results {
-            if organize_context_succeeded(&tool_name, &tool_result) {
+        for tool_call in turn_tool_calls {
+            let tool_name = tool_call.fn_name.clone();
+            let tool_call_id = tool_call.call_id.clone();
+            let tool_args = match &tool_call.fn_arguments {
+                Value::String(raw) => raw.clone(),
+                other => other.to_string(),
+            };
+            let repeat_streak =
+                register_tool_repeat_attempt(&mut tool_repeat_guard, &tool_name, &tool_args);
+            if tool_name.trim() == "todo" {
+                let (_, _, bound_conversation_id) = delegate_parse_session_parts(chat_session_key);
+                if let (Some(state), Some(conversation_id)) =
+                    (tool_abort_state, bound_conversation_id.as_deref())
+                {
+                    if let Err(err) = update_conversation_todos_and_emit(
+                        state,
+                        conversation_id,
+                        parse_conversation_todos_from_tool_args(&tool_args),
+                    ) {
+                        runtime_log_error(format!(
+                            "[Todo] 更新会话步骤失败: conversation_id={}, error={}",
+                            conversation_id, err
+                        ));
+                    }
+                }
+            }
+            send_tool_status_event(
+                on_delta,
+                &tool_name,
+                "running",
+                Some(tool_args.as_str()),
+                &format!("正在调用工具：{}", tool_name),
+            );
+
+            let tool_result = if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
+                let err_text = format!(
+                    "工具调用已被系统阻止：相同工具与相同参数已连续调用 {} 次，请调整参数或停止调用。",
+                    REPEATED_TOOL_CALL_BLOCK_THRESHOLD
+                );
+                runtime_log_info(format!(
+                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, args={}",
+                    chat_session_key, tool_name, repeat_streak, tool_args
+                ));
+                send_tool_status_event(
+                    on_delta,
+                    &tool_name,
+                    "failed",
+                    Some(tool_args.as_str()),
+                    &err_text,
+                );
+                ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+            } else {
+                match call_tool_with_user_abort(
+                    tool_abort_state,
+                    chat_session_key,
+                    call_runtime_tool_by_name(&tool_assembly.tools, &tool_name, &tool_args),
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let status_message = if output.is_error {
+                            format!("工具返回错误结果：{}", tool_name)
+                        } else {
+                            format!("工具调用完成：{}", tool_name)
+                        };
+                        send_tool_status_event(
+                            on_delta,
+                            &tool_name,
+                            if output.is_error { "failed" } else { "done" },
+                            None,
+                            &status_message,
+                        );
+                        output
+                    }
+                    Err(err) => {
+                        if err == CHAT_ABORTED_BY_USER_ERROR {
+                            eprintln!(
+                                "[聊天] 收到停止请求，立即退出工具循环 (session={})",
+                                chat_session_key
+                            );
+                            return Err(err);
+                        }
+                        let err_text = err.to_string();
+                        send_tool_status_event(
+                            on_delta,
+                            &tool_name,
+                            "failed",
+                            None,
+                            &format!("工具调用失败：{} ({})", tool_name, err_text),
+                        );
+                        ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+                    }
+                }
+            };
+            let tool_result_text = tool_result.display_text.clone();
+
+            let tc_json = serde_json::json!({
+                "id": tool_call_id,
+                "call_id": tool_call.call_id,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": tool_args
+                }
+            });
+            tool_history_events.push(serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [tc_json]
+            }));
+            let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
+            tool_history_events.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": history_content
+            }));
+
+            if organize_context_succeeded(&tool_name, &tool_result_text) {
                 return Ok(ModelReply {
                     assistant_text: String::new(),
                     reasoning_standard: full_reasoning_standard,
@@ -770,39 +839,18 @@ where
                     trusted_input_tokens: None,
                 });
             }
-            if should_stop_after_remote_im_send(&tool_name, &tool_result) {
-                eprintln!(
-                    "[聊天] remote_im_send done=true，立即退出工具循环 (session={})",
-                    chat_session_key
-                );
-                let final_text = if full_assistant_text.trim().is_empty() {
-                    match remote_im_result_action(&tool_result).as_deref() {
-                        Some("no_reply") => "本轮决定不回复。".to_string(),
-                        _ => "已发送完成。".to_string(),
-                    }
-                } else {
-                    full_assistant_text.clone()
-                };
-                return Ok(ModelReply {
-                    assistant_text: final_text,
-                    reasoning_standard: full_reasoning_standard,
-                    reasoning_inline: String::new(),
-                    tool_history_events,
-                    suppress_assistant_message: false,
-                    trusted_input_tokens,
-                });
+            if should_stop_after_remote_im_send(&tool_name, &tool_result_text) {
+                stop_after_remote_im_done_in_turn = true;
             }
+
             let (tool_result_for_model, screenshot_forward) =
-                enrich_screenshot_tool_result_with_cache(&tool_name, &tool_result);
-            let result_content = OneOrMany::one(ToolResultContent::text(tool_result_for_model));
-            let user_content = if let Some(call_id) = call_id {
-                UserContent::tool_result_with_call_id(tool_id, call_id, result_content)
-            } else {
-                UserContent::tool_result(tool_id, result_content)
-            };
-            chat_history.push(RigMessage::User {
-                content: OneOrMany::one(user_content),
-            });
+                enrich_screenshot_tool_result_with_cache(&tool_name, &tool_result_text);
+            messages.push(genai::chat::ChatMessage::from(
+                genai::chat::ToolResponse::new(tool_call.call_id, tool_result_for_model),
+            ));
+            if let Some(message) = runtime_tool_result_followup_message(&tool_name, &tool_result) {
+                messages.push(message);
+            }
             if let Some((payload, artifact_id)) = screenshot_forward {
                 let notice = screenshot_forward_notice(&payload);
                 let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
@@ -811,17 +859,18 @@ where
                         created_seq: 0,
                     },
                 );
-                let mut forwarded_items = vec![UserContent::text(notice)];
-                forwarded_items.extend(cached.images.iter().map(|image| {
-                    UserContent::image_base64(
+                let mut forwarded_parts =
+                    vec![genai::chat::ContentPart::from_text(notice)];
+                forwarded_parts.extend(cached.images.iter().map(|image| {
+                    genai::chat::ContentPart::from_binary_base64(
+                        image.mime.clone(),
                         image.base64.clone(),
-                        image_media_type_from_mime(&image.mime),
-                        Some(ImageDetail::Auto),
+                        None,
                     )
                 }));
-                let forwarded = OneOrMany::many(forwarded_items)
-                .map_err(|_| "Failed to build screenshot forward user message".to_string())?;
-                chat_history.push(RigMessage::User { content: forwarded });
+                messages.push(genai::chat::ChatMessage::user(
+                    genai::chat::MessageContent::from_parts(forwarded_parts),
+                ));
                 tool_history_events.push(serde_json::json!({
                     "role": "user",
                     "content": "[desktop screenshot forwarded as user image]",
@@ -830,11 +879,41 @@ where
                     "screenshotImageCount": cached.images.len()
                 }));
             }
+            if stop_after_remote_im_done_in_turn {
+                break;
+            }
         }
 
-        current_prompt = chat_history
-            .pop()
-            .ok_or_else(|| "Tool call turn ended with empty chat history".to_string())?;
+        if stop_after_remote_im_done_in_turn {
+            let final_text = if full_assistant_text.trim().is_empty() {
+                match tool_history_events
+                    .iter()
+                    .rev()
+                    .find_map(|event| {
+                        event.get("role")
+                            .and_then(Value::as_str)
+                            .filter(|role| *role == "tool")?;
+                        event.get("content")
+                            .and_then(Value::as_str)
+                            .and_then(remote_im_result_action)
+                    })
+                    .as_deref()
+                {
+                    Some("no_reply") => "本轮决定不回复。".to_string(),
+                    _ => "已发送完成。".to_string(),
+                }
+            } else {
+                full_assistant_text.clone()
+            };
+            return Ok(ModelReply {
+                assistant_text: final_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: String::new(),
+                tool_history_events,
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+            });
+        }
     }
 
     send_tool_status_event(
@@ -857,63 +936,6 @@ where
 #[cfg(test)]
 mod tool_loop_tests {
     use super::*;
-
-    fn assistant_with_reasoning(text: &str) -> RigMessage {
-        RigMessage::Assistant {
-            id: None,
-            content: OneOrMany::many(vec![AssistantContent::reasoning(text.to_string())])
-                .expect("assistant content"),
-        }
-    }
-
-    fn assistant_with_tool_only() -> RigMessage {
-        RigMessage::Assistant {
-            id: None,
-            content: OneOrMany::one(AssistantContent::tool_call(
-                "call_1".to_string(),
-                "noop".to_string(),
-                serde_json::json!({}),
-            )),
-        }
-    }
-
-    fn user_text(text: &str) -> RigMessage {
-        RigMessage::User {
-            content: OneOrMany::one(UserContent::text(text.to_string())),
-        }
-    }
-
-    #[test]
-    fn tool_history_reasoning_prefers_current_turn_reasoning() {
-        let chat_history = vec![assistant_with_reasoning("old-reasoning")];
-        let chosen = resolve_reasoning_for_tool_history("new-reasoning", &chat_history);
-        assert_eq!(chosen, "new-reasoning");
-    }
-
-    #[test]
-    fn tool_history_reasoning_inherits_assistant_reasoning_without_user_boundary() {
-        let chat_history = vec![assistant_with_reasoning("r1"), assistant_with_tool_only()];
-        let chosen = resolve_reasoning_for_tool_history("", &chat_history);
-        assert_eq!(chosen, "r1");
-    }
-
-    #[test]
-    fn tool_history_reasoning_must_not_cross_user_boundary() {
-        let chat_history = vec![
-            assistant_with_reasoning("r-before-user"),
-            user_text("new question"),
-            assistant_with_tool_only(),
-        ];
-        let chosen = resolve_reasoning_for_tool_history("", &chat_history);
-        assert_eq!(chosen, " ");
-    }
-
-    #[test]
-    fn tool_history_reasoning_fallback_is_space_when_none_available() {
-        let chat_history = vec![user_text("first question"), assistant_with_tool_only()];
-        let chosen = resolve_reasoning_for_tool_history("   ", &chat_history);
-        assert_eq!(chosen, " ");
-    }
 
     #[test]
     fn remote_im_send_should_stop_on_snake_case_stop_tool_loop() {

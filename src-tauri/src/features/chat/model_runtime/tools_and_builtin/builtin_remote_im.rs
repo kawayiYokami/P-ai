@@ -3,17 +3,12 @@ struct BuiltinRemoteImSendTool {
     app_state: AppState,
 }
 
-impl Tool for BuiltinRemoteImSendTool {
-    const NAME: &'static str = "remote_im_send";
-    type Error = ToolInvokeError;
-    type Args = RemoteImSendToolArgs;
-    type Output = Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "remote_im_send".to_string(),
-            description: "远程联系人回复决策工具。来自联系人的消息，必须且只能通过本工具完成回复决策：回复时使用 action=send；决定不回复时也必须使用 action=no_reply；不要直接输出给联系人的回复正文来代替工具调用。action=list 仅用于获取可用联系人。".to_string(),
-            parameters: serde_json::json!({
+impl RuntimeToolMetadata for BuiltinRemoteImSendTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "remote_im_send",
+            "远程联系人回复决策工具。来自联系人的消息，必须且只能通过本工具完成回复决策：回复时使用 action=send；决定不回复时也必须使用 action=no_reply；不要直接输出给联系人的回复正文来代替工具调用。action=list 仅用于获取可用联系人。",
+            serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["list", "send", "no_reply"], "description": "动作。list=列出可用联系人；send=向联系人发送消息；no_reply=本轮决定不回复。对于联系人消息，最终必须使用 send 或 no_reply 做出决策。", "default": "send" },
@@ -29,10 +24,17 @@ impl Tool for BuiltinRemoteImSendTool {
               },
               "required": ["action"]
             }),
-        }
+        )
     }
+}
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+impl RuntimeJsonTool for BuiltinRemoteImSendTool {
+    const NAME: &'static str = "remote_im_send";
+    type Args = RemoteImSendToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
         runtime_log_debug(format!(
             "[TOOL-DEBUG] execute_builtin_tool.start name=remote_im_send args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
@@ -48,6 +50,7 @@ impl Tool for BuiltinRemoteImSendTool {
             Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=remote_im_send err={err}")),
         }
         result
+        })
     }
 }
 
