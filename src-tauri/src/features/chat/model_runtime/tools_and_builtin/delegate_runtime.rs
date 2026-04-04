@@ -17,19 +17,6 @@ fn delegate_parse_session_parts(session_id: &str) -> (String, String, Option<Str
                 Some((*conversation_id).to_string())
             },
         ),
-        [api_config_id, agent_id, conversation_id, ..] => (
-            (*api_config_id).to_string(),
-            if agent_id.is_empty() {
-                DEFAULT_AGENT_ID.to_string()
-            } else {
-                (*agent_id).to_string()
-            },
-            if conversation_id.is_empty() {
-                None
-            } else {
-                Some((*conversation_id).to_string())
-            },
-        ),
         [agent_id] => (
             String::new(),
             if agent_id.is_empty() {
@@ -39,7 +26,7 @@ fn delegate_parse_session_parts(session_id: &str) -> (String, String, Option<Str
             },
             None,
         ),
-        _ => (String::new(), DEFAULT_AGENT_ID.to_string(), None),
+        _ => (String::new(), String::new(), None),
     }
 }
 

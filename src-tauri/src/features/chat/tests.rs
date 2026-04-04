@@ -1858,13 +1858,105 @@
     }
 
     #[test]
-    fn delegate_parse_session_parts_should_preserve_conversation_in_three_segment_session() {
+    fn delegate_parse_session_parts_should_reject_legacy_three_segment_session() {
         let (api_config_id, agent_id, conversation_id) =
             delegate_parse_session_parts("api-config-a::default-agent::conversation-sub");
 
-        assert_eq!(api_config_id, "api-config-a");
-        assert_eq!(agent_id, "default-agent");
-        assert_eq!(conversation_id.as_deref(), Some("conversation-sub"));
+        assert_eq!(api_config_id, "");
+        assert_eq!(agent_id, "");
+        assert_eq!(conversation_id, None);
+    }
+
+    #[test]
+    fn delegate_target_chat_api_config_ids_should_only_keep_current_department_models() {
+        let app_config = AppConfig {
+            api_configs: vec![ApiConfig {
+                id: "provider-a::model-a".to_string(),
+                name: "provider-a/model-a".to_string(),
+                request_format: RequestFormat::OpenAI,
+                enable_text: true,
+                enable_image: false,
+                enable_audio: false,
+                enable_tools: true,
+                tools: vec![],
+                base_url: "https://api.openai.com/v1".to_string(),
+                api_key: "k".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                temperature: 1.0,
+                custom_temperature_enabled: false,
+                context_window_tokens: 128_000,
+                max_output_tokens: 4_096,
+                custom_max_output_tokens_enabled: false,
+                failure_retry_count: 0,
+            }],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+        let department = DepartmentConfig {
+            id: "dept-a".to_string(),
+            name: "部门 A".to_string(),
+            summary: String::new(),
+            guide: String::new(),
+            api_config_ids: vec!["provider-a".to_string(), "provider-a::model-a".to_string()],
+            api_config_id: "provider-a".to_string(),
+            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+            created_at: now_utc_rfc3339(),
+            updated_at: now_utc_rfc3339(),
+            order_index: 1,
+            is_built_in_assistant: false,
+            source: "main_config".to_string(),
+            scope: "global".to_string(),
+        };
+
+        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
+
+        assert_eq!(resolved, vec!["provider-a::model-a".to_string()]);
+    }
+
+    #[test]
+    fn delegate_target_chat_api_config_ids_should_not_fallback_when_department_binding_invalid() {
+        let app_config = AppConfig {
+            api_configs: vec![ApiConfig {
+                id: "provider-a::model-a".to_string(),
+                name: "provider-a/model-a".to_string(),
+                request_format: RequestFormat::OpenAI,
+                enable_text: true,
+                enable_image: false,
+                enable_audio: false,
+                enable_tools: true,
+                tools: vec![],
+                base_url: "https://api.openai.com/v1".to_string(),
+                api_key: "k".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                temperature: 1.0,
+                custom_temperature_enabled: false,
+                context_window_tokens: 128_000,
+                max_output_tokens: 4_096,
+                custom_max_output_tokens_enabled: false,
+                failure_retry_count: 0,
+            }],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+        let department = DepartmentConfig {
+            id: "dept-a".to_string(),
+            name: "部门 A".to_string(),
+            summary: String::new(),
+            guide: String::new(),
+            api_config_ids: vec!["provider-a".to_string()],
+            api_config_id: "provider-a".to_string(),
+            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+            created_at: now_utc_rfc3339(),
+            updated_at: now_utc_rfc3339(),
+            order_index: 1,
+            is_built_in_assistant: false,
+            source: "main_config".to_string(),
+            scope: "global".to_string(),
+        };
+
+        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
+
+        assert!(resolved.is_empty());
     }
 
     #[test]

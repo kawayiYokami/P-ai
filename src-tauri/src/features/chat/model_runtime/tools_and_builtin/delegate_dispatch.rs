@@ -186,6 +186,7 @@ fn check_and_push_call_stack(
 
 #[derive(Debug, Clone)]
 struct DelegatePreflight {
+    config: AppConfig,
     data: AppData,
     source_department: DepartmentConfig,
     target_department: DepartmentConfig,
@@ -200,7 +201,7 @@ fn common_delegate_preflight(
     source_conversation_id: Option<&str>,
     target_department_id: &str,
 ) -> Result<DelegatePreflight, String> {
-    let (_config, data, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
+    let (config, data, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
         delegate_resolve_context(
             app_state,
             source_agent_id,
@@ -208,6 +209,7 @@ fn common_delegate_preflight(
             target_department_id,
         )?;
     Ok(DelegatePreflight {
+        config,
         data,
         source_department,
         target_department,
@@ -215,6 +217,22 @@ fn common_delegate_preflight(
         root_conversation_id,
         current_thread,
     })
+}
+
+fn delegate_target_chat_api_config_ids(
+    config: &AppConfig,
+    target_department: &DepartmentConfig,
+) -> Vec<String> {
+    let valid_text_chat_api_ids = config
+        .api_configs
+        .iter()
+        .filter(|api| api.enable_text && api.request_format.is_chat_text())
+        .map(|api| api.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    department_api_config_ids(target_department)
+        .into_iter()
+        .filter(|id| valid_text_chat_api_ids.contains(id))
+        .collect::<Vec<_>>()
 }
 
 fn spawn_delegate_task(
@@ -390,7 +408,7 @@ async fn builtin_delegate(
         app_state.clone(),
         delegate.clone(),
         delegate.conversation_id.clone(),
-        department_api_config_ids(&preflight.target_department),
+        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_department),
     );
 
     Ok(serde_json::json!({
@@ -462,7 +480,7 @@ async fn delegate_execute_sync(
     match delegate_run_thread_to_completion(
         app_state.clone(),
         delegate.clone(),
-        department_api_config_ids(&preflight.target_department),
+        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_department),
         Some(session_id.to_string()),
     )
     .await

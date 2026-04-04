@@ -479,12 +479,12 @@ fn prioritize_requested_chat_api_id(
     requested_api_id: Option<&str>,
     candidate_api_ids: &mut Vec<String>,
     app_config: &AppConfig,
-) {
+) -> Result<(), String> {
     let Some(requested_api_id) = requested_api_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return;
+        return Ok(());
     };
 
     let Some(requested_api) = app_config
@@ -492,20 +492,17 @@ fn prioritize_requested_chat_api_id(
         .iter()
         .find(|api| api.id == requested_api_id)
     else {
-        eprintln!(
-            "[聊天] 会话指定模型不存在，忽略 session.api_config_id={}",
-            requested_api_id
-        );
-        return;
+        return Err(format!(
+            "会话指定模型不存在：session.api_config_id={requested_api_id}"
+        ));
     };
 
     if !requested_api.request_format.is_chat_text() {
-        eprintln!(
-            "[聊天] 会话指定模型不是聊天文本模型，忽略 session.api_config_id={}, request_format={:?}",
+        return Err(format!(
+            "会话指定模型不是聊天文本模型：session.api_config_id={}, request_format={:?}",
             requested_api_id,
             requested_api.request_format
-        );
-        return;
+        ));
     }
 
     if let Some(index) = candidate_api_ids.iter().position(|id| id == requested_api_id) {
@@ -513,10 +510,11 @@ fn prioritize_requested_chat_api_id(
             let api_id = candidate_api_ids.remove(index);
             candidate_api_ids.insert(0, api_id);
         }
-        return;
+        return Ok(());
     }
 
     candidate_api_ids.insert(0, requested_api_id.to_string());
+    Ok(())
 }
 
 fn memory_recall_query_from_user_text(user_text: &str) -> String {
@@ -1182,7 +1180,7 @@ async fn send_chat_message_inner(
             requested_api_config_id.as_deref(),
             &mut candidate_api_ids,
             &app_config,
-        );
+        )?;
         let candidate_models_ms = candidate_models_started
             .elapsed()
             .as_millis()
@@ -2381,7 +2379,8 @@ mod core_send_inner_tests {
         };
         let mut candidate_api_ids = vec!["text-a".to_string(), "vision-b".to_string()];
 
-        prioritize_requested_chat_api_id(Some("vision-b"), &mut candidate_api_ids, &app_config);
+        prioritize_requested_chat_api_id(Some("vision-b"), &mut candidate_api_ids, &app_config)
+            .expect("prioritize requested api id");
 
         assert_eq!(
             candidate_api_ids,
@@ -2398,7 +2397,8 @@ mod core_send_inner_tests {
         };
         let mut candidate_api_ids = vec!["text-a".to_string()];
 
-        prioritize_requested_chat_api_id(Some("vision-b"), &mut candidate_api_ids, &app_config);
+        prioritize_requested_chat_api_id(Some("vision-b"), &mut candidate_api_ids, &app_config)
+            .expect("prioritize requested api id");
 
         assert_eq!(
             candidate_api_ids,
@@ -2407,7 +2407,7 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn prioritize_requested_chat_api_id_should_ignore_non_chat_or_missing_model() {
+    fn prioritize_requested_chat_api_id_should_reject_non_chat_or_missing_model() {
         let mut embedding_api = test_chat_api("embed-a", false);
         embedding_api.request_format = RequestFormat::OpenAIEmbedding;
         let app_config = AppConfig {
@@ -2417,10 +2417,16 @@ mod core_send_inner_tests {
         };
         let mut candidate_api_ids = vec!["text-a".to_string()];
 
-        prioritize_requested_chat_api_id(Some("embed-a"), &mut candidate_api_ids, &app_config);
-        prioritize_requested_chat_api_id(Some("missing"), &mut candidate_api_ids, &app_config);
+        let non_chat_err =
+            prioritize_requested_chat_api_id(Some("embed-a"), &mut candidate_api_ids, &app_config)
+                .expect_err("non-chat model should be rejected");
+        let missing_err =
+            prioritize_requested_chat_api_id(Some("missing"), &mut candidate_api_ids, &app_config)
+                .expect_err("missing model should be rejected");
 
         assert_eq!(candidate_api_ids, vec!["text-a".to_string()]);
+        assert!(non_chat_err.contains("不是聊天文本模型"));
+        assert!(missing_err.contains("模型不存在"));
     }
 }
 fn error_indicates_image_input_unsupported(error: &str) -> bool {
