@@ -30,16 +30,51 @@
         class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
         @scroll="onScroll"
       >
-        <div v-if="activeConversationTodo" class="pointer-events-none sticky top-0 z-20 flex justify-center">
+        <div v-if="normalizedConversationTodos.length" class="sticky top-0 z-20 flex justify-center pt-1">
           <div
-            class="ecall-floating-todo pointer-events-none inline-flex max-w-[min(88vw,30rem)] items-center gap-2 rounded-full bg-base-100 px-4 py-2 text-[12px] text-base-content"
-            :title="activeConversationTodo"
+            class="ecall-floating-todo pointer-events-auto"
+            :aria-label="t('config.task.fields.todo')"
+            tabindex="0"
+            @click.stop
+            @mousedown.stop
           >
-            <ListTodo class="h-4 w-4 shrink-0 text-base-content/65" />
-            <span
-              class="ecall-floating-todo-text truncate"
-              :data-text="activeConversationTodo"
-            >{{ activeConversationTodo }}</span>
+            <div class="ecall-floating-todo-summary text-[12px] text-base-content">
+              <ListTodo class="h-4 w-4 shrink-0 text-base-content/65" />
+              <span
+                class="ecall-floating-todo-text truncate"
+                :data-text="activeConversationTodo"
+              >{{ activeConversationTodo }}</span>
+              <span
+                v-if="normalizedConversationTodos.length > 1"
+                class="ecall-floating-todo-count"
+              >+{{ normalizedConversationTodos.length - 1 }}</span>
+            </div>
+            <div
+              v-if="normalizedConversationTodos.length > 1"
+              class="ecall-floating-todo-panel"
+            >
+              <ul class="flex flex-col gap-3">
+                <li
+                  v-for="(item, index) in normalizedConversationTodos"
+                  :key="`${item.status}-${index}-${item.content}`"
+                  class="flex items-start gap-3"
+                  :title="item.content"
+                >
+                  <span
+                    class="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+                    :class="todoIndexClass(item.status)"
+                  >{{ index + 1 }}</span>
+                  <span
+                    class="min-w-0 wrap-break-word pt-0.5 text-sm leading-6"
+                    :class="item.status === 'completed'
+                      ? 'text-base-content/55 line-through'
+                      : item.status === 'in_progress'
+                        ? 'text-base-content font-semibold'
+                        : 'text-base-content'"
+                  >{{ item.content }}</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
@@ -300,20 +335,36 @@ const visibleStreamToolCalls = computed(() =>
   props.streamToolCalls.filter((call) => !isOrganizeContextToolCall(call))
 );
 
-const activeConversationTodo = computed(() => {
+const normalizedConversationTodos = computed(() => {
   const todos = Array.isArray(props.currentTodos) ? props.currentTodos : [];
-  const normalized = todos
+  return todos
     .map((item) => ({
       content: String(item?.content || "").trim(),
       status: String(item?.status || "").trim() as ChatTodoItem["status"],
     }))
     .filter((item) => item.content && (item.status === "pending" || item.status === "in_progress" || item.status === "completed"));
-  const inProgress = normalized.find((item) => item.status === "in_progress");
-  if (inProgress) return inProgress.content;
-  const pending = normalized.find((item) => item.status === "pending");
-  if (pending) return pending.content;
-  return String(normalized[0]?.content || "").trim();
 });
+
+const activeConversationTodoIndex = computed(() => {
+  const todos = normalizedConversationTodos.value;
+  const inProgressIndex = todos.findIndex((item) => item.status === "in_progress");
+  if (inProgressIndex >= 0) return inProgressIndex;
+  const pendingIndex = todos.findIndex((item) => item.status === "pending");
+  if (pendingIndex >= 0) return pendingIndex;
+  return todos.length ? 0 : -1;
+});
+
+const activeConversationTodo = computed(() => {
+  const index = activeConversationTodoIndex.value;
+  if (index < 0) return "";
+  return String(normalizedConversationTodos.value[index]?.content || "").trim();
+});
+
+function todoIndexClass(status: ChatTodoItem["status"]): string {
+  if (status === "completed") return "bg-success text-success-content";
+  if (status === "in_progress") return "bg-primary text-primary-content";
+  return "bg-base-200 text-base-content/70";
+}
 
 const organizingContextBannerText = computed(() => {
   if (props.toolStatusState !== "running") return "";
@@ -573,9 +624,21 @@ onBeforeUnmount(() => {
 }
 
 .ecall-floating-todo {
-  border: 1px solid hsl(var(--bc) / 0.15);
+  position: relative;
   isolation: isolate;
+  overflow: visible;
+}
+
+.ecall-floating-todo-summary {
+  display: inline-flex;
+  max-width: min(88vw, 30rem);
+  align-items: center;
+  gap: 0.625rem;
   overflow: hidden;
+  border: 1px solid hsl(var(--bc) / 0.15);
+  border-radius: 999px;
+  background: #fff;
+  padding: 0.55rem 0.9rem;
   box-shadow:
     0 10px 30px rgb(0 0 0 / 0.16),
     inset 0 1px 0 rgb(255 255 255 / 0.18);
@@ -585,9 +648,20 @@ onBeforeUnmount(() => {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: 1 1 auto;
   min-width: 0;
   line-height: 1;
   color: currentColor;
+}
+
+.ecall-floating-todo-count {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: hsl(var(--b2) / 0.9);
+  padding: 0.15rem 0.45rem;
+  font-size: 11px;
+  line-height: 1;
+  color: hsl(var(--bc) / 0.65);
 }
 
 .ecall-floating-todo-text::after {
@@ -610,6 +684,47 @@ onBeforeUnmount(() => {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: ecall-floating-todo-shimmer 3.2s linear infinite;
+}
+
+.ecall-floating-todo-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 50%;
+  width: max-content;
+  max-width: min(88vw, 30rem);
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+  border: 1px solid hsl(var(--bc) / 0.15);
+  border-radius: 1rem;
+  background: #fff;
+  padding: 0.6rem;
+  box-shadow:
+    0 20px 50px rgb(0 0 0 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -0.35rem) scale(0.98);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.ecall-floating-todo:hover .ecall-floating-todo-panel,
+.ecall-floating-todo:focus-within .ecall-floating-todo-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.ecall-floating-todo:focus-visible {
+  outline: none;
+}
+
+.ecall-floating-todo:focus-visible .ecall-floating-todo-summary {
+  box-shadow:
+    0 0 0 2px hsl(var(--p) / 0.25),
+    0 10px 30px rgb(0 0 0 / 0.16),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
 }
 
 @keyframes ecall-floating-todo-shimmer {
