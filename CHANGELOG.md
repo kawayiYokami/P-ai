@@ -7,6 +7,12 @@
   - 包含会话顶部 Todo 胶囊的悬停展开、状态样式与浮层阅读体验优化
   - 包含思考区与工具调用区折叠气泡的层级、状态提示与时间线展示调整
 
+## 更新：系统提示词改为强制中文并补充提问规划规约
+
+- 调整（system-prompt-force-zh-and-question-planning-rule）：统一聊天系统提示词核心规则为中文，并补充提问与规划约束
+  - `conversation.rs` 中部门上下文、语言设定、远程联系人规则、委托线程约束等系统提示词统一改为中文输出，不再随 `ui_language` 切换
+  - 新增 `system tools rule` 与 `question and planning rule`，补充 `todo / delegate / task / exec` 的使用规约，以及“提问之法 / 规划之道”的行为约束
+
 ## 更新：调整聊天消息中的思考与工具气泡样式
 
 - 调整（chat-message-bubble-reasoning-and-tool-style-tuning）：统一对话消息里思考区与工具区的折叠气泡样式

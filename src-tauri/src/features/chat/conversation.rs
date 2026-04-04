@@ -957,7 +957,7 @@ fn format_message_time_rfc3339_local_to_minute(raw: &str) -> String {
     trimmed.to_string()
 }
 
-fn prompt_current_date_timezone_line(ui_language: &str) -> String {
+fn prompt_current_date_timezone_line(_ui_language: &str) -> String {
     let tz = local_utc_offset()
         .map(|offset| {
             let seconds = offset.whole_seconds();
@@ -968,11 +968,7 @@ fn prompt_current_date_timezone_line(ui_language: &str) -> String {
             format!("{sign}{hours:02}:{minutes:02}")
         })
         .unwrap_or_else(|| "local".to_string());
-    match ui_language.trim() {
-        "en-US" => format!("- Timezone: {}", tz),
-        "zh-TW" => format!("- 時區：{}", tz),
-        _ => format!("- 时区：{}", tz),
-    }
+    format!("- 时区：{}", tz)
 }
 
 fn render_prompt_message_text(message: &ChatMessage) -> String {
@@ -1274,41 +1270,17 @@ struct DepartmentPromptLabels {
     empty_guide: &'static str,
 }
 
-fn department_prompt_labels(ui_language: &str) -> DepartmentPromptLabels {
-    match ui_language.trim() {
-        "en-US" => DepartmentPromptLabels {
-            current_name_label: "Department",
-            current_summary_label: "Summary",
-            current_guide_label: "Guide",
-            available_title: "Available Departments",
-            available_empty: "No available department right now.",
-            available_id_label: "Department ID",
-            available_summary_label: "Summary",
-            empty_summary: "Not provided",
-            empty_guide: "No guide configured.",
-        },
-        "zh-TW" => DepartmentPromptLabels {
-            current_name_label: "部門",
-            current_summary_label: "部門概述",
-            current_guide_label: "部門辦事指南",
-            available_title: "你的可用部門",
-            available_empty: "當前沒有可用部門。",
-            available_id_label: "部門 ID",
-            available_summary_label: "概述",
-            empty_summary: "未提供",
-            empty_guide: "尚未配置辦事指南。",
-        },
-        _ => DepartmentPromptLabels {
-            current_name_label: "部门",
-            current_summary_label: "部门概述",
-            current_guide_label: "部门办事指南",
-            available_title: "你的可用部门",
-            available_empty: "当前没有可用部门。",
-            available_id_label: "部门 ID",
-            available_summary_label: "概述",
-            empty_summary: "未提供",
-            empty_guide: "尚未配置办事指南。",
-        },
+fn department_prompt_labels(_ui_language: &str) -> DepartmentPromptLabels {
+    DepartmentPromptLabels {
+        current_name_label: "部门",
+        current_summary_label: "部门概述",
+        current_guide_label: "部门办事指南",
+        available_title: "你的可用部门",
+        available_empty: "当前没有可用部门。",
+        available_id_label: "部门 ID",
+        available_summary_label: "概述",
+        empty_summary: "未提供",
+        empty_guide: "尚未配置办事指南。",
     }
 }
 
@@ -1470,6 +1442,76 @@ fn build_memory_rag_rule_block() -> String {
          3. 不要把这些记忆误当成用户此刻正在明确表达的立场、需求或情绪。\n\
          4. 若当前消息与记忆冲突，一律以当前消息为准。\n\
          5. 若用户明确追问你为什么记得，可以坦诚说明这来自历史对话记忆。",
+    )
+}
+
+fn build_system_tools_rule_block(
+    _conversation: &Conversation,
+    _agent: &AgentProfile,
+    _departments: &[DepartmentConfig],
+    _ui_language: &str,
+) -> Option<String> {
+    let mut sections = vec![
+        "仅在系统工具能真正帮助完成用户任务时才使用，不要为了显得主动而滥用工具。"
+            .to_string(),
+    ];
+
+    sections.push(
+        "1. todo\n\
+         何时必须用：当任务预计需要多个阶段、存在依赖关系、需要跨文件修改、需要验证，或可能持续超过一次工具调用时，必须使用 todo。\n\
+         何时不要用：单步即可完成的简单问题、纯解释性回答、无需实际操作的闲聊，不要使用 todo。\n\
+         如何使用：todo 必须拆成 3~7 步；每一步都必须是可验证、可完成的结果；开始执行后要及时更新状态；任一时刻只允许一个 in_progress；计划变化时同步修正。\n\
+         为什么：todo 是当前会话内的执行步骤板，不是长期任务系统。"
+            .to_string(),
+    );
+    sections.push(
+        "2. delegate\n\
+         何时必须用：当子任务过于模糊，需要先探索再收敛结论时，可以使用 delegate。模糊探索既可以是本地探索，也可以是网络探索。\n\
+         何时不要用：如果主线程立刻需要这个结果来继续下一步，通常不要委托；边界明确、可直接动手的任务，也不要滥用 delegate。\n\
+         如何使用：先快速扫描少量关键文件或关键信息形成初步理解；先写骨架计划并尽早和用户完成第一轮对齐；不要在和用户建立共识前做穷尽式探索。质量优先于数量，最多只允许有限数量的 explore 代理，一般应尽量少，通常一个就够。\n\
+         为什么：delegate 负责高不确定性的探索任务，不是把核心决策责任直接甩出去。"
+            .to_string(),
+    );
+    sections.push(
+        "3. task\n\
+         何时必须用：task 只用于非即时、长期、跨会话追踪的任务。到点后系统会自动提示你要执行某个任务，并在任务追踪中持续提供执行该任务所需的上下文。\n\
+         何时不要用：如果事情只在当前会话内推进和完成，不要使用 task，而应使用 todo。\n\
+         如何使用：只有在确实需要未来触发、长期提醒、跨会话延续时才创建或更新 task，并明确长期目标、为什么做、当前下一步以及触发条件。\n\
+         为什么：task 是长期任务机制，不是当前会话的临时步骤板。"
+            .to_string(),
+    );
+    sections.push(
+        "4. exec\n\
+         何时必须用：当必须通过命令、程序或脚本来搜索文件、读取信息、检查环境、运行验证或执行脚本时，使用 exec。很多 skill 会要求执行脚本。\n\
+         何时不要用：一般情况下禁止使用 exec 修改文件；文件修改应优先使用正常编辑能力，而不是把 exec 当成文件编辑器。\n\
+         如何使用：优先把 exec 用于搜索、读取、检查、运行和验证；执行前先判断是否存在更低风险替代，并尽量缩小命令影响范围。\n\
+         为什么：exec 负责命令执行与脚本运行，但副作用风险更高，因此默认不承担常规文件编辑职责。"
+            .to_string(),
+    );
+
+    Some(prompt_xml_block("system tools rule", sections.join("\n\n")))
+}
+
+fn build_question_and_planning_rule_block() -> String {
+    prompt_xml_block(
+        "question and planning rule",
+        "提问之法\n\
+         价值锚定：唯当缺失信息重创方向、风险、成本或产出时，方可求询。\n\
+         前置分析：提问前必先检索上下文，形成初步逻辑模型。\n\
+         高频克制：首轮提问须精准且低通量，严禁堆砌问题清单。\n\
+         自主检索：凡代码、配置或既有文档可自证者，莫扰用户。\n\
+         默认对齐：若存在高概率、低风险之默认假设，应带假推进并明确告知。\n\
+         拒绝外包：凡属自身职能之分析与设计工作，断不可转嫁用户。\n\n\
+         规划之道\n\
+         骨架建模：遇非平凡任务，先扫描核心文件，构建含主阶段与要点之骨架计划。\n\
+         敏捷探索：计划未定，严禁穷尽式本地或网络搜寻。\n\
+         交付导向：计划旨在驱动迭代，而非沦为冗长之形式文档。\n\
+         风险对齐：遇非显性分叉或成本差异，必先与用户同步，后行重度开发。\n\
+         动态修正：新信息既入，路径即更，切莫硬性执行旧版路线图。\n\n\
+         二者逻辑\n\
+         提问乃为破除当前计划之核心不确定性。\n\
+         计划乃是将当前认知转化为可执行路径。\n\
+         严禁在无初步计划时盲目索取，亦不可在关键因子未明时伪称架构稳定。",
     )
 }
 
@@ -1813,57 +1855,33 @@ fn build_prompt_with_mode(
         role_confusion_line,
         language_follow_user_line,
         language_instruction,
-    ) = match ui_language.trim() {
-        "en-US" => (
-            "Not provided",
-            "Assistant settings",
-            "User settings",
-            "Role constraints",
-            "Conversation style",
-            "Language settings",
-            "User nickname",
-            "User self-introduction",
-            "- You are \"{}\", and the user is \"{}\".",
-            "- Do not treat yourself as the user, and do not confuse the two roles.",
-            "- If the user explicitly requests a reply language, follow the user's request.",
-            "Please respond in English by default.",
-        ),
-        "zh-TW" => (
-            "未提供",
-            "助理設定",
-            "使用者設定",
-            "角色約束",
-            "對話風格",
-            "語言設定",
-            "使用者暱稱",
-            "使用者自我介紹",
-            "- 你是「{}」，使用者是「{}」。",
-            "- 不要把自己當作使用者，不要混淆雙方身分。",
-            "- 若使用者明確指定回答語言，以使用者指定為準。",
-            "預設使用繁體中文回答。",
-        ),
-        _ => (
-            "未提供",
-            "助理设定",
-            "用户设定",
-            "角色约束",
-            "对话风格",
-            "语言设定",
-            "用户昵称",
-            "用户自我介绍",
-            "- 你是“{}”，用户是“{}”。",
-            "- 不要把自己当作用户，不要混淆双方身份。",
-            "- 若用户明确指定回答语言，以用户指定为准。",
-            "默认使用中文回答。",
-        ),
-    };
-    let remote_im_rules_block = match ui_language.trim() {
-        "en-US" => prompt_xml_block("remote im contact rules", "A remote IM contact is a special user, not the direct user in the current chat window.\nTheir messages come from a remote interface and should be treated as an independent external user.\nDo not confuse the remote contact with the current user, and do not confuse the reply target.\nIf you need to reply to a remote contact, you must call `remote_im_send`."),
-        "zh-TW" => prompt_xml_block("remote im contact rules", "聯絡人是特殊使用者，不是當前聊天視窗中的直接使用者。\n他們的訊息來自遠端介面接入，應視為獨立的外部使用者。\n不要把聯絡人和當前使用者混為一談，也不要混淆回覆目標。\n如果需要回覆遠端聯絡人，必須呼叫 `remote_im_send`。"),
-        _ => prompt_xml_block("remote im contact rules", "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。"),
-    };
+    ) = (
+        "未提供",
+        "助理设定",
+        "用户设定",
+        "角色约束",
+        "对话风格",
+        "语言设定",
+        "用户昵称",
+        "用户自我介绍",
+        "- 你是“{}”，用户是“{}”。",
+        "- 不要把自己当作用户，不要混淆双方身份。",
+        "- 若用户明确指定回答语言，以用户指定为准。",
+        "默认使用中文回答。",
+    );
+    let remote_im_rules_block = prompt_xml_block(
+        "remote im contact rules",
+        "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。",
+    );
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
     let memory_rag_rule_block = build_memory_rag_rule_block();
+    let system_tools_rule_block = build_system_tools_rule_block(
+        conversation,
+        agent,
+        departments,
+        ui_language,
+    );
+    let question_and_planning_rule_block = build_question_and_planning_rule_block();
     let mut preamble = if let Some((user_name, user_intro)) = user_profile {
         let user_intro_display = if user_intro.trim().is_empty() {
             not_provided_label.to_string()
@@ -1881,9 +1899,13 @@ fn build_prompt_with_mode(
 {}\n\
 {}\n\
 {}\n\
+{}\n\
+{}\n\
 {}\n",
             highest_instruction_md,
             memory_rag_rule_block,
+            system_tools_rule_block.as_deref().unwrap_or(""),
+            question_and_planning_rule_block,
             departments_block,
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(
@@ -1913,18 +1935,13 @@ fn build_prompt_with_mode(
             )
         )
     } else {
-        let delegate_role_line = match ui_language.trim() {
-            "en-US" => "- This is a delegate thread. There is no default user persona in this thread.",
-            "zh-TW" => "- 這是一條委託執行緒。此執行緒不存在預設使用者人格。",
-            _ => "- 这是一条委托线程。此线程不存在默认用户人格。",
-        };
-        let delegate_scope_line = match ui_language.trim() {
-            "en-US" => "- Only use the current delegate task block and this thread's own history. Do not invent user profile, nickname, or main-thread background.",
-            "zh-TW" => "- 只依據本輪委託任務塊與本執行緒歷史處理工作，不要自行補充使用者設定、暱稱或主會話背景。",
-            _ => "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或主会话背景。",
-        };
+        let delegate_role_line = "- 这是一条委托线程。此线程不存在默认用户人格。";
+        let delegate_scope_line =
+            "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或主会话背景。";
         format!(
             "{}\n\
+{}\n\
+{}\n\
 {}\n\
 {}\n\
 {}\n\
@@ -1933,6 +1950,8 @@ fn build_prompt_with_mode(
 {}\n",
             highest_instruction_md,
             memory_rag_rule_block,
+            system_tools_rule_block.as_deref().unwrap_or(""),
+            question_and_planning_rule_block,
             departments_block,
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(
