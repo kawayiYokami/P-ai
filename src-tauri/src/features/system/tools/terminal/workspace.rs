@@ -65,17 +65,17 @@ fn normalize_terminal_timeout_ms(timeout_ms: Option<u64>) -> u64 {
 }
 
 fn normalize_terminal_path_for_compare(path: &Path) -> String {
-    let mut text = path.to_string_lossy().to_string();
     #[cfg(target_os = "windows")]
     {
+        let text = path.to_string_lossy().to_string();
         if let Some(stripped) = text.strip_prefix("\\\\?\\") {
-            text = stripped.to_string();
+            return stripped.to_ascii_lowercase();
         }
-        text.to_ascii_lowercase()
+        return text.to_ascii_lowercase();
     }
     #[cfg(not(target_os = "windows"))]
     {
-        text
+        path.to_string_lossy().to_string()
     }
 }
 

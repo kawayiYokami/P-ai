@@ -77,6 +77,7 @@ fn terminal_powershell_escape_literal(input: &str) -> String {
     input.replace('\'', "''")
 }
 
+#[cfg(target_os = "windows")]
 fn terminal_bash_escape_literal(input: &str) -> String {
     input.replace('\'', "'\"'\"'")
 }
