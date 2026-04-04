@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 π师傅 是一个 Windows 优先的桌面 AI 助手，使用全局热键呼出/隐藏对话窗口，常驻系统托盘。技术栈为 Tauri 2 (Rust) + Vue 3 (TypeScript) + Vite + DaisyUI，包管理使用 pnpm。
 
-当前发布策略为 Windows-only：
-- 安装版使用 NSIS
-- 便携版使用 zip + `PORTABLE` 标记文件
-- 自动更新同时覆盖安装版与便携版
+当前发布策略为 Windows + Linux：
+- Windows 安装版使用 NSIS
+- Windows 便携版使用 zip + `PORTABLE` 标记文件
+- Linux 发布构建产物至少保留 `.deb` / `AppImage`
+- 应用内自动更新当前仅覆盖 Windows 安装版与便携版
 
 ## 构建与开发命令
 
@@ -106,7 +107,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 
 ### 更新与发布规则
 
-- 当前仅支持 Windows 自动更新，不再维护 MSI / Linux / macOS 发布链路
+- 当前仅支持 Windows 应用内自动更新；Linux 仍维护发布构建链路
 - `src-tauri/tauri.conf.json` 中的 `plugins.updater.pubkey` 只是启动期占位，真正使用的公钥由构建时 `TAURI_UPDATER_PUBLIC_KEY` 注入并在 Rust 侧覆盖
 - 便携版通过 `PORTABLE` 标记识别，自动更新走 `zip -> staging -> helper 替换 -> 备份回滚`
 

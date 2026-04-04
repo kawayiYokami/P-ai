@@ -1,5 +1,11 @@
 # 变更日志
 
+## 发布：v0.9.2
+
+- 发布（release-0.9.2）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
+  - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.2`
+  - 承接上一轮 `rust-genai` 全量迁移与 `rig-core` 依赖移除后的当前发布状态
+
 ## 更新：完成 rust-genai 全量迁移并移除 rig 依赖
 
 - 重构（rust-genai-full-migration-and-remove-rig）：完成聊天运行时向 `rust-genai` 的全量迁移，并正式移除 `rig-core` 依赖
