@@ -232,7 +232,20 @@
           class="mt-2 whitespace-pre-wrap text-sm"
           :class="updateDialogKind === 'error' ? 'text-error' : 'text-base-content'"
         >{{ updateDialogBody }}</pre>
+        <progress
+          v-if="typeof updateProgressPercent === 'number'"
+          class="progress progress-primary mt-4 w-full"
+          :value="Math.max(0, Math.min(100, updateProgressPercent))"
+          max="100"
+        />
         <div class="modal-action">
+          <button
+            v-if="updateDialogPrimaryAction"
+            class="btn btn-sm btn-primary"
+            @click="confirmUpdateDialogPrimary"
+          >
+            {{ updateDialogPrimaryAction === 'force' ? '强制更新' : '立即更新' }}
+          </button>
           <button
             v-if="updateDialogReleaseUrl"
             class="btn btn-sm"
@@ -240,7 +253,9 @@
           >
             打开 Releases
           </button>
-          <button class="btn btn-sm btn-primary" @click="closeUpdateDialog">知道了</button>
+          <button class="btn btn-sm" @click="closeUpdateDialog">
+            {{ updateDialogPrimaryAction ? '取消' : '知道了' }}
+          </button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">
@@ -682,8 +697,11 @@ const {
   updateDialogBody,
   updateDialogKind,
   updateDialogReleaseUrl,
+  updateDialogPrimaryAction,
+  updateProgressPercent,
   closeUpdateDialog,
   openUpdateRelease,
+  confirmUpdateDialogPrimary,
   autoCheckGithubUpdate,
   manualCheckGithubUpdate,
 } = useGithubUpdate({

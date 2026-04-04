@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新：接入 Windows 安装版与便携版自动更新
+
+- 新增（windows-installer-and-portable-updater）：为 Windows 安装版与便携版接入真正可执行的自动更新链路
+  - 后端新增统一 updater 模块，支持 GitHub Release 检查更新、安装版通过 `tauri-plugin-updater` 静默升级、便携版通过 `zip + staging + helper + 备份回滚` 完成替换
+  - 应用启动与数据目录逻辑新增 `PORTABLE` 运行形态识别，便携版可使用可执行文件同级 `data` 目录，并在更新时按当前运行形态自动分流
+  - 前端更新弹窗改为真实更新入口，支持“立即更新 / 强制更新”、下载进度展示、失败信息透出，不再只是跳转 Releases 页面
+  - Windows 发布流改为仅产出 NSIS 安装包与便携版 zip，同时生成 updater 元数据与签名文件，并补充便携版 staging 校验测试
+
 ## 更新：清理剩余原生确认框
 
 - 修复（replace-remaining-window-confirm-dialogs）：将归档页与任务页残留的原生 `window.confirm` 全部替换为 DaisyUI 模态框

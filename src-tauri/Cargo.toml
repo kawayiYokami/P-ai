@@ -23,6 +23,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 time = { version = "=0.3.36", features = ["local-offset"] }
 rig = { package = "rig-core", version = "0.33.0", features = ["rmcp"] }
 rmcp = { version = "0.16.0", features = ["client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
@@ -59,6 +60,8 @@ font-kit = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
 undoc = "0.1.8"
 litchi = { git = "https://github.com/DevExzh/litchi.git", rev = "5a931961d58bf71c6bb5b7e82f450bda34349e3d" }
+walkdir = "2.5.0"
+zip = { version = "2.2.2", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["custom-protocol"]

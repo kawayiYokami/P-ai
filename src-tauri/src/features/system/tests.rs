@@ -60,6 +60,41 @@
     }
 
     #[test]
+    fn verify_staging_files_should_accept_when_target_exe_present() {
+        let temp_root = std::env::temp_dir().join(format!("easy-call-ai-updater-{}", Uuid::new_v4()));
+        let staging_dir = temp_root.join("staging");
+        std::fs::create_dir_all(staging_dir.join("config")).expect("create staging dir");
+        std::fs::write(staging_dir.join("P-ai.exe"), b"exe").expect("write exe");
+        std::fs::write(staging_dir.join("config").join("app.json"), b"{}")
+            .expect("write config");
+
+        let relative_files = vec![PathBuf::from("P-ai.exe"), PathBuf::from("config/app.json")];
+
+        let result = verify_staging_files(&staging_dir, &relative_files, "P-ai.exe");
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_staging_files_should_reject_missing_target_exe() {
+        let temp_root = std::env::temp_dir().join(format!("easy-call-ai-updater-{}", Uuid::new_v4()));
+        let staging_dir = temp_root.join("staging");
+        std::fs::create_dir_all(&staging_dir).expect("create staging dir");
+        std::fs::write(staging_dir.join("README.txt"), b"missing exe").expect("write readme");
+
+        let relative_files = vec![PathBuf::from("README.txt")];
+
+        let result = verify_staging_files(&staging_dir, &relative_files, "P-ai.exe");
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+        assert_eq!(
+            result.expect_err("missing target exe should fail"),
+            "更新包缺少主程序文件：P-ai.exe"
+        );
+    }
+
+    #[test]
     fn conversation_todo_replace_should_store_next_step_and_clear_when_done() {
         let state = test_chat_runtime_state();
         let conversation_id = "conversation-todo-a".to_string();

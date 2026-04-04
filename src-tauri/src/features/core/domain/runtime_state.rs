@@ -68,57 +68,103 @@ impl std::fmt::Debug for AppState {
     }
 }
 
+fn current_exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+}
+
+fn portable_marker_path_from_exe_dir(exe_dir: &Path) -> PathBuf {
+    exe_dir.join("PORTABLE")
+}
+
+fn portable_data_root_from_exe_dir(exe_dir: &Path) -> PathBuf {
+    exe_dir.join("data")
+}
+
+fn detect_portable_runtime_root() -> Option<PathBuf> {
+    let exe_dir = current_exe_dir()?;
+    if portable_marker_path_from_exe_dir(&exe_dir).exists() {
+        Some(portable_data_root_from_exe_dir(&exe_dir))
+    } else {
+        None
+    }
+}
+
+fn resolve_standard_config_dirs() -> Result<(PathBuf, PathBuf), String> {
+    let legacy_project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
+        .ok_or_else(|| "Failed to resolve legacy config directory".to_string())?;
+    let next_project_dirs = ProjectDirs::from("ai", "easycall", "p-ai")
+        .ok_or_else(|| "Failed to resolve new config directory".to_string())?;
+    Ok((
+        legacy_project_dirs.config_dir().to_path_buf(),
+        next_project_dirs.config_dir().to_path_buf(),
+    ))
+}
+
+fn resolve_standard_config_dir() -> Result<(PathBuf, PathBuf), String> {
+    let (legacy_config_dir, next_config_dir) = resolve_standard_config_dirs()?;
+    let legacy_exists = legacy_config_dir.exists();
+    let next_exists = next_config_dir.exists();
+    let config_dir = if next_exists {
+        next_config_dir.clone()
+    } else if legacy_exists {
+        if let Some(parent) = next_config_dir.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "Create new config parent directory failed ({}): {err}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::rename(&legacy_config_dir, &next_config_dir).map_err(|err| {
+            format!(
+                "Migrate legacy config directory failed ({} -> {}): {err}",
+                legacy_config_dir.display(),
+                next_config_dir.display()
+            )
+        })?;
+        next_config_dir.clone()
+    } else {
+        fs::create_dir_all(&next_config_dir).map_err(|err| {
+            format!(
+                "Create new config directory failed ({}): {err}",
+                next_config_dir.display()
+            )
+        })?;
+        next_config_dir.clone()
+    };
+    fs::create_dir_all(&config_dir)
+        .map_err(|err| format!("Create config directory failed: {err}"))?;
+    Ok((config_dir, legacy_config_dir))
+}
+
 impl AppState {
     fn new() -> Result<Self, String> {
-        let legacy_project_dirs = ProjectDirs::from("ai", "easycall", "easy-call-ai")
-            .ok_or_else(|| "Failed to resolve legacy config directory".to_string())?;
-        let next_project_dirs = ProjectDirs::from("ai", "easycall", "p-ai")
-            .ok_or_else(|| "Failed to resolve new config directory".to_string())?;
-        let legacy_config_dir = legacy_project_dirs.config_dir().to_path_buf();
-        let next_config_dir = next_project_dirs.config_dir().to_path_buf();
-        let legacy_exists = legacy_config_dir.exists();
-        let next_exists = next_config_dir.exists();
-        let mut _migrated_legacy_to_new = false;
-
-        let config_dir = if next_exists {
-            next_config_dir.clone()
-        } else if legacy_exists {
-            if let Some(parent) = next_config_dir.parent() {
-                fs::create_dir_all(parent).map_err(|err| {
+        let (config_dir, _legacy_config_dir, app_root, legacy_app_root) =
+            if let Some(portable_root) = detect_portable_runtime_root() {
+                let config_dir = portable_root.join("config");
+                fs::create_dir_all(&config_dir).map_err(|err| {
                     format!(
-                        "Create new config parent directory failed ({}): {err}",
-                        parent.display()
+                        "Create portable config directory failed ({}): {err}",
+                        config_dir.display()
                     )
                 })?;
-            }
-            fs::rename(&legacy_config_dir, &next_config_dir).map_err(|err| {
-                format!(
-                    "Migrate legacy config directory failed ({} -> {}): {err}",
-                    legacy_config_dir.display(),
-                    next_config_dir.display()
+                (
+                    config_dir,
+                    portable_root.join("legacy-unused"),
+                    portable_root.clone(),
+                    portable_root,
                 )
-            })?;
-            _migrated_legacy_to_new = true;
-            next_config_dir.clone()
-        } else {
-            fs::create_dir_all(&next_config_dir).map_err(|err| {
-                format!(
-                    "Create new config directory failed ({}): {err}",
-                    next_config_dir.display()
-                )
-            })?;
-            next_config_dir.clone()
-        };
-        fs::create_dir_all(&config_dir)
-            .map_err(|err| format!("Create config directory failed: {err}"))?;
-        let app_root = config_dir
-            .parent()
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| config_dir.clone());
-        let legacy_app_root = legacy_config_dir
-            .parent()
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| legacy_config_dir.clone());
+            } else {
+                let (config_dir, legacy_config_dir) = resolve_standard_config_dir()?;
+                let app_root = config_dir.clone();
+                let legacy_app_root = legacy_config_dir
+                    .parent()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| legacy_config_dir.clone());
+                (config_dir, legacy_config_dir, app_root, legacy_app_root)
+            };
         for dir_name in ["avatars", "media", "exports"] {
             let legacy = config_dir.join(dir_name);
             let target = app_root.join(dir_name);

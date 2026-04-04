@@ -68,6 +68,7 @@ include!("features/system/windowing.rs");
 include!("features/system/record_hotkey_probe.rs");
 include!("features/system/sandbox.rs");
 include!("features/system/tools.rs");
+include!("features/system/updater.rs");
 
 // ==================== 记忆匹配 ====================
 include!("features/memory/store.rs");
@@ -238,6 +239,14 @@ fn main() {
         }
         return;
     }
+    match maybe_run_portable_update_helper_from_args() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(err) => {
+            eprintln!("[自动更新] 便携版 helper 启动失败: {err}");
+            return;
+        }
+    }
 
     let state = match AppState::new() {
         Ok(state) => state,
@@ -293,6 +302,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -479,6 +489,7 @@ fn main() {
             show_archives_window,
             set_chat_window_active,
             check_github_update,
+            start_github_update,
             get_app_version,
             get_project_repository_url,
             load_config,

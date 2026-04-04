@@ -57,6 +57,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
@@ -64,7 +65,15 @@
     "macOS": {
       "infoPlist": "Info.plist"
     },
-    "targets": ["deb", "appimage", "msi", "nsis"]
+    "targets": ["nsis"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "__RUNTIME_OVERRIDDEN_BY_TAURI_UPDATER_PUBLIC_KEY__",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
 

@@ -17,6 +17,7 @@
     "global-shortcut:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "updater:default"
   ]
 }
