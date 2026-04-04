@@ -292,6 +292,24 @@ export function useChatFlow(options: UseChatFlowOptions) {
       .filter((v): v is { fileName: string; relativePath: string; mime: string } => !!v);
   }
 
+  function buildImageAttachmentPayload(
+    images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>,
+  ): Array<{ fileName: string; relativePath: string; mime: string }> {
+    const dedup = new Map<string, { fileName: string; relativePath: string; mime: string }>();
+    for (const image of images) {
+      const rawPath = String(image.savedPath || "").trim();
+      if (!rawPath) continue;
+      const relativePath = rawPath.replace(/\\/g, "/");
+      if (!relativePath) continue;
+      const fileName = relativePath.split("/").pop() || "attachment";
+      const mime = String(image.mime || "").trim();
+      const key = `${relativePath}::${mime}`;
+      if (dedup.has(key)) continue;
+      dedup.set(key, { fileName, relativePath, mime });
+    }
+    return Array.from(dedup.values());
+  }
+
   // =========================================================================
   // Draft 操作 —— 唯一允许写 allMessages 的地方
   //
@@ -318,6 +336,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       if (!mime || !bytesBase64) continue;
       parts.push({ type: "image", mime, bytesBase64 });
     }
+    const attachmentPayload = [...attachments, ...buildImageAttachmentPayload(images)];
     const msg: ChatMessage = {
       id: draftId,
       role: "user",
@@ -325,7 +344,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       speakerAgentId: "user-persona",
       parts,
       providerMeta: {
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: attachmentPayload.length > 0 ? attachmentPayload : undefined,
         _optimistic: true,
       },
     };
@@ -1159,8 +1178,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   async function sendChat() {
     const plainText = options.chatInput.value.trim();
-    const attachments = buildQueuedAttachmentPayload();
-    if (!plainText && options.clipboardImages.value.length === 0 && attachments.length === 0) return;
+    const queuedAttachments = buildQueuedAttachmentPayload();
+    if (!plainText && options.clipboardImages.value.length === 0 && queuedAttachments.length === 0) return;
     const sendSession = options.getSession();
     if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
@@ -1173,6 +1192,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
 
     const sentImages = [...options.clipboardImages.value];
+    const attachments = [...queuedAttachments, ...buildImageAttachmentPayload(sentImages)];
     options.latestUserText.value = plainText;
     options.latestUserImages.value = sentImages.map((image) => ({
       mime: String(image.mime || ""),

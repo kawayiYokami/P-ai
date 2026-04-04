@@ -211,6 +211,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
     options.clipboardImages.value.push({
       mime,
       bytesBase64: String(queued.bytesBase64 || "").trim(),
+      savedPath: String(queued.savedPath || "").trim() || undefined,
     });
   }
 

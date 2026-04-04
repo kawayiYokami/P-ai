@@ -6,6 +6,13 @@
   - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.2`
   - 承接上一轮 `rust-genai` 全量迁移与 `rig-core` 依赖移除后的当前发布状态
 
+## 更新：修复图片附件路径与图转文链路错位
+
+- 修复（image-attachment-path-and-vision-fallback-flow）：收拢聊天图片消息的单一事实来源，恢复“先存引用、发送前再决定是否图转文”的正确链路
+  - 前端发送图片时保留 `savedPath`，并将图片附件路径一并写入消息附件元数据，避免图片路径在发送链路中丢失
+  - 调度器写历史时不再把“不支持图片”的消息提前改写为“已忽略”，而是先将图片外置为稳定媒体引用再落库
+  - 模型请求前新增统一图转文回退：当前模型不支持图片但已配置图转文 AI 时，按缓存或视觉模型将图片描述注入提示词，而不破坏原始消息事实
+
 ## 更新：完成 rust-genai 全量迁移并移除 rig 依赖
 
 - 重构（rust-genai-full-migration-and-remove-rig）：完成聊天运行时向 `rust-genai` 的全量迁移，并正式移除 `rig-core` 依赖

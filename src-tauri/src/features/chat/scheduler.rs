@@ -705,75 +705,6 @@ async fn process_conversation_batch(
     let mut persisted_batch_messages = Vec::<ChatMessage>::new();
     let mut event_activate_flags = Vec::<bool>::with_capacity(events.len());
 
-    fn session_enable_image(app_config: &AppConfig, session: &ChatSessionInfo) -> bool {
-        let api_id = department_by_id(app_config, &session.department_id)
-            .map(department_primary_api_config_id)
-            .or_else(|| {
-                department_for_agent_id(app_config, &session.agent_id).map(department_primary_api_config_id)
-            });
-        resolve_selected_api_config(app_config, api_id.as_deref())
-            .map(|api| api.enable_image)
-            .unwrap_or(true)
-    }
-
-    fn resolve_image_text_from_cache_any(
-        image_text_cache: &[ImageTextCacheEntry],
-        mime: &str,
-        bytes_base64: &str,
-    ) -> Option<String> {
-        let part = BinaryPart {
-            mime: mime.to_string(),
-            bytes_base64: bytes_base64.to_string(),
-            saved_path: None,
-        };
-        let hash = compute_image_hash_hex(&part).ok()?;
-        image_text_cache
-            .iter()
-            .rev()
-            .find(|item| item.hash == hash && !item.text.trim().is_empty())
-            .map(|item| item.text.trim().to_string())
-    }
-
-    fn normalize_user_message_for_image_support(
-        message: &mut ChatMessage,
-        enable_image: bool,
-        image_text_cache: &[ImageTextCacheEntry],
-    ) {
-        if enable_image || message.role.trim() != "user" {
-            return;
-        }
-
-        let mut next_parts = Vec::<MessagePart>::with_capacity(message.parts.len());
-        let mut removed_image_index = 0usize;
-        let mut appended_text_blocks = Vec::<String>::new();
-
-        for part in message.parts.drain(..) {
-            match part {
-                MessagePart::Image { mime, bytes_base64, .. } => {
-                    removed_image_index += 1;
-                    if let Some(converted) =
-                        resolve_image_text_from_cache_any(image_text_cache, &mime, &bytes_base64)
-                    {
-                        appended_text_blocks.push(format!(
-                            "[图片{}]\n{}",
-                            removed_image_index, converted
-                        ));
-                    } else {
-                        appended_text_blocks.push(
-                            "这里有一张图片，但当前模型不支持图片输入，所以已忽略。".to_string(),
-                        );
-                    }
-                }
-                other => next_parts.push(other),
-            }
-        }
-
-        for text in appended_text_blocks {
-            next_parts.push(MessagePart::Text { text });
-        }
-        message.parts = next_parts;
-    }
-
     fn defer_image_parts_for_history_flushed(
         message: &ChatMessage,
         data_path: &PathBuf,
@@ -842,17 +773,10 @@ async fn process_conversation_batch(
     // 这里统一覆盖 created_at 为 history_flush_time，
     // 目的是把“正式进入历史的时间”作为消息的业务生效时间。
     // 入队时间只用于队列观察，不用于正式会话排序和轮次判断。
-    let (
-        app_config,
-        image_text_cache,
-        scheduler_agents,
-        summary_seed_agent,
-        should_seed_summary_context,
-    ) = {
+    let (scheduler_agents, summary_seed_agent, should_seed_summary_context) = {
         let _guard = lock_conversation_with_metrics(state, "scheduler_snapshot")?;
 
         let data = state_read_app_data_cached(state)?;
-        let app_config = state_read_config_cached(state)?;
         let Some(conversation_idx) = data
             .conversations
             .iter()
@@ -885,13 +809,7 @@ async fn process_conversation_batch(
         } else {
             None
         };
-        (
-            app_config,
-            data.image_text_cache.clone(),
-            data.agents.clone(),
-            summary_seed_agent,
-            should_seed_summary_context,
-        )
+        (data.agents.clone(), summary_seed_agent, should_seed_summary_context)
     };
     let seeded_profile_snapshot = if let Some(agent) = summary_seed_agent.as_ref() {
         match with_memory_lock(state, "scheduler_profile_snapshot", || {
@@ -911,21 +829,12 @@ async fn process_conversation_batch(
     } else {
         None
     };
-    let mut session_image_capability =
-        std::collections::HashMap::<String, bool>::new();
     let mut prepared_batches = Vec::<Vec<(ChatMessage, Vec<String>)>>::with_capacity(events.len());
     for event in &events {
-        let enable_image = *session_image_capability
-            .entry(event.session_info.department_id.clone())
-            .or_insert_with(|| session_enable_image(&app_config, &event.session_info));
         let mut prepared_messages = Vec::<(ChatMessage, Vec<String>)>::with_capacity(event.messages.len());
         for message in &event.messages {
             let mut persisted = message.clone();
-            normalize_user_message_for_image_support(
-                &mut persisted,
-                enable_image,
-                &image_text_cache,
-            );
+            externalize_message_parts_to_media_refs(&mut persisted.parts, &state.data_path)?;
             persisted.created_at = history_flush_time.clone();
             let recall_payload = if persisted.role.trim() == "user" {
                 with_memory_lock(state, "scheduler_user_message_recall", || {

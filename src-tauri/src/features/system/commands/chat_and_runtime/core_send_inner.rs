@@ -269,6 +269,136 @@ fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: 
     ]
 }
 
+// ==================== 图像回退 ====================
+
+async fn resolve_image_description_with_vision_fallback(
+    state: &AppState,
+    vision_api: &ApiConfig,
+    vision_resolved: &ResolvedApiConfig,
+    image: &BinaryPart,
+) -> Result<Option<String>, String> {
+    let hash = compute_image_hash_hex(image)?;
+    let cached = {
+        let _guard = lock_conversation_with_metrics(state, "image_text_cache_read")?;
+        let data = state_read_app_data_cached(state)?;
+        find_image_text_cache(&data, &hash, &vision_api.id)
+    };
+    if let Some(text) = cached {
+        let trimmed = text.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed));
+        }
+    }
+
+    let converted =
+        describe_image_with_vision_api(state, vision_resolved, vision_api, image).await?;
+    let trimmed = converted.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    {
+        let _guard = lock_conversation_with_metrics(state, "image_text_cache_write")?;
+        let mut data = state_read_app_data_cached(state)?;
+        upsert_image_text_cache(&mut data, &hash, &vision_api.id, &trimmed);
+        let _ = state_schedule_app_data_persist(state, &data)?;
+    }
+
+    Ok(Some(trimmed))
+}
+
+async fn apply_prompt_image_fallbacks_to_prepared(
+    state: &AppState,
+    app_config: &AppConfig,
+    selected_api: &ApiConfig,
+    prepared: &mut PreparedPrompt,
+) -> Result<bool, String> {
+    if selected_api.enable_image {
+        return Ok(false);
+    }
+
+    let vision_api = match resolve_vision_api_config(app_config) {
+        Ok(api) => api,
+        Err(_) => return Ok(false),
+    };
+    let vision_resolved = resolve_api_config(app_config, Some(vision_api.id.as_str()))?;
+    if !vision_resolved.request_format.is_chat_text() {
+        return Err(format!(
+            "图转文模型请求格式 '{}' 暂未接入图片转文字链路。",
+            vision_resolved.request_format
+        ));
+    }
+
+    let mut changed = false;
+
+    for message in &mut prepared.history_messages {
+        if message.role.trim() != "user" || message.images.is_empty() {
+            continue;
+        }
+
+        let original_images = std::mem::take(&mut message.images);
+        let mut converted_blocks = Vec::<String>::new();
+        for (index, (mime, bytes_base64)) in original_images.into_iter().enumerate() {
+            let image = BinaryPart {
+                mime,
+                bytes_base64,
+                saved_path: None,
+            };
+            if let Some(text) = resolve_image_description_with_vision_fallback(
+                state,
+                &vision_api,
+                &vision_resolved,
+                &image,
+            )
+            .await?
+            {
+                converted_blocks.push(format!("[图片{}]\n{}", index + 1, text));
+            }
+        }
+        if !converted_blocks.is_empty() {
+            message.extra_text_blocks.extend(converted_blocks);
+            changed = true;
+        }
+    }
+
+    if !prepared.latest_images.is_empty() {
+        let original_images = std::mem::take(&mut prepared.latest_images);
+        let mut converted_blocks = Vec::<String>::new();
+        for (index, (mime, bytes_base64)) in original_images.into_iter().enumerate() {
+            let image = BinaryPart {
+                mime,
+                bytes_base64,
+                saved_path: None,
+            };
+            if let Some(text) = resolve_image_description_with_vision_fallback(
+                state,
+                &vision_api,
+                &vision_resolved,
+                &image,
+            )
+            .await?
+            {
+                converted_blocks.push(format!("[图片{}]\n{}", index + 1, text));
+            }
+        }
+        if !converted_blocks.is_empty() {
+            let converted_text = converted_blocks.join("\n\n");
+            prepared.latest_user_extra_text = if prepared.latest_user_extra_text.trim().is_empty() {
+                converted_text
+            } else {
+                format!(
+                    "{}\n\n{}",
+                    prepared.latest_user_extra_text.trim(),
+                    converted_text
+                )
+            };
+            changed = true;
+        }
+    }
+
+    Ok(changed)
+}
+
 async fn remote_im_auto_send_assistant_reply_to_source(
     state: &AppState,
     source: &RemoteImActivationSource,
@@ -1784,6 +1914,21 @@ async fn send_chat_message_inner(
         ))
     };
     let mut prepared_context = prepare_request_context(true)?;
+    if apply_prompt_image_fallbacks_to_prepared(
+        &state,
+        &app_config,
+        &selected_api,
+        &mut prepared_context.1,
+    )
+    .await?
+        && prepared_context.5.is_some()
+    {
+        prepared_context.5 = Some(estimate_prepared_prompt_tokens(
+            &prepared_context.1,
+            &selected_api,
+            &prepared_context.4,
+        ));
+    }
     let conversation_for_compaction = prepared_context.11.clone();
     let estimated_prompt_tokens_before_send = prepared_context.5;
     let cached_effective_prompt_tokens_before_send = prepared_context.6;
@@ -1862,6 +2007,21 @@ async fn send_chat_message_inner(
                         });
                     }
                     prepared_context = prepare_request_context(false)?;
+                    if apply_prompt_image_fallbacks_to_prepared(
+                        &state,
+                        &app_config,
+                        &selected_api,
+                        &mut prepared_context.1,
+                    )
+                    .await?
+                        && prepared_context.5.is_some()
+                    {
+                        prepared_context.5 = Some(estimate_prepared_prompt_tokens(
+                            &prepared_context.1,
+                            &selected_api,
+                            &prepared_context.4,
+                        ));
+                    }
                 }
                 Err(err) => {
                     if decision.forced {

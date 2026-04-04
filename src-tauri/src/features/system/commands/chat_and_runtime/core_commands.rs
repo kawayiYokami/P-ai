@@ -1,3 +1,42 @@
+fn normalize_payload_image_attachments(
+    raw: Option<&Vec<BinaryPart>>,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::<serde_json::Value>::new();
+    let Some(images) = raw else {
+        return out;
+    };
+    let mut seen = std::collections::HashSet::<String>::new();
+    for image in images {
+        let relative_path = image
+            .saved_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.replace('\\', "/"));
+        let Some(relative_path) = relative_path else {
+            continue;
+        };
+        let file_name = std::path::Path::new(&relative_path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("attachment")
+            .to_string();
+        let mime = image.mime.trim().to_string();
+        let dedup_key = format!("{}::{}", relative_path, mime);
+        if !seen.insert(dedup_key) {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "fileName": file_name,
+            "relativePath": relative_path,
+            "mime": mime,
+        }));
+    }
+    out
+}
+
 #[tauri::command]
 async fn send_chat_message(
     input: SendChatRequest,
@@ -137,10 +176,17 @@ async fn send_chat_message(
         speaker_agent_id: None,
         parts: message_parts,
         extra_text_blocks: Vec::new(),
-        provider_meta: merge_provider_meta_with_attachments(
-            input.payload.provider_meta.clone(),
-            &normalize_payload_attachments(input.payload.attachments.as_ref()),
-        ),
+        provider_meta: {
+            let mut attachment_entries =
+                normalize_payload_attachments(input.payload.attachments.as_ref());
+            attachment_entries.extend(normalize_payload_image_attachments(
+                input.payload.images.as_ref(),
+            ));
+            merge_provider_meta_with_attachments(
+                input.payload.provider_meta.clone(),
+                &attachment_entries,
+            )
+        },
         tool_call: None,
         mcp_call: None,
     };
