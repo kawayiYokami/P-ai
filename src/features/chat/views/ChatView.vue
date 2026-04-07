@@ -271,6 +271,7 @@ import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
+import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 
 type ChatRenderItem =
   | { kind: "compaction"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
@@ -552,15 +553,11 @@ function openConversationSummary() {
   emit("openConversationSummary", conversationId);
 }
 
-function isAbsoluteLocalPath(href: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(href) || href.startsWith("\\\\") || href.startsWith("/");
-}
-
 async function handleAssistantLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
   const anchor = target?.closest("a") as HTMLAnchorElement | null;
   if (!anchor) return;
-  const href = anchor.getAttribute("href")?.trim() || "";
+  const href = normalizeLocalLinkHref(anchor.getAttribute("href")?.trim() || "");
   if (!href) return;
 
   if (isAbsoluteLocalPath(href)) {

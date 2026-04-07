@@ -155,23 +155,25 @@
           class="whitespace-pre-wrap break-all"
           style="overflow-wrap: anywhere;"
         >{{ block.text }}</div>
-        <MarkdownRender
-          class="ecall-markdown-content max-w-none"
-          custom-id="chat-markstream"
-          :nodes="markdownNodesForBlock(block)"
-          :is-dark="markdownIsDark"
-          :final="!block.isStreaming"
-          :max-live-nodes="0"
-          :batch-rendering="!!block.isStreaming"
-          :initial-render-batch-size="block.isStreaming ? STREAM_INITIAL_RENDER_BATCH_SIZE : 0"
-          :render-batch-size="block.isStreaming ? STREAM_RENDER_BATCH_SIZE : 0"
-          :render-batch-delay="block.isStreaming ? STREAM_RENDER_BATCH_DELAY : 0"
-          :render-batch-budget-ms="block.isStreaming ? STREAM_RENDER_BATCH_BUDGET_MS : 0"
-          :code-block-props="markdownCodeBlockProps"
-          :mermaid-props="markdownMermaidProps"
-          :typewriter="true"
-          @click="emit('assistantLinkClick', $event)"
-        />
+        <div ref="markdownContainerRef">
+          <MarkdownRender
+            class="ecall-markdown-content max-w-none"
+            custom-id="chat-markstream"
+            :nodes="markdownNodesForBlock(block)"
+            :is-dark="markdownIsDark"
+            :final="!block.isStreaming"
+            :max-live-nodes="0"
+            :batch-rendering="!!block.isStreaming"
+            :initial-render-batch-size="block.isStreaming ? STREAM_INITIAL_RENDER_BATCH_SIZE : 0"
+            :render-batch-size="block.isStreaming ? STREAM_RENDER_BATCH_SIZE : 0"
+            :render-batch-delay="block.isStreaming ? STREAM_RENDER_BATCH_DELAY : 0"
+            :render-batch-budget-ms="block.isStreaming ? STREAM_RENDER_BATCH_BUDGET_MS : 0"
+            :code-block-props="markdownCodeBlockProps"
+            :mermaid-props="markdownMermaidProps"
+            :typewriter="true"
+            @click="emit('assistantLinkClick', $event)"
+          />
+        </div>
       </div>
       <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
         <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
@@ -355,7 +357,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
@@ -363,6 +365,7 @@ import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
 import { registerChatMarkstreamComponents } from "../markdown/register-chat-markstream";
+import { normalizeLocalLinkHref } from "../utils/local-link";
 
 enableMermaid();
 enableKatex();
@@ -425,6 +428,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const resolvedImageSrcMap = ref<Record<string, string>>({});
+const markdownContainerRef = ref<HTMLElement | null>(null);
 let disposed = false;
 
 const displayName = computed(() => messageName(props.block));
@@ -578,6 +582,19 @@ function markdownNodesForBlock(block: ChatMessageBlock): any[] {
   return markdownNodesForText(block, block.text, !block.isStreaming, "main");
 }
 
+function normalizeRenderedLocalLinks() {
+  const container = markdownContainerRef.value;
+  if (!container) return;
+  const anchors = Array.from(container.querySelectorAll("a[href]"));
+  for (const anchor of anchors) {
+    const rawHref = anchor.getAttribute("href")?.trim() || "";
+    const normalizedHref = normalizeLocalLinkHref(rawHref);
+    if (normalizedHref && normalizedHref !== rawHref) {
+      anchor.setAttribute("href", normalizedHref);
+    }
+  }
+}
+
 function blockHasMermaid(block: ChatMessageBlock): boolean {
   const text = splitThinkText(block.text).visible;
   return /```(?:\s*)mermaid\b/i.test(text);
@@ -702,6 +719,12 @@ watchEffect(() => {
         });
       });
   }
+});
+
+watchPostEffect(() => {
+  void nextTick(() => {
+    normalizeRenderedLocalLinks();
+  });
 });
 
 onBeforeUnmount(() => {

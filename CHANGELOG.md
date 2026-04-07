@@ -6,6 +6,13 @@
   - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.2`
   - 承接上一轮 `rust-genai` 全量迁移与 `rig-core` 依赖移除后的当前发布状态
 
+## 更新：聊天本地文件链接统一为正斜杠
+
+- 修复（chat-local-link-normalize-slashes）：规范聊天区本地文件链接的路径格式，避免 Windows 反斜杠进入 `href` 后被浏览器编码成 `%5C`
+  - 前端点击本地文件链接前先做统一路径规范化，继续兼容已有 `E:\...` 与已编码 `%5C` 的历史消息
+  - Markdown 渲染后主动将本地文件链接改写为 `E:/...` 形式，修复悬浮提示与复制链接时的异常观感
+  - 系统提示中的 Windows 文件链接示例改为优先使用正斜杠，减少模型继续输出反斜杠路径
+
 ## 更新：修复图片附件路径与图转文链路错位
 
 - 修复（image-attachment-path-and-vision-fallback-flow）：收拢聊天图片消息的单一事实来源，恢复“先存引用、发送前再决定是否图转文”的正确链路

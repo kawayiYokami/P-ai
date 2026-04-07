@@ -1524,7 +1524,7 @@ fn build_system_tools_rule_block(
     sections.push(
         "6. 文件引用\n\
          何时必须用：当回复里需要让用户点击打开本地文件、定位代码文件或引用现有文件路径时，使用文件引用。\n\
-         唯一正确格式：Markdown 链接目标直接写本地绝对路径，不要加 `file:///`。Windows 下正确示例是 `[math.ts](E:/github/project/src/utils/math.ts)` 或 `[math.ts](E:\\project\\src\\utils\\math.ts)`。\n\
+         唯一正确格式：Markdown 链接目标直接写本地绝对路径，不要加 `file:///`。Windows 下优先使用正斜杠，正确示例是 `[math.ts](E:/github/project/src/utils/math.ts)`。\n\
          网络链接示例：当需要引用网页、文档或 API 页面时，使用标准 Markdown 网络链接，例如 `[OpenAI API 文档](https://platform.openai.com/docs/overview)`、`[GitHub Release](https://github.com/example/repo/releases)`。\n\
          为什么：当前前端只把“盘符开头的绝对本地路径”识别为本地文件链接；`file:///E:/...` 这类 RFC 形式在当前渲染链路里容易被当成普通网页链接或被错误解析。\n\
          错误示例：`[文件](file:///E:/github/project/file.ts)`、`[文件](file://E:/github/project/file.ts)`、只输出裸路径不加链接、把文件名误写成 URL 主机名、把 `https://...` 网络链接写成磁盘路径格式。\n\
