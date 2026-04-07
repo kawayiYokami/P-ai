@@ -69,7 +69,7 @@
 
             <div class="mt-1 flex items-center justify-between gap-2 text-xs">
               <span class="min-w-0 truncate font-medium">
-                {{ item.workspaceLabel || t("chat.defaultWorkspace") }}
+                {{ workspaceDepartmentLabel(item) }}
               </span>
               <div class="flex shrink-0 items-center gap-2">
                 <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">
@@ -175,6 +175,13 @@ function conversationItemTitle(item: ChatConversationOverviewItem): string {
     return t("chat.organizingContextDisabled");
   }
   return item.workspaceLabel || t("chat.defaultWorkspace");
+}
+
+function workspaceDepartmentLabel(item: ChatConversationOverviewItem): string {
+  const workspaceLabel = String(item.workspaceLabel || "").trim() || t("chat.defaultWorkspace");
+  const departmentName = String(item.departmentName || "").trim();
+  if (!departmentName) return workspaceLabel;
+  return `${workspaceLabel}（${departmentName}）`;
 }
 
 function handleConversationCardClick(item: ChatConversationOverviewItem) {

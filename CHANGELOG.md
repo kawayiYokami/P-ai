@@ -6,6 +6,13 @@
   - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.2`
   - 承接上一轮 `rust-genai` 全量迁移与 `rig-core` 依赖移除后的当前发布状态
 
+## 更新：会话卡片工作空间显示追加部门
+
+- 优化（chat-conversation-workspace-label-with-department）：会话列表卡片中的工作空间文案追加负责部门，直接显示为 `工作空间（部门）`
+  - 侧边会话列表与悬浮会话列表统一使用相同展示格式
+  - 部门名为空时保持仅显示工作空间名称，避免出现空括号
+  - 不新增组件，不改动现有卡片结构与交互
+
 ## 更新：当前会话标题支持直接改名
 
 - 功能（chat-current-conversation-rename）：支持在会话列表中直接修改当前会话标题，并同步刷新前台未归档会话概览
