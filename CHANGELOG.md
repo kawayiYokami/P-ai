@@ -1,9 +1,9 @@
 # 变更日志
 
-## 发布：v0.9.2
+## 发布：v0.9.3
 
-- 发布（release-0.9.2）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
-  - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.2`
+- 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
+  - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.3`
   - 承接上一轮 `rust-genai` 全量迁移与 `rig-core` 依赖移除后的当前发布状态
 
 ## 更新：会话卡片工作空间显示追加部门
