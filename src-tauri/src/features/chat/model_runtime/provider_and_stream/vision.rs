@@ -25,17 +25,42 @@ async fn describe_image_with_vision_api(
     let supports_non_stream_fallback =
         request_format_supports_non_stream_fallback(vision_resolved.request_format);
     let prefer_non_stream = supports_non_stream_fallback
-        && provider_streaming_disabled(Some(state), &vision_resolved.base_url);
+        && provider_streaming_disabled(
+            Some(state),
+            vision_resolved.request_format,
+            &vision_resolved.base_url,
+            &vision_api.model,
+        );
     let reply = match vision_resolved.request_format {
         RequestFormat::OpenAI => {
             if prefer_non_stream {
                 call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared).await?
             } else {
                 match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone()).await {
-                    Ok(reply) => reply,
-                    Err(err) if supports_non_stream_fallback => {
+                    Ok(reply) => {
+                        if let Err(clear_err) = provider_clear_streaming_disabled(
+                            Some(state),
+                            vision_resolved.request_format,
+                            &vision_resolved.base_url,
+                            &vision_api.model,
+                        ) {
+                            runtime_log_warn(format!(
+                                "[视觉] 清理流式降级缓存失败: base_url={}, model={}, err={}",
+                                vision_resolved.base_url, vision_api.model, clear_err
+                            ));
+                        }
+                        reply
+                    }
+                    Err(err)
+                        if supports_non_stream_fallback && is_streaming_format_error(&err) =>
+                    {
                         if let Err(mark_err) =
-                            provider_mark_streaming_disabled(Some(state), &vision_resolved.base_url)
+                            provider_mark_streaming_disabled(
+                                Some(state),
+                                vision_resolved.request_format,
+                                &vision_resolved.base_url,
+                                &vision_api.model,
+                            )
                         {
                             runtime_log_warn(format!(
                                 "[视觉] 标记本次运行内非流式 base_url 失败: base_url={}, err={}",

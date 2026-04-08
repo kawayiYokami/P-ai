@@ -86,9 +86,9 @@ async fn assemble_runtime_tools(
     app_state: Option<&AppState>,
     tool_session_id: &str,
 ) -> Result<RuntimeToolAssembly, String> {
-    // 约束：禁止继续新增“直接挂载的内建工具”给模型。
-    // 所有新工具都必须优先实现为 MCP 形态并在这里注册，
-    // 这样才能统一工具协议、媒体转发、权限边界和运行时行为。
+    // 约束：高风险系统能力优先走 MCP 形态，以统一协议、媒体转发和权限边界。
+    // 但像 todo 这种强依赖主进程会话状态与 UI 推送的工具，保留为进程内 builtin，
+    // 避免再引入跨进程状态同步与双写问题。
     let current_department = department_for_agent_id(app_config, &agent.id);
     let department_reason = |tool_id: &str| tool_restricted_by_department(current_department, tool_id);
     let has_fetch = tool_enabled(selected_api, agent, current_department, "fetch");
@@ -119,7 +119,6 @@ async fn assemble_runtime_tools(
     let mut unavailable_tool_notices = Vec::<String>::new();
     let mut mcp_read_file_client: Option<ReadFileMcpClient> = None;
     let mut mcp_operate_client: Option<OperateMcpClient> = None;
-    let mut mcp_todo_client: Option<TodoMcpClient> = None;
 
     tool_manifest.push(tool_manifest_item(
         "builtin",
@@ -358,29 +357,17 @@ async fn assemble_runtime_tools(
     }
 
     if has_todo {
-        match try_attach_todo_mcp_tool(&mut tools, tool_session_id).await {
-            Ok(client) => {
-                mcp_todo_client = Some(client);
-                tool_manifest.push(tool_manifest_item("builtin_mcp", "todo", true, true, None));
-            }
-            Err(err) => {
-                eprintln!("[MCP] todo degraded to disabled: {err}");
-                unavailable_tool_notices.push(format!(
-                    "工具 `todo` MCP 挂载失败：{}。",
-                    err
-                ));
-                tool_manifest.push(tool_manifest_item(
-                    "builtin_mcp",
-                    "todo",
-                    true,
-                    false,
-                    Some(format!("MCP attach failed: {err}")),
-                ));
-            }
-        }
+        let state = app_state
+            .ok_or_else(|| "todo requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinTodoTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item("builtin", "todo", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
-            "builtin_mcp",
+            "builtin",
             "todo",
             false,
             false,
@@ -455,7 +442,6 @@ async fn assemble_runtime_tools(
         unavailable_tool_notices,
         _mcp_read_file_client: mcp_read_file_client,
         _mcp_operate_client: mcp_operate_client,
-        _mcp_todo_client: mcp_todo_client,
     })
 }
 
@@ -530,44 +516,6 @@ async fn try_attach_operate_mcp_tool(
 
     if !attached {
         return Err("MCP operate server did not expose operate tool".to_string());
-    }
-    Ok(client)
-}
-
-async fn try_attach_todo_mcp_tool(
-    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
-    tool_session_id: &str,
-) -> Result<TodoMcpClient, String> {
-    let exe = std::env::current_exe()
-        .map_err(|err| format!("Resolve current executable for MCP todo failed: {err}"))?;
-    let mut cmd = tokio::process::Command::new(exe);
-    cmd.arg(MCP_TODO_SERVER_FLAG);
-    cmd.arg(MCP_TODO_SESSION_FLAG).arg(tool_session_id);
-    let transport = rmcp::transport::TokioChildProcess::new(cmd)
-        .map_err(|err| format!("Start MCP todo child process failed: {err}"))?;
-
-    let client = ()
-        .serve(transport)
-        .await
-        .map_err(|err| format!("Connect to MCP todo server failed: {err}"))?;
-    let sink = client.peer().clone();
-    let defs = client
-        .list_all_tools()
-        .await
-        .map_err(|err| format!("List MCP todo tools failed: {err}"))?;
-
-    let mut attached = false;
-    for def in defs {
-        if def.name.as_ref() != MCP_TODO_TOOL_NAME {
-            continue;
-        }
-        tools.push(boxed_mcp_runtime_tool(def, sink.clone()));
-        attached = true;
-        break;
-    }
-
-    if !attached {
-        return Err("MCP todo server did not expose todo tool".to_string());
     }
     Ok(client)
 }

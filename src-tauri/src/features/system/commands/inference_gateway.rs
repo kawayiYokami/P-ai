@@ -16,34 +16,96 @@ impl CallPolicy {
 
 }
 
-fn provider_streaming_cache_key(base_url: &str) -> String {
+const PROVIDER_STREAMING_DISABLED_TTL_SECS: i64 = 10 * 60;
+
+fn provider_base_url_cache_key(base_url: &str) -> String {
     base_url.trim().trim_end_matches('/').to_string()
 }
 
-fn provider_streaming_disabled_cached(state: Option<&AppState>, base_url: &str) -> bool {
+fn provider_streaming_cache_key(
+    request_format: RequestFormat,
+    base_url: &str,
+    model_name: &str,
+) -> String {
+    let normalized_base_url = provider_base_url_cache_key(base_url);
+    let normalized_model = model_name.trim();
+    format!(
+        "{}|{}|{}",
+        request_format.as_str(),
+        normalized_base_url,
+        normalized_model
+    )
+}
+
+fn prune_expired_provider_streaming_disabled_cache(
+    cache: &mut std::collections::HashMap<String, i64>,
+) {
+    let now_ts = now_utc().unix_timestamp();
+    cache.retain(|_, expires_at| *expires_at > now_ts);
+}
+
+fn provider_streaming_disabled_cached(
+    state: Option<&AppState>,
+    request_format: RequestFormat,
+    base_url: &str,
+    model_name: &str,
+) -> bool {
     let Some(app_state) = state else {
         return false;
     };
-    let key = provider_streaming_cache_key(base_url);
-    let Ok(cache) = app_state.provider_streaming_disabled_keys.lock() else {
+    let key = provider_streaming_cache_key(request_format, base_url, model_name);
+    let Ok(mut cache) = app_state.provider_streaming_disabled_keys.lock() else {
         return false;
     };
-    cache.contains(&key)
+    prune_expired_provider_streaming_disabled_cache(&mut cache);
+    cache.contains_key(&key)
 }
 
-fn provider_streaming_disabled(state: Option<&AppState>, base_url: &str) -> bool {
-    provider_streaming_disabled_cached(state, base_url)
+fn provider_streaming_disabled(
+    state: Option<&AppState>,
+    request_format: RequestFormat,
+    base_url: &str,
+    model_name: &str,
+) -> bool {
+    provider_streaming_disabled_cached(state, request_format, base_url, model_name)
 }
 
-fn provider_mark_streaming_disabled(state: Option<&AppState>, base_url: &str) -> Result<(), String> {
+fn provider_mark_streaming_disabled(
+    state: Option<&AppState>,
+    request_format: RequestFormat,
+    base_url: &str,
+    model_name: &str,
+) -> Result<(), String> {
     let Some(app_state) = state else {
         return Ok(());
     };
-    let key = provider_streaming_cache_key(base_url);
+    let key = provider_streaming_cache_key(request_format, base_url, model_name);
     let Ok(mut cache) = app_state.provider_streaming_disabled_keys.lock() else {
         return Err("Failed to lock provider streaming disabled cache".to_string());
     };
-    cache.insert(key);
+    prune_expired_provider_streaming_disabled_cache(&mut cache);
+    let expires_at = now_utc()
+        .unix_timestamp()
+        .saturating_add(PROVIDER_STREAMING_DISABLED_TTL_SECS);
+    cache.insert(key, expires_at);
+    Ok(())
+}
+
+fn provider_clear_streaming_disabled(
+    state: Option<&AppState>,
+    request_format: RequestFormat,
+    base_url: &str,
+    model_name: &str,
+) -> Result<(), String> {
+    let Some(app_state) = state else {
+        return Ok(());
+    };
+    let key = provider_streaming_cache_key(request_format, base_url, model_name);
+    let Ok(mut cache) = app_state.provider_streaming_disabled_keys.lock() else {
+        return Err("Failed to lock provider streaming disabled cache".to_string());
+    };
+    prune_expired_provider_streaming_disabled_cache(&mut cache);
+    cache.remove(&key);
     Ok(())
 }
 
@@ -51,7 +113,7 @@ fn provider_system_message_user_fallback_cached(state: Option<&AppState>, base_u
     let Some(app_state) = state else {
         return false;
     };
-    let key = provider_streaming_cache_key(base_url);
+    let key = provider_base_url_cache_key(base_url);
     let Ok(cache) = app_state.provider_system_message_user_fallback_keys.lock() else {
         return false;
     };
@@ -69,7 +131,7 @@ fn provider_mark_system_message_user_fallback(
     let Some(app_state) = state else {
         return Ok(());
     };
-    let key = provider_streaming_cache_key(base_url);
+    let key = provider_base_url_cache_key(base_url);
     let Ok(mut cache) = app_state.provider_system_message_user_fallback_keys.lock() else {
         return Err("Failed to lock provider system message fallback cache".to_string());
     };
@@ -102,13 +164,15 @@ fn move_system_preamble_to_user_prompt(prepared: &mut PreparedPrompt) -> bool {
     true
 }
 
-#[cfg(test)]
 fn is_streaming_format_error(err: &str) -> bool {
-    err.contains("missing field `role`")
-        || err.contains("message_start")
-        || err.contains("message_delta")
-        || err.contains("Failed to parse JSON")
-        || err.contains("streaming failed")
+    let normalized = err.to_ascii_lowercase();
+    normalized.contains("failed to parse json")
+        || normalized.contains("missing field `role`")
+        || normalized.contains("message_start")
+        || normalized.contains("message_delta")
+        || normalized.contains("eventsource")
+        || normalized.contains("invalid sse")
+        || normalized.contains("stream event")
 }
 
 fn request_format_supports_non_stream_fallback(format: RequestFormat) -> bool {
@@ -202,7 +266,11 @@ async fn invoke_model_with_policy(
 ) -> Result<ModelReply, String> {
     let started_at = std::time::Instant::now();
     let mut prepared = prepared;
-    let stream_cache_key = provider_streaming_cache_key(&resolved_api.base_url);
+    let stream_cache_key = provider_streaming_cache_key(
+        resolved_api.request_format,
+        &resolved_api.base_url,
+        model_name,
+    );
     if matches!(resolved_api.request_format, RequestFormat::OpenAIResponses)
         && provider_system_message_user_fallback(app_state, &resolved_api.base_url)
         && move_system_preamble_to_user_prompt(&mut prepared)
@@ -222,7 +290,12 @@ async fn invoke_model_with_policy(
     if policy.json_only {
         // json_only is enforced by prompt contract + caller-side JSON parse.
     }
-    let prefer_non_stream = provider_streaming_disabled(app_state, &resolved_api.base_url);
+    let prefer_non_stream = provider_streaming_disabled(
+        app_state,
+        resolved_api.request_format,
+        &resolved_api.base_url,
+        model_name,
+    );
     let first_result = if prefer_non_stream {
         if let Some(timeout_secs) = policy.timeout_secs {
             invoke_model_non_stream_by_format_with_timeout(
@@ -250,6 +323,9 @@ async fn invoke_model_with_policy(
             invoke_model_by_format(resolved_api, model_name, prepared.clone()).await
         }
     };
+    let stream_first_attempt_succeeded = !prefer_non_stream
+        && request_format_supports_non_stream_fallback(resolved_api.request_format)
+        && first_result.is_ok();
     let result = match first_result {
         Ok(reply) => Ok(reply),
         Err(err)
@@ -294,9 +370,15 @@ async fn invoke_model_with_policy(
         }
         Err(err)
             if !prefer_non_stream
-                && request_format_supports_non_stream_fallback(resolved_api.request_format) =>
+                && request_format_supports_non_stream_fallback(resolved_api.request_format)
+                && is_streaming_format_error(&err) =>
         {
-            if let Err(mark_err) = provider_mark_streaming_disabled(app_state, &resolved_api.base_url) {
+            if let Err(mark_err) = provider_mark_streaming_disabled(
+                app_state,
+                resolved_api.request_format,
+                &resolved_api.base_url,
+                model_name,
+            ) {
                 runtime_log_warn(format!(
                     "[推理] 标记本次运行内非流式 base_url 失败: key={}, scene={}, err={}",
                     stream_cache_key, policy.scene, mark_err
@@ -321,6 +403,19 @@ async fn invoke_model_with_policy(
         }
         Err(err) => Err(err),
     };
+    if stream_first_attempt_succeeded {
+        if let Err(clear_err) = provider_clear_streaming_disabled(
+            app_state,
+            resolved_api.request_format,
+            &resolved_api.base_url,
+            model_name,
+        ) {
+            runtime_log_warn(format!(
+                "[推理] 清理流式降级缓存失败: key={}, scene={}, err={}",
+                stream_cache_key, policy.scene, clear_err
+            ));
+        }
+    }
     let elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match &result {
         Ok(reply) => {
@@ -392,13 +487,20 @@ mod inference_gateway_tests {
         assert!(is_streaming_format_error(
             "streaming failed: message_start unexpected"
         ));
+        assert!(!is_streaming_format_error(
+            "Request failed with status code '504 Gateway Timeout'"
+        ));
         assert!(!is_streaming_format_error("request timed out"));
     }
 
     #[test]
-    fn provider_cache_key_should_keep_raw_base_url() {
-        let key = provider_streaming_cache_key("https://api.moonshot.cn/v1/");
-        assert_eq!(key, "https://api.moonshot.cn/v1");
+    fn provider_cache_key_should_include_format_base_url_and_model() {
+        let key = provider_streaming_cache_key(
+            RequestFormat::OpenAI,
+            "https://api.moonshot.cn/v1/",
+            "kimi-k2.5",
+        );
+        assert_eq!(key, "openai|https://api.moonshot.cn/v1|kimi-k2.5");
     }
 
     #[test]

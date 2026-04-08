@@ -114,15 +114,6 @@ async fn frontend_read_file_tool_definition(
     frontend_mcp_tool_definition(cmd, MCP_READ_FILE_TOOL_NAME, "frontend read_file").await
 }
 
-async fn frontend_todo_tool_definition(
-    preview_session_id: &str,
-) -> Result<FrontendToolDefinition, String> {
-    let mut cmd = new_mcp_host_command()?;
-    cmd.arg(MCP_TODO_SERVER_FLAG);
-    cmd.arg(MCP_TODO_SESSION_FLAG).arg(preview_session_id);
-    frontend_mcp_tool_definition(cmd, MCP_TODO_TOOL_NAME, "frontend todo").await
-}
-
 async fn builtin_tool_definitions_for_frontend(
     state: &AppState,
 ) -> Vec<FrontendToolDefinition> {
@@ -147,16 +138,6 @@ async fn builtin_tool_definitions_for_frontend(
             runtime_log_info(format!(
                 "[前台工具目录] 读取 read_file MCP 定义失败: preview_session_id={}, preview_api_id={}, error={}",
                 preview_session_id, preview_api_id, err
-            ));
-            None
-        }
-    };
-    let todo_definition = match frontend_todo_tool_definition(&preview_session_id).await {
-        Ok(definition) => Some(definition),
-        Err(err) => {
-            runtime_log_info(format!(
-                "[前台工具目录] 读取 todo MCP 定义失败: preview_session_id={}, error={}",
-                preview_session_id, err
             ));
             None
         }
@@ -209,6 +190,13 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinTodoTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinTaskTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
@@ -234,9 +222,6 @@ async fn builtin_tool_definitions_for_frontend(
     }
     if let Some(def) = read_file_definition {
         out.insert(7, def);
-    }
-    if let Some(def) = todo_definition {
-        out.insert(9, def);
     }
     out
 }
@@ -283,19 +268,6 @@ mod tool_catalog_tests {
         .await
     }
 
-    async fn raw_todo_mcp_definition_for_test() -> Result<FrontendToolDefinition, String> {
-        let mut cmd = new_mcp_host_command()?;
-        cmd.arg(MCP_TODO_SERVER_FLAG);
-        cmd.arg(MCP_TODO_SESSION_FLAG)
-            .arg("__frontend_tool_preview__");
-        frontend_mcp_tool_definition(
-            cmd,
-            MCP_TODO_TOOL_NAME,
-            "tool catalog test todo",
-        )
-        .await
-    }
-
     async fn catalog_tool_definition_by_name(tool_name: &str) -> Result<FrontendToolDefinition, String> {
         let state = AppState::new()?;
         builtin_tool_definitions_for_frontend(&state)
@@ -306,7 +278,7 @@ mod tool_catalog_tests {
     }
 
     #[test]
-    fn frontend_catalog_mcp_tools_should_match_runtime_mcp_definitions() {
+    fn frontend_catalog_tools_should_match_runtime_definitions() {
         let operate_catalog = block_on(catalog_tool_definition_by_name(MCP_OPERATE_TOOL_NAME))
             .expect("load operate definition from frontend catalog should succeed");
         let operate_runtime = block_on(raw_operate_mcp_definition_for_test())
@@ -327,14 +299,19 @@ mod tool_catalog_tests {
             "frontend catalog read_file definition drifted from runtime MCP definition"
         );
 
-        let todo_catalog = block_on(catalog_tool_definition_by_name(MCP_TODO_TOOL_NAME))
+        let todo_catalog = block_on(catalog_tool_definition_by_name(TODO_TOOL_NAME))
             .expect("load todo definition from frontend catalog should succeed");
-        let todo_runtime = block_on(raw_todo_mcp_definition_for_test())
-            .expect("load todo definition from runtime MCP should succeed");
+        let todo_runtime = frontend_tool_definition(
+            BuiltinTodoTool {
+                app_state: AppState::new().expect("create app state for todo definition"),
+                session_id: "__frontend_tool_preview__".to_string(),
+            }
+            .provider_tool_definition(),
+        );
         assert_eq!(
             frontend_definition_json(&todo_catalog),
             frontend_definition_json(&todo_runtime),
-            "frontend catalog todo definition drifted from runtime MCP definition"
+            "frontend catalog todo definition drifted from runtime builtin definition"
         );
     }
 }

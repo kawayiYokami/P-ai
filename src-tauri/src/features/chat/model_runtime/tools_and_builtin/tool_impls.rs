@@ -513,6 +513,49 @@ struct BuiltinTaskTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinTodoTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+impl RuntimeToolMetadata for BuiltinTodoTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        todo_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinTodoTool {
+    fn name(&self) -> String {
+        TODO_TOOL_NAME.to_string()
+    }
+
+    fn definition(&self) -> RuntimeToolDefFuture<'_> {
+        Box::pin(async move { self.provider_tool_definition() })
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<TodoWriteRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=todo args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = builtin_todo(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=todo result={}",
+                    debug_text_snippet(&v.display_text, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 todo 执行失败: 错误={err}"),
+            }
+            result
+        })
+    }
+}
+
 impl RuntimeToolMetadata for BuiltinTaskTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(

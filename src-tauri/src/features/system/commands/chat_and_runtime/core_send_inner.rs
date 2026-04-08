@@ -2131,24 +2131,6 @@ async fn send_chat_message_inner(
                         candidate_final_error = None;
                         break;
                     }
-                    if request_format_supports_non_stream_fallback(
-                        candidate_selected_api.request_format,
-                    ) {
-                        if let Err(mark_err) = provider_mark_streaming_disabled(
-                            Some(&state),
-                            &candidate_resolved_api.base_url,
-                        ) {
-                            runtime_log_warn(format!(
-                                "[聊天] 空响应后标记本次运行内非流式失败: base_url={}, err={}",
-                                candidate_resolved_api.base_url, mark_err
-                            ));
-                        } else {
-                            runtime_log_info(format!(
-                                "[聊天] 模型返回空响应，已在本次运行内切换非流式重试: base_url={}, model={}",
-                                candidate_resolved_api.base_url, candidate_model_name
-                            ));
-                        }
-                    }
                     (
                         "模型返回空响应".to_string(),
                         "模型持续返回空响应，已停止重试，请稍后再试或切换模型。"

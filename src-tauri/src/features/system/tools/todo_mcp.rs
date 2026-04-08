@@ -1,35 +1,16 @@
-const MCP_TODO_SERVER_FLAG: &str = "--mcp-todo-server";
-const MCP_TODO_TOOL_NAME: &str = "todo";
-const MCP_TODO_SESSION_FLAG: &str = "--mcp-todo-session-id";
+const TODO_TOOL_NAME: &str = "todo";
 
-#[derive(Debug, Clone, serde::Deserialize, rmcp::schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TodoWriteRequest {
     todos: Vec<TodoWireItem>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, rmcp::schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TodoWireItem {
     content: String,
     status: String,
-}
-
-#[derive(Debug, Clone)]
-struct TodoMcpServer {
-    tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
-    app_state: AppState,
-    session_id: String,
-}
-
-impl TodoMcpServer {
-    fn new(app_state: AppState, session_id: String) -> Self {
-        Self {
-            tool_router: Self::tool_router(),
-            app_state,
-            session_id,
-        }
-    }
 }
 
 fn todo_status_normalized(raw: &str) -> Option<&'static str> {
@@ -63,6 +44,44 @@ fn todo_items_normalized(items: &[TodoWireItem]) -> Result<Vec<ConversationTodoI
         return Err("todo 同时只能有一个 in_progress".to_string());
     }
     Ok(normalized)
+}
+
+#[cfg(test)]
+fn todo_items_normalized_from_tool_args(
+    tool_args: &str,
+) -> Result<Vec<ConversationTodoItem>, String> {
+    let request = serde_json::from_str::<TodoWriteRequest>(tool_args)
+        .map_err(|err| format!("todo 参数不是合法 JSON：{err}"))?;
+    todo_items_normalized(&request.todos)
+}
+
+fn todo_provider_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        TODO_TOOL_NAME,
+        "会话内 Todo 步骤追踪工具。入参为完整 todos 列表，每次调用都会全量覆盖当前会话的 Todo。仅在复杂任务或多要求任务时使用；步骤数优先保持在 3~7 步；同一时刻只允许一个 in_progress；全部完成后应直接向用户汇报。",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "description": "当前会话的完整 Todo 列表。每次调用都会全量覆盖旧列表。",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string", "description": "步骤内容" },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "description": "步骤状态"
+                            }
+                        },
+                        "required": ["content", "status"]
+                    }
+                }
+            },
+            "required": ["todos"]
+        }),
+    )
 }
 
 fn todo_items_all_completed(items: &[ConversationTodoItem]) -> bool {
@@ -154,6 +173,18 @@ fn todo_target_conversation_id(session_id: &str) -> Result<String, String> {
         .ok_or_else(|| "todo 工具缺少 conversation_id，无法定位当前会话".to_string())
 }
 
+fn builtin_todo(
+    app_state: &AppState,
+    session_id: &str,
+    args: TodoWriteRequest,
+) -> Result<String, String> {
+    let conversation_id = todo_target_conversation_id(session_id)?;
+    let normalized = todo_items_normalized(&args.todos)?;
+    let response_text = todo_response_text(&normalized);
+    update_conversation_todos_and_emit(app_state, &conversation_id, normalized)?;
+    Ok(response_text)
+}
+
 #[cfg(test)]
 fn conversation_todo_list(state: &AppState, conversation_id: &str) -> Result<Vec<ConversationTodoItem>, String> {
     if let Some(conversation) = delegate_runtime_thread_conversation_get(state, conversation_id)? {
@@ -167,6 +198,7 @@ fn conversation_todo_list(state: &AppState, conversation_id: &str) -> Result<Vec
         .ok_or_else(|| format!("未找到会话，conversation_id={conversation_id}"))
 }
 
+#[cfg(test)]
 fn conversation_todo_replace(
     state: &AppState,
     conversation_id: &str,
@@ -202,82 +234,4 @@ fn conversation_todo_replace(
     Ok(stored)
 }
 
-#[rmcp::tool_router(router = tool_router)]
-impl TodoMcpServer {
-    #[rmcp::tool(
-        name = "todo",
-        description = "会话内 Todo 步骤追踪工具。入参为完整 todos 列表，每次调用都会全量覆盖当前会话的 Todo。仅在复杂任务或多要求任务时使用；步骤数优先保持在 3~7 步；同一时刻只允许一个 in_progress；全部完成后应直接向用户汇报。"
-    )]
-    async fn todo(
-        &self,
-        rmcp::handler::server::wrapper::Parameters(args): rmcp::handler::server::wrapper::Parameters<
-            TodoWriteRequest,
-        >,
-    ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-        let conversation_id = todo_target_conversation_id(&self.session_id).map_err(|err| {
-            rmcp::ErrorData::internal_error(
-                "resolve todo conversation failed",
-                Some(serde_json::json!({ "error": err })),
-            )
-        })?;
-        let normalized = todo_items_normalized(&args.todos).map_err(|err| {
-            rmcp::ErrorData::invalid_params(
-                err,
-                None::<serde_json::Value>,
-            )
-        })?;
-        let response_text = todo_response_text(&normalized);
-        conversation_todo_replace(&self.app_state, &conversation_id, normalized)
-            .map_err(|err| {
-                rmcp::ErrorData::internal_error(
-                    "update todo failed",
-                    Some(serde_json::json!({
-                        "error": err,
-                        "conversationId": conversation_id
-                    })),
-                )
-            })?;
-        if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(&self.app_state) {
-            eprintln!("[Todo] 推送会话概览更新失败：conversation_id={}，error={}", conversation_id, err);
-        }
-        Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-            response_text,
-        )]))
-    }
-}
-
-#[rmcp::tool_handler(router = self.tool_router)]
-impl rmcp::ServerHandler for TodoMcpServer {
-    fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo {
-            capabilities: rmcp::model::ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
-            instructions: Some("P-ai todo MCP server".to_string()),
-            ..Default::default()
-        }
-    }
-}
-
-pub fn run_todo_mcp_server() -> Result<(), String> {
-    let session_id = mcp_arg_value(MCP_TODO_SESSION_FLAG)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Missing --mcp-todo-session-id for MCP todo server".to_string())?;
-    let app_state = AppState::new()?;
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("Build MCP todo runtime failed: {err}"))?;
-    rt.block_on(async move {
-        let server = TodoMcpServer::new(app_state, session_id)
-            .serve(rmcp::transport::stdio())
-            .await
-            .map_err(|err| format!("Start MCP todo server failed: {err}"))?;
-        server
-            .waiting()
-            .await
-            .map_err(|err| format!("MCP todo server join failed: {err}"))?;
-        Ok::<(), String>(())
-    })
-}
 

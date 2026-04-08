@@ -1700,13 +1700,36 @@ fn update_conversation_todos_and_emit(
     if cid.is_empty() {
         return Ok(());
     }
+    let next_todos = normalize_conversation_todos(todos);
+    let stored_todos = if !next_todos.is_empty()
+        && next_todos.iter().all(|item| item.status == "completed")
+    {
+        Vec::new()
+    } else {
+        next_todos.clone()
+    };
+    if let Some(mut conversation) = delegate_runtime_thread_conversation_get(state, cid)? {
+        if conversation.current_todos == stored_todos {
+            return Ok(());
+        }
+        conversation.current_todos = stored_todos.clone();
+        conversation.updated_at = now_iso();
+        let current_todo = conversation_current_todo_text(&conversation);
+        delegate_runtime_thread_conversation_update(state, cid, conversation)?;
+        let todo_payload = ConversationTodosUpdatedPayload {
+            conversation_id: cid.to_string(),
+            current_todo,
+            current_todos: stored_todos,
+        };
+        emit_conversation_todos_updated_payload(state, &todo_payload);
+        return Ok(());
+    }
     let guard = state
         .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(state)?;
     let app_config = state_read_config_cached(state)?;
-    let next_todos = normalize_conversation_todos(todos);
     let current_todo = {
         let Some(conversation) = data
             .conversations
@@ -1716,18 +1739,18 @@ fn update_conversation_todos_and_emit(
             drop(guard);
             return Ok(());
         };
-        if conversation.current_todos == next_todos {
+        if conversation.current_todos == stored_todos {
             drop(guard);
             return Ok(());
         }
-        conversation.current_todos = next_todos.clone();
+        conversation.current_todos = stored_todos.clone();
         conversation_current_todo_text(conversation)
     };
     state_write_app_data_cached(state, &data)?;
     let todo_payload = ConversationTodosUpdatedPayload {
         conversation_id: cid.to_string(),
         current_todo,
-        current_todos: next_todos,
+        current_todos: stored_todos,
     };
     let overview_payload = build_unarchived_conversation_overview_payload(state, &app_config, &data);
     drop(guard);

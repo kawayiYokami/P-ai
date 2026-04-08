@@ -1,6 +1,13 @@
 const INTERNAL_MAX_TOOL_LOOP_ROUNDS: usize = 100;
 const REPEATED_TOOL_CALL_BLOCK_THRESHOLD: usize = 10;
 
+struct GenaiToolLoopRoundOutput {
+    turn_text: String,
+    turn_reasoning: String,
+    turn_tool_calls: Vec<genai::chat::ToolCall>,
+    trusted_input_tokens: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ToolRepeatGuard {
     last_tool_name: String,
@@ -68,40 +75,6 @@ fn register_tool_repeat_attempt(
         guard.same_call_streak = 1;
     }
     guard.same_call_streak
-}
-
-fn parse_conversation_todos_from_tool_args(tool_args: &str) -> Vec<ConversationTodoItem> {
-    let trimmed = tool_args.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
-    let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
-        return Vec::new();
-    };
-    value
-        .get("todos")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    let content = item
-                        .get("content")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())?
-                        .to_string();
-                    let status = item
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .unwrap_or("")
-                        .to_ascii_lowercase();
-                    Some(ConversationTodoItem { content, status })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone)]
@@ -721,23 +694,6 @@ async fn run_genai_tool_loop(
             };
             let repeat_streak =
                 register_tool_repeat_attempt(&mut tool_repeat_guard, &tool_name, &tool_args);
-            if tool_name.trim() == "todo" {
-                let (_, _, bound_conversation_id) = delegate_parse_session_parts(chat_session_key);
-                if let (Some(state), Some(conversation_id)) =
-                    (tool_abort_state, bound_conversation_id.as_deref())
-                {
-                    if let Err(err) = update_conversation_todos_and_emit(
-                        state,
-                        conversation_id,
-                        parse_conversation_todos_from_tool_args(&tool_args),
-                    ) {
-                        runtime_log_error(format!(
-                            "[Todo] 更新会话步骤失败: conversation_id={}, error={}",
-                            conversation_id, err
-                        ));
-                    }
-                }
-            }
             send_tool_status_event(
                 on_delta,
                 &tool_name,
@@ -808,6 +764,393 @@ async fn run_genai_tool_loop(
             };
             let tool_result_text = tool_result.display_text.clone();
 
+            let tc_json = serde_json::json!({
+                "id": tool_call_id,
+                "call_id": tool_call.call_id,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": tool_args
+                }
+            });
+            tool_history_events.push(serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [tc_json]
+            }));
+            let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
+            tool_history_events.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": history_content
+            }));
+
+            if organize_context_succeeded(&tool_name, &tool_result_text) {
+                return Ok(ModelReply {
+                    assistant_text: String::new(),
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    tool_history_events: tool_history_without_organize_context(&tool_history_events),
+                    suppress_assistant_message: true,
+                    trusted_input_tokens: None,
+                });
+            }
+            if should_stop_after_remote_im_send(&tool_name, &tool_result_text) {
+                stop_after_remote_im_done_in_turn = true;
+            }
+
+            let (tool_result_for_model, screenshot_forward) =
+                enrich_screenshot_tool_result_with_cache(&tool_name, &tool_result_text);
+            messages.push(genai::chat::ChatMessage::from(
+                genai::chat::ToolResponse::new(tool_call.call_id, tool_result_for_model),
+            ));
+            if let Some(message) = runtime_tool_result_followup_message(&tool_name, &tool_result) {
+                messages.push(message);
+            }
+            if let Some((payload, artifact_id)) = screenshot_forward {
+                let notice = screenshot_forward_notice(&payload);
+                let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
+                    ScreenshotArtifactEntry {
+                        images: payload.images.clone(),
+                        created_seq: 0,
+                    },
+                );
+                let mut forwarded_parts =
+                    vec![genai::chat::ContentPart::from_text(notice)];
+                forwarded_parts.extend(cached.images.iter().map(|image| {
+                    genai::chat::ContentPart::from_binary_base64(
+                        image.mime.clone(),
+                        image.base64.clone(),
+                        None,
+                    )
+                }));
+                messages.push(genai::chat::ChatMessage::user(
+                    genai::chat::MessageContent::from_parts(forwarded_parts),
+                ));
+                tool_history_events.push(serde_json::json!({
+                    "role": "user",
+                    "content": "[desktop screenshot forwarded as user image]",
+                    "screenshotArtifactId": artifact_id,
+                    "screenshotArtifactMaxRetained": SCREENSHOT_ARTIFACT_MAX_ITEMS,
+                    "screenshotImageCount": cached.images.len()
+                }));
+            }
+            if stop_after_remote_im_done_in_turn {
+                break;
+            }
+        }
+
+        if stop_after_remote_im_done_in_turn {
+            let final_text = if full_assistant_text.trim().is_empty() {
+                match tool_history_events
+                    .iter()
+                    .rev()
+                    .find_map(|event| {
+                        event.get("role")
+                            .and_then(Value::as_str)
+                            .filter(|role| *role == "tool")?;
+                        event.get("content")
+                            .and_then(Value::as_str)
+                            .and_then(remote_im_result_action)
+                    })
+                    .as_deref()
+                {
+                    Some("no_reply") => "本轮决定不回复。".to_string(),
+                    _ => "已发送完成。".to_string(),
+                }
+            } else {
+                full_assistant_text.clone()
+            };
+            return Ok(ModelReply {
+                assistant_text: final_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: String::new(),
+                tool_history_events,
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+            });
+        }
+    }
+
+    send_tool_status_event(
+        on_delta,
+        "tools",
+        "failed",
+        None,
+        "工具循环触发内部安全上限，停止继续调用并立刻汇报。",
+    );
+    Ok(ModelReply {
+        assistant_text: full_assistant_text,
+        reasoning_standard: full_reasoning_standard,
+        reasoning_inline: String::new(),
+        tool_history_events,
+        suppress_assistant_message: false,
+        trusted_input_tokens,
+    })
+}
+
+async fn execute_genai_non_stream_round(
+    client: &genai::Client,
+    service_target: &genai::ServiceTarget,
+    request: genai::chat::ChatRequest,
+    options: &genai::chat::ChatOptions,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<GenaiToolLoopRoundOutput, String> {
+    let response = client
+        .exec_chat(service_target.clone(), request, Some(options))
+        .await
+        .map_err(|err| format!("GenAI 非流式请求失败：{err}"))?;
+    let turn_text = response
+        .texts()
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let turn_reasoning = response.reasoning_content.clone().unwrap_or_default();
+    let turn_tool_calls = response.tool_calls().into_iter().cloned().collect::<Vec<_>>();
+    let trusted_input_tokens = response
+        .usage
+        .prompt_tokens
+        .and_then(|value| u64::try_from(value).ok())
+        .filter(|value| *value > 0);
+
+    if !turn_reasoning.is_empty() {
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: turn_reasoning.clone(),
+            kind: Some("reasoning_standard".to_string()),
+            tool_name: None,
+            tool_status: None,
+            tool_args: None,
+            message: None,
+        });
+    }
+    if !turn_text.is_empty() {
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: turn_text.clone(),
+            kind: None,
+            tool_name: None,
+            tool_status: None,
+            tool_args: None,
+            message: None,
+        });
+    }
+
+    Ok(GenaiToolLoopRoundOutput {
+        turn_text,
+        turn_reasoning,
+        turn_tool_calls,
+        trusted_input_tokens,
+    })
+}
+
+async fn run_genai_tool_loop_non_stream(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    tool_assembly: RuntimeToolAssembly,
+    protocol_family: ToolCallProtocolFamily,
+    adapter_kind: genai::adapter::AdapterKind,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    _max_tool_iterations: usize,
+    include_reasoning_before_tool_calls: bool,
+    tool_abort_state: Option<&AppState>,
+    chat_session_key: &str,
+) -> Result<ModelReply, String> {
+    let request_api_key = consume_api_key_for_request(api_config);
+    let client = genai::Client::builder().build();
+    let service_target = genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            adapter_kind,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(adapter_kind, model_name),
+    };
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(true)
+        .with_capture_tool_calls(true)
+        .with_extra_headers(app_identity_genai_headers());
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
+    }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tools, protocol_family).await?;
+    let mut full_assistant_text = String::new();
+    let mut full_reasoning_standard = String::new();
+    let mut tool_history_events = Vec::<Value>::new();
+    let mut trusted_input_tokens: Option<u64> = None;
+    let (mut system_prompt, mut messages) = build_genai_message_state(&prepared, protocol_family)?;
+
+    let mut auto_compaction_applied = false;
+    let mut tool_repeat_guard = ToolRepeatGuard::default();
+    for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
+        if round_index > 0 && !auto_compaction_applied {
+            auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue_genai(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                resolved_api,
+                on_delta,
+                &tool_history_events,
+                protocol_family,
+                &mut system_prompt,
+                &mut messages,
+            )
+            .await?;
+        }
+
+        let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+        if let Some(system) = system_prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request = request.with_system(system.to_string());
+        }
+        if !genai_tools.is_empty() {
+            request = request.with_tools(genai_tools.clone());
+        }
+
+        let mut stop_after_remote_im_done_in_turn = false;
+        let round = execute_genai_non_stream_round(
+            &client,
+            &service_target,
+            request,
+            &options,
+            on_delta,
+        )
+        .await?;
+        let turn_text = round.turn_text;
+        let turn_reasoning = round.turn_reasoning;
+        let turn_tool_calls = round.turn_tool_calls;
+        if let Some(value) = round.trusted_input_tokens {
+            trusted_input_tokens = Some(value);
+        }
+        if !turn_reasoning.is_empty() {
+            full_reasoning_standard.push_str(&turn_reasoning);
+        }
+
+        if !turn_text.is_empty() {
+            if !full_assistant_text.trim().is_empty() {
+                full_assistant_text.push_str("\n\n");
+            }
+            full_assistant_text.push_str(&turn_text);
+        }
+
+        if turn_tool_calls.is_empty() {
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: String::new(),
+                tool_history_events,
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+            });
+        }
+
+        let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
+        for tool_call in &turn_tool_calls {
+            assistant_parts.push(genai::chat::ContentPart::ToolCall(tool_call.clone()));
+        }
+        let mut assistant_message = genai::chat::ChatMessage::assistant(
+            genai::chat::MessageContent::from_parts(assistant_parts),
+        );
+        if include_reasoning_before_tool_calls {
+            let reasoning_for_history = turn_reasoning.trim();
+            if !reasoning_for_history.is_empty() {
+                assistant_message = assistant_message.with_reasoning_content(Some(
+                    reasoning_for_history.to_string(),
+                ));
+            }
+        }
+        messages.push(assistant_message);
+
+        for tool_call in turn_tool_calls {
+            let tool_name = tool_call.fn_name.clone();
+            let tool_call_id = tool_call.call_id.clone();
+            let tool_args = match &tool_call.fn_arguments {
+                Value::String(raw) => raw.clone(),
+                other => other.to_string(),
+            };
+            let repeat_streak =
+                register_tool_repeat_attempt(&mut tool_repeat_guard, &tool_name, &tool_args);
+            send_tool_status_event(
+                on_delta,
+                &tool_name,
+                "running",
+                Some(tool_args.as_str()),
+                &format!("正在调用工具：{}", tool_name),
+            );
+
+            let tool_result = if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
+                let err_text = format!(
+                    "工具调用已被系统阻止：相同工具与相同参数已连续调用 {} 次，请调整参数或停止调用。",
+                    REPEATED_TOOL_CALL_BLOCK_THRESHOLD
+                );
+                runtime_log_info(format!(
+                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, args={}",
+                    chat_session_key, tool_name, repeat_streak, tool_args
+                ));
+                send_tool_status_event(
+                    on_delta,
+                    &tool_name,
+                    "failed",
+                    Some(tool_args.as_str()),
+                    &err_text,
+                );
+                ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+            } else {
+                match call_tool_with_user_abort(
+                    tool_abort_state,
+                    chat_session_key,
+                    call_runtime_tool_by_name(&tool_assembly.tools, &tool_name, &tool_args),
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let status_message = if output.is_error {
+                            format!("工具返回错误结果：{}", tool_name)
+                        } else {
+                            format!("工具调用完成：{}", tool_name)
+                        };
+                        send_tool_status_event(
+                            on_delta,
+                            &tool_name,
+                            if output.is_error { "failed" } else { "done" },
+                            None,
+                            &status_message,
+                        );
+                        output
+                    }
+                    Err(err) => {
+                        if err == CHAT_ABORTED_BY_USER_ERROR {
+                            eprintln!(
+                                "[聊天] 收到停止请求，立即退出工具循环 (session={})",
+                                chat_session_key
+                            );
+                            return Err(err);
+                        }
+                        let err_text = err.to_string();
+                        send_tool_status_event(
+                            on_delta,
+                            &tool_name,
+                            "failed",
+                            None,
+                            &format!("工具调用失败：{} ({})", tool_name, err_text),
+                        );
+                        ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+                    }
+                }
+            };
+            let tool_result_text = tool_result.display_text.clone();
             let tc_json = serde_json::json!({
                 "id": tool_call_id,
                 "call_id": tool_call.call_id,

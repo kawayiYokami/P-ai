@@ -221,12 +221,6 @@ fn main() {
         }
         return;
     }
-    if std::env::args().any(|arg| arg == MCP_TODO_SERVER_FLAG) {
-        if let Err(err) = run_todo_mcp_server() {
-            eprintln!("{err}");
-        }
-        return;
-    }
     match maybe_run_portable_update_helper_from_args() {
         Ok(true) => return,
         Ok(false) => {}
@@ -638,4 +632,3 @@ fn main() {
 mod tests {
     include!("features/tests.rs");
 }
-

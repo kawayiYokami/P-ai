@@ -1269,7 +1269,7 @@
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(
-                std::collections::HashSet::new(),
+                std::collections::HashMap::new(),
             )),
             provider_system_message_user_fallback_keys: Arc::new(Mutex::new(
                 std::collections::HashSet::new(),
@@ -2022,6 +2022,66 @@
             conversation_current_todo_text(conversation).as_deref(),
             Some("第二步")
         );
+    }
+
+    #[test]
+    fn update_conversation_todos_and_emit_should_clear_todos_when_all_completed() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut data = AppData::default();
+        data.conversations.push(Conversation {
+            id: "conversation-main".to_string(),
+            title: "主会话".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            department_id: String::new(),
+            last_read_message_id: String::new(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now.clone(),
+            updated_at: now,
+            last_user_at: None,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
+            status: "active".to_string(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            archived_at: None,
+            messages: Vec::new(),
+            current_todos: vec![ConversationTodoItem {
+                content: "旧步骤".to_string(),
+                status: "in_progress".to_string(),
+            }],
+            memory_recall_table: Vec::new(),
+        });
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        update_conversation_todos_and_emit(
+            &state,
+            "conversation-main",
+            vec![
+                ConversationTodoItem {
+                    content: "第一步".to_string(),
+                    status: "completed".to_string(),
+                },
+                ConversationTodoItem {
+                    content: "第二步".to_string(),
+                    status: "completed".to_string(),
+                },
+            ],
+        )
+        .expect("update completed conversation todos");
+
+        let data = state_read_app_data_cached(&state).expect("read app data");
+        let conversation = data
+            .conversations
+            .iter()
+            .find(|item| item.id == "conversation-main")
+            .expect("conversation exists");
+        assert!(conversation.current_todos.is_empty());
+        assert_eq!(conversation_current_todo_text(conversation), None);
     }
 
     #[test]

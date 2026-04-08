@@ -192,6 +192,40 @@
     }
 
     #[test]
+    fn todo_items_normalized_from_tool_args_should_trim_and_validate() {
+        let items = todo_items_normalized_from_tool_args(
+            r#"{
+                "todos": [
+                    { "content": "  第一步  ", "status": "IN_PROGRESS" },
+                    { "content": " 第二步 ", "status": "pending" }
+                ]
+            }"#,
+        )
+        .expect("normalize todo args");
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].content, "第一步");
+        assert_eq!(items[0].status, "in_progress");
+        assert_eq!(items[1].content, "第二步");
+        assert_eq!(items[1].status, "pending");
+    }
+
+    #[test]
+    fn todo_items_normalized_from_tool_args_should_reject_multiple_in_progress() {
+        let err = todo_items_normalized_from_tool_args(
+            r#"{
+                "todos": [
+                    { "content": "第一步", "status": "in_progress" },
+                    { "content": "第二步", "status": "in_progress" }
+                ]
+            }"#,
+        )
+        .expect_err("multiple in_progress should fail");
+
+        assert_eq!(err, "todo 同时只能有一个 in_progress");
+    }
+
+    #[test]
     fn build_compaction_message_should_append_current_todo_list_after_memory_snapshot() {
         let message = build_compaction_message(
             "这里是压缩摘要",

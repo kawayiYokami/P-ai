@@ -830,7 +830,7 @@ fn test_read_file_state() -> AppState {
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(
-                std::collections::HashSet::new(),
+                std::collections::HashMap::new(),
             )),
             provider_system_message_user_fallback_keys: Arc::new(Mutex::new(
                 std::collections::HashSet::new(),

@@ -1,5 +1,14 @@
 # 变更日志
 
+## 更新：收紧 OpenAI 流式降级并回迁 todo 到主进程
+
+- 修复（openai-stream-fallback-and-builtin-todo）：收紧 OpenAI 兼容接口的流式降级条件，并将 `todo` 工具从 MCP 子进程回迁为主进程内置工具
+  - 非流式兜底仅在真正的流格式不兼容时触发，不再把 `504`、超时、空响应等普通链路错误误判为“应切到非流式”
+  - 流式降级缓存改为按 `request_format + base_url + model` 维度记录，TTL 10 分钟；流式成功后立即清除对应缓存
+  - OpenAI 非流式路径补齐工具循环能力，避免一旦降级就丢失工具调用
+  - `todo` 工具改回主进程 builtin 执行，删除 `todo` MCP 子进程挂载与入口，避免跨进程双写、`app_handle` 误报与会话状态不同步
+  - 会话 Todo 更新路径恢复对委托线程运行态的兼容，并保持“全部 completed 后自动清空当前 Todo”语义
+
 ## 发布：v0.9.3
 
 - 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
