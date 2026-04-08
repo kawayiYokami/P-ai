@@ -1,5 +1,20 @@
 # 变更日志
 
+## 更新：收拢督工任务语义与任务调度日志
+
+- 修复（supervision-task-semantics-and-scheduler-logging）：统一督工任务的字段语义、提示词结构与任务调度表现
+  - `task` 工具面向 LLM 的主字段统一为 `goal / how / why`，督工隐藏提示词改为结构化 `<task_remind>`，减少与 `todo` 工具的语义冲突
+  - `task.complete` 改为终止型工具，成功后直接将 `completion_conclusion` 作为本轮最终回复返回，不再回喂模型续一轮
+  - 任务提醒消息改为只显示结构化卡片，不再把隐藏提示词原文重复渲染到消息正文下方
+  - 督工弹窗字段文案统一为“目标 / 为什么 / 怎么做”，去掉“原因 / 待办”这类易混淆表述
+  - 任务调度数据库扫描周期恢复为 30 秒，并将“会话…的任务…，投递中”日志后移到真正投递前，避免预检查阶段高频刷屏
+
+## 发布：v0.9.4
+
+- 发布（release-0.9.4）：同步版本号并纳入本轮督工任务、任务调度与终止型任务完成回复修复
+  - 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.4`
+  - 承接当前督工任务结构化提示词、调度扫描恢复 30 秒与 `task.complete` 终态回复直出等修复
+
 ## 更新：收紧 OpenAI 流式降级并回迁 todo 到主进程
 
 - 修复（openai-stream-fallback-and-builtin-todo）：收紧 OpenAI 兼容接口的流式降级条件，并将 `todo` 工具从 MCP 子进程回迁为主进程内置工具

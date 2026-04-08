@@ -600,6 +600,7 @@ fn main() {
             task_list_tasks,
             task_get_task,
             task_create_task,
+            task_dispatch_task_now,
             task_update_task,
             task_complete_task,
             task_delete_task,

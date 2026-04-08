@@ -134,6 +134,12 @@
         :workspace-locked="chatWorkspaceLocked"
         :active-conversation-id="currentChatConversationId"
         :current-todos="currentChatTodos"
+        :supervision-active="chatSupervisionActive"
+        :supervision-title="chatSupervisionTitle"
+        :supervision-dialog-open="supervisionTaskDialogOpen"
+        :supervision-task-saving="supervisionTaskSaving"
+        :supervision-task-error="supervisionTaskError"
+        :active-supervision-task="activeSupervisionTask"
         :unarchived-conversation-items="chatUnarchivedConversationItems"
         :create-conversation-department-options="createConversationDepartmentOptions"
         :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -154,6 +160,9 @@
         @force-archive="openForceArchiveActionDialog"
         @lock-workspace="onLockChatWorkspace"
         @unlock-workspace="onUnlockChatWorkspace"
+        @open-supervision-task="openSupervisionTaskDialog"
+        @close-supervision-task="closeSupervisionTaskDialog"
+        @save-supervision-task="saveSupervisionTask"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
         @create-conversation="onCreateConversation"
@@ -363,6 +372,19 @@ const props = defineProps<{
   chatWorkspaceLocked: boolean;
   currentChatConversationId: string;
   currentChatTodos: ChatTodoItem[];
+  chatSupervisionActive: boolean;
+  chatSupervisionTitle: string;
+  supervisionTaskDialogOpen: boolean;
+  supervisionTaskSaving: boolean;
+  supervisionTaskError: string;
+  activeSupervisionTask: {
+    taskId: string;
+    goal: string;
+    why: string;
+    todo: string;
+    endAtLocal: string;
+    remainingHours: number;
+  } | null;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;
   defaultCreateConversationDepartmentId: string;
@@ -446,6 +468,9 @@ const props = defineProps<{
   onRegenerateTurn: (payload: { turnId: string }) => void;
   onLockChatWorkspace: () => void;
   onUnlockChatWorkspace: () => void;
+  openSupervisionTaskDialog: () => void;
+  closeSupervisionTaskDialog: () => void;
+  saveSupervisionTask: (payload: { durationHours: number; goal: string; why: string; todo: string }) => void;
   onSwitchConversation: (conversationId: string) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;

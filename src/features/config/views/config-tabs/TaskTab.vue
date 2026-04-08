@@ -321,7 +321,7 @@ function buildTriggerInputFromForm(): TaskTriggerInputLocalWire | null {
   let everyMinutes: number | undefined;
   if (everyMinutesText) {
     const parsed = Number(everyMinutesText);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (!Number.isFinite(parsed) || parsed <= 0) {
       editorError.value = t("config.task.validation.everyMinutesPositive");
       return null;
     }

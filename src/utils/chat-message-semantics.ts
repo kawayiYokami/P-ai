@@ -176,15 +176,12 @@ function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | unde
   if (!raw || typeof raw !== "object") return undefined;
   const card = raw as Record<string, unknown>;
   const goal = String(card.goal || card.title || "").trim();
-  const legacyTodos = Array.isArray(card.todos)
-    ? card.todos.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
   if (!goal) return undefined;
   return {
     taskId: String(card.taskId || "").trim() || undefined,
     goal,
     why: String(card.why || card.cause || "").trim() || undefined,
-    todo: String(card.todo || card.statusSummary || "").trim() || legacyTodos.join("；") || undefined,
+    todo: String(card.how || "").trim() || undefined,
     runAtLocal: String(card.runAtLocal || card.runAt || "").trim() || undefined,
     endAtLocal: String(card.endAtLocal || card.endAt || "").trim() || undefined,
     nextRunAtLocal: String(card.nextRunAtLocal || card.nextRunAt || "").trim() || undefined,
@@ -221,18 +218,26 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
   const parsed = parseAssistantStoredText(rendered);
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const toolSummary = summarizeToolActivityForDisplay(message);
+  const taskTrigger = resolveTaskTrigger(message);
   const origin = meta.origin as Record<string, unknown> | undefined;
   const senderName = String(origin?.sender_name || "").trim();
   const remoteContactName = String(origin?.contact_name || "").trim();
   const channelId = String(origin?.channel_id || "").trim();
   const contactId = String(origin?.contact_id || "").trim();
+  const messageKind = String(meta.messageKind || "").trim();
+  const displayText =
+    taskTrigger && messageKind === "task_trigger"
+      ? ""
+      : message.role === "assistant"
+        ? parsed.assistantText
+        : rendered;
   return {
     speakerAgentId: resolveSpeakerAgentId(message) || undefined,
-    text: message.role === "assistant" ? parsed.assistantText : rendered,
+    text: displayText,
     images: extractMessageImages(message),
     audios: extractMessageAudios(message),
     attachmentFiles: extractMessageAttachmentFiles(message),
-    taskTrigger: resolveTaskTrigger(message),
+    taskTrigger,
     remoteImOrigin:
       origin && origin.kind === "remote_im" && (senderName || remoteContactName || channelId || contactId)
         ? {

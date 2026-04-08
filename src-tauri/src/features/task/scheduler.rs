@@ -155,22 +155,6 @@ fn task_resolve_dispatch_session(
     let Some(resolved) = resolved else {
         return Ok(None);
     };
-    if let Some(requested) = requested_conversation_id {
-        if resolved.fallback_to_main {
-            eprintln!(
-                "[任务调度] 原会话不可用，回退到主会话: task_id={}, requested_conversation_id={}, fallback_conversation_id={}",
-                task.task_id,
-                requested,
-                resolved.conversation_id
-            );
-        } else {
-            eprintln!(
-                "[任务调度] 使用任务绑定会话: task_id={}, conversation_id={}",
-                task.task_id,
-                resolved.conversation_id
-            );
-        }
-    }
     Ok(Some(TaskDispatchSessionResolved {
         model_config_id: selected_api.id.clone(),
         department_id,
@@ -205,13 +189,18 @@ fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
         return false;
     }
     if entry.trigger.run_at_utc.is_none() {
+        if let Some(end_at_utc) = entry.trigger.end_at_utc.as_deref().and_then(parse_rfc3339_time) {
+            if now > end_at_utc {
+                return false;
+            }
+        }
         return if let Some(last) = entry.last_triggered_at_utc.as_deref().and_then(parse_rfc3339_time) {
             now >= last + time::Duration::seconds(TASK_IMMEDIATE_RETRY_SECONDS)
         } else {
             true
         };
     }
-    if entry.trigger.every_minutes.unwrap_or(0) == 0 {
+    if entry.trigger.every_minutes.unwrap_or(0.0) <= 0.0 {
         return entry
             .trigger
             .run_at_utc
@@ -232,12 +221,15 @@ fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
     if now > end_at_utc {
         return false;
     }
-    let every = i64::from(entry.trigger.every_minutes.unwrap_or(0));
-    if every <= 0 {
+    let Some(every) = entry
+        .trigger
+        .every_minutes
+        .and_then(task_every_minutes_to_duration)
+    else {
         return false;
-    }
+    };
     if let Some(last) = entry.last_triggered_at_utc.as_deref().and_then(parse_rfc3339_time) {
-        let next = last + time::Duration::minutes(every);
+        let next = last + every;
         next <= end_at_utc && now >= next
     } else {
         true
@@ -268,11 +260,11 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
         let task_no = idx + 1;
         lines.push(format!("task[{task_no}].id: {}", task.task_id));
         lines.push(format!("task[{task_no}].goal: {}", task.goal.trim()));
+        if !task.todo.trim().is_empty() {
+            lines.push(format!("task[{task_no}].how: {}", task.todo.trim()));
+        }
         if !task.why.trim().is_empty() {
             lines.push(format!("task[{task_no}].why: {}", task.why.trim()));
-        }
-        if !task.todo.trim().is_empty() {
-            lines.push(format!("task[{task_no}].todo: {}", task.todo.trim()));
         }
         if let Some(run_at_local) = task.trigger.run_at_local.as_deref() {
             lines.push(format!("task[{task_no}].runAtLocal: {}", run_at_local));
@@ -292,15 +284,41 @@ fn build_task_trigger_hidden_prompt(task: &TaskRecordStored) -> String {
     let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
     let why = task_why_from_legacy_record(task);
     let todo = task_todo_from_legacy_fields(&task.status_summary, &task.todos);
-    lines.push(format!("任务提醒：{}", goal.trim()));
-    if !why.trim().is_empty() {
-        lines.push(format!("为什么做：{}", why.trim()));
-    }
+    lines.push(format!("task_id: {}", task.task_id.trim()));
+    lines.push(format!("target: {}", goal.trim()));
     if !todo.trim().is_empty() {
-        lines.push(format!("当前待办：{}", todo.trim()));
+        lines.push(format!("how: {}", todo.trim()));
     }
-    lines.push("请立刻继续推进这个任务；如果确实受阻，请写明失败结论并完成任务，不要将它悬置。".to_string());
-    lines.join("\n")
+    if !why.trim().is_empty() {
+        lines.push(format!("why: {}", why.trim()));
+    }
+    if let Some(run_at_utc) = task.trigger.run_at_utc.as_deref() {
+        lines.push(format!(
+            "start_at: {}",
+            format_utc_storage_time_to_local_rfc3339(run_at_utc)
+        ));
+    }
+    if let Some(end_at_utc) = task.trigger.end_at_utc.as_deref() {
+        lines.push(format!(
+            "end_at: {}",
+            format_utc_storage_time_to_local_rfc3339(end_at_utc)
+        ));
+    }
+    if let Some(every_minutes) = task.trigger.every_minutes.filter(|value| *value > 0.0) {
+        lines.push(format!("every: {}", every_minutes));
+    }
+    lines.push(String::new());
+    lines.push("请立刻继续推进这个任务，直到任务全部成功或者明确无法完成。".to_string());
+    lines.push("不管成功与否，最终都必须调用 task 工具使任务 complete。".to_string());
+    lines.push(format!(
+        "成功时调用：{{\"action\":\"complete\",\"task_id\":\"{}\",\"completion_state\":\"completed\",\"completion_conclusion\":\"<简洁说明最终结果>\"}}",
+        task.task_id.trim()
+    ));
+    lines.push(format!(
+        "失败或明确无法完成时调用：{{\"action\":\"complete\",\"task_id\":\"{}\",\"completion_state\":\"failed_completed\",\"completion_conclusion\":\"<简洁说明失败原因或阻塞点>\"}}",
+        task.task_id.trim()
+    ));
+    format!("<task_remind>\n{}\n</task_remind>", lines.join("\n"))
 }
 
 fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
@@ -314,8 +332,8 @@ fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
         "taskTrigger": {
             "taskId": task.task_id,
             "goal": goal.trim(),
+            "how": todo.trim(),
             "why": why.trim(),
-            "todo": todo.trim(),
             "runAtLocal": trigger_view.run_at_local,
             "endAtLocal": trigger_view.end_at_local,
             "nextRunAtLocal": trigger_view.next_run_at_local,
@@ -331,6 +349,27 @@ async fn task_dispatch_due_task(
 ) -> Result<(), String> {
     let started_at = std::time::Instant::now();
     task_store_mark_triggered(&state.data_path, &task.task_id)?;
+    if let Some(requested) = task
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if session.fallback_to_main {
+            eprintln!(
+                "[任务调度] 原会话不可用，回退到主会话: task_id={}, requested_conversation_id={}, fallback_conversation_id={}",
+                task.task_id,
+                requested,
+                session.conversation_id
+            );
+        } else {
+            eprintln!(
+                "[任务调度] 会话{}的任务{}，投递中",
+                session.conversation_id,
+                task.task_id
+            );
+        }
+    }
 
     // 构造任务消息
     let task_message = ChatMessage {
@@ -391,7 +430,7 @@ async fn task_dispatch_due_task(
 
     let trigger_label = if task.trigger.run_at_utc.is_none() {
         "immediate"
-    } else if task.trigger.every_minutes.unwrap_or(0) > 0 {
+    } else if task.trigger.every_minutes.unwrap_or(0.0) > 0.0 {
         "repeat"
     } else {
         "once"
@@ -424,7 +463,7 @@ async fn task_dispatch_due_task(
                     trigger_label,
                     todo_count,
                     task.trigger.run_at_utc.is_some(),
-                    task.trigger.every_minutes.unwrap_or(0),
+                    task.trigger.every_minutes.unwrap_or(0.0),
                     duration_ms
                     ,
                     session.target_scope,
@@ -448,7 +487,7 @@ async fn task_dispatch_due_task(
                     trigger_label,
                     todo_count,
                     task.trigger.run_at_utc.is_some(),
-                    task.trigger.every_minutes.unwrap_or(0),
+                    task.trigger.every_minutes.unwrap_or(0.0),
                     duration_ms,
                     session.target_scope,
                     session.fallback_to_main,

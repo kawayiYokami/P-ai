@@ -2,8 +2,8 @@ const TASK_DB_FILE_NAME: &str = "task_store.db";
 const TASK_STATE_ACTIVE: &str = "active";
 const TASK_STATE_COMPLETED: &str = "completed";
 const TASK_STATE_FAILED_COMPLETED: &str = "failed_completed";
-const TASK_IMMEDIATE_RETRY_SECONDS: i64 = 60;
 const TASK_SCHEDULER_INTERVAL_SECONDS: u64 = 30;
+const TASK_IMMEDIATE_RETRY_SECONDS: i64 = TASK_SCHEDULER_INTERVAL_SECONDS as i64;
 const TASK_MAX_BOARD_ITEMS: usize = 4;
 const TASK_TARGET_SCOPE_DESKTOP: &str = "desktop";
 const TASK_TARGET_SCOPE_CONTACT: &str = "contact";
@@ -14,7 +14,7 @@ struct TaskTriggerInputLocal {
     #[serde(default, alias = "runAt", alias = "run_at")]
     run_at_local: Option<String>,
     #[serde(default)]
-    every_minutes: Option<u32>,
+    every_minutes: Option<f64>,
     #[serde(default, alias = "endAt", alias = "end_at")]
     end_at_local: Option<String>,
 }
@@ -25,7 +25,7 @@ struct TaskTriggerView {
     #[serde(default)]
     run_at_local: Option<String>,
     #[serde(default)]
-    every_minutes: Option<u32>,
+    every_minutes: Option<f64>,
     #[serde(default)]
     end_at_local: Option<String>,
     #[serde(default)]
@@ -35,7 +35,7 @@ struct TaskTriggerView {
 #[derive(Debug, Clone)]
 struct TaskTriggerStored {
     run_at_utc: Option<String>,
-    every_minutes: Option<u32>,
+    every_minutes: Option<f64>,
     end_at_utc: Option<String>,
     next_run_at_utc: Option<String>,
 }
@@ -189,6 +189,23 @@ struct TaskDeleteInput {
 #[serde(rename_all = "camelCase")]
 struct TaskGetInput {
     task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskDispatchNowInput {
+    task_id: String,
+}
+
+fn task_every_minutes_to_duration(every_minutes: f64) -> Option<time::Duration> {
+    if !every_minutes.is_finite() || every_minutes <= 0.0 {
+        return None;
+    }
+    let millis = (every_minutes * 60_000.0).round() as i64;
+    if millis <= 0 {
+        return None;
+    }
+    Some(time::Duration::milliseconds(millis))
 }
 
 fn task_trigger_view_from_stored(trigger: &TaskTriggerStored) -> TaskTriggerView {

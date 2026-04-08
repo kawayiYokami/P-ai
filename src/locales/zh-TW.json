@@ -539,7 +539,7 @@
       },
         "validation": {
           "goalRequired": "任務目標不能為空。",
-          "everyMinutesPositive": "間隔分鐘必須是大於 0 的整數。"
+          "everyMinutesPositive": "間隔分鐘必須是大於 0 的數字。"
         },
         "todoPlaceholder": "寫當前下一步要做什麼",
       "filters": {
@@ -548,6 +548,7 @@
         "all": "全部"
       },
         "fields": {
+          "taskId": "任務ID",
           "triggerKind": "觸發器",
           "runAt": "開始時間",
           "everyMinutes": "間隔分鐘",
@@ -718,6 +719,32 @@
       "kindImmediate": "立即任務",
       "kindEvery": "循環任務",
       "kindAt": "定時任務"
+    },
+    "supervision": {
+      "button": "督工",
+      "buttonActive": "督工中",
+      "buttonTitle": "建立一個限時循環任務，讓系統持續督工目前會話",
+      "activeButtonTitle": "目前會話已有啟用中的督工任務，點擊可查看或覆蓋",
+      "buttonHint": "建立一個綁定目前會話的限時即時任務，在有效期內持續督工",
+      "activeHintShort": "督工進行中，結束於 {endAt}",
+      "createTitle": "開始督工",
+      "updateTitle": "更新督工",
+      "subtitle": "建立一個綁定目前會話的限時即時任務，系統會在有效期內按預設節奏持續督工。",
+      "activeHint": "目前會話已有一個督工任務，結束時間：{endAt}。你可以直接覆蓋它。",
+      "durationLabel": "持續時間",
+      "durationOption": "{hours} 小時",
+      "goalLabel": "目標",
+      "goalPlaceholder": "寫這段時間內必須推進到哪裡",
+      "whyLabel": "為什麼",
+      "whyPlaceholder": "寫為什麼這件事現在必須盯緊",
+      "todoLabel": "怎麼做",
+      "todoPlaceholder": "寫接下來準備怎麼推進，重點寫下一步",
+      "createAction": "開始督工",
+      "updateAction": "更新督工",
+      "createdStatus": "已開始督工：持續 {hours} 小時。",
+      "updatedStatus": "已更新督工：持續 {hours} 小時。",
+      "saveFailed": "督工任務儲存失敗",
+      "noConversation": "目前沒有可督工的會話。"
     }
   },
   "memory": {

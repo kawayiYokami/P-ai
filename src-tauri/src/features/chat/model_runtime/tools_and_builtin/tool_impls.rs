@@ -560,23 +560,23 @@ impl RuntimeToolMetadata for BuiltinTaskTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "task",
-            "管理持久化任务板。支持 list、get、create、update、complete 五种动作。任务主字段统一使用 goal / why / todo：goal 是任务目标与标题，why 用来防止后续推进走偏，todo 表示当前下一步。若未填写 trigger.runAtLocal，任务会立即生效；若填写 trigger.runAtLocal，则在该本地时间执行一次；若同时填写 trigger.everyMinutes，则会从 trigger.runAtLocal 开始按分钟重复执行，并且必须同时填写 trigger.endAtLocal 作为停止时间。trigger.runAtLocal 与 trigger.endAtLocal 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒；系统会在数据层自动转成 UTC 真实时间存储与调度。",
+            "管理持久化任务板。支持 list、get、create、update、complete 五种动作。任务主字段统一使用 goal / how / why：goal 是任务目标与标题，how 是当前下一步或执行方式，why 用来防止后续推进走偏。旧字段 todo 仍兼容，但不再推荐。所有任务都必须同时提供 trigger.runAtLocal、trigger.everyMinutes、trigger.endAtLocal；即时任务只是代表从当前时刻开始，因此应把 trigger.runAtLocal 写成当前本地时间。trigger.everyMinutes 支持浮点数，例如 0.5 表示 30 秒，0.1 表示 6 秒。trigger.runAtLocal 与 trigger.endAtLocal 必须使用当前提示中提供的本地 RFC3339 时间格式，保留时区偏移与秒级精度，不要包含毫秒；系统会在数据层自动转成 UTC 真实时间存储与调度。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["list", "get", "create", "update", "complete"] },
                 "task_id": { "type": "string" },
                 "goal": { "type": "string", "description": "任务目标，也是列表标题。" },
+                "how": { "type": "string", "description": "当前下一步要做什么，或准备如何推进；可以写短计划，但重点是下一步。" },
                 "why": { "type": "string", "description": "为什么要做这件事，用来避免后续推进时走偏。" },
-                "todo": { "type": "string", "description": "当前下一步要做什么；可以写短计划，但重点是下一步。" },
                 "completion_state": { "type": "string", "enum": ["completed", "failed_completed"] },
                 "completion_conclusion": { "type": "string" },
                 "trigger": {
                   "type": "object",
                   "properties": {
-                    "runAtLocal": { "type": "string", "description": "可选。本地 RFC3339 执行时间；需保留时区偏移与秒级精度，不要包含毫秒。未填写时任务立即生效" },
-                    "everyMinutes": { "type": "integer", "minimum": 1, "description": "可选。按分钟重复执行间隔；填写后必须同时提供 trigger.runAtLocal 与 trigger.endAtLocal" },
-                    "endAtLocal": { "type": "string", "description": "可选；当填写 trigger.everyMinutes 时必填。表示重复任务的停止时间，且必须晚于 trigger.runAtLocal" }
+                    "runAtLocal": { "type": "string", "description": "必填。本地 RFC3339 开始时间；即时任务请直接写当前本地时间，需保留时区偏移与秒级精度，不要包含毫秒" },
+                    "everyMinutes": { "type": "number", "exclusiveMinimum": 0, "description": "必填。按分钟重复执行间隔，支持浮点数；例如 0.5 表示 30 秒，0.1 表示 6 秒" },
+                    "endAtLocal": { "type": "string", "description": "必填。任务停止时间，且必须晚于 trigger.runAtLocal" }
                   }
                 }
               },

@@ -267,9 +267,9 @@ struct TaskToolArgsWire {
     #[serde(default)]
     goal: Option<String>,
     #[serde(default)]
-    why: Option<String>,
+    how: Option<String>,
     #[serde(default)]
-    todo: Option<String>,
+    why: Option<String>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]

@@ -225,6 +225,59 @@ fn remote_im_result_action(tool_result: &str) -> Option<String> {
         .and_then(|value| value.get("action").and_then(Value::as_str).map(str::to_string))
 }
 
+fn json_string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value.get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn terminal_task_complete_result(tool_name: &str, tool_args: &str, tool_result: &ProviderToolResult) -> Option<String> {
+    if tool_name != "task" || tool_result.is_error {
+        return None;
+    }
+
+    let args_value = serde_json::from_str::<Value>(tool_args).ok()?;
+    let action = json_string_field(&args_value, &["action"])?;
+    if !action.eq_ignore_ascii_case("complete") {
+        return None;
+    }
+
+    let result_value = serde_json::from_str::<Value>(&tool_result.display_text).ok();
+    let completion_conclusion = json_string_field(
+        &args_value,
+        &["completion_conclusion", "completionConclusion"],
+    )
+    .or_else(|| {
+        result_value.as_ref().and_then(|value| {
+            json_string_field(value, &["completionConclusion", "completion_conclusion"])
+        })
+    });
+    let completion_state = json_string_field(
+        &args_value,
+        &["completion_state", "completionState"],
+    )
+    .or_else(|| {
+        result_value
+            .as_ref()
+            .and_then(|value| json_string_field(value, &["completionState", "completion_state"]))
+    })
+    .unwrap_or_default();
+
+    Some(completion_conclusion.unwrap_or_else(|| {
+        if completion_state.eq_ignore_ascii_case("failed_completed") {
+            "任务已按失败结束。".to_string()
+        } else if completion_state.eq_ignore_ascii_case("completed") {
+            "任务已完成。".to_string()
+        } else {
+            "任务已结束。".to_string()
+        }
+    }))
+}
+
 fn tool_history_without_organize_context(events: &[Value]) -> Vec<Value> {
     let mut filtered = Vec::<Value>::new();
     let mut skip_next_tool = false;
@@ -795,6 +848,18 @@ async fn run_genai_tool_loop(
                     trusted_input_tokens: None,
                 });
             }
+            if let Some(final_text) =
+                terminal_task_complete_result(&tool_name, &tool_args, &tool_result)
+            {
+                return Ok(ModelReply {
+                    assistant_text: final_text,
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    tool_history_events,
+                    suppress_assistant_message: false,
+                    trusted_input_tokens,
+                });
+            }
             if should_stop_after_remote_im_send(&tool_name, &tool_result_text) {
                 stop_after_remote_im_done_in_turn = true;
             }
@@ -1182,6 +1247,18 @@ async fn run_genai_tool_loop_non_stream(
                     trusted_input_tokens: None,
                 });
             }
+            if let Some(final_text) =
+                terminal_task_complete_result(&tool_name, &tool_args, &tool_result)
+            {
+                return Ok(ModelReply {
+                    assistant_text: final_text,
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    tool_history_events,
+                    suppress_assistant_message: false,
+                    trusted_input_tokens,
+                });
+            }
             if should_stop_after_remote_im_send(&tool_name, &tool_result_text) {
                 stop_after_remote_im_done_in_turn = true;
             }
@@ -1290,6 +1367,69 @@ mod tool_loop_tests {
         .to_string();
 
         assert!(should_stop_after_remote_im_send("remote_im_send", &tool_result));
+    }
+
+    #[test]
+    fn terminal_task_complete_result_prefers_completion_conclusion_from_args() {
+        let tool_result = ProviderToolResult::text(
+            serde_json::json!({
+                "taskId": "task-1",
+                "completionState": "completed",
+                "completionConclusion": "工具结果里的结论"
+            })
+            .to_string(),
+        );
+
+        let final_text = terminal_task_complete_result(
+            "task",
+            r#"{"action":"complete","task_id":"task-1","completion_state":"completed","completion_conclusion":"用户应直接看到这句"}"#,
+            &tool_result,
+        );
+
+        assert_eq!(final_text.as_deref(), Some("用户应直接看到这句"));
+    }
+
+    #[test]
+    fn terminal_task_complete_result_can_fall_back_to_tool_result_json() {
+        let tool_result = ProviderToolResult::text(
+            serde_json::json!({
+                "taskId": "task-1",
+                "completionState": "failed_completed",
+                "completionConclusion": "因为缺少权限，任务已按失败结束"
+            })
+            .to_string(),
+        );
+
+        let final_text = terminal_task_complete_result(
+            "task",
+            r#"{"action":"complete","task_id":"task-1","completion_state":"failed_completed"}"#,
+            &tool_result,
+        );
+
+        assert_eq!(
+            final_text.as_deref(),
+            Some("因为缺少权限，任务已按失败结束")
+        );
+    }
+
+    #[test]
+    fn terminal_task_complete_result_ignores_non_complete_actions() {
+        let tool_result = ProviderToolResult::text(
+            serde_json::json!({
+                "taskId": "task-1",
+                "completionState": "completed",
+                "completionConclusion": "不会被使用"
+            })
+            .to_string(),
+        );
+
+        let final_text = terminal_task_complete_result(
+            "task",
+            r#"{"action":"update","task_id":"task-1"}"#,
+            &tool_result,
+        );
+
+        assert_eq!(final_text, None);
     }
 
     #[test]

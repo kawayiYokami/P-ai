@@ -162,8 +162,13 @@
             :workspace-locked="workspaceLocked"
             :current-workspace-name="currentWorkspaceName"
             :persona-presence-chips="personaPresenceChips"
+            :supervision-active="supervisionActive"
+            :supervision-label="t('chat.supervision.button')"
+            :supervision-active-label="t('chat.supervision.buttonActive')"
+            :supervision-title="supervisionButtonTitle"
             @lock-workspace="$emit('lockWorkspace')"
             @unlock-workspace="$emit('unlockWorkspace')"
+            @open-supervision-task="$emit('openSupervisionTask')"
           />
         </div>
       </div>
@@ -252,6 +257,15 @@
         @pointer-up="onPreviewPointerUp"
       />
 
+      <ChatSupervisionTaskDialog
+        :open="supervisionDialogOpen"
+        :saving="supervisionTaskSaving"
+        :error-text="supervisionTaskError"
+        :active-task="activeSupervisionTask"
+        @close="$emit('closeSupervisionTask')"
+        @save="$emit('saveSupervisionTask', $event)"
+      />
+
     </div>
   </div>
 </template>
@@ -269,6 +283,7 @@ import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
+import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
@@ -319,6 +334,19 @@ const props = defineProps<{
   workspaceLocked: boolean;
   activeConversationId: string;
   currentTodos: ChatTodoItem[];
+  supervisionActive: boolean;
+  supervisionTitle: string;
+  supervisionDialogOpen: boolean;
+  supervisionTaskSaving: boolean;
+  supervisionTaskError: string;
+  activeSupervisionTask: {
+    taskId: string;
+    goal: string;
+    why: string;
+    todo: string;
+    endAtLocal: string;
+    remainingHours: number;
+  } | null;
   currentTheme: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
   createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;
@@ -360,6 +388,14 @@ const activeConversationTodo = computed(() => {
   const index = activeConversationTodoIndex.value;
   if (index < 0) return "";
   return String(normalizedConversationTodos.value[index]?.content || "").trim();
+});
+
+const supervisionButtonTitle = computed(() => {
+  const baseTitle = props.supervisionActive
+    ? t("chat.supervision.activeButtonTitle")
+    : t("chat.supervision.buttonTitle");
+  const detail = String(props.supervisionTitle || "").trim();
+  return detail ? `${baseTitle}\n${detail}` : baseTitle;
 });
 
 function todoIndexClass(status: ChatTodoItem["status"]): string {
@@ -442,6 +478,9 @@ const emit = defineEmits<{
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "lockWorkspace"): void;
   (e: "unlockWorkspace"): void;
+  (e: "openSupervisionTask"): void;
+  (e: "closeSupervisionTask"): void;
+  (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "switchConversation", conversationId: string): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string }): void;

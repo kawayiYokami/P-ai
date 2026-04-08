@@ -63,7 +63,7 @@
 
               <label class="block space-y-2">
                 <span class="block text-sm font-medium">{{ t("config.task.fields.everyMinutes") }}</span>
-                <input v-model="form.everyMinutesText" class="input input-bordered w-full" type="number" min="1" step="1" :disabled="!editable || saving" />
+                <input v-model="form.everyMinutesText" class="input input-bordered w-full" type="number" min="0.1" step="0.1" :disabled="!editable || saving" />
               </label>
 
               <label class="block space-y-2">

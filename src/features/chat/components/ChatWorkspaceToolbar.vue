@@ -2,6 +2,16 @@
   <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center gap-2 text-[11px]">
     <div class="join">
       <button
+        type="button"
+        class="btn btn-sm join-item gap-1.5"
+        :class="supervisionActive ? 'btn-primary' : 'btn-ghost'"
+        :disabled="frozen"
+        :title="supervisionTitle"
+        @click="emit('openSupervisionTask')"
+      >
+        {{ supervisionActive ? supervisionActiveLabel : supervisionLabel }}
+      </button>
+      <button
         class="btn btn-sm btn-ghost join-item"
         :title="workspaceLocked ? '已锁定，点击还原到默认工作空间' : '未锁定'"
         :disabled="chatting || frozen || !workspaceLocked"
@@ -64,11 +74,16 @@ defineProps<{
   workspaceLocked: boolean;
   currentWorkspaceName: string;
   personaPresenceChips: ChatPersonaPresenceChip[];
+  supervisionActive: boolean;
+  supervisionLabel: string;
+  supervisionActiveLabel: string;
+  supervisionTitle: string;
 }>();
 
 const emit = defineEmits<{
   (e: "lockWorkspace"): void;
   (e: "unlockWorkspace"): void;
+  (e: "openSupervisionTask"): void;
 }>();
 
 function avatarInitial(name: string): string {

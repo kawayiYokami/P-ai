@@ -116,8 +116,8 @@ fn task_tool_why_from_args(args: &TaskToolArgsWire) -> Option<String> {
         })
 }
 
-fn task_tool_todo_from_args(args: &TaskToolArgsWire) -> Option<String> {
-    args.todo
+fn task_tool_how_from_args(args: &TaskToolArgsWire) -> Option<String> {
+    args.how
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -198,13 +198,13 @@ async fn builtin_task(
                 conversation_id: bound_conversation_id,
                 target_scope,
                 why: task_tool_why_from_args(&args).unwrap_or_default(),
-                todo: task_tool_todo_from_args(&args).unwrap_or_default(),
+                todo: task_tool_how_from_args(&args).unwrap_or_default(),
                 trigger: args
                     .trigger
                     .ok_or_else(|| "task.trigger is required for action=create".to_string())?,
             };
             eprintln!(
-                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} todo_present={}",
+                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} how_present={}",
                 runtime_context.request_id.as_deref().unwrap_or(""),
                 create_input.goal.trim(),
                 create_input.conversation_id.as_deref().unwrap_or(""),
@@ -231,15 +231,15 @@ async fn builtin_task(
                 target_scope: None,
                 goal: task_tool_goal_from_args(&args),
                 why: task_tool_why_from_args(&args),
-                todo: task_tool_todo_from_args(&args),
+                todo: task_tool_how_from_args(&args),
                 trigger: args.trigger.clone(),
             };
             eprintln!(
-                "[任务] 状态=开始 action=update task_id={} changed_fields=goal:{},why:{},todo:{},trigger:{}",
+                "[任务] 状态=开始 action=update task_id={} changed_fields=goal:{},how:{},why:{},trigger:{}",
                 update_input.task_id,
                 update_input.goal.is_some(),
-                update_input.why.is_some(),
                 update_input.todo.is_some(),
+                update_input.why.is_some(),
                 update_input.trigger.is_some(),
             );
             let data_path = app_state.data_path.clone();

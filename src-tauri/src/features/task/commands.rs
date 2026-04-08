@@ -14,6 +14,16 @@ fn task_create_task(input: TaskCreateInput, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
+async fn task_dispatch_task_now(input: TaskDispatchNowInput, state: State<'_, AppState>) -> Result<bool, String> {
+    let task = task_store_get_task_record(&state.data_path, input.task_id.trim())?;
+    let Some(session) = task_resolve_dispatch_session(&state, &task)? else {
+        return Ok(false);
+    };
+    task_dispatch_due_task(&state, &task, &session).await?;
+    Ok(true)
+}
+
+#[tauri::command]
 fn task_update_task(input: TaskUpdateInput, state: State<'_, AppState>) -> Result<TaskEntry, String> {
     task_store_update_task(&state.data_path, &input)
 }

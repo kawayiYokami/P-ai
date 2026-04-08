@@ -743,6 +743,58 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
         {
             chunks.push(hidden_prompt_text.to_string());
         }
+        if let Some(task_trigger) = meta
+            .get("taskTrigger")
+            .and_then(Value::as_object)
+            .filter(|_| {
+                meta.get("messageKind")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    == Some("task_trigger")
+            })
+        {
+            let mut lines = Vec::<String>::new();
+            if let Some(task_id) = task_trigger
+                .get("taskId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                lines.push(format!("taskId: {}", task_id));
+            }
+            if let Some(run_at_local) = task_trigger
+                .get("runAtLocal")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                lines.push(format!("runAtLocal: {}", run_at_local));
+            }
+            if let Some(next_run_at_local) = task_trigger
+                .get("nextRunAtLocal")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                lines.push(format!("nextRunAtLocal: {}", next_run_at_local));
+            }
+            if let Some(end_at_local) = task_trigger
+                .get("endAtLocal")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                lines.push(format!("endAtLocal: {}", end_at_local));
+            }
+            if let Some(every_minutes) = task_trigger.get("everyMinutes").and_then(Value::as_i64) {
+                if every_minutes > 0 {
+                    lines.push(format!("everyMinutes: {}", every_minutes));
+                }
+            }
+            if !lines.is_empty() {
+                chunks.push(lines.join("\n"));
+            }
+        }
         if let Some(attachments) = meta.get("attachments").and_then(Value::as_array) {
             for item in attachments {
                 let relative_path = item
@@ -1476,7 +1528,7 @@ fn build_system_tools_rule_block(
         "3. task\n\
          何时必须用：task 只用于非即时、长期、跨会话追踪的任务。到点后系统会自动提示你要执行某个任务，并在任务追踪中持续提供执行该任务所需的上下文。\n\
          何时不要用：如果事情只在当前会话内推进和完成，不要使用 task，而应使用 todo。\n\
-         如何使用：只有在确实需要未来触发、长期提醒、跨会话延续时才创建或更新 task，并明确长期目标、为什么做、当前下一步以及触发条件。\n\
+         如何使用：只有在确实需要未来触发、长期提醒、跨会话延续时才创建或更新 task，并明确 goal、how、why 以及触发条件。\n\
          为什么：task 是长期任务机制，不是当前会话的临时步骤板。"
             .to_string(),
     );

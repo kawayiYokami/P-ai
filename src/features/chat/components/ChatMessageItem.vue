@@ -51,6 +51,10 @@
         <div class="flex items-center gap-2">
           <span class="badge badge-sm badge-ghost">{{ t("chat.taskTrigger.badge") }}</span>
         </div>
+        <div v-if="block.taskTrigger.taskId" class="space-y-0.5">
+          <div class="text-[11px] opacity-55">{{ t("config.task.fields.taskId") }}</div>
+          <div class="font-mono text-xs leading-6 break-all">{{ block.taskTrigger.taskId }}</div>
+        </div>
         <div v-if="block.taskTrigger.goal" class="space-y-0.5">
           <div class="text-[11px] opacity-55">{{ t("config.task.fields.goal") }}</div>
           <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.goal }}</div>
@@ -63,10 +67,14 @@
           <div class="text-[11px] opacity-55">{{ t("config.task.fields.todo") }}</div>
           <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.todo }}</div>
         </div>
-        <div v-if="block.taskTrigger.runAtLocal || block.taskTrigger.endAtLocal || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
+        <div v-if="block.taskTrigger.runAtLocal || block.taskTrigger.endAtLocal || block.taskTrigger.nextRunAtLocal || block.taskTrigger.everyMinutes" class="grid gap-1 text-sm leading-6">
           <div v-if="block.taskTrigger.runAtLocal">
             <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
             <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAtLocal) }}</span>
+          </div>
+          <div v-if="block.taskTrigger.nextRunAtLocal">
+            <span class="text-[11px] opacity-55">{{ t("config.task.fields.nextRunAt") }}</span>
+            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.nextRunAtLocal) }}</span>
           </div>
           <div v-if="block.taskTrigger.endAtLocal">
             <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>

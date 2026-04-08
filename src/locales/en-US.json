@@ -539,7 +539,7 @@
       },
         "validation": {
           "goalRequired": "Task goal is required.",
-          "everyMinutesPositive": "Every Minutes must be an integer greater than 0."
+          "everyMinutesPositive": "Every Minutes must be a number greater than 0."
         },
         "todoPlaceholder": "Describe the current next step",
       "filters": {
@@ -548,6 +548,7 @@
         "all": "All"
       },
         "fields": {
+          "taskId": "Task ID",
           "triggerKind": "Trigger",
           "runAt": "Start Time",
           "everyMinutes": "Every Minutes",
@@ -718,6 +719,32 @@
       "kindImmediate": "Immediate",
       "kindEvery": "Recurring",
       "kindAt": "Scheduled"
+    },
+    "supervision": {
+      "button": "Focus",
+      "buttonActive": "Focused",
+      "buttonTitle": "Create a timed repeating task to keep this conversation moving",
+      "activeButtonTitle": "This conversation already has an active focus task. Click to inspect or overwrite it",
+      "buttonHint": "Create a timed immediate task bound to this conversation and keep supervision active during its lifetime",
+      "activeHintShort": "Supervision active, ends at {endAt}",
+      "createTitle": "Start Focus Task",
+      "updateTitle": "Update Focus Task",
+      "subtitle": "Create a timed immediate task bound to this conversation so the system keeps supervising during the active window.",
+      "activeHint": "This conversation already has an active focus task ending at {endAt}. You can overwrite it directly.",
+      "durationLabel": "Duration",
+      "durationOption": "{hours} hour(s)",
+      "goalLabel": "Goal",
+      "goalPlaceholder": "Describe what must be pushed forward in this window",
+      "whyLabel": "Why",
+      "whyPlaceholder": "Why does this need active supervision right now?",
+      "todoLabel": "How",
+      "todoPlaceholder": "Describe how you will push this forward, focusing on the next step",
+      "createAction": "Start Focus Task",
+      "updateAction": "Update Focus Task",
+      "createdStatus": "Focus task started for {hours} hour(s).",
+      "updatedStatus": "Focus task updated for {hours} hour(s).",
+      "saveFailed": "Failed to save focus task",
+      "noConversation": "No conversation is available for a focus task."
     }
   },
   "memory": {

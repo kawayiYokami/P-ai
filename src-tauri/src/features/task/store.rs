@@ -161,40 +161,21 @@ fn task_trigger_from_local_input(input: &TaskTriggerInputLocal) -> Result<TaskTr
         .as_deref()
         .map(str::trim)
         .unwrap_or("");
-    let every_minutes = input.every_minutes.unwrap_or(0);
+    let every_minutes = input.every_minutes.unwrap_or(0.0);
     let end_at_local = input
         .end_at_local
         .as_deref()
         .map(str::trim)
         .unwrap_or("");
     if run_at_local.is_empty() {
-        if every_minutes > 0 {
-            return Err("task.trigger.runAtLocal is required when task.trigger.everyMinutes is set".to_string());
-        }
-        if !end_at_local.is_empty() {
-            return Err("task.trigger.endAtLocal requires task.trigger.runAtLocal".to_string());
-        }
-        return Ok(TaskTriggerStored {
-            run_at_utc: None,
-            every_minutes: None,
-            end_at_utc: None,
-            next_run_at_utc: None,
-        });
+        return Err("task.trigger.runAtLocal is required".to_string());
+    }
+    if !every_minutes.is_finite() || every_minutes <= 0.0 {
+        return Err("task.trigger.everyMinutes must be a positive number".to_string());
     }
     let normalized_run_at_utc = task_normalize_run_at_local(run_at_local)?;
-    if every_minutes == 0 {
-        if !end_at_local.is_empty() {
-            return Err("task.trigger.endAtLocal is only supported when task.trigger.everyMinutes is set".to_string());
-        }
-        return Ok(TaskTriggerStored {
-            run_at_utc: Some(normalized_run_at_utc),
-            every_minutes: None,
-            end_at_utc: None,
-            next_run_at_utc: None,
-        });
-    }
     if end_at_local.is_empty() {
-        return Err("task.trigger.endAtLocal is required when task.trigger.everyMinutes is set".to_string());
+        return Err("task.trigger.endAtLocal is required".to_string());
     }
     let normalized_end_at_utc = task_normalize_end_at_local(end_at_local)?;
     let run_dt = parse_rfc3339_time(&normalized_run_at_utc)
@@ -212,10 +193,10 @@ fn task_trigger_from_local_input(input: &TaskTriggerInputLocal) -> Result<TaskTr
     })
 }
 
-fn task_trigger_kind_from_fields(run_at_utc: Option<&str>, every_minutes: Option<u32>) -> &'static str {
+fn task_trigger_kind_from_fields(run_at_utc: Option<&str>, every_minutes: Option<f64>) -> &'static str {
     if run_at_utc.is_none() {
         "immediate"
-    } else if every_minutes.unwrap_or(0) > 0 {
+    } else if every_minutes.unwrap_or(0.0) > 0.0 {
         "every"
     } else {
         "start"
@@ -248,19 +229,13 @@ fn task_notes_from_json(raw: &str) -> Vec<TaskProgressNoteStored> {
 
 fn task_compute_next_run_at_utc_raw(
     run_at_utc: Option<&str>,
-    every_minutes: Option<u32>,
+    every_minutes: Option<f64>,
     end_at_utc: Option<&str>,
     last_triggered_at_utc: Option<&str>,
     completion_state: &str,
 ) -> Option<String> {
     if completion_state != TASK_STATE_ACTIVE {
         return None;
-    }
-    if run_at_utc.is_none() {
-        return Some(now_utc_rfc3339());
-    }
-    if every_minutes.unwrap_or(0) == 0 {
-        return run_at_utc.map(ToOwned::to_owned);
     }
     let base = if let Some(last) = last_triggered_at_utc.and_then(parse_rfc3339_time) {
         last
@@ -269,11 +244,10 @@ fn task_compute_next_run_at_utc_raw(
     } else {
         return None;
     };
-    let every = i64::from(every_minutes.unwrap_or(0));
-    if every <= 0 {
+    let Some(every) = every_minutes.and_then(task_every_minutes_to_duration) else {
         return None;
-    }
-    let next = base + time::Duration::minutes(every);
+    };
+    let next = base + every;
     if let Some(end_dt) = end_at_utc.and_then(parse_rfc3339_time) {
         if next > end_dt {
             return None;
@@ -285,7 +259,7 @@ fn task_compute_next_run_at_utc_raw(
 fn task_row_to_record_stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecordStored> {
     let completion_state: String = row.get("completion_state")?;
     let run_at_utc: Option<String> = row.get("run_at_utc")?;
-    let every_minutes: Option<u32> = row.get("every_minutes")?;
+    let every_minutes: Option<f64> = row.get("every_minutes")?;
     let end_at_utc: Option<String> = row.get("end_at_utc")?;
     let last_triggered_at_utc: Option<String> = row.get("last_triggered_at_utc")?;
     Ok(TaskRecordStored {

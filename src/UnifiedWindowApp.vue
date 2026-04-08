@@ -115,6 +115,12 @@
       :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
       :current-chat-conversation-id="currentChatConversationId"
       :current-chat-todos="currentChatTodos"
+      :chat-supervision-active="chatSupervisionActive"
+      :chat-supervision-title="chatSupervisionTitle"
+      :supervision-task-dialog-open="supervisionTaskDialogOpen"
+      :supervision-task-saving="supervisionTaskSaving"
+      :supervision-task-error="supervisionTaskError"
+      :active-supervision-task="activeSupervisionTask"
       :chat-unarchived-conversation-items="chatUnarchivedConversationItems"
       :create-conversation-department-options="createConversationDepartmentOptions"
       :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -193,6 +199,9 @@
       :stop-recording="() => stopRecording(false)"
       :send-chat="chatFlow.sendChat"
       :stop-chat="chatFlow.stopChat"
+      :open-supervision-task-dialog="openSupervisionTaskDialog"
+      :close-supervision-task-dialog="closeSupervisionTaskDialog"
+      :save-supervision-task="saveSupervisionTask"
       :on-reached-chat-bottom="trimForegroundMessagesToRecentLimit"
       :on-recall-turn="handleRecallTurn"
       :on-regenerate-turn="handleRegenerateTurn"
@@ -493,10 +502,12 @@ import {
   removeBinaryPlaceholders,
 } from "./utils/chat-message";
 import { inspectUndoablePatchCalls } from "./utils/chat-message-semantics";
-import { formatI18nError } from "./utils/error";
+import { formatI18nError, toErrorMessage } from "./utils/error";
+import { formatDateToLocalRfc3339 } from "./utils/time";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import RuntimeLogsDialog from "./features/shell/components/RuntimeLogsDialog.vue";
+import type { TaskEntry } from "./features/config/views/config-tabs/task-editor";
 import type {
   PersonaProfile,
   AppConfig,
@@ -520,11 +531,20 @@ const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 const FOREGROUND_RECENT_MESSAGE_LIMIT = 50;
 const FOREGROUND_MESSAGE_TRIM_THRESHOLD = 80;
 const BACKGROUND_CONVERSATION_CACHE_LIMIT = FOREGROUND_RECENT_MESSAGE_LIMIT;
+const SUPERVISION_TASK_GOAL_PREFIX = "督工任务：";
 type BackgroundConversationBadgeState = "completed" | "failed";
 type ForegroundPaintTrace = {
   id: number;
   conversationId: string;
   startedAt: number;
+};
+type ActiveSupervisionTaskSummary = {
+  taskId: string;
+  goal: string;
+  why: string;
+  todo: string;
+  endAtLocal: string;
+  remainingHours: number;
 };
 type ConversationMessagesAfterSyncedPayload = {
   requestId?: string;
@@ -1177,8 +1197,13 @@ const CONVERSATION_COLORS = [
 
 const conversationScrollToBottomRequest = ref(0);
 const currentChatTodos = ref<ChatTodoItem[]>([]);
+const supervisionTaskDialogOpen = ref(false);
+const supervisionTaskSaving = ref(false);
+const supervisionTaskError = ref("");
+const activeSupervisionTask = ref<ActiveSupervisionTaskSummary | null>(null);
 let pendingConversationScrollToBottomConversationId = "";
 let pendingConversationScrollToBottomTimer = 0;
+let supervisionTaskPollTimer = 0;
 
 type SwitchConversationSnapshot = {
   conversationId: string;
@@ -1199,6 +1224,197 @@ type ConversationTodosUpdatedPayload = {
   currentTodo?: string;
   currentTodos?: ChatTodoItem[];
 };
+
+function clearSupervisionTaskPollTimer() {
+  if (supervisionTaskPollTimer) {
+    window.clearInterval(supervisionTaskPollTimer);
+    supervisionTaskPollTimer = 0;
+  }
+}
+
+function normalizeSupervisionGoal(goal: string): string {
+  const text = String(goal || "").trim();
+  if (!text) return SUPERVISION_TASK_GOAL_PREFIX;
+  if (text.startsWith(SUPERVISION_TASK_GOAL_PREFIX)) {
+    return text;
+  }
+  return `${SUPERVISION_TASK_GOAL_PREFIX}${text}`;
+}
+
+function stripSupervisionGoalPrefix(goal: string): string {
+  const text = String(goal || "").trim();
+  if (!text.startsWith(SUPERVISION_TASK_GOAL_PREFIX)) {
+    return text;
+  }
+  return text.slice(SUPERVISION_TASK_GOAL_PREFIX.length).trim();
+}
+
+function parseTaskTime(value?: string | null): Date | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function supervisionTaskIsActive(task: TaskEntry, conversationId: string): boolean {
+  if (String(task.completionState || "").trim() !== "active") return false;
+  if (String(task.conversationId || "").trim() !== conversationId) return false;
+  if (!String(task.goal || "").trim().startsWith(SUPERVISION_TASK_GOAL_PREFIX)) return false;
+  const runAt = parseTaskTime(task.trigger?.runAtLocal);
+  const endAt = parseTaskTime(task.trigger?.endAtLocal);
+  if (!endAt) return false;
+  const now = new Date();
+  if (runAt) {
+    return now >= runAt && now <= endAt;
+  }
+  return now <= endAt;
+}
+
+function activeSupervisionTaskFromEntry(task: TaskEntry): ActiveSupervisionTaskSummary {
+  const endAt = parseTaskTime(task.trigger?.endAtLocal);
+  const remainingHours = endAt
+    ? Math.min(24, Math.max(1, Math.ceil((endAt.getTime() - Date.now()) / 3_600_000)))
+    : 1;
+  return {
+    taskId: String(task.taskId || "").trim(),
+    goal: stripSupervisionGoalPrefix(task.goal),
+    why: String(task.why || "").trim(),
+    todo: String(task.todo || "").trim(),
+    endAtLocal: String(task.trigger?.endAtLocal || "").trim(),
+    remainingHours,
+  };
+}
+
+const chatSupervisionActive = computed(() => !!activeSupervisionTask.value);
+const chatSupervisionTitle = computed(() => {
+  const task = activeSupervisionTask.value;
+  if (!task) {
+    return t("chat.supervision.buttonHint");
+  }
+  return t("chat.supervision.activeHintShort", { endAt: task.endAtLocal });
+});
+
+async function refreshActiveSupervisionTask(options: { silent?: boolean } = {}) {
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  if (!conversationId) {
+    activeSupervisionTask.value = null;
+    return;
+  }
+  try {
+    const tasks = await invokeTauri<TaskEntry[]>("task_list_tasks");
+    const nextTask = tasks
+      .filter((task) => supervisionTaskIsActive(task, conversationId))
+      .sort((left, right) => {
+        const leftTime = parseTaskTime(left.updatedAtLocal)?.getTime() ?? 0;
+        const rightTime = parseTaskTime(right.updatedAtLocal)?.getTime() ?? 0;
+        return rightTime - leftTime;
+      })[0];
+    activeSupervisionTask.value = nextTask ? activeSupervisionTaskFromEntry(nextTask) : null;
+  } catch (error) {
+    activeSupervisionTask.value = null;
+    if (!options.silent) {
+      console.warn("[督工] 读取当前会话督工任务失败", error);
+    }
+  }
+}
+
+function openSupervisionTaskDialog() {
+  if (!String(currentChatConversationId.value || "").trim()) {
+    setStatus(t("chat.supervision.noConversation"));
+    return;
+  }
+  supervisionTaskError.value = "";
+  supervisionTaskDialogOpen.value = true;
+}
+
+function closeSupervisionTaskDialog() {
+  if (supervisionTaskSaving.value) return;
+  supervisionTaskDialogOpen.value = false;
+  supervisionTaskError.value = "";
+}
+
+async function saveSupervisionTask(payload: {
+  durationHours: number;
+  goal: string;
+  why: string;
+  todo: string;
+}) {
+  if (supervisionTaskSaving.value) return;
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  if (!conversationId) {
+    supervisionTaskError.value = t("chat.supervision.noConversation");
+    return;
+  }
+  supervisionTaskSaving.value = true;
+  supervisionTaskError.value = "";
+  try {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const endAt = new Date(now.getTime() + payload.durationHours * 3_600_000);
+    const trigger = {
+      runAtLocal: formatDateToLocalRfc3339(now),
+      everyMinutes: 0.1,
+      endAtLocal: formatDateToLocalRfc3339(endAt),
+    };
+    let taskId = "";
+    if (activeSupervisionTask.value?.taskId) {
+      const updated = await invokeTauri<TaskEntry>("task_update_task", {
+        input: {
+          taskId: activeSupervisionTask.value.taskId,
+          conversationId,
+          targetScope: "desktop",
+          goal: normalizeSupervisionGoal(payload.goal),
+          why: payload.why,
+          todo: payload.todo,
+          trigger,
+        },
+      });
+      taskId = String(updated.taskId || "").trim();
+      setStatus(
+        t("chat.supervision.updatedStatus", {
+          hours: payload.durationHours,
+        }),
+      );
+    } else {
+      const created = await invokeTauri<TaskEntry>("task_create_task", {
+        input: {
+          conversationId,
+          targetScope: "desktop",
+          goal: normalizeSupervisionGoal(payload.goal),
+          why: payload.why,
+          todo: payload.todo,
+          trigger,
+        },
+      });
+      taskId = String(created.taskId || "").trim();
+      setStatus(
+        t("chat.supervision.createdStatus", {
+          hours: payload.durationHours,
+        }),
+      );
+    }
+    if (taskId) {
+      try {
+        await invokeTauri<boolean>("task_dispatch_task_now", { input: { taskId } });
+      } catch (dispatchError) {
+        console.warn("[督工] 首次触发失败", dispatchError);
+      }
+    }
+    supervisionTaskDialogOpen.value = false;
+    await refreshActiveSupervisionTask({ silent: true });
+  } catch (error) {
+    supervisionTaskError.value = `${t("chat.supervision.saveFailed")}: ${toErrorMessage(error)}`;
+  } finally {
+    supervisionTaskSaving.value = false;
+  }
+}
+
+function startSupervisionTaskPolling() {
+  clearSupervisionTaskPollTimer();
+  supervisionTaskPollTimer = window.setInterval(() => {
+    void refreshActiveSupervisionTask({ silent: true });
+  }, 30_000);
+}
 
 function clearPendingConversationScrollToBottomFallback() {
   if (pendingConversationScrollToBottomTimer) {
@@ -2650,6 +2866,8 @@ onMounted(() => {
 
   }
   scheduleChatWindowActiveStateSync("mounted");
+  startSupervisionTaskPolling();
+  void refreshActiveSupervisionTask({ silent: true });
   window.addEventListener("focus", handleWindowFocusForStateSync);
   window.addEventListener("blur", handleWindowBlurForStateSync);
   document.addEventListener("visibilitychange", handleVisibilityForStateSync);
@@ -2691,6 +2909,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
   clearChatWindowActiveSyncTimer();
   clearChatMicPrewarmTimer();
+  clearSupervisionTaskPollTimer();
   clearForegroundConversationCacheRaf();
   clearRecordHotkeyProbeState();
   agentWorkPresence.cleanup();
@@ -2721,6 +2940,16 @@ watch(
   () => {
     scheduleChatWindowActiveStateSync("viewmode_changed");
   },
+);
+
+watch(
+  () => currentChatConversationId.value,
+  () => {
+    supervisionTaskDialogOpen.value = false;
+    supervisionTaskError.value = "";
+    void refreshActiveSupervisionTask({ silent: true });
+  },
+  { immediate: true },
 );
 
 watch(
