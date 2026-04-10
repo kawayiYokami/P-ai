@@ -1,5 +1,10 @@
 # 变更日志
 
+## 发布：v0.9.5
+
+- 发布（release-0.9.5）：同步版本号并纳入本轮标题栏环形进度条、会话标题合并显示与督工按钮图标优化
+- 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` 版本统一升级到 `0.9.5`
+
 ## 更新：督工按钮添加 Timer 图标
 
 - 优化（chat-supervision-button-icon）：督工按钮增加 Timer 计时器图标，更直观表达定时监督的含义
