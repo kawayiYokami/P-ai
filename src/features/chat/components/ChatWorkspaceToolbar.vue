@@ -17,6 +17,7 @@
         :title="supervisionTitle"
         @click="emit('openSupervisionTask')"
       >
+        <Timer class="h-3.5 w-3.5" />
         {{ supervisionActive ? supervisionActiveLabel : supervisionLabel }}
       </button>
     </div>
@@ -57,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { Folder } from "lucide-vue-next";
+import { Folder, Timer } from "lucide-vue-next";
 import type { ChatPersonaPresenceChip } from "../../../types/app";
 
 defineProps<{

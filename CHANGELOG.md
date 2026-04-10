@@ -1,5 +1,9 @@
 # 变更日志
 
+## 更新：督工按钮添加 Timer 图标
+
+- 优化（chat-supervision-button-icon）：督工按钮增加 Timer 计时器图标，更直观表达定时监督的含义
+
 ## 更新：聊天窗口标题栏环形进度条与会话标题显示优化
 
 - 优化（chat-header-ring-progress-and-title）：将标题栏的上下文占用百分比数字改为环形进度条，并合并显示会话标题
