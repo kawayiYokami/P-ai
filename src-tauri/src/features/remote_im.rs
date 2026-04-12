@@ -170,7 +170,7 @@ struct RemoteImContactConversationMessagesInput {
     contact_id: String,
 }
 
-fn remote_im_channel_by_id<'a>(
+pub(crate) fn remote_im_channel_by_id<'a>(
     config: &'a AppConfig,
     channel_id: &str,
 ) -> Option<&'a RemoteImChannelConfig> {

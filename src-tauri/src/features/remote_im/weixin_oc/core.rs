@@ -257,6 +257,23 @@ impl Default for WeixinOcRuntimeState {
     }
 }
 
+const WEIXIN_OC_TYPING_TICKET_TTL_SECS: u64 = 60;
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct WeixinOcTypingTicketState {
+    ilink_user_id: String,
+    typing_ticket: String,
+    ticket_context_token: String,
+    ticket_refresh_after: std::time::Instant,
+}
+
+#[derive(Debug)]
+struct WeixinOcTypingState {
+    ticket_state: WeixinOcTypingTicketState,
+    cancel_tx: tokio::sync::oneshot::Sender<()>,
+}
+
 pub struct WeixinOcManager {
     states: std::sync::Arc<
         tokio::sync::RwLock<std::collections::HashMap<String, WeixinOcRuntimeState>>,
@@ -275,6 +292,9 @@ pub struct WeixinOcManager {
     context_tokens: std::sync::Arc<
         tokio::sync::RwLock<std::collections::HashMap<String, String>>,
     >,
+    typing_states: std::sync::Arc<
+        tokio::sync::RwLock<std::collections::HashMap<String, WeixinOcTypingState>>,
+    >,
 }
 
 impl WeixinOcManager {
@@ -285,6 +305,7 @@ impl WeixinOcManager {
             stop_senders: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             tasks: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             context_tokens: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            typing_states: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
 }

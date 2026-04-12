@@ -1123,6 +1123,10 @@ impl RemoteImSdk for WeixinOcSdk {
                 context_token.as_deref(),
             )
             .await?;
+            // 回复发送成功后停止 typing
+            weixin_oc_manager()
+                .stop_typing(&channel.id, &contact.remote_contact_id)
+                .await;
             Ok(message_id)
         })
     }

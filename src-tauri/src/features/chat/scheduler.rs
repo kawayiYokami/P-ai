@@ -1093,6 +1093,45 @@ async fn activate_main_assistant(
         remote_im_activation_sources.clone(),
     )?;
 
+    // 对 WeixinOc 渠道启动 typing 状态（对方正在输入）
+    let weixin_oc_typing_sources: Vec<(String, String)> = {
+        let config = state_read_config_cached(state);
+        let config = match config {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("[聊天调度] 读取配置失败，跳过 typing 启动: error={}", err);
+                AppConfig::default()
+            }
+        };
+        remote_im_activation_sources
+            .iter()
+            .filter(|src| src.platform == RemoteImPlatform::WeixinOc)
+            .filter_map(|src| {
+                let channel = remote_im_channel_by_id(&config, &src.channel_id)?;
+                let credentials = WeixinOcCredentials::from_value(&channel.credentials);
+                if credentials.token.trim().is_empty() {
+                    return None;
+                }
+                Some((src.channel_id.clone(), src.remote_contact_id.clone()))
+            })
+            .collect()
+    };
+    for (ch_id, contact_id) in &weixin_oc_typing_sources {
+        let channel_config = {
+            let config = state_read_config_cached(state).unwrap_or_default();
+            remote_im_channel_by_id(&config, ch_id).cloned()
+        };
+        if let Some(channel) = channel_config {
+            let credentials = WeixinOcCredentials::from_value(&channel.credentials);
+            let ctx_token = weixin_oc_manager()
+                .get_context_token(ch_id, contact_id)
+                .await;
+            weixin_oc_manager()
+                .start_typing(ch_id, credentials, contact_id, ctx_token)
+                .await;
+        }
+    }
+
     // 构造 trigger_only 请求
     let request = SendChatRequest {
         trigger_only: true,  // 不写入新消息，只触发助理回复
@@ -1147,6 +1186,11 @@ async fn activate_main_assistant(
 
     // 调用 send_chat_message_inner
     let result = send_chat_message_inner(request, state, &active_channel).await;
+
+    // WeixinOc 渠道：回复结束后停止 typing
+    for (ch_id, contact_id) in &weixin_oc_typing_sources {
+        weixin_oc_manager().stop_typing(ch_id, contact_id).await;
+    }
 
     if let Err(err) = set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new()) {
         eprintln!(
