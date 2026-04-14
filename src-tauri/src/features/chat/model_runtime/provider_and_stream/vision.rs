@@ -12,14 +12,15 @@ async fn describe_image_with_vision_api(
         latest_user_meta_text: String::new(),
         latest_user_extra_text: String::new(),
         latest_user_extra_blocks: Vec::new(),
-        latest_images: vec![(
-            if mime.is_empty() {
+        latest_images: vec![PreparedBinaryPayload {
+            mime: if mime.is_empty() {
                 "image/png".to_string()
             } else {
                 mime.to_string()
             },
-            image.bytes_base64.clone(),
-        )],
+            content: image.bytes_base64.clone(),
+            saved_path: image.saved_path.clone(),
+        }],
         latest_audios: Vec::new(),
     };
 

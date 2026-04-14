@@ -11,8 +11,8 @@ struct ChatPromptOverrides {
     latest_user_meta_text: Option<String>,
     latest_user_extra_blocks: Vec<String>,
     system_preamble_blocks: Vec<String>,
-    latest_images: Option<Vec<(String, String)>>,
-    latest_audios: Option<Vec<(String, String)>>,
+    latest_images: Option<Vec<PreparedBinaryPayload>>,
+    latest_audios: Option<Vec<PreparedBinaryPayload>>,
 }
 
 pub(crate) fn prompt_xml_block(block_name: &str, body: impl AsRef<str>) -> String {
@@ -264,8 +264,8 @@ fn apply_chat_latest_user_payload(
     latest_user_text: String,
     latest_user_meta_text: String,
     latest_user_extra_blocks: &[String],
-    latest_images: Option<Vec<(String, String)>>,
-    latest_audios: Option<Vec<(String, String)>>,
+    latest_images: Option<Vec<PreparedBinaryPayload>>,
+    latest_audios: Option<Vec<PreparedBinaryPayload>>,
 ) {
     prepared.latest_user_text = latest_user_text;
     prepared.latest_user_meta_text = latest_user_meta_text;

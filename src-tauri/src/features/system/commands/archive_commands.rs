@@ -14,7 +14,7 @@ fn parse_prompt_preview_mode(raw: Option<&str>) -> PromptPreviewMode {
 }
 
 #[tauri::command]
-fn get_prompt_preview(
+async fn get_prompt_preview(
     input: SessionSelector,
     preview_mode: Option<String>,
     state: State<'_, AppState>,
@@ -27,7 +27,7 @@ fn get_prompt_preview(
     let mut app_config = read_config(&state.config_path)?;
     let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
         .ok_or_else(|| "No API config available".to_string())?;
-    let resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
+    let mut resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
 
     let mut data = read_app_data(&state.data_path)?;
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut data)?;
@@ -61,7 +61,7 @@ fn get_prompt_preview(
         .ok_or_else(|| "Selected agent not found.".to_string())?;
     let preview_mode = parse_prompt_preview_mode(preview_mode.as_deref());
 
-    let conversation = input
+    let mut conversation = input
         .conversation_id
         .as_deref()
         .map(str::trim)
@@ -149,7 +149,7 @@ fn get_prompt_preview(
         .rev()
         .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
         .map(|c| c.summary.clone());
-    let prepared = match preview_mode {
+    let mut prepared = match preview_mode {
         PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
             PromptBuildMode::Chat,
             &conversation,
@@ -229,6 +229,25 @@ fn get_prompt_preview(
             )
         }
     };
+    drop(guard);
+
+    let model_name = if api_config.model.trim().is_empty() {
+        resolved_api.model.clone()
+    } else {
+        api_config.model.trim().to_string()
+    };
+    maybe_prepare_aliyun_multimodal_urls_for_candidate(
+        state.inner(),
+        &api_config,
+        &mut resolved_api,
+        &model_name,
+        &mut prepared,
+        &mut conversation,
+        false,
+        false,
+    )
+    .await?;
+
     let request_body_json = serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
         .map_err(|err| format!("序列化请求预览失败：{err}"))?;
     eprintln!(
@@ -241,8 +260,6 @@ fn get_prompt_preview(
         request_body_json.contains("<memory_context>"),
         request_body_json.len()
     );
-    drop(guard);
-
     Ok(PromptPreview {
         preamble: prepared.preamble,
         latest_user_text: prepared.latest_user_text,
@@ -253,11 +270,11 @@ fn get_prompt_preview(
 }
 
 #[tauri::command]
-fn get_system_prompt_preview(
+async fn get_system_prompt_preview(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<SystemPromptPreview, String> {
-    let preview = get_prompt_preview(input, None, state)?;
+    let preview = get_prompt_preview(input, None, state).await?;
     Ok(SystemPromptPreview {
         system_prompt: preview.preamble,
     })
