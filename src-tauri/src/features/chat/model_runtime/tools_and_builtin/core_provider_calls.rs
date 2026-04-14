@@ -26,26 +26,42 @@ fn normalize_openai_genai_base_url(raw: &str) -> String {
 
 fn genai_content_parts_from_text_and_binary(
     text_blocks: &[String],
-    images: &[(String, String)],
-    audios: &[(String, String)],
+    images: &[PreparedBinaryPayload],
+    audios: &[PreparedBinaryPayload],
 ) -> Vec<genai::chat::ContentPart> {
     let mut parts = Vec::<genai::chat::ContentPart>::new();
     for text in text_blocks {
         parts.push(genai::chat::ContentPart::from_text(text.clone()));
     }
-    for (mime, bytes) in images {
-        parts.push(genai::chat::ContentPart::from_binary_base64(
-            mime.clone(),
-            bytes.clone(),
-            None,
-        ));
+    for image in images {
+        if is_remote_binary_url(&image.content) {
+            parts.push(genai::chat::ContentPart::from_binary_url(
+                image.mime.clone(),
+                image.content.clone(),
+                None,
+            ));
+        } else {
+            parts.push(genai::chat::ContentPart::from_binary_base64(
+                image.mime.clone(),
+                image.content.clone(),
+                None,
+            ));
+        }
     }
-    for (mime, bytes) in audios {
-        parts.push(genai::chat::ContentPart::from_binary_base64(
-            mime.clone(),
-            bytes.clone(),
-            None,
-        ));
+    for audio in audios {
+        if is_remote_binary_url(&audio.content) {
+            parts.push(genai::chat::ContentPart::from_binary_url(
+                audio.mime.clone(),
+                audio.content.clone(),
+                None,
+            ));
+        } else {
+            parts.push(genai::chat::ContentPart::from_binary_base64(
+                audio.mime.clone(),
+                audio.content.clone(),
+                None,
+            ));
+        }
     }
     parts
 }

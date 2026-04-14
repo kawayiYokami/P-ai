@@ -1254,14 +1254,56 @@ fn is_context_compaction_message(message: &ChatMessage, role: &str) -> bool {
     )
 }
 
-fn resolve_media_from_parts(
-    parts: &[MessagePart],
+fn message_attachment_paths_by_mime(
+    message: &ChatMessage,
+    prefix: &str,
+) -> std::collections::HashMap<String, std::collections::VecDeque<String>> {
+    let mut out =
+        std::collections::HashMap::<String, std::collections::VecDeque<String>>::new();
+    let Some(attachments) = message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("attachments"))
+        .and_then(Value::as_array)
+    else {
+        return out;
+    };
+    for item in attachments {
+        let mime = item
+            .get("mime")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !mime.starts_with(prefix) {
+            continue;
+        }
+        let relative_path = item
+            .get("relativePath")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let Some(relative_path) = relative_path else {
+            continue;
+        };
+        out.entry(mime)
+            .or_default()
+            .push_back(relative_path.replace('\\', "/"));
+    }
+    out
+}
+
+fn resolve_media_from_message(
+    message: &ChatMessage,
     data_path: Option<&PathBuf>,
     log_prefix: &str,
-) -> (Vec<(String, String)>, Vec<(String, String)>) {
-    let mut images = Vec::<(String, String)>::new();
-    let mut audios = Vec::<(String, String)>::new();
-    for part in parts {
+) -> (Vec<PreparedBinaryPayload>, Vec<PreparedBinaryPayload>) {
+    let mut images = Vec::<PreparedBinaryPayload>::new();
+    let mut audios = Vec::<PreparedBinaryPayload>::new();
+    let mut image_paths = message_attachment_paths_by_mime(message, "image/");
+    let mut audio_paths = message_attachment_paths_by_mime(message, "audio/");
+    for part in &message.parts {
         match part {
             MessagePart::Image {
                 mime, bytes_base64, ..
@@ -1285,7 +1327,14 @@ fn resolve_media_from_parts(
                     bytes_base64.clone()
                 };
                 if !resolved.trim().is_empty() {
-                    images.push((mime.clone(), resolved));
+                    let saved_path = image_paths
+                        .get_mut(&mime.trim().to_ascii_lowercase())
+                        .and_then(|paths| paths.pop_front());
+                    images.push(PreparedBinaryPayload {
+                        mime: mime.clone(),
+                        content: resolved,
+                        saved_path,
+                    });
                 }
             }
             MessagePart::Audio {
@@ -1310,7 +1359,14 @@ fn resolve_media_from_parts(
                     bytes_base64.clone()
                 };
                 if !resolved.trim().is_empty() {
-                    audios.push((mime.clone(), resolved));
+                    let saved_path = audio_paths
+                        .get_mut(&mime.trim().to_ascii_lowercase())
+                        .and_then(|paths| paths.pop_front());
+                    audios.push(PreparedBinaryPayload {
+                        mime: mime.clone(),
+                        content: resolved,
+                        saved_path,
+                    });
                 }
             }
             MessagePart::Text { .. } => {}
@@ -1322,8 +1378,8 @@ fn resolve_media_from_parts(
 fn collect_prompt_media_parts(
     message: &ChatMessage,
     data_path: Option<&PathBuf>,
-) -> (Vec<(String, String)>, Vec<(String, String)>) {
-    resolve_media_from_parts(&message.parts, data_path, "[提示词] 历史消息")
+) -> (Vec<PreparedBinaryPayload>, Vec<PreparedBinaryPayload>) {
+    resolve_media_from_message(message, data_path, "[提示词] 历史消息")
 }
 
 #[derive(Debug, Clone)]
@@ -2106,13 +2162,13 @@ fn build_prompt_with_mode(
     let mut latest_user_text = String::new();
     let mut latest_user_meta_text = String::new();
     let mut latest_user_extra_blocks = Vec::<String>::new();
-    let mut latest_images = Vec::<(String, String)>::new();
-    let mut latest_audios = Vec::<(String, String)>::new();
+    let mut latest_images = Vec::<PreparedBinaryPayload>::new();
+    let mut latest_audios = Vec::<PreparedBinaryPayload>::new();
 
     if let Some(msg) = latest_user {
         let latest_user_text_rendered = render_prompt_user_text_only(&msg);
         let (resolved_images, resolved_audios) =
-            resolve_media_from_parts(&msg.parts, data_path, "[提示词] 最新消息");
+            resolve_media_from_message(&msg, data_path, "[提示词] 最新消息");
         let include_remote_identity = remote_im_contact_key_from_message(&msg)
             .map(|key| seen_remote_contacts.insert(key))
             .unwrap_or(false);

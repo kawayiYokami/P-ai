@@ -314,29 +314,34 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
                     }));
                 }
             }
-            for (mime, bytes_base64) in &hm.images {
-                if mime.trim().eq_ignore_ascii_case("application/pdf") {
+            for image in &hm.images {
+                if image.mime.trim().eq_ignore_ascii_case("application/pdf") {
                     content.push(serde_json::json!({
                         "type": "file",
-                        "mime": mime,
-                        "bytesBase64": bytes_base64
+                        "mime": image.mime,
+                        "bytesBase64": image.content
                     }));
                 } else {
+                    let image_url = if is_remote_binary_url(&image.content) {
+                        image.content.clone()
+                    } else {
+                        format!("data:{};base64,{}", image.mime, image.content)
+                    };
                     content.push(serde_json::json!({
                         "type": "image_url",
                         "image_url": {
-                            "url": format!("data:{};base64,{}", mime, bytes_base64),
+                            "url": image_url,
                             "detail": "auto"
                         }
                     }));
                 }
             }
-            for (mime, bytes_base64) in &hm.audios {
+            for audio in &hm.audios {
                 content.push(serde_json::json!({
                     "type": "input_audio",
                     "input_audio": {
-                        "data": bytes_base64,
-                        "format": openai_input_audio_format_from_mime(mime)
+                        "data": audio.content.clone(),
+                        "format": openai_input_audio_format_from_mime(&audio.mime)
                     }
                 }));
             }
@@ -360,29 +365,34 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
             "text": text_block
         }));
     }
-    for (mime, bytes_base64) in &prepared.latest_images {
-        if mime.trim().eq_ignore_ascii_case("application/pdf") {
+    for image in &prepared.latest_images {
+        if image.mime.trim().eq_ignore_ascii_case("application/pdf") {
             latest_user_content.push(serde_json::json!({
                 "type": "file",
-                "mime": mime,
-                "bytesBase64": bytes_base64
+                "mime": image.mime,
+                "bytesBase64": image.content
             }));
         } else {
+            let image_url = if is_remote_binary_url(&image.content) {
+                image.content.clone()
+            } else {
+                format!("data:{};base64,{}", image.mime, image.content)
+            };
             latest_user_content.push(serde_json::json!({
                 "type": "image_url",
                 "image_url": {
-                    "url": format!("data:{};base64,{}", mime, bytes_base64),
+                    "url": image_url,
                     "detail": "auto"
                 }
             }));
         }
     }
-    for (mime, bytes_base64) in &prepared.latest_audios {
+    for audio in &prepared.latest_audios {
         latest_user_content.push(serde_json::json!({
             "type": "input_audio",
             "input_audio": {
-                "data": bytes_base64,
-                "format": openai_input_audio_format_from_mime(mime)
+                "data": audio.content,
+                "format": openai_input_audio_format_from_mime(&audio.mime)
             }
         }));
     }

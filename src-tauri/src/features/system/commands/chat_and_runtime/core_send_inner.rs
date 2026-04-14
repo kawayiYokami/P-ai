@@ -338,11 +338,11 @@ async fn apply_prompt_image_fallbacks_to_prepared(
 
         let original_images = std::mem::take(&mut message.images);
         let mut converted_blocks = Vec::<String>::new();
-        for (index, (mime, bytes_base64)) in original_images.into_iter().enumerate() {
+        for (index, image_payload) in original_images.into_iter().enumerate() {
             let image = BinaryPart {
-                mime,
-                bytes_base64,
-                saved_path: None,
+                mime: image_payload.mime,
+                bytes_base64: image_payload.content,
+                saved_path: image_payload.saved_path,
             };
             if let Some(text) = resolve_image_description_with_vision_fallback(
                 state,
@@ -364,11 +364,11 @@ async fn apply_prompt_image_fallbacks_to_prepared(
     if !prepared.latest_images.is_empty() {
         let original_images = std::mem::take(&mut prepared.latest_images);
         let mut converted_blocks = Vec::<String>::new();
-        for (index, (mime, bytes_base64)) in original_images.into_iter().enumerate() {
+        for (index, image_payload) in original_images.into_iter().enumerate() {
             let image = BinaryPart {
-                mime,
-                bytes_base64,
-                saved_path: None,
+                mime: image_payload.mime,
+                bytes_base64: image_payload.content,
+                saved_path: image_payload.saved_path,
             };
             if let Some(text) = resolve_image_description_with_vision_fallback(
                 state,
@@ -1584,6 +1584,24 @@ async fn send_chat_message_inner(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let image_saved_paths = effective_payload
+        .images
+        .as_ref()
+        .map(|items| {
+            items.iter()
+                .map(|item| item.saved_path.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let audio_saved_paths = effective_payload
+        .audios
+        .as_ref()
+        .map(|items| {
+            items.iter()
+                .map(|item| item.saved_path.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let effective_images = effective_user_parts
         .iter()
         .filter_map(|part| match part {
@@ -1591,6 +1609,12 @@ async fn send_chat_message_inner(
                 mime, bytes_base64, ..
             } => Some((mime.clone(), bytes_base64.clone())),
             _ => None,
+        })
+        .enumerate()
+        .map(|(index, (mime, bytes_base64))| PreparedBinaryPayload {
+            mime,
+            content: bytes_base64,
+            saved_path: image_saved_paths.get(index).cloned().flatten(),
         })
         .collect::<Vec<_>>();
     let effective_audios = effective_user_parts
@@ -1600,6 +1624,12 @@ async fn send_chat_message_inner(
                 mime, bytes_base64, ..
             } => Some((mime.clone(), bytes_base64.clone())),
             _ => None,
+        })
+        .enumerate()
+        .map(|(index, (mime, bytes_base64))| PreparedBinaryPayload {
+            mime: mime.clone(),
+            content: bytes_base64.clone(),
+            saved_path: audio_saved_paths.get(index).cloned().flatten(),
         })
         .collect::<Vec<_>>();
 
@@ -2045,8 +2075,8 @@ async fn send_chat_message_inner(
         is_remote_im_contact_conversation,
         remote_im_contact_processing_mode,
         tool_loop_auto_compaction_context,
-        _conversation_for_request,
-        _is_runtime_conversation,
+        conversation_for_request,
+        is_runtime_conversation,
     ) = prepared_context;
     log_run_stage("prompt_ready");
 
@@ -2054,6 +2084,8 @@ async fn send_chat_message_inner(
     let mut active_selected_api = selected_api.clone();
     let mut active_resolved_api = resolved_api.clone();
     let mut fallback_errors = Vec::<String>::new();
+    let prepared_prompt = prepared_prompt;
+    let mut conversation_for_request = conversation_for_request;
     for (candidate_index, candidate_api_id) in candidate_api_ids.iter().enumerate() {
         let candidate_stage = format!(
             "model_candidate.start[candidate_index={},candidate_api_id={}]",
@@ -2071,7 +2103,7 @@ async fn send_chat_message_inner(
                 }
             }
         };
-        let candidate_resolved_api =
+        let mut candidate_resolved_api =
             match resolve_api_config(&app_config, Some(candidate_selected_api.id.as_str())) {
                 Ok(api) => api,
                 Err(error) => {
@@ -2084,6 +2116,25 @@ async fn send_chat_message_inner(
         } else {
             candidate_selected_api.model.trim().to_string()
         };
+        let mut candidate_prepared_prompt = prepared_prompt.clone();
+        if let Err(error) = maybe_prepare_aliyun_multimodal_urls_for_candidate(
+            &state,
+            &candidate_selected_api,
+            &mut candidate_resolved_api,
+            &candidate_model_name,
+            &mut candidate_prepared_prompt,
+            &mut conversation_for_request,
+            is_runtime_conversation,
+            true,
+        )
+        .await
+        {
+            fallback_errors.push(format!(
+                "{}: 百炼多模态 URL 预处理失败: {}",
+                candidate_selected_api.name, error
+            ));
+            continue;
+        }
         let max_failure_retries = FIXED_MODEL_RETRY_COUNT;
         let mut candidate_final_error: Option<String> = None;
         for attempt in 0..=max_failure_retries {
@@ -2099,7 +2150,7 @@ async fn send_chat_message_inner(
                 &candidate_selected_api,
                 &current_agent,
                 &candidate_model_name,
-                prepared_prompt.clone(),
+                candidate_prepared_prompt.clone(),
                 Some(&state),
                 tool_loop_auto_compaction_context.as_ref(),
                 on_delta,

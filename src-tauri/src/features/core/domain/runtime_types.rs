@@ -42,13 +42,20 @@ struct ResolvedApiConfig {
 }
 
 #[derive(Debug, Clone)]
+struct PreparedBinaryPayload {
+    mime: String,
+    content: String,
+    saved_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 struct PreparedHistoryMessage {
     role: String,
     text: String,
     extra_text_blocks: Vec<String>,
     user_time_text: Option<String>,
-    images: Vec<(String, String)>,
-    audios: Vec<(String, String)>,
+    images: Vec<PreparedBinaryPayload>,
+    audios: Vec<PreparedBinaryPayload>,
     tool_calls: Option<Vec<Value>>,
     tool_call_id: Option<String>,
     reasoning_content: Option<String>,
@@ -62,8 +69,8 @@ struct PreparedPrompt {
     latest_user_meta_text: String,
     latest_user_extra_text: String,
     latest_user_extra_blocks: Vec<String>,
-    latest_images: Vec<(String, String)>,
-    latest_audios: Vec<(String, String)>,
+    latest_images: Vec<PreparedBinaryPayload>,
+    latest_audios: Vec<PreparedBinaryPayload>,
 }
 
 #[derive(Debug, Clone)]

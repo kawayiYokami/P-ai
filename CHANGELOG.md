@@ -1,5 +1,15 @@
 # 变更日志
 
+## 更新：百炼多模态临时 URL 缓存与预览同路
+
+- 功能（aliyun-bailian-multimodal-url-cache）：为阿里云百炼新增多模态临时 URL 缓存，并让请求体预览与真实发送共用同一套媒体注入分支
+  - 当 API `base_url` 的 host 包含 `aliyuncs` 时，识别为百炼供应商，支持百炼通用与百炼编程两条渠道
+  - 新增消息级 `provider_meta.aliyunMultimodalCache`，按“媒体类型 + 模型名 + 内容哈希 + 过期时间”缓存百炼临时 URL
+  - 百炼发送前会优先复用未过期临时 URL；若没有可用缓存，则优先使用原图 `saved_path` 读取本地文件生成新的百炼 URL，仅在拿不到原图路径时才回退到 base64
+  - 百炼请求自动补 `X-DashScope-OssResourceResolve: enable`，并在 `genai` 请求构造阶段支持把媒体注入为 URL 而不是固定 base64
+  - 请求体预览改为先走同一套百炼 URL 处理逻辑，再输出 JSON，避免预览与真实发送不一致
+  - 顺手收敛了百炼上传响应体错误处理、异步文件读取和缓存回写去重逻辑
+
 ## 更新：新增 Codex 协议与账号登录接入
 
 - 功能（codex-protocol-and-auth-integration）：新增独立 `codex` 协议，完成本地凭证读取、应用内 OAuth 登录、静态模型列表与配置页独立面板接入
