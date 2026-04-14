@@ -352,7 +352,7 @@ const props = defineProps<{
   latestReasoningInlineText: string;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
-  streamToolCalls: Array<{ name: string; argsText: string }>;
+  streamToolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; relativePath: string; mime: string }>;

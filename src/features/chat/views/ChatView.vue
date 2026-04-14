@@ -309,7 +309,7 @@ const props = defineProps<{
   latestReasoningInlineText: string;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
-  streamToolCalls: Array<{ name: string; argsText: string }>;
+  streamToolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; relativePath: string; mime: string }>;
@@ -354,7 +354,7 @@ const props = defineProps<{
 }>();
 
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
-function isOrganizeContextToolCall(call: { name: string; argsText: string }): boolean {
+function isOrganizeContextToolCall(call: { name: string; argsText: string; status?: "doing" | "done" }): boolean {
   const name = String(call.name || "").trim().toLowerCase();
   const argsText = String(call.argsText || "").trim().toLowerCase();
   if (name === "organize_context" || name === "archive") return true;

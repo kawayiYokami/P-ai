@@ -53,7 +53,7 @@ type UseChatFlowOptions = {
   latestReasoningInlineText: Ref<string>;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamToolCalls?: Ref<Array<{ name: string; argsText: string }>>;
+  streamToolCalls?: Ref<Array<{ name: string; argsText: string; status?: "doing" | "done" }>>;
   chatErrorText: Ref<string>;
   allMessages: Ref<ChatMessage[]>;
   t: (key: string, params?: Record<string, unknown>) => string;
@@ -955,10 +955,17 @@ export function useChatFlow(options: UseChatFlowOptions) {
         streamToolCallCount += 1;
         streamLastToolName = toolName;
         if (options.streamToolCalls) {
-          options.streamToolCalls.value = [
-            ...options.streamToolCalls.value,
-            { name: toolName, argsText: String(parsed.toolArgs || "").trim() },
-          ];
+          const next = options.streamToolCalls.value.map((call, idx, arr) => {
+            if (idx !== arr.length - 1) return call;
+            if (call.status === "done") return call;
+            return { ...call, status: "done" as const };
+          });
+          next.push({
+            name: toolName,
+            argsText: String(parsed.toolArgs || "").trim(),
+            status: "doing",
+          });
+          options.streamToolCalls.value = next;
         }
       }
       options.toolStatusText.value = parsed.message || "";

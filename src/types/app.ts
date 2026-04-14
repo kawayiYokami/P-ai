@@ -419,7 +419,7 @@ export type ChatMessageBlock = {
   reasoningInline: string;
   toolCallCount: number;
   lastToolName: string;
-  toolCalls: Array<{ name: string; argsText: string }>;
+  toolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
 };
 
 export type ChatPersonaPresenceChip = {

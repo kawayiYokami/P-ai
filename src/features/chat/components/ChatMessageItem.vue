@@ -138,11 +138,18 @@
                 <div class="timeline-middle">
                   <span
                     class="inline-block h-2.5 w-2.5 rounded-full"
-                    :class="toolTimelineDotClass(block)"
+                    :class="toolTimelineDotClass(block, toolCall)"
                   ></span>
                 </div>
                 <div class="timeline-end mb-3 w-full min-w-0 pb-3 pl-3">
-                  <div class="mb-1 text-xs font-semibold opacity-85">{{ toolCall.name }}</div>
+                  <div class="mb-1 flex items-center gap-2 text-xs font-semibold opacity-85">
+                    <span>{{ toolCall.name }}</span>
+                    <span
+                      v-if="showStreamingUi(block)"
+                      class="badge badge-ghost badge-xs font-normal"
+                      :class="toolCall.status === 'doing' ? 'text-primary border-primary/35' : 'text-success border-success/35'"
+                    >{{ toolCall.status === "doing" ? "doing" : "done" }}</span>
+                  </div>
                   <pre
                     v-if="toolCall.argsText"
                     class="whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/70"
@@ -150,7 +157,7 @@
                 </div>
                 <hr
                   v-if="idx < toolCallsForBlock(block).length - 1"
-                  :class="toolTimelineHrClass(block)"
+                  :class="toolTimelineHrClass(block, toolCall)"
                 />
               </li>
             </ul>
@@ -418,7 +425,7 @@ const props = defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  streamToolCalls: Array<{ name: string; argsText: string }>;
+  streamToolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
   markdownIsDark: boolean;
   playingAudioId: string;
   activeTurnUser: boolean;
@@ -477,7 +484,7 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);
 }
 
-function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsText: string }> {
+function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsText: string; status?: "doing" | "done" }> {
   if (showStreamingUi(block) && props.streamToolCalls.length > 0) {
     return props.streamToolCalls;
   }
@@ -485,15 +492,18 @@ function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsT
 }
 
 function toolStatusLabel(block: ChatMessageBlock): string {
-  return showStreamingUi(block) ? "工具执行中" : "工具执行毕";
+  if (!showStreamingUi(block)) return "工具执行毕";
+  return toolCallsForBlock(block).some((call) => call.status === "doing") ? "工具执行中" : "工具执行毕";
 }
 
-function toolTimelineDotClass(block: ChatMessageBlock): string {
-  return showStreamingUi(block) ? "bg-primary" : "bg-success";
+function toolTimelineDotClass(block: ChatMessageBlock, toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
+  if (!showStreamingUi(block)) return "bg-success";
+  return toolCall.status === "doing" ? "bg-primary" : "bg-success";
 }
 
-function toolTimelineHrClass(block: ChatMessageBlock): string {
-  return showStreamingUi(block) ? "bg-primary/35" : "bg-success/35";
+function toolTimelineHrClass(block: ChatMessageBlock, toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
+  if (!showStreamingUi(block)) return "bg-success/35";
+  return toolCall.status === "doing" ? "bg-primary/35" : "bg-success/35";
 }
 
 function toolNamesLabel(block: ChatMessageBlock): string {
