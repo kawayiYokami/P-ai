@@ -117,6 +117,44 @@
       </div>
     </div>
 
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4 gap-3">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h3 class="card-title text-base">指令预设</h3>
+            <div class="text-xs opacity-70 mt-1">维护输入面板可复用的快捷指令；发送时会作为文本附件附加到本轮消息。</div>
+          </div>
+          <button class="btn btn-sm btn-ghost shrink-0" @click="addInstructionPreset">
+            <Plus class="h-4 w-4" />
+            <span>新增</span>
+          </button>
+        </div>
+        <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">暂无指令预设</div>
+        <div v-for="item in instructionPresetsDraft" :key="item.id" class="rounded-box border border-base-300 p-3 grid gap-2">
+          <div class="flex items-center gap-2">
+            <input
+              v-model="item.name"
+              type="text"
+              class="input input-bordered input-sm flex-1"
+              placeholder="指令名称，例如：表格总结"
+            />
+            <button class="btn btn-sm btn-ghost btn-square shrink-0" @click="removeInstructionPreset(item.id)">
+              <Trash2 class="h-4 w-4" />
+            </button>
+          </div>
+          <textarea
+            v-model="item.prompt"
+            rows="3"
+            class="textarea textarea-bordered text-sm"
+            placeholder="输入这条指令的正文，例如：请把结果整理成表格"
+          ></textarea>
+        </div>
+        <div class="flex justify-end">
+          <button class="btn btn-sm btn-primary" :disabled="!instructionPresetsDirty" @click="saveInstructionPresets">保存指令预设</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 快捷操作 -->
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
@@ -150,7 +188,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { AppConfig, ApiConfigItem, ImageTextCacheStats, ResponseStyleOption } from "../../../../types/app";
+import { Plus, Trash2 } from "lucide-vue-next";
+import type { AppConfig, ApiConfigItem, ImageTextCacheStats, PromptCommandPreset, ResponseStyleOption } from "../../../../types/app";
 
 const props = defineProps<{
   config: AppConfig;
@@ -161,6 +200,7 @@ const props = defineProps<{
   pdfReadMode: "text" | "image";
   backgroundVoiceScreenshotKeywords: string;
   backgroundVoiceScreenshotMode: "desktop" | "focused_window";
+  instructionPresets: PromptCommandPreset[];
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
 }>();
@@ -171,6 +211,7 @@ const emit = defineEmits<{
   (e: "update:pdfReadMode", value: "text" | "image"): void;
   (e: "update:backgroundVoiceScreenshotKeywords", value: string): void;
   (e: "update:backgroundVoiceScreenshotMode", value: "desktop" | "focused_window"): void;
+  (e: "update:instructionPresets", value: PromptCommandPreset[]): void;
   (e: "saveChatSettings"): void;
   (e: "openCurrentHistory"): void;
   (e: "openPromptPreview"): void;
@@ -222,5 +263,59 @@ function saveBackgroundVoiceScreenshotSettings() {
 
 function onBackgroundVoiceScreenshotModeChange(value: "desktop" | "focused_window") {
   emit("update:backgroundVoiceScreenshotMode", value);
+}
+
+function randomInstructionPresetId(): string {
+  return `instruction-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeInstructionPresets(value: PromptCommandPreset[]): PromptCommandPreset[] {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim() || randomInstructionPresetId(),
+      name: String(item?.name || "").trim(),
+      prompt: String(item?.prompt || "").trim(),
+    }));
+}
+
+const instructionPresetsDraft = ref<PromptCommandPreset[]>(normalizeInstructionPresets(props.instructionPresets));
+
+watch(
+  () => props.instructionPresets,
+  (value) => {
+    instructionPresetsDraft.value = normalizeInstructionPresets(value);
+  },
+  { deep: true },
+);
+
+const instructionPresetsDirty = computed(() =>
+  JSON.stringify(instructionPresetsDraft.value) !== JSON.stringify(normalizeInstructionPresets(props.instructionPresets)),
+);
+
+function addInstructionPreset() {
+  instructionPresetsDraft.value = [
+    ...instructionPresetsDraft.value,
+    {
+      id: randomInstructionPresetId(),
+      name: "",
+      prompt: "",
+    },
+  ];
+}
+
+function removeInstructionPreset(id: string) {
+  instructionPresetsDraft.value = instructionPresetsDraft.value.filter((item) => item.id !== id);
+}
+
+function saveInstructionPresets() {
+  const normalized = instructionPresetsDraft.value
+    .map((item) => ({
+      id: String(item.id || "").trim() || randomInstructionPresetId(),
+      name: String(item.name || "").trim(),
+      prompt: String(item.prompt || "").trim(),
+    }))
+    .filter((item) => !!item.name && !!item.prompt);
+  instructionPresetsDraft.value = normalized;
+  emit("update:instructionPresets", normalized);
 }
 </script>

@@ -174,6 +174,8 @@ struct ChatSettings {
     background_voice_screenshot_keywords: String,
     #[serde(default = "default_background_voice_screenshot_mode")]
     background_voice_screenshot_mode: String,
+    #[serde(default)]
+    instruction_presets: Vec<PromptCommandPreset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

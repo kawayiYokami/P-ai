@@ -690,6 +690,8 @@
     "abstract": "抽象"
   },
   "chat": {
+    "command": "指令",
+    "noInstructionPresets": "暂无指令预设",
     "loadMore": "加载更多...",
     "copy": "复制",
     "regenerate": "重新生成",

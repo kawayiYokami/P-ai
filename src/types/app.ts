@@ -517,6 +517,12 @@ export type ResponseStyleOption = {
 
 export type PdfReadMode = "text" | "image";
 
+export type PromptCommandPreset = {
+  id: string;
+  name: string;
+  prompt: string;
+};
+
 export type ChatSettings = {
   assistantDepartmentAgentId: string;
   userAlias: string;
@@ -524,6 +530,7 @@ export type ChatSettings = {
   pdfReadMode: PdfReadMode;
   backgroundVoiceScreenshotKeywords: string;
   backgroundVoiceScreenshotMode: "desktop" | "focused_window";
+  instructionPresets: PromptCommandPreset[];
 };
 
 export type AppBootstrapSnapshot = {

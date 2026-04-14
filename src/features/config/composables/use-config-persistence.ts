@@ -7,6 +7,7 @@ import type {
   CodexAuthMode,
   PdfReadMode,
   PersonaProfile,
+  PromptCommandPreset,
   RemoteImChannelConfig,
 } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
@@ -42,6 +43,7 @@ type UseConfigPersistenceOptions = {
   selectedPdfReadMode: Ref<PdfReadMode>;
   backgroundVoiceScreenshotKeywords: Ref<string>;
   backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
+  instructionPresets: Ref<PromptCommandPreset[]>;
   responseStyleIds: ComputedRef<string[]>;
   createApiConfig: (name?: string) => AppConfig["apiConfigs"][number];
   normalizeApiBindingsLocal: () => void;
@@ -360,6 +362,15 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     ) {
       options.backgroundVoiceScreenshotMode.value = settings.backgroundVoiceScreenshotMode;
     }
+    options.instructionPresets.value = Array.isArray(settings.instructionPresets)
+      ? settings.instructionPresets
+          .map((item) => ({
+            id: String(item?.id || "").trim(),
+            name: String(item?.name || "").trim(),
+            prompt: String(item?.prompt || "").trim(),
+          }))
+          .filter((item) => !!item.id && !!item.name && !!item.prompt)
+      : [];
   }
 
   async function loadConfig() {
@@ -578,6 +589,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           pdfReadMode: options.selectedPdfReadMode.value,
           backgroundVoiceScreenshotKeywords: normalizedScreenshotKeywords,
           backgroundVoiceScreenshotMode: options.backgroundVoiceScreenshotMode.value,
+          instructionPresets: options.instructionPresets.value,
         },
       });
       options.assistantDepartmentAgentId.value = targetAgentId;

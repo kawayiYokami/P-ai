@@ -45,7 +45,38 @@
       <span class="loading loading-spinner loading-sm"></span>
       <span>{{ t("chat.transcribing") }}</span>
     </div>
+    <div v-if="selectedInstructionPrompts.length > 0" class="mb-2 flex flex-wrap gap-1">
+      <div
+        v-for="item in selectedInstructionPrompts"
+        :key="item.id"
+        class="badge badge-outline gap-1 py-3"
+      >
+        <Command class="h-3.5 w-3.5" />
+        <span class="text-[11px]">{{ item.name }}</span>
+        <button class="btn btn-ghost btn-sm btn-square" :disabled="chatting || frozen" @click="removeSelectedInstructionPreset(item.id)">
+          <X class="h-3 w-3" />
+        </button>
+      </div>
+    </div>
     <div class="flex flex-col gap-2">
+      <div v-if="instructionPanelOpen" class="rounded-box border border-base-300 bg-base-100 p-2 grid gap-1 max-h-48 overflow-y-auto">
+        <button
+          v-for="(item, index) in normalizedInstructionPresets"
+          :key="item.id"
+          type="button"
+          class="btn btn-sm justify-start normal-case h-auto min-h-0 py-2 px-3"
+          :class="instructionFocusIndex === index ? 'btn-primary' : 'btn-ghost'"
+          @click="applyInstructionPreset(item)"
+        >
+          <span class="text-left w-full">
+            <span class="block text-sm font-medium">{{ item.name }}</span>
+            <span class="block text-[11px] opacity-70 whitespace-pre-wrap break-all">{{ item.prompt }}</span>
+          </span>
+        </button>
+        <div v-if="normalizedInstructionPresets.length === 0" class="px-2 py-3 text-sm opacity-60">
+          {{ t("chat.noInstructionPresets") }}
+        </div>
+      </div>
       <textarea
         ref="chatInputRef"
         v-model="localChatInput"
@@ -58,6 +89,15 @@
       ></textarea>
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
+          <button
+            class="btn btn-sm btn-ghost shrink-0"
+            :disabled="chatting || frozen"
+            :title="t('chat.command')"
+            @click="toggleInstructionPanel"
+          >
+            <Command class="h-3.5 w-3.5" />
+            <span>{{ t("chat.command") }}</span>
+          </button>
           <button
             class="btn btn-sm btn-circle btn-ghost shrink-0"
             :disabled="chatting || frozen"
@@ -99,8 +139,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { FileText, Image as ImageIcon, Mic, Paperclip, Send, Square, X } from "lucide-vue-next";
-import type { ChatConversationOverviewItem } from "../../../types/app";
+import { Command, FileText, Image as ImageIcon, Mic, Paperclip, Send, Square, X } from "lucide-vue-next";
+import type { ChatConversationOverviewItem, PromptCommandPreset } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
 
@@ -114,6 +154,7 @@ type ConversationDepartmentOption = {
 
 const props = defineProps<{
   chatInput: string;
+  instructionPresets: PromptCommandPreset[];
   chatInputPlaceholder: string;
   clipboardImages: BinaryAttachment[];
   queuedAttachmentNotices: QueuedAttachmentNotice[];
@@ -139,6 +180,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
+  (e: "update:selectedInstructionPrompts", value: PromptCommandPreset[]): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "startRecording"): void;
@@ -164,6 +206,19 @@ const chatInputHistoryCursor = ref(-1);
 const chatInputHistoryDraft = ref("");
 const chatInputHistoryApplying = ref(false);
 const resizeInputRaf = ref(0);
+const instructionPanelOpen = ref(false);
+const instructionFocusIndex = ref(0);
+const selectedInstructionPrompts = ref<PromptCommandPreset[]>([]);
+
+const normalizedInstructionPresets = computed(() =>
+  (Array.isArray(props.instructionPresets) ? props.instructionPresets : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      name: String(item?.name || "").trim(),
+      prompt: String(item?.prompt || "").trim(),
+    }))
+    .filter((item) => !!item.id && !!item.name && !!item.prompt),
+);
 
 function loadChatInputHistory() {
   try {
@@ -201,6 +256,54 @@ function pushChatInputHistory(rawText: string) {
   saveChatInputHistory();
   chatInputHistoryCursor.value = -1;
   chatInputHistoryDraft.value = "";
+}
+
+function emitSelectedInstructionPrompts() {
+  emit("update:selectedInstructionPrompts", selectedInstructionPrompts.value);
+}
+
+function openInstructionPanel() {
+  instructionPanelOpen.value = true;
+  if (instructionFocusIndex.value >= normalizedInstructionPresets.value.length) {
+    instructionFocusIndex.value = Math.max(0, normalizedInstructionPresets.value.length - 1);
+  }
+}
+
+function closeInstructionPanel() {
+  instructionPanelOpen.value = false;
+}
+
+function toggleInstructionPanel() {
+  if (instructionPanelOpen.value) {
+    closeInstructionPanel();
+    return;
+  }
+  openInstructionPanel();
+}
+
+function applyInstructionPreset(item: PromptCommandPreset | undefined) {
+  if (!item) return;
+  if (selectedInstructionPrompts.value.some((entry) => entry.id === item.id)) return;
+  selectedInstructionPrompts.value = [...selectedInstructionPrompts.value, item];
+  emitSelectedInstructionPrompts();
+}
+
+function removeSelectedInstructionPreset(id: string) {
+  selectedInstructionPrompts.value = selectedInstructionPrompts.value.filter((item) => item.id !== id);
+  emitSelectedInstructionPrompts();
+}
+
+function clearSelectedInstructionPrompts() {
+  if (selectedInstructionPrompts.value.length === 0) return;
+  selectedInstructionPrompts.value = [];
+  emitSelectedInstructionPrompts();
+}
+
+function moveInstructionFocus(delta: number) {
+  const list = normalizedInstructionPresets.value;
+  if (list.length === 0) return;
+  const next = instructionFocusIndex.value + delta;
+  instructionFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
 }
 
 function resizeChatInput() {
@@ -284,10 +387,39 @@ function handleSendChat() {
   const plainText = String(localChatInput.value || "").trim();
   emit("sendChat");
   recordSentTextIfNeeded(plainText);
+  clearSelectedInstructionPrompts();
+  closeInstructionPanel();
 }
 
 function handleChatInputKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
+  if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    event.preventDefault();
+    openInstructionPanel();
+    return;
+  }
+  if (instructionPanelOpen.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeInstructionPanel();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveInstructionFocus(-1);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveInstructionFocus(1);
+      return;
+    }
+    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      applyInstructionPreset(normalizedInstructionPresets.value[instructionFocusIndex.value]);
+      return;
+    }
+  }
   if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
     if (props.frozen) return;
     event.preventDefault();
@@ -367,7 +499,30 @@ watch(
 watch(
   () => props.activeConversationId,
   () => {
+    closeInstructionPanel();
+    clearSelectedInstructionPrompts();
     nextTick(() => scheduleResizeChatInput());
   },
+);
+
+watch(
+  () => normalizedInstructionPresets.value,
+  (list) => {
+    if (list.length === 0) {
+      instructionFocusIndex.value = 0;
+      selectedInstructionPrompts.value = [];
+      emitSelectedInstructionPrompts();
+      instructionPanelOpen.value = false;
+      return;
+    }
+    if (instructionFocusIndex.value >= list.length) {
+      instructionFocusIndex.value = list.length - 1;
+    }
+    selectedInstructionPrompts.value = selectedInstructionPrompts.value.filter((item) =>
+      list.some((entry) => entry.id === item.id),
+    );
+    emitSelectedInstructionPrompts();
+  },
+  { deep: true },
 );
 </script>

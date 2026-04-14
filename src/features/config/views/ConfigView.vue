@@ -148,12 +148,14 @@
           :pdf-read-mode="pdfReadMode"
           :background-voice-screenshot-keywords="backgroundVoiceScreenshotKeywords"
           :background-voice-screenshot-mode="backgroundVoiceScreenshotMode"
+          :instruction-presets="instructionPresets"
           :cache-stats="cacheStats"
           :cache-stats-loading="cacheStatsLoading"
           @update:response-style-id="$emit('update:responseStyleId', $event)"
           @update:pdf-read-mode="$emit('update:pdfReadMode', $event)"
           @update:background-voice-screenshot-keywords="$emit('update:backgroundVoiceScreenshotKeywords', $event)"
           @update:background-voice-screenshot-mode="$emit('update:backgroundVoiceScreenshotMode', $event)"
+          @update:instruction-presets="$emit('update:instructionPresets', $event)"
           @save-chat-settings="$emit('saveChatSettings')"
           @open-current-history="$emit('openCurrentHistory')"
           @open-prompt-preview="$emit('openPromptPreview')"
@@ -323,7 +325,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import Cropper from "cropperjs";
 import SettingsContentContainer from "../components/SettingsContentContainer.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
@@ -372,6 +374,7 @@ const props = defineProps<{
   pdfReadMode: "text" | "image";
   backgroundVoiceScreenshotKeywords: string;
   backgroundVoiceScreenshotMode: "desktop" | "focused_window";
+  instructionPresets: PromptCommandPreset[];
   selectedPersona: PersonaProfile | null;
   toolPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
@@ -407,6 +410,7 @@ const emit = defineEmits<{
   (e: "update:pdfReadMode", value: "text" | "image"): void;
   (e: "update:backgroundVoiceScreenshotKeywords", value: string): void;
   (e: "update:backgroundVoiceScreenshotMode", value: "desktop" | "focused_window"): void;
+  (e: "update:instructionPresets", value: PromptCommandPreset[]): void;
   (e: "saveChatSettings"): void;
   (e: "setTheme", value: string): void;
   (e: "refreshModels"): void;

@@ -36,6 +36,7 @@
       :pdf-read-mode="selectedPdfReadMode"
       :background-voice-screenshot-keywords="backgroundVoiceScreenshotKeywords"
       :background-voice-screenshot-mode="backgroundVoiceScreenshotMode"
+      :instruction-presets="instructionPresets"
       :text-capable-api-configs="textCapableApiConfigs"
       :image-capable-api-configs="imageCapableApiConfigs"
       :stt-capable-api-configs="sttCapableApiConfigs"
@@ -64,6 +65,7 @@
       @update:pdf-read-mode="updateSelectedPdfReadMode"
       @update:background-voice-screenshot-keywords="updateBackgroundVoiceScreenshotKeywords"
       @update:background-voice-screenshot-mode="updateBackgroundVoiceScreenshotMode"
+      @update:instruction-presets="updateInstructionPresets"
       @save-chat-settings="saveChatSettings"
       @set-theme="setTheme"
       @refresh-models="refreshModels"
@@ -114,6 +116,7 @@
         :clipboard-images="clipboardImages"
         :queued-attachment-notices="queuedAttachmentNotices"
         :chat-input="chatInput"
+        :instruction-presets="instructionPresets"
         :chat-input-placeholder="chatInputPlaceholder"
         :can-record="speechRecognitionSupported"
         :recording="recording"
@@ -144,6 +147,7 @@
         :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
         :current-theme="currentTheme"
         @update:chat-input="updateChatInput"
+        @update:selected-instruction-prompts="updateSelectedInstructionPrompts"
         @side-conversation-list-visible-change="setSideConversationListVisible"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
@@ -272,6 +276,7 @@ import type {
   RemoteImContactConversationSummary,
   ImageTextCacheStats,
   PersonaProfile,
+  PromptCommandPreset,
   ResponseStyleOption,
   ToolLoadStatus,
   UnarchivedConversationSummary,
@@ -315,6 +320,7 @@ const props = defineProps<{
   selectedPdfReadMode: "text" | "image";
   backgroundVoiceScreenshotKeywords: string;
   backgroundVoiceScreenshotMode: "desktop" | "focused_window";
+  instructionPresets: PromptCommandPreset[];
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   sttCapableApiConfigs: ApiConfigItem[];
@@ -421,6 +427,7 @@ const props = defineProps<{
   updateSelectedPdfReadMode: (value: "text" | "image") => void;
   updateBackgroundVoiceScreenshotKeywords: (value: string) => void;
   updateBackgroundVoiceScreenshotMode: (value: "desktop" | "focused_window") => void;
+  updateInstructionPresets: (value: PromptCommandPreset[]) => void;
   saveChatSettings: () => void;
   setTheme: (value: string) => void;
   refreshModels: () => void;
@@ -451,6 +458,7 @@ const props = defineProps<{
   saveAgentAvatar: (input: { agentId: string; mime: string; bytesBase64: string }) => void;
   clearAgentAvatar: (input: { agentId: string }) => void;
   updateChatInput: (value: string) => void;
+  updateSelectedInstructionPrompts: (value: PromptCommandPreset[]) => void;
   updateSelectedChatModelId: (value: string) => void;
   setSideConversationListVisible: (value: boolean) => void;
   removeClipboardImage: (index: number) => void;

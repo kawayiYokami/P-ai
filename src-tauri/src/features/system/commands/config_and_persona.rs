@@ -223,6 +223,7 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
         pdf_read_mode: data.pdf_read_mode.clone(),
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
+        instruction_presets: data.instruction_presets.clone(),
     };
     drop(guard);
     Ok(AppBootstrapSnapshot {
@@ -728,6 +729,7 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
         pdf_read_mode: data.pdf_read_mode.clone(),
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
+        instruction_presets: data.instruction_presets.clone(),
     })
 }
 
@@ -765,6 +767,16 @@ fn save_chat_settings(
         .to_string();
     data.background_voice_screenshot_mode =
         normalize_background_voice_screenshot_mode(&input.background_voice_screenshot_mode);
+    data.instruction_presets = input
+        .instruction_presets
+        .into_iter()
+        .map(|item| PromptCommandPreset {
+            id: item.id.trim().to_string(),
+            name: item.name.trim().to_string(),
+            prompt: item.prompt.trim().to_string(),
+        })
+        .filter(|item| !item.id.is_empty() && !item.name.is_empty() && !item.prompt.is_empty())
+        .collect::<Vec<_>>();
     state_write_app_data_cached(&state, &data)?;
     drop(guard);
 
@@ -775,6 +787,7 @@ fn save_chat_settings(
         pdf_read_mode: data.pdf_read_mode,
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords,
         background_voice_screenshot_mode: data.background_voice_screenshot_mode,
+        instruction_presets: data.instruction_presets,
     };
 
     let _ = app.emit("easy-call:chat-settings-updated", &payload);

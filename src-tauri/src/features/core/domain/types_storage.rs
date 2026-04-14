@@ -77,6 +77,14 @@ impl MemoryEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PromptCommandPreset {
+    id: String,
+    name: String,
+    prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppData {
     version: u32,
     agents: Vec<AgentProfile>,
@@ -96,6 +104,8 @@ struct AppData {
     background_voice_screenshot_keywords: String,
     #[serde(default = "default_background_voice_screenshot_mode")]
     background_voice_screenshot_mode: String,
+    #[serde(default)]
+    instruction_presets: Vec<PromptCommandPreset>,
     #[serde(default)]
     main_conversation_id: Option<String>,
     conversations: Vec<Conversation>,
@@ -126,6 +136,7 @@ impl Default for AppData {
             pdf_read_mode: default_pdf_read_mode(),
             background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
+            instruction_presets: Vec::new(),
             main_conversation_id: None,
             conversations: Vec::new(),
             archived_conversations: Vec::new(),

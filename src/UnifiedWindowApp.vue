@@ -97,6 +97,7 @@
       :clipboard-images="clipboardImages"
       :queued-attachment-notices="queuedAttachmentNotices"
       :chat-input="chatInput"
+      :instruction-presets="instructionPresets"
       :chat-input-placeholder="chatInputPlaceholder"
       :speech-recognition-supported="speechRecognitionSupported"
       :recording="recording"
@@ -189,6 +190,7 @@
       :save-agent-avatar="saveAgentAvatar"
       :clear-agent-avatar="clearAgentAvatar"
       :update-chat-input="handleChatInputUpdate"
+      :update-selected-instruction-prompts="updateSelectedInstructionPrompts"
       :update-selected-chat-model-id="updateAssistantDepartmentApiConfigId"
       :set-side-conversation-list-visible="handleSideConversationListVisibleChange"
       :remove-clipboard-image="removeClipboardImage"
@@ -523,6 +525,7 @@ import type {
   PersonaProfile,
   AppConfig,
   ChatMessage,
+  PromptCommandPreset,
   ChatTodoItem,
   ChatPersonaPresenceChip,
   ImageTextCacheStats,
@@ -648,6 +651,8 @@ const selectedResponseStyleId = ref("concise");
 const selectedPdfReadMode = ref<"text" | "image">("image");
 const backgroundVoiceScreenshotKeywords = ref("");
 const backgroundVoiceScreenshotMode = ref<"desktop" | "focused_window">("focused_window");
+const instructionPresets = ref<PromptCommandPreset[]>([]);
+const selectedInstructionPrompts = ref<PromptCommandPreset[]>([]);
 const chatInput = ref("");
 const currentChatConversationId = ref("");
 const sideConversationListVisible = ref(false);
@@ -669,6 +674,18 @@ const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; relati
 
 function handleChatInputUpdate(value: string) {
   chatInput.value = value;
+}
+
+function updateSelectedInstructionPrompts(value: PromptCommandPreset[]) {
+  selectedInstructionPrompts.value = Array.isArray(value)
+    ? value
+        .map((item) => ({
+          id: String(item?.id || "").trim(),
+          name: String(item?.name || "").trim(),
+          prompt: String(item?.prompt || "").trim(),
+        }))
+        .filter((item) => !!item.id && !!item.name && !!item.prompt)
+    : [];
 }
 
 function handleSideConversationListVisibleChange(value: boolean) {
@@ -1895,6 +1912,18 @@ function updateBackgroundVoiceScreenshotMode(value: "desktop" | "focused_window"
   backgroundVoiceScreenshotMode.value = value;
 }
 
+function updateInstructionPresets(value: PromptCommandPreset[]) {
+  instructionPresets.value = Array.isArray(value)
+    ? value
+        .map((item) => ({
+          id: String(item?.id || "").trim(),
+          name: String(item?.name || "").trim(),
+          prompt: String(item?.prompt || "").trim(),
+        }))
+        .filter((item) => !!item.id && !!item.name && !!item.prompt)
+    : [];
+}
+
 function parseBackgroundVoiceScreenshotKeywords(raw: string): string[] {
   return Array.from(
     new Set(
@@ -2068,6 +2097,7 @@ const configPersistence = useConfigPersistence({
   selectedPdfReadMode,
   backgroundVoiceScreenshotKeywords,
   backgroundVoiceScreenshotMode,
+  instructionPresets,
   responseStyleIds,
   createApiConfig,
   normalizeApiBindingsLocal,
@@ -2757,6 +2787,15 @@ const appBootstrap = useAppBootstrap({
     if (payload.backgroundVoiceScreenshotMode === "desktop" || payload.backgroundVoiceScreenshotMode === "focused_window") {
       backgroundVoiceScreenshotMode.value = payload.backgroundVoiceScreenshotMode;
     }
+    if (Array.isArray(payload.instructionPresets)) {
+      instructionPresets.value = payload.instructionPresets
+        .map((item) => ({
+          id: String(item?.id || "").trim(),
+          name: String(item?.name || "").trim(),
+          prompt: String(item?.prompt || "").trim(),
+        }))
+        .filter((item) => !!item.id && !!item.name && !!item.prompt);
+    }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();
     }
@@ -3349,6 +3388,7 @@ const chatFlow = useChatFlow({
   },
   getConversationId: () => String(currentChatConversationId.value || "").trim(),
   chatInput,
+  selectedInstructionPrompts,
   clipboardImages,
   queuedAttachmentNotices,
   latestUserText,
@@ -3674,6 +3714,7 @@ useAppWatchers({
   selectedPdfReadMode,
   backgroundVoiceScreenshotKeywords,
   backgroundVoiceScreenshotMode,
+  instructionPresets,
   selectedApiConfig,
   toolApiConfig,
   activeChatApiConfigId: assistantDepartmentApiConfigId,

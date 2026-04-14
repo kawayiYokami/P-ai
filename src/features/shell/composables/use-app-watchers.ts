@@ -1,5 +1,5 @@
 import { watch, type ComputedRef, type Ref } from "vue";
-import type { ApiConfigItem, AppConfig, PdfReadMode, PersonaProfile, ToolLoadStatus } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, PdfReadMode, PersonaProfile, PromptCommandPreset, ToolLoadStatus } from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -17,6 +17,7 @@ type UseAppWatchersOptions = {
   selectedPdfReadMode: Ref<PdfReadMode>;
   backgroundVoiceScreenshotKeywords: Ref<string>;
   backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
+  instructionPresets: Ref<PromptCommandPreset[]>;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
   activeChatApiConfigId: ComputedRef<string>;
@@ -181,6 +182,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       pdfReadMode: options.selectedPdfReadMode.value,
       backgroundVoiceScreenshotKeywords: options.backgroundVoiceScreenshotKeywords.value,
       backgroundVoiceScreenshotMode: options.backgroundVoiceScreenshotMode.value,
+      instructionPresets: JSON.stringify(options.instructionPresets.value),
     }),
     () => {
       if (options.suppressAutosave.value) return;

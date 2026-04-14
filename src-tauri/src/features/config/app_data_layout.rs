@@ -158,6 +158,8 @@ struct RuntimeStateFile {
     #[serde(default = "default_background_voice_screenshot_mode")]
     background_voice_screenshot_mode: String,
     #[serde(default)]
+    instruction_presets: Vec<PromptCommandPreset>,
+    #[serde(default)]
     main_conversation_id: Option<String>,
     #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
@@ -175,6 +177,7 @@ impl Default for RuntimeStateFile {
             pdf_read_mode: default_pdf_read_mode(),
             background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
+            instruction_presets: Vec::new(),
             main_conversation_id: None,
             image_text_cache: Vec::new(),
             remote_im_contacts: Vec::new(),
@@ -330,6 +333,8 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         background_voice_screenshot_keywords: String,
         #[serde(default = "default_background_voice_screenshot_mode")]
         background_voice_screenshot_mode: String,
+        #[serde(default)]
+        instruction_presets: Vec<PromptCommandPreset>,
     }
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     #[serde(rename_all = "camelCase")]
@@ -364,6 +369,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
             background_voice_screenshot_mode: defaults
                 .background_voice_screenshot_mode
                 .clone(),
+            instruction_presets: defaults.instruction_presets.clone(),
         }
     };
     let conversations = if conversations_path.exists() {
@@ -386,6 +392,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         pdf_read_mode: profile.pdf_read_mode,
         background_voice_screenshot_keywords: profile.background_voice_screenshot_keywords,
         background_voice_screenshot_mode: profile.background_voice_screenshot_mode,
+        instruction_presets: profile.instruction_presets,
         main_conversation_id: None,
         conversations: conversations.conversations,
         archived_conversations: Vec::new(),
@@ -450,6 +457,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
         pdf_read_mode: runtime.pdf_read_mode,
         background_voice_screenshot_keywords: runtime.background_voice_screenshot_keywords,
         background_voice_screenshot_mode: runtime.background_voice_screenshot_mode,
+        instruction_presets: runtime.instruction_presets,
         main_conversation_id: runtime.main_conversation_id,
         conversations,
         archived_conversations: Vec::new(),
@@ -500,6 +508,7 @@ fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
         pdf_read_mode: data.pdf_read_mode.clone(),
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
+        instruction_presets: data.instruction_presets.clone(),
         main_conversation_id: data.main_conversation_id.clone(),
         image_text_cache: data.image_text_cache.clone(),
         remote_im_contacts: data.remote_im_contacts.clone(),

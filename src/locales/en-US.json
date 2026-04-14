@@ -689,6 +689,8 @@
     "abstract": "Abstract"
   },
   "chat": {
+    "command": "Command",
+    "noInstructionPresets": "No instruction presets yet",
     "loadMore": "Load more...",
     "stop": "Stop",
     "stopReplying": "Stop Replying",

@@ -15,6 +15,7 @@ type ChatSettingsPayload = {
   pdfReadMode?: "text" | "image";
   backgroundVoiceScreenshotKeywords?: string;
   backgroundVoiceScreenshotMode?: "desktop" | "focused_window";
+  instructionPresets?: Array<{ id: string; name: string; prompt: string }>;
 };
 
 export type TerminalApprovalRequestPayload = {

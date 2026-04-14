@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { ref, type Ref } from "vue";
-import type { ChatMessage } from "../../../types/app";
+import type { ChatMessage, PromptCommandPreset } from "../../../types/app";
 
 // ---------------------------------------------------------------------------
 // 1. 类型声明
@@ -43,6 +43,7 @@ type UseChatFlowOptions = {
   getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
   getConversationId?: () => string;
   chatInput: Ref<string>;
+  selectedInstructionPrompts?: Ref<PromptCommandPreset[]>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
   queuedAttachmentNotices?: Ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>;
   latestUserText: Ref<string>;
@@ -308,6 +309,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
       dedup.set(key, { fileName, relativePath, mime });
     }
     return Array.from(dedup.values());
+  }
+
+  function buildInstructionExtraTextBlocks(): string[] {
+    const list = options.selectedInstructionPrompts?.value || [];
+    if (list.length === 0) return [];
+    return list
+      .map((item) => {
+        const prompt = String(item?.prompt || "").trim();
+        if (!prompt) return "";
+        return `<user instruction>\n${prompt}\n</user instruction>`;
+      })
+      .filter((item) => !!item);
   }
 
   // =========================================================================
@@ -1179,7 +1192,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   async function sendChat() {
     const plainText = options.chatInput.value.trim();
     const queuedAttachments = buildQueuedAttachmentPayload();
-    if (!plainText && options.clipboardImages.value.length === 0 && queuedAttachments.length === 0) return;
+    const instructionExtraTextBlocks = buildInstructionExtraTextBlocks();
+    if (!plainText && options.clipboardImages.value.length === 0 && queuedAttachments.length === 0 && instructionExtraTextBlocks.length === 0) return;
     const sendSession = options.getSession();
     if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
@@ -1226,6 +1240,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         displayText: plainText,
         images: sentImages,
         attachments: attachments.length > 0 ? attachments : undefined,
+        extraTextBlocks: instructionExtraTextBlocks.length > 0 ? instructionExtraTextBlocks : undefined,
         session: {
           ...sendSession,
           conversationId: options.getConversationId ? options.getConversationId() : "",

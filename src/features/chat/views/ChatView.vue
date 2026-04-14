@@ -200,6 +200,7 @@
         <ChatComposerPanel
           ref="composerPanelRef"
           :chat-input="chatInput"
+          :instruction-presets="instructionPresets"
           :chat-input-placeholder="chatInputPlaceholder"
           :clipboard-images="clipboardImages"
           :queued-attachment-notices="queuedAttachmentNotices"
@@ -276,7 +277,7 @@ import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, ListTodo } from "lucide-vue-next";
 import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, PromptCommandPreset } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
@@ -313,6 +314,7 @@ const props = defineProps<{
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; relativePath: string; mime: string }>;
   chatInput: string;
+  instructionPresets: PromptCommandPreset[];
   chatInputPlaceholder: string;
   canRecord: boolean;
   recording: boolean;
@@ -466,6 +468,7 @@ const activeTurnUserId = computed(() => activeTurnGroupId.value);
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
+  (e: "update:selectedInstructionPrompts", value: PromptCommandPreset[]): void;
   (e: "sideConversationListVisibleChange", value: boolean): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
