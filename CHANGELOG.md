@@ -1,5 +1,14 @@
 # 变更日志
 
+## 更新：会话主工作目录 AGENTS 自动注入系统提示词
+
+- 功能（workspace-main-agents-md-injection）：当当前会话存在用户指定的 main 工作目录时，自动读取其根目录下的全大写 `AGENTS.md`，并追加到系统提示词末尾
+  - 只检查当前会话 `shell_workspaces` 中 `built_in=false` 且 `level=main` 的工作目录，不再回退到 system workspace
+  - 仅检查 main workspace 根目录下的 `AGENTS.md`，不递归搜索，不扫描 secondary workspace，也不读取小写 `agents.md`
+  - 正式聊天发送链路与 prompt 预览链路统一接入同一套 `AGENTS.md` 注入逻辑，避免预览与真实请求不一致
+  - `AGENTS.md` 不存在、为空或读取失败时降级跳过，并记录 `[AGENTS注入]` 日志，不阻断聊天主流程
+  - 新增回归测试，覆盖用户 main workspace 命中注入、built-in workspace 跳过、仅 secondary workspace 跳过三类边界
+
 ## 更新：百炼多模态临时 URL 缓存与预览同路
 
 - 功能（aliyun-bailian-multimodal-url-cache）：为阿里云百炼新增多模态临时 URL 缓存，并让请求体预览与真实发送共用同一套媒体注入分支

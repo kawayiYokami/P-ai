@@ -220,6 +220,65 @@ fn build_user_profile_memory_board(
     ))
 }
 
+fn conversation_user_main_workspace_root(conversation: &Conversation, state: &AppState) -> Option<PathBuf> {
+    conversation
+        .shell_workspaces
+        .iter()
+        .find(|workspace| {
+            !workspace.built_in
+                && normalize_shell_workspace_level_text(&workspace.level) == SHELL_WORKSPACE_LEVEL_MAIN
+        })
+        .and_then(|workspace| shell_workspace_resolve_path_candidate(state, workspace))
+}
+
+fn build_workspace_agents_md_block(conversation: &Conversation, state: &AppState) -> Option<String> {
+    let Some(workspace_root) = conversation_user_main_workspace_root(conversation, state) else {
+        eprintln!("[AGENTS注入] 跳过 main_workspace=（无） reason=未命中用户指定main工作目录");
+        return None;
+    };
+    let agents_path = workspace_root.join("AGENTS.md");
+    if !agents_path.is_file() {
+        eprintln!(
+            "[AGENTS注入] 跳过 main_workspace={} reason=根目录缺少AGENTS.md",
+            workspace_root.display()
+        );
+        return None;
+    }
+    match std::fs::read_to_string(&agents_path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            if trimmed.is_empty() {
+                eprintln!(
+                    "[AGENTS注入] 跳过 main_workspace={} reason=AGENTS.md为空",
+                    workspace_root.display()
+                );
+                return None;
+            }
+            eprintln!(
+                "[AGENTS注入] 完成 main_workspace={} chars={}",
+                workspace_root.display(),
+                trimmed.chars().count()
+            );
+            Some(prompt_xml_block(
+                "workspace agents",
+                format!(
+                    "以下内容来自当前主工作目录根下的 AGENTS.md，请将其视为该项目开发准则。\n\n路径：{}\n\n{}",
+                    agents_path.display(),
+                    trimmed
+                ),
+            ))
+        }
+        Err(err) => {
+            eprintln!(
+                "[AGENTS注入] 失败 main_workspace={} path={} error={err}",
+                workspace_root.display(),
+                agents_path.display()
+            );
+            None
+        }
+    }
+}
+
 fn enrich_prepared_prompt_with_common_preamble(
     mut prepared: PreparedPrompt,
     _last_archive_summary: Option<&str>,
@@ -281,6 +340,8 @@ fn apply_chat_latest_user_payload(
 #[cfg(test)]
 mod prompt_assembly_tests {
     use super::*;
+    use std::collections::{HashMap, HashSet, VecDeque};
+    use std::sync::{Arc, Mutex};
 
     fn temp_data_path(name: &str) -> PathBuf {
         let root = std::env::temp_dir()
@@ -332,5 +393,157 @@ mod prompt_assembly_tests {
         );
         assert!(enriched.preamble.contains("用户画像记忆"));
         assert!(!enriched.preamble.contains("上次我们聊到哪里"));
+    }
+
+    fn build_test_state(llm_workspace_path: PathBuf) -> AppState {
+        let terminal_shell = detect_default_terminal_shell();
+        AppState {
+            app_handle: Arc::new(Mutex::new(None)),
+            config_path: llm_workspace_path.join("app_config.toml"),
+            data_path: llm_workspace_path.join("app_data.json"),
+            llm_workspace_path,
+            shared_http_client: reqwest::Client::new(),
+            terminal_shell: terminal_shell.clone(),
+            terminal_shell_candidates: vec![terminal_shell],
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
+            cached_config: Arc::new(Mutex::new(None)),
+            cached_config_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data: Arc::new(Mutex::new(None)),
+            cached_app_data_mtime: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(HashMap::new())),
+            terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(VecDeque::new())),
+            conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
+            pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),
+            pending_chat_delta_channels: Arc::new(Mutex::new(HashMap::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(HashMap::new())),
+            dequeue_lock: Arc::new(Mutex::new(())),
+            delegate_runtime_threads: Arc::new(Mutex::new(HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(HashMap::new())),
+            provider_system_message_user_fallback_keys: Arc::new(Mutex::new(HashSet::new())),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
+            preferred_release_source: Arc::new(Mutex::new(String::new())),
+        }
+    }
+
+    fn build_test_conversation(workspaces: Vec<ShellWorkspaceConfig>) -> Conversation {
+        Conversation {
+            id: "conv-1".to_string(),
+            title: "test".to_string(),
+            agent_id: "assistant".to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            last_read_message_id: String::new(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now_iso(),
+            updated_at: now_iso(),
+            last_user_at: None,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            last_effective_prompt_tokens: 0,
+            status: "active".to_string(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: workspaces,
+            archived_at: None,
+            messages: Vec::new(),
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn build_workspace_agents_md_block_should_inject_user_main_workspace_agents() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-prompt-assembly-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("llm-workspace");
+        let project_root = temp_root.join("project-main");
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        fs::create_dir_all(&project_root).expect("create project root");
+        fs::write(
+            project_root.join("AGENTS.md"),
+            "# AGENTS.md\n\n- use pnpm\n- run tests",
+        )
+        .expect("write agents");
+        let state = build_test_state(llm_workspace_path);
+        let conversation = build_test_conversation(vec![ShellWorkspaceConfig {
+            id: "main-1".to_string(),
+            name: "project".to_string(),
+            path: terminal_path_for_user(&project_root),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        }]);
+
+        let block = build_workspace_agents_md_block(&conversation, &state).expect("agents block");
+
+        assert!(block.contains("当前主工作目录根下的 AGENTS.md"));
+        assert!(block.contains("use pnpm"));
+        assert!(block.contains("run tests"));
+    }
+
+    #[test]
+    fn build_workspace_agents_md_block_should_skip_built_in_main_workspace() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-prompt-assembly-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("llm-workspace");
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        fs::write(llm_workspace_path.join("AGENTS.md"), "# AGENTS.md\n\nshould skip")
+            .expect("write agents");
+        let state = build_test_state(llm_workspace_path.clone());
+        let conversation = build_test_conversation(vec![ShellWorkspaceConfig {
+            id: "system-workspace".to_string(),
+            name: "派蒙的家".to_string(),
+            path: terminal_path_for_user(&llm_workspace_path),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: true,
+        }]);
+
+        assert!(build_workspace_agents_md_block(&conversation, &state).is_none());
+    }
+
+    #[test]
+    fn build_workspace_agents_md_block_should_skip_when_only_secondary_workspace_exists() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-prompt-assembly-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("llm-workspace");
+        let project_root = temp_root.join("project-secondary");
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        fs::create_dir_all(&project_root).expect("create project root");
+        fs::write(project_root.join("AGENTS.md"), "# AGENTS.md\n\nshould skip")
+            .expect("write agents");
+        let state = build_test_state(llm_workspace_path);
+        let conversation = build_test_conversation(vec![ShellWorkspaceConfig {
+            id: "secondary-1".to_string(),
+            name: "project".to_string(),
+            path: terminal_path_for_user(&project_root),
+            level: SHELL_WORKSPACE_LEVEL_SECONDARY.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        }]);
+
+        assert!(build_workspace_agents_md_block(&conversation, &state).is_none());
     }
 }

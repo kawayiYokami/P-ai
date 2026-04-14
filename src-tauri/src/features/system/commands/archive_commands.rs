@@ -150,27 +150,33 @@ async fn get_prompt_preview(
         .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
         .map(|c| c.summary.clone());
     let mut prepared = match preview_mode {
-        PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
-            PromptBuildMode::Chat,
-            &conversation,
-            &agent,
-            &data.agents,
-            &app_config.departments,
-            &user_name,
-            &user_intro,
-            &data.response_style_id,
-            &app_config.ui_language,
-            Some(&state.data_path),
-            last_archive_summary.as_deref(),
-            terminal_prompt_trusted_roots_block(&state, &api_config, Some(&conversation)),
-            Some(ChatPromptOverrides {
-                system_preamble_blocks: vec![build_hidden_skill_snapshot_block(&state)],
-                ..Default::default()
-            }),
-            Some(&*state),
-            Some(&resolved_api),
-            Some(data.pdf_read_mode == "image" && api_config.enable_image),
-        ),
+        PromptPreviewMode::Chat => {
+            let mut system_preamble_blocks = vec![build_hidden_skill_snapshot_block(&state)];
+            if let Some(workspace_agents_block) = build_workspace_agents_md_block(&conversation, &state) {
+                system_preamble_blocks.push(workspace_agents_block);
+            }
+            build_prepared_prompt_for_mode(
+                PromptBuildMode::Chat,
+                &conversation,
+                &agent,
+                &data.agents,
+                &app_config.departments,
+                &user_name,
+                &user_intro,
+                &data.response_style_id,
+                &app_config.ui_language,
+                Some(&state.data_path),
+                last_archive_summary.as_deref(),
+                terminal_prompt_trusted_roots_block(&state, &api_config, Some(&conversation)),
+                Some(ChatPromptOverrides {
+                    system_preamble_blocks,
+                    ..Default::default()
+                }),
+                Some(&*state),
+                Some(&resolved_api),
+                Some(data.pdf_read_mode == "image" && api_config.enable_image),
+            )
+        }
         PromptPreviewMode::Compaction | PromptPreviewMode::Archive => {
             let host_agent_id = choose_archive_host_agent_id(&data, &conversation, &effective_agent_id);
             let host_agent = data

@@ -1806,6 +1806,11 @@ async fn send_chat_message_inner(
         chat_overrides
             .system_preamble_blocks
             .push(build_hidden_skill_snapshot_block(&state));
+        if let Some(workspace_agents_block) = build_workspace_agents_md_block(&conversation, &state) {
+            chat_overrides
+                .system_preamble_blocks
+                .push(workspace_agents_block);
+        }
         if todo_enabled {
             chat_overrides
                 .system_preamble_blocks
