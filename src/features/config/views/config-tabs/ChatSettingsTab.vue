@@ -14,14 +14,14 @@
     <!-- 语音转写（STT） -->
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
-        <h3 class="card-title text-base mb-3">语音转写（STT）</h3>
+        <h3 class="card-title text-base mb-3">{{ t("config.chatSettings.sttTitle") }}</h3>
         <div class="flex items-center gap-2">
           <select :value="config.sttApiConfigId ?? ''" class="select select-bordered select-sm flex-1" @change="onSttSelectChange">
-            <option value="">本地（Web Speech）</option>
+            <option value="">{{ t("config.chatSettings.sttLocalWebSpeech") }}</option>
             <option v-for="a in sttCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
           <label class="inline-flex cursor-pointer items-center gap-1 py-0">
-            <span class="text-sm">完成后发送</span>
+            <span class="text-sm">{{ t("config.chatSettings.sttAutoSend") }}</span>
             <input
               :checked="!!config.sttAutoSend"
               type="checkbox"
@@ -121,22 +121,22 @@
       <div class="card-body p-4 gap-3">
         <div class="flex items-center justify-between gap-2">
           <div>
-            <h3 class="card-title text-base">指令预设</h3>
-            <div class="text-xs opacity-70 mt-1">维护输入面板可复用的极短指令；发送时会作为文本附件附加到本轮消息。</div>
+            <h3 class="card-title text-base">{{ t("config.chatSettings.instructionPresetsTitle") }}</h3>
+            <div class="text-xs opacity-70 mt-1">{{ t("config.chatSettings.instructionPresetsHint") }}</div>
           </div>
           <button class="btn btn-sm btn-ghost shrink-0" @click="addInstructionPreset">
             <Plus class="h-4 w-4" />
-            <span>新增</span>
+            <span>{{ t("config.chatSettings.addInstructionPreset") }}</span>
           </button>
         </div>
-        <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">暂无指令预设</div>
+        <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">{{ t("config.chatSettings.noInstructionPresets") }}</div>
         <div v-else class="overflow-hidden rounded-box border border-base-300 bg-base-200/20">
           <div v-for="item in instructionPresetsDraft" :key="item.id" class="flex items-center gap-2 border-b border-base-300 px-3 py-2 last:border-b-0">
             <input
               v-model="item.prompt"
               type="text"
               class="input input-ghost input-sm flex-1"
-              placeholder="输入极短指令，例如：结果整理成表格"
+              :placeholder="t('config.chatSettings.instructionPresetPlaceholder')"
             />
             <button class="btn btn-sm btn-ghost btn-square shrink-0" @click="removeInstructionPreset(item.id)">
               <Trash2 class="h-4 w-4" />
@@ -144,7 +144,7 @@
           </div>
         </div>
         <div class="flex justify-end">
-          <button class="btn btn-sm btn-primary" :disabled="!instructionPresetsDirty" @click="saveInstructionPresets">保存指令预设</button>
+          <button class="btn btn-sm btn-primary" :disabled="!instructionPresetsDirty" @click="saveInstructionPresets">{{ t("config.chatSettings.saveInstructionPresets") }}</button>
         </div>
       </div>
     </div>
@@ -152,7 +152,7 @@
     <!-- 快捷操作 -->
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
-        <h3 class="card-title text-base mb-3">快捷操作</h3>
+        <h3 class="card-title text-base mb-3">{{ t("config.chatSettings.quickActionsTitle") }}</h3>
         <div class="grid grid-cols-3 gap-2">
           <button class="btn btn-sm bg-base-200 border-base-300 hover:bg-base-300 whitespace-nowrap" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
           <button class="btn btn-sm bg-base-200 border-base-300 hover:bg-base-300 whitespace-nowrap" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>

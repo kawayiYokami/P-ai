@@ -32,6 +32,10 @@
       "appearance": "外观",
       "about": "关于"
     },
+    "search": {
+      "placeholder": "搜尋設定並跳轉...",
+      "noResults": "沒有找到相關設定"
+    },
     "language": {
       "label": "界面语言",
       "zhCN": "簡體中文",
@@ -412,6 +416,9 @@
     "chatSettings": {
       "chatLlmProvider": "助理部門驅動模型",
       "visionApi": "图转文AI（可选）",
+      "sttTitle": "語音轉寫（STT）",
+      "sttLocalWebSpeech": "本地（Web Speech）",
+      "sttAutoSend": "完成後發送",
       "noVision": "不配置",
       "assistantPersona": "助理部門主人格",
       "responseStyle": "对话风格",
@@ -427,6 +434,13 @@
       "backgroundVoiceScreenshotModeFocusedWindow": "前台視窗",
       "backgroundVoiceScreenshotModeHint": "命中關鍵詞後按此範圍截圖並附加到本輪消息。",
       "saveBackgroundVoiceScreenshotSettings": "保存截圖設定",
+      "instructionPresetsTitle": "指令預設",
+      "instructionPresetsHint": "維護輸入面板可重用的極短指令；發送時會作為文字附件附加到本輪消息。",
+      "addInstructionPreset": "新增",
+      "noInstructionPresets": "暫無指令預設",
+      "instructionPresetPlaceholder": "輸入極短指令，例如：結果整理成表格",
+      "saveInstructionPresets": "保存指令預設",
+      "quickActionsTitle": "快捷操作",
       "openCurrentHistory": "歸檔管理",
       "previewRequest": "预览请求体",
       "previewSystemPrompt": "系统提示词",
