@@ -32,6 +32,10 @@
       "appearance": "Appearance",
       "about": "About"
     },
+    "search": {
+      "placeholder": "Search settings...",
+      "noResults": "No matching settings"
+    },
     "language": {
       "label": "UI Language",
       "zhCN": "Chinese",
@@ -412,6 +416,9 @@
     "chatSettings": {
       "chatLlmProvider": "Assistant Department Model",
       "visionApi": "Vision API (Optional)",
+      "sttTitle": "Speech-to-Text (STT)",
+      "sttLocalWebSpeech": "Local (Web Speech)",
+      "sttAutoSend": "Send on completion",
       "noVision": "Not set",
       "assistantPersona": "Assistant Department Persona",
       "responseStyle": "Response Style",
@@ -427,6 +434,13 @@
       "backgroundVoiceScreenshotModeFocusedWindow": "Foreground Window",
       "backgroundVoiceScreenshotModeHint": "When a keyword matches, capture with this scope and attach to the current message.",
       "saveBackgroundVoiceScreenshotSettings": "Save Screenshot Settings",
+      "instructionPresetsTitle": "Instruction Presets",
+      "instructionPresetsHint": "Maintain short reusable instructions for the composer. They are attached to the current message as text blocks when sending.",
+      "addInstructionPreset": "Add",
+      "noInstructionPresets": "No instruction presets yet",
+      "instructionPresetPlaceholder": "Enter a short instruction, e.g. Format the result as a table",
+      "saveInstructionPresets": "Save Instruction Presets",
+      "quickActionsTitle": "Quick Actions",
       "openCurrentHistory": "Archive Manager",
       "previewRequest": "Request",
       "previewSystemPrompt": "System Prompt",

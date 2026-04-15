@@ -22,10 +22,15 @@
       :window-ready="windowReady"
       :open-config-title="t('window.configTitle')"
       :close-title="t('common.close')"
+      :config-search-query="configSearchQuery"
+      :config-search-results="configSearchResults"
+      :config-search-placeholder="t('config.search.placeholder')"
       @open-archives="openCurrentHistory"
       @open-config="openConfigWindow"
       @minimize-window="minimizeWindowAndClearForeground"
       @toggle-maximize-window="toggleMaximizeWindow"
+      @update:config-search-query="updateConfigSearchQuery"
+      @select-config-search-result="handleSelectConfigSearchResult"
       @switch-conversation="switchUnarchivedConversation"
       @rename-conversation="renameCurrentConversation"
       @create-conversation="createUnarchivedConversation"
@@ -538,6 +543,7 @@ import type {
 } from "./types/app";
 import responseStylesJson from "./constants/response-styles.json";
 import { normalizeLocale } from "./i18n";
+import { searchConfigTabs, type ConfigSearchResult, type ConfigSearchTab } from "./features/config/search/config-search";
 
 const props = withDefaults(defineProps<{ fixedViewMode?: "chat" | "archives" | "config" }>(), {
   fixedViewMode: undefined,
@@ -644,7 +650,12 @@ let foregroundPaintTraceSeq = 0;
 let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let chatMicPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
 let foregroundConversationCacheRaf = 0;
-const configTab = ref<"hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about">("hotkey");
+const configTab = ref<ConfigSearchTab>("hotkey");
+const configSearchQuery = ref("");
+const configSearchResults = computed<ConfigSearchResult[]>(() => {
+  if (viewMode.value !== "config") return [];
+  return searchConfigTabs(configSearchQuery.value, normalizeLocale(config.uiLanguage));
+});
 const personas = ref<PersonaProfile[]>([]);
 const assistantDepartmentAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");
@@ -676,6 +687,15 @@ const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; relati
 
 function handleChatInputUpdate(value: string) {
   chatInput.value = value;
+}
+
+function updateConfigSearchQuery(value: string) {
+  configSearchQuery.value = String(value || "");
+}
+
+function handleSelectConfigSearchResult(tab: ConfigSearchTab) {
+  configTab.value = tab;
+  configSearchQuery.value = "";
 }
 
 function updateSelectedInstructionPrompts(value: PromptCommandPreset[]) {

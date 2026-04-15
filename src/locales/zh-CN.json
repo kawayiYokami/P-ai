@@ -32,6 +32,10 @@
       "appearance": "外观",
       "about": "关于"
     },
+    "search": {
+      "placeholder": "搜索设置并跳转...",
+      "noResults": "没有找到相关设置"
+    },
     "language": {
       "label": "界面语言",
       "zhCN": "简体中文",
@@ -412,6 +416,9 @@
     "chatSettings": {
       "chatLlmProvider": "助理部门驱动模型",
       "visionApi": "图转文AI（可选）",
+      "sttTitle": "语音转写（STT）",
+      "sttLocalWebSpeech": "本地（Web Speech）",
+      "sttAutoSend": "完成后发送",
       "noVision": "不配置",
       "assistantPersona": "助理部门主人格",
       "responseStyle": "对话风格",
@@ -427,6 +434,13 @@
       "backgroundVoiceScreenshotModeFocusedWindow": "前台窗口",
       "backgroundVoiceScreenshotModeHint": "命中关键词后按此范围截图并附加到本轮消息。",
       "saveBackgroundVoiceScreenshotSettings": "保存截图设置",
+      "instructionPresetsTitle": "指令预设",
+      "instructionPresetsHint": "维护输入面板可复用的极短指令；发送时会作为文本附件附加到本轮消息。",
+      "addInstructionPreset": "新增",
+      "noInstructionPresets": "暂无指令预设",
+      "instructionPresetPlaceholder": "输入极短指令，例如：结果整理成表格",
+      "saveInstructionPresets": "保存指令预设",
+      "quickActionsTitle": "快捷操作",
       "openCurrentHistory": "归档管理",
       "previewRequest": "预览请求体",
       "previewSystemPrompt": "系统提示词",

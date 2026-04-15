@@ -1,7 +1,7 @@
 <template>
   <div
-    class="navbar min-h-10 h-10 shrink-0 px-2 relative z-40 overflow-visible select-none"
-    :class="viewMode === 'chat' ? '' : 'bg-base-200 border-b border-base-300'"
+    class="min-h-10 h-10 shrink-0 px-2 relative z-40 overflow-visible select-none"
+    :class="viewMode === 'chat' ? 'navbar' : 'grid grid-cols-[1fr_auto_1fr] items-center bg-base-200 border-b border-base-300'"
   >
     <div v-if="viewMode !== 'chat'" data-tauri-drag-region class="absolute inset-0 cursor-move" aria-hidden="true"></div>
 
@@ -93,11 +93,55 @@
       <span class="truncate text-sm font-semibold text-base-content">{{ combinedTitle }}</span>
     </div>
 
-    <div v-if="viewMode !== 'chat'" class="pointer-events-none absolute left-1/2 top-1/2 z-0 flex -translate-x-1/2 -translate-y-1/2 items-center px-2">
-      <span class="font-semibold text-sm">{{ titleText }}</span>
+    <div v-if="viewMode !== 'chat'" class="relative z-10 min-w-0 justify-self-start" aria-hidden="true"></div>
+
+    <div
+      v-if="viewMode !== 'chat'"
+      class="relative z-10 w-fit min-w-0 flex items-center justify-center justify-self-center"
+      @mousedown.stop
+    >
+      <label
+        v-if="viewMode === 'config'"
+        ref="configSearchPopoverRef"
+        class="input input-bordered input-sm relative flex h-8 w-[min(18rem,calc(100vw-8rem))] items-center gap-2 bg-base-100"
+      >
+        <Search class="h-3.5 w-3.5 opacity-70" />
+        <input
+          ref="configSearchInputRef"
+          type="text"
+          class="w-full bg-transparent outline-none"
+          :value="configSearchQuery"
+          :placeholder="configSearchPlaceholder"
+          @focus="openConfigSearchPopover"
+          @input="handleConfigSearchInput"
+          @keydown="handleConfigSearchKeydown"
+        />
+        <div
+          v-if="configSearchOpen && String(configSearchQuery || '').trim()"
+          class="absolute left-0 top-full mt-2 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+        >
+          <button
+            v-for="result in configSearchResults"
+            :key="result.tab"
+            type="button"
+            class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-base-200"
+            @click="selectConfigSearchResult(result.tab)"
+          >
+            <span class="text-sm font-medium">{{ result.title }}</span>
+            <span v-if="result.matchedTexts[0]" class="text-xs opacity-60 truncate w-full">{{ result.matchedTexts[0] }}</span>
+          </button>
+          <div v-if="(configSearchResults || []).length === 0" class="px-3 py-3 text-sm opacity-60">
+            {{ t("config.search.noResults") }}
+          </div>
+        </div>
+      </label>
+
+      <div v-else class="pointer-events-none flex items-center px-2">
+        <span class="font-semibold text-sm">{{ titleText }}</span>
+      </div>
     </div>
 
-    <div class="relative z-10 ml-auto flex flex-none gap-1" @mousedown.stop>
+    <div class="relative z-10 flex justify-self-end gap-1" @mousedown.stop>
       <button
         v-if="viewMode === 'chat'"
         class="btn btn-ghost btn-sm"
@@ -197,9 +241,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { History, Minimize2, Minus, Settings, Square, SquarePen, TextAlignJustify, X } from "lucide-vue-next";
+import { History, Minimize2, Minus, Search, Settings, Square, SquarePen, TextAlignJustify, X } from "lucide-vue-next";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import ChatConversationListCard from "../../chat/components/ChatConversationListCard.vue";
+import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -234,6 +279,9 @@ const props = defineProps<{
   windowReady: boolean;
   openConfigTitle: string;
   closeTitle?: string;
+  configSearchQuery?: string;
+  configSearchResults?: ConfigSearchResult[];
+  configSearchPlaceholder?: string;
 }>();
 
 const emit = defineEmits<{
@@ -246,6 +294,8 @@ const emit = defineEmits<{
   (e: "create-conversation", input?: { title?: string; departmentId?: string }): void;
   (e: "force-archive"): void;
   (e: "close-window"): void;
+  (e: "update:config-search-query", value: string): void;
+  (e: "select-config-search-result", tab: ConfigSearchTab): void;
 }>();
 
 const { t } = useI18n();
@@ -291,11 +341,14 @@ const combinedTitleTooltip = computed(() => {
   return combinedTitle.value || props.currentPersonaName;
 });
 const conversationListPopoverRef = ref<HTMLElement | null>(null);
+const configSearchPopoverRef = ref<HTMLElement | null>(null);
+const configSearchInputRef = ref<HTMLInputElement | null>(null);
 const createConversationInputRef = ref<HTMLInputElement | null>(null);
 const recentConversationTopics = ref<string[]>([]);
 const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
+const configSearchOpen = ref(false);
 
 function loadRecentConversationTopics() {
   try {
@@ -354,17 +407,51 @@ function handleConversationRename(payload: { conversationId: string; title: stri
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
-  if (!conversationListOpen.value) return;
   const target = event.target as Node | null;
-  const root = conversationListPopoverRef.value;
-  if (root && target && !root.contains(target)) {
+  const conversationRoot = conversationListPopoverRef.value;
+  if (conversationListOpen.value && conversationRoot && target && !conversationRoot.contains(target)) {
     closeConversationList();
+  }
+  const searchRoot = configSearchPopoverRef.value;
+  if (configSearchOpen.value && searchRoot && target && !searchRoot.contains(target)) {
+    configSearchOpen.value = false;
   }
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {
   if (event.key === "Escape" && conversationListOpen.value) {
     closeConversationList();
+  }
+  if (event.key === "Escape" && configSearchOpen.value) {
+    configSearchOpen.value = false;
+  }
+}
+
+function openConfigSearchPopover() {
+  if (props.viewMode !== "config") return;
+  configSearchOpen.value = true;
+}
+
+function handleConfigSearchInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  emit("update:config-search-query", value);
+  configSearchOpen.value = true;
+}
+
+function selectConfigSearchResult(tab: ConfigSearchTab) {
+  emit("select-config-search-result", tab);
+  configSearchOpen.value = false;
+}
+
+function handleConfigSearchKeydown(event: KeyboardEvent) {
+  if (event.key === "Enter" && props.configSearchResults && props.configSearchResults.length > 0) {
+    event.preventDefault();
+    selectConfigSearchResult(props.configSearchResults[0].tab);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    configSearchOpen.value = false;
   }
 }
 
