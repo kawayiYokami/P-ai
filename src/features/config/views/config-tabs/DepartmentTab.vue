@@ -184,7 +184,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const selectedDepartmentId = ref("assistant-department");
-const NON_REMOVABLE_DEPARTMENT_IDS = new Set(["assistant-department", "deputy-department", "front-desk-department"]);
+const NON_REMOVABLE_DEPARTMENT_IDS = new Set(["assistant-department", "deputy-department"]);
 
 function isNonRemovableDepartment(department: DepartmentConfig | null | undefined) {
   if (!department) return false;
@@ -194,7 +194,7 @@ function isNonRemovableDepartment(department: DepartmentConfig | null | undefine
 
 const sortedDepartments = computed(() =>
   [...(props.config.departments || [])].sort((a, b) => {
-    const rank = (id: string) => id === "assistant-department" ? 0 : id === "deputy-department" ? 1 : id === "front-desk-department" ? 2 : 3;
+    const rank = (id: string) => id === "assistant-department" ? 0 : id === "deputy-department" ? 1 : 2;
     const aRank = rank(String(a.id || "").trim());
     const bRank = rank(String(b.id || "").trim());
     return aRank - bRank || a.orderIndex - b.orderIndex;

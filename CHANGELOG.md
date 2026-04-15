@@ -1,5 +1,12 @@
 # 变更日志
 
+## 更新：前台部门不再强保留
+
+- 调整（front-desk-department-removable）：移除 `front-desk-department` 的系统强保留身份，避免“前台”角色命名继续误导主助理/副手之外的部门结构
+  - 部门设置中 `front-desk-department` 不再属于不可删除的内置部门，现有用户若保留了该部门，可自行删除
+  - 部门排序中不再给 `front-desk-department` 预留固定内置顺位，仅保留主助理与副手优先
+  - 欢迎页部门统计同步更新，不再把 `front-desk-department` 视为系统保留部门排除在自定义部门之外
+
 ## 更新：聊天输入区与设置侧栏细节优化
 
 - 调整（chat-toolbar-and-config-sidebar-polish）：收紧聊天输入区与设置页侧栏的前端细节，使模型切换入口更顺手、侧栏布局更贴边

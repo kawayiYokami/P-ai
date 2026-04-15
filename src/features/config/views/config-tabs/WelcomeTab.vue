@@ -225,7 +225,7 @@ const cards = computed(() => {
     .map((id) => apiConfigs.find((api) => api.id === id && api.enableText))
     .filter((item): item is ApiConfigItem => !!item);
   const customPersonaCount = Math.max(0, (props.personas || []).filter((item) => !item.isBuiltInUser && !item.isBuiltInSystem).length);
-  const customDepartmentCount = Math.max(0, (props.config.departments || []).filter((item) => !item.isBuiltInAssistant && !["deputy-department", "front-desk-department"].includes(String(item.id || "").trim())).length);
+  const customDepartmentCount = Math.max(0, (props.config.departments || []).filter((item) => !item.isBuiltInAssistant && String(item.id || "").trim() !== "deputy-department").length);
   const enabledMcpCount = Math.max(0, (props.config.mcpServers || []).filter((item) => item.enabled).length);
   const embeddingBound = !!String(memoryBindings.value.embeddingApiConfigId || "").trim();
   const rerankBound = !!String(memoryBindings.value.rerankApiConfigId || "").trim();
