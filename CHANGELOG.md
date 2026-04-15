@@ -1,5 +1,11 @@
 # 变更日志
 
+## 更新：聊天 Todo 浮层改回原生组件样式
+
+- 调整（chat-todo-dropdown-theme-polish）：将聊天区顶部 Todo 浮层从手写样式收回到原生 DaisyUI 组件组合，并把触发按钮底色稳定到 `base-300`
+  - Todo 触发器改为 `dropdown + btn`，明细面板改为 `dropdown-content + card`，不再保留专用浮层背景与动画样式
+  - 触发按钮使用 `base-300` 底色与 `base-300` 边框，避免透明感和深浅主题下的视觉漂移
+
 ## 更新：计划工具与聊天计划模式协议化
 
 - 功能（plan-tool-and-chat-plan-mode）：新增 `plan` 协议工具与聊天计划模式，正式把“先计划、确认后执行”的流程从普通文本约束升级为可渲染、可确认、可恢复的协议链路

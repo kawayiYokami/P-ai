@@ -33,48 +33,50 @@
       >
         <div v-if="hasActiveOrPendingTodo" class="sticky top-0 z-20 flex justify-center pt-1">
           <div
-            class="ecall-floating-todo pointer-events-auto"
+            class="dropdown dropdown-bottom pointer-events-auto"
             :aria-label="t('config.task.fields.todo')"
-            tabindex="0"
             @click.stop
             @mousedown.stop
           >
-            <div class="ecall-floating-todo-summary text-[12px] text-base-content">
-              <ListTodo class="h-4 w-4 shrink-0 text-base-content/65" />
-              <span
-                class="ecall-floating-todo-text truncate"
-                :data-text="activeConversationTodo"
-              >{{ activeConversationTodo }}</span>
+            <label
+              tabindex="0"
+              class="btn btn-sm max-w-[min(88vw,30rem)] flex-nowrap justify-start gap-2 overflow-hidden rounded-full border-base-300 bg-base-300 text-base-content hover:border-base-300 hover:bg-base-200 normal-case"
+            >
+              <ListTodo class="h-4 w-4 shrink-0 opacity-70" />
+              <span class="min-w-0 flex-1 truncate text-left">{{ activeConversationTodo }}</span>
               <span
                 v-if="normalizedConversationTodos.length > 1"
-                class="ecall-floating-todo-count"
+                class="badge badge-ghost badge-sm shrink-0"
               >+{{ normalizedConversationTodos.length - 1 }}</span>
-            </div>
+            </label>
             <div
               v-if="normalizedConversationTodos.length > 1"
-              class="ecall-floating-todo-panel"
+              tabindex="0"
+              class="dropdown-content card card-compact mt-2 w-max max-w-[min(88vw,30rem)] border border-base-300 bg-base-100 shadow-xl"
             >
-              <ul class="flex flex-col gap-3">
-                <li
-                  v-for="(item, index) in normalizedConversationTodos"
-                  :key="`${item.status}-${index}-${item.content}`"
-                  class="flex items-start gap-3"
-                  :title="item.content"
-                >
-                  <span
-                    class="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
-                    :class="todoIndexClass(item.status)"
-                  >{{ index + 1 }}</span>
-                  <span
-                    class="min-w-0 wrap-break-word pt-0.5 text-sm leading-6"
-                    :class="item.status === 'completed'
-                      ? 'text-base-content/55 line-through'
-                      : item.status === 'in_progress'
-                        ? 'text-base-content font-semibold'
-                        : 'text-base-content'"
-                  >{{ item.content }}</span>
-                </li>
-              </ul>
+              <div class="card-body p-3">
+                <ul class="flex flex-col gap-3">
+                  <li
+                    v-for="(item, index) in normalizedConversationTodos"
+                    :key="`${item.status}-${index}-${item.content}`"
+                    class="flex items-start gap-3"
+                    :title="item.content"
+                  >
+                    <span
+                      class="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+                      :class="todoIndexClass(item.status)"
+                    >{{ index + 1 }}</span>
+                    <span
+                      class="min-w-0 wrap-break-word pt-0.5 text-sm leading-6"
+                      :class="item.status === 'completed'
+                        ? 'text-base-content/55 line-through'
+                        : item.status === 'in_progress'
+                          ? 'text-base-content font-semibold'
+                          : 'text-base-content'"
+                    >{{ item.content }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
@@ -717,119 +719,6 @@ onBeforeUnmount(() => {
   display: flow-root;
   width: 100%;
   min-height: 0;
-}
-
-.ecall-floating-todo {
-  position: relative;
-  isolation: isolate;
-  overflow: visible;
-}
-
-.ecall-floating-todo-summary {
-  display: inline-flex;
-  max-width: min(88vw, 30rem);
-  align-items: center;
-  gap: 0.625rem;
-  overflow: hidden;
-  border: 1px solid hsl(var(--bc) / 0.15);
-  border-radius: 999px;
-  background: #fff;
-  padding: 0.55rem 0.9rem;
-  box-shadow:
-    0 10px 30px rgb(0 0 0 / 0.16),
-    inset 0 1px 0 rgb(255 255 255 / 0.18);
-}
-
-.ecall-floating-todo-text {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  line-height: 1;
-  color: currentColor;
-}
-
-.ecall-floating-todo-count {
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: hsl(var(--b2) / 0.9);
-  padding: 0.15rem 0.45rem;
-  font-size: 11px;
-  line-height: 1;
-  color: hsl(var(--bc) / 0.65);
-}
-
-.ecall-floating-todo-text::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 38%,
-    rgb(255 255 255 / 0.92) 50%,
-    transparent 62%,
-    transparent 100%
-  );
-  background-size: 240px 100%;
-  background-position: -240px 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: ecall-floating-todo-shimmer 3.2s linear infinite;
-}
-
-.ecall-floating-todo-panel {
-  position: absolute;
-  top: calc(100% + 0.45rem);
-  left: 50%;
-  width: max-content;
-  max-width: min(88vw, 30rem);
-  max-height: min(60vh, 24rem);
-  overflow-y: auto;
-  border: 1px solid hsl(var(--bc) / 0.15);
-  border-radius: 1rem;
-  background: #fff;
-  padding: 0.6rem;
-  box-shadow:
-    0 20px 50px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.2);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -0.35rem) scale(0.98);
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
-}
-
-.ecall-floating-todo:hover .ecall-floating-todo-panel,
-.ecall-floating-todo:focus-within .ecall-floating-todo-panel {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-50%, 0) scale(1);
-}
-
-.ecall-floating-todo:focus-visible {
-  outline: none;
-}
-
-.ecall-floating-todo:focus-visible .ecall-floating-todo-summary {
-  box-shadow:
-    0 0 0 2px hsl(var(--p) / 0.25),
-    0 10px 30px rgb(0 0 0 / 0.16),
-    inset 0 1px 0 rgb(255 255 255 / 0.18);
-}
-
-@keyframes ecall-floating-todo-shimmer {
-  from {
-    background-position: -240px 0;
-  }
-  to {
-    background-position: 240px 0;
-  }
 }
 
 .ecall-chat-avatar-col {
