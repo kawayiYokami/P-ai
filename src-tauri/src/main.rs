@@ -495,6 +495,7 @@ fn main() {
             sync_tray_icon,
             save_conversation_api_settings,
             patch_conversation_api_settings,
+            set_department_primary_api_config,
             get_chat_snapshot,
             list_unarchived_conversations,
             set_active_unarchived_conversation,

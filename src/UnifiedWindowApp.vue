@@ -1015,6 +1015,56 @@ const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.
 const sttCapableApiConfigs = computed(() =>
   config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
 );
+function departmentPrimaryApiConfigId(
+  department?: { apiConfigId?: string; apiConfigIds?: string[] } | null,
+): string {
+  const ids = Array.isArray(department?.apiConfigIds)
+    ? department.apiConfigIds.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  if (ids.length > 0) return ids[0];
+  return String(department?.apiConfigId || "").trim();
+}
+
+function departmentOrderedApiConfigIds(
+  department?: { apiConfigId?: string; apiConfigIds?: string[] } | null,
+): string[] {
+  return Array.from(new Set([
+    ...((Array.isArray(department?.apiConfigIds) ? department.apiConfigIds : []).map((id) => String(id || "").trim()).filter(Boolean)),
+    String(department?.apiConfigId || "").trim(),
+  ].filter(Boolean)));
+}
+
+function applyDepartmentPrimaryApiConfigLocally(
+  department: { id?: string; isBuiltInAssistant?: boolean; apiConfigId?: string; apiConfigIds?: string[]; updatedAt?: string } | null | undefined,
+  apiConfigId: string,
+): boolean {
+  if (!department) return false;
+  const nextId = String(apiConfigId || "").trim();
+  if (!nextId) return false;
+  const next = departmentOrderedApiConfigIds(department);
+  if ((next[0] || "") === nextId) {
+    config.selectedApiConfigId = nextId;
+    if (department.id === "assistant-department" || department.isBuiltInAssistant) {
+      config.assistantDepartmentApiConfigId = nextId;
+    }
+    return false;
+  }
+  next.splice(
+    0,
+    next.length,
+    nextId,
+    ...next.filter((item) => item.toLowerCase() !== nextId.toLowerCase()),
+  );
+  const deduped = Array.from(new Set(next.filter(Boolean)));
+  department.apiConfigIds = deduped;
+  department.apiConfigId = deduped[0] || "";
+  department.updatedAt = new Date().toISOString();
+  if (department.id === "assistant-department" || department.isBuiltInAssistant) {
+    config.assistantDepartmentApiConfigId = department.apiConfigId;
+  }
+  config.selectedApiConfigId = nextId;
+  return true;
+}
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
 const DEFAULT_MAX_RECORD_SECONDS = 60;
@@ -1320,8 +1370,7 @@ const currentForegroundAgentId = computed(
 );
 const currentForegroundApiConfigId = computed(
   () =>
-    String(currentForegroundDepartment.value?.apiConfigId || "").trim()
-    || String(currentForegroundDepartment.value?.apiConfigIds?.[0] || "").trim()
+    departmentPrimaryApiConfigId(currentForegroundDepartment.value)
     || String(config.assistantDepartmentApiConfigId || "").trim(),
 );
 const currentForegroundApiConfig = computed(
@@ -1895,9 +1944,7 @@ const createConversationDepartmentOptions = computed(() =>
     .filter((department) => {
       const departmentId = String(department.id || "").trim();
       if (!departmentId) return false;
-      const apiConfigId =
-        String(department.apiConfigId || "").trim()
-        || String((department.apiConfigIds || [])[0] || "").trim();
+      const apiConfigId = departmentPrimaryApiConfigId(department);
       if (!apiConfigId) return false;
       return config.apiConfigs.some((api) => api.id === apiConfigId && api.enableText);
     })
@@ -1989,7 +2036,7 @@ function updateAssistantDepartmentAgentId(value: string) {
   assistantDepartmentAgentId.value = value;
 }
 
-function updateAssistantDepartmentApiConfigId(value: string) {
+async function updateForegroundDepartmentPrimaryApiConfig(value: string) {
   const nextId = String(value || "").trim();
   if (!nextId) return;
   if (!config.apiConfigs.some((item) => String(item.id || "").trim() === nextId)) {
@@ -2000,22 +2047,38 @@ function updateAssistantDepartmentApiConfigId(value: string) {
   const currentDepartment = config.departments.find(
     (item) => String(item.id || "").trim() === currentDepartmentId,
   );
-  if (currentDepartment) {
-    const nextIds = Array.from(
-      new Set([
-        nextId,
-        ...((currentDepartment.apiConfigIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
-      ]),
-    );
-    currentDepartment.apiConfigIds = nextIds;
-    currentDepartment.apiConfigId = nextId;
-    if (currentDepartment.id === "assistant-department" || currentDepartment.isBuiltInAssistant) {
-      config.assistantDepartmentApiConfigId = nextId;
-    }
-  } else {
-    config.assistantDepartmentApiConfigId = nextId;
+  if (!currentDepartment) {
+    console.warn("[聊天模型] 当前前台部门不存在，忽略更新", { currentDepartmentId, nextId });
+    return;
   }
-  config.selectedApiConfigId = nextId;
+  const previousDepartment = {
+    apiConfigId: String(currentDepartment.apiConfigId || "").trim(),
+    apiConfigIds: [...(currentDepartment.apiConfigIds || [])],
+    updatedAt: String(currentDepartment.updatedAt || ""),
+  };
+  const previousAssistantDepartmentApiConfigId = String(config.assistantDepartmentApiConfigId || "").trim();
+  const previousSelectedApiConfigId = String(config.selectedApiConfigId || "").trim();
+  const changed = applyDepartmentPrimaryApiConfigLocally(currentDepartment, nextId);
+  if (!changed) return;
+  try {
+    await invokeTauri<AppConfig>("set_department_primary_api_config", {
+      input: {
+        departmentId: currentDepartmentId,
+        apiConfigId: nextId,
+      },
+    });
+  } catch (error) {
+    currentDepartment.apiConfigId = previousDepartment.apiConfigId;
+    currentDepartment.apiConfigIds = previousDepartment.apiConfigIds;
+    currentDepartment.updatedAt = previousDepartment.updatedAt;
+    config.assistantDepartmentApiConfigId = previousAssistantDepartmentApiConfigId;
+    config.selectedApiConfigId = previousSelectedApiConfigId;
+    setStatusError("status.saveConfigFailed", error);
+  }
+}
+
+function updateAssistantDepartmentApiConfigId(value: string) {
+  void updateForegroundDepartmentPrimaryApiConfig(value);
 }
 
 function updateSelectedResponseStyleId(value: string) {
@@ -3897,7 +3960,7 @@ useAppWatchers({
   personaEditorId,
   selectedApiConfig,
   toolApiConfig,
-  activeChatApiConfigId: assistantDepartmentApiConfigId,
+  activeChatApiConfigId: currentForegroundApiConfigId,
   suppressChatReloadWatch,
   modelRefreshError,
   toolStatuses,

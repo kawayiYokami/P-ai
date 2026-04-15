@@ -1163,6 +1163,13 @@ struct ConversationApiSettingsPatch {
     stt_auto_send: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetDepartmentPrimaryApiConfigInput {
+    department_id: String,
+    api_config_id: String,
+}
+
 fn build_conversation_api_settings_payload(config: &AppConfig) -> ConversationApiSettings {
     ConversationApiSettings {
         assistant_department_api_config_id: config.assistant_department_api_config_id.clone(),
@@ -1242,6 +1249,88 @@ fn patch_conversation_api_settings(
     let _ = app.emit("easy-call:conversation-api-updated", &payload);
 
     Ok(payload)
+}
+
+#[tauri::command]
+fn set_department_primary_api_config(
+    input: SetDepartmentPrimaryApiConfigInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AppConfig, String> {
+    let department_id = input.department_id.trim();
+    if department_id.is_empty() {
+        return Err("Department ID is required.".to_string());
+    }
+    let api_config_id = input.api_config_id.trim();
+    if api_config_id.is_empty() {
+        return Err("API config ID is required.".to_string());
+    }
+
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let mut config = state_read_config_cached(&state)?;
+    let selected_api = config
+        .api_configs
+        .iter()
+        .find(|item| item.id.trim() == api_config_id)
+        .ok_or_else(|| format!("API config '{api_config_id}' not found."))?;
+    if !selected_api.enable_text {
+        return Err(format!("API config '{api_config_id}' does not support chat text."));
+    }
+
+    let (department_primary_api_config_id, assistant_department_changed) = {
+        let Some(target_department) = config
+            .departments
+            .iter_mut()
+            .find(|item| item.id.trim() == department_id)
+        else {
+            return Err(format!("Department '{department_id}' not found."));
+        };
+
+        let mut next_ids = department_api_config_ids(target_department);
+        if next_ids.first().map(|item| item.trim()) == Some(api_config_id) {
+            // 保持当前顺序，只同步全局选中模型即可。
+        } else {
+            next_ids.retain(|item| !item.trim().eq_ignore_ascii_case(api_config_id));
+            next_ids.insert(0, api_config_id.to_string());
+        }
+
+        let mut seen = std::collections::HashSet::<String>::new();
+        target_department.api_config_ids = next_ids
+            .into_iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .filter(|item| seen.insert(item.to_ascii_lowercase()))
+            .collect::<Vec<_>>();
+        target_department.api_config_id = target_department
+            .api_config_ids
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        target_department.updated_at = now_iso();
+
+        (
+            target_department.api_config_id.clone(),
+            target_department.id == ASSISTANT_DEPARTMENT_ID || target_department.is_built_in_assistant,
+        )
+    };
+
+    if assistant_department_changed {
+        config.assistant_department_api_config_id = department_primary_api_config_id;
+    }
+    config.selected_api_config_id = api_config_id.to_string();
+
+    state_write_config_cached(&state, &config)?;
+    let data = state_read_app_data_cached(&state)?;
+    let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+    drop(guard);
+
+    let _ = app.emit("easy-call:config-updated", &runtime_config);
+
+    Ok(runtime_config)
 }
 
 #[tauri::command]
