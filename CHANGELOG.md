@@ -1,5 +1,10 @@
 # 变更日志
 
+## 发布：v0.9.7
+
+- 发布（release-0.9.7）：同步版本号并纳入本轮 Codex 协议接入、百炼多模态缓存、会话主工作目录 `AGENTS.md` 注入、输入面板指令系统、流式工具历史与配置保存链路修复
+- 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本统一升级到 `0.9.7`
+
 ## 更新：移除 watch 链上的配置回写
 
 - 修复（config-watch-no-writeback）：收紧配置页 watch 职责，禁止在 watch 中回写 config，避免切换图转文 / 打开预览时叠加保存导致会话锁连锁竞争
