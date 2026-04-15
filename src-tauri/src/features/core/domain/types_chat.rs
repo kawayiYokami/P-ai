@@ -141,6 +141,8 @@ struct Conversation {
     current_todos: Vec<ConversationTodoItem>,
     #[serde(default)]
     memory_recall_table: Vec<String>,
+    #[serde(default)]
+    plan_mode_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +150,7 @@ struct ConversationRuntimeSlot {
     state: MainSessionState,
     pending_queue: std::collections::VecDeque<ChatPendingEvent>,
     active_remote_im_activation_sources: Vec<RemoteImActivationSource>,
+    plan_mode_enabled: bool,
     last_activity_at: String,
 }
 
@@ -157,6 +160,7 @@ impl Default for ConversationRuntimeSlot {
             state: MainSessionState::Idle,
             pending_queue: std::collections::VecDeque::new(),
             active_remote_im_activation_sources: Vec::new(),
+            plan_mode_enabled: false,
             last_activity_at: String::new(),
         }
     }

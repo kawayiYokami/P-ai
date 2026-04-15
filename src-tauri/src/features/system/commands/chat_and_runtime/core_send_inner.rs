@@ -114,6 +114,29 @@ fn append_user_message_to_conversation(
     conversation
 }
 
+fn plan_mode_prompt_block() -> &'static str {
+    "<plan mode>\n先不要直接开始实现。\n先理解用户目标，调查当前上下文或代码，并主动消除会明显改变计划骨架的关键疑问。\n当目标明确、约束明确、现状已调查充分，并且关键疑问已消除后，再调用 plan 工具的 present 动作呈现计划。\n在我明确确认之前，严禁直接修改代码或开始实施。\n</plan mode>"
+}
+
+fn conversation_latest_user_has_plan_mode_block(
+    conversation: &Conversation,
+    effective_agent_id: &str,
+) -> bool {
+    let plan_block = plan_mode_prompt_block().trim();
+    conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| prompt_role_for_message(message, effective_agent_id).as_deref() == Some("user"))
+        .map(|message| {
+            message
+                .extra_text_blocks
+                .iter()
+                .any(|block| block.trim() == plan_block)
+        })
+        .unwrap_or(false)
+}
+
 fn remote_im_activation_source_summary_line(source: &RemoteImActivationSource) -> String {
     let mut parts = vec![
         format!("channel_id={}", source.channel_id.trim()),
@@ -935,6 +958,7 @@ async fn send_chat_message_inner(
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -1670,6 +1694,11 @@ async fn send_chat_message_inner(
         log_run_stage("prepare_context.base_context_ready");
         let is_delegate_conversation =
             snapshot.prompt_conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
+        let requested_plan_mode_enabled = get_conversation_plan_mode_enabled(
+            &state,
+            &snapshot.prompt_conversation_before.id,
+        )
+        .unwrap_or(snapshot.prompt_conversation_before.plan_mode_enabled);
         let conversation = if trigger_only {
             let latest_message = snapshot
                 .prompt_conversation_before
@@ -1862,7 +1891,7 @@ async fn send_chat_message_inner(
         let chat_overrides = Some(chat_overrides);
         let terminal_block = terminal_prompt_trusted_roots_block(&state, &selected_api, Some(&conversation));
         log_run_stage("prepare_context.prompt_build_begin");
-        let prepared_prompt = build_prepared_prompt_for_mode(
+        let mut prepared_prompt = build_prepared_prompt_for_mode(
             prompt_mode,
             &conversation,
             &snapshot.current_agent,
@@ -1880,6 +1909,17 @@ async fn send_chat_message_inner(
             Some(&resolved_api),
             Some(snapshot.enable_pdf_images),
         );
+        if requested_plan_mode_enabled
+            && !conversation_latest_user_has_plan_mode_block(&conversation, &effective_agent_id)
+        {
+            let plan_block = plan_mode_prompt_block().trim();
+            let existing_meta = prepared_prompt.latest_user_meta_text.trim();
+            prepared_prompt.latest_user_meta_text = if existing_meta.is_empty() {
+                plan_block.to_string()
+            } else {
+                format!("{plan_block}\n{existing_meta}")
+            };
+        }
         log_run_stage("prepare_context.prompt_built");
         let tool_loop_auto_compaction_context = if snapshot.is_runtime_conversation {
             None
@@ -2277,6 +2317,7 @@ async fn send_chat_message_inner(
     let assistant_text = model_reply.assistant_text;
     let reasoning_standard = model_reply.reasoning_standard;
     let reasoning_inline = model_reply.reasoning_inline;
+    let assistant_provider_meta_override = model_reply.assistant_provider_meta;
     let tool_history_events = model_reply.tool_history_events;
     let suppress_assistant_message = model_reply.suppress_assistant_message;
     let mut remote_im_reply_decision =
@@ -2309,11 +2350,12 @@ async fn send_chat_message_inner(
     } else {
         "standard_conversation"
     };
-    let provider_meta = {
+    let mut provider_meta = {
         let standard = reasoning_standard.trim();
         let inline = reasoning_inline.trim();
         if standard.is_empty()
             && inline.is_empty()
+            && assistant_provider_meta_override.is_none()
             && trusted_input_tokens.is_none()
             && estimated_prompt_tokens == 0
             && remote_im_reply_decision.is_none()
@@ -2346,6 +2388,26 @@ async fn send_chat_message_inner(
             Some(meta)
         }
     };
+    if let Some(extra_meta) = assistant_provider_meta_override {
+        let mut merged = provider_meta.take().unwrap_or_else(|| serde_json::json!({}));
+        if !merged.is_object() {
+            runtime_log_warn(format!(
+                "[聊天] 助理 provider_meta 不是对象，合并前已保留原始值: value={}",
+                merged
+            ));
+            merged = serde_json::json!({
+                "_raw_provider_meta": merged.clone(),
+            });
+        }
+        if let Some(target) = merged.as_object_mut() {
+            if let Some(extra_object) = extra_meta.as_object() {
+                for (key, value) in extra_object {
+                    target.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        provider_meta = Some(merged);
+    }
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;

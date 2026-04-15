@@ -499,6 +499,7 @@ fn main() {
             list_unarchived_conversations,
             set_active_unarchived_conversation,
             switch_active_conversation_snapshot,
+            set_conversation_plan_mode,
             create_unarchived_conversation,
             rename_unarchived_conversation,
             mark_conversation_read,

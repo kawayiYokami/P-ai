@@ -168,14 +168,13 @@ async fn send_chat_message(
             compressed: false,
         });
     }
-
     let user_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
         created_at: now_iso(),
         speaker_agent_id: None,
         parts: message_parts,
-        extra_text_blocks: Vec::new(),
+        extra_text_blocks: input.payload.extra_text_blocks.clone().unwrap_or_default(),
         provider_meta: {
             let mut attachment_entries =
                 normalize_payload_attachments(input.payload.attachments.as_ref());
@@ -568,4 +567,3 @@ async fn get_main_session_state_snapshot(
 ) -> Result<MainSessionState, String> {
     get_main_session_state(state.inner())
 }
-

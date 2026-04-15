@@ -136,6 +136,7 @@ mod archive_host_selection_tests {
             messages: vec![mk_msg("assistant"), mk_msg("assistant"), mk_msg("assistant")],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         };
         let host = choose_archive_host_agent_id(&data, &source, "pub-b");
         assert_eq!(host, "pub-b");
@@ -175,6 +176,7 @@ mod archive_host_selection_tests {
             messages: vec![mk_msg("assistant")],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         };
         let host = choose_archive_host_agent_id(&data, &source, "p2");
         assert_eq!(host, "p2");

@@ -93,6 +93,7 @@ where
         assistant_text,
         reasoning_standard,
         reasoning_inline: String::new(),
+        assistant_provider_meta: None,
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
         trusted_input_tokens,

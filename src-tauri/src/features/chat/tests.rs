@@ -1325,6 +1325,7 @@
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         }
     }
 
@@ -1742,6 +1743,7 @@
             }],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         }];
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -2000,6 +2002,7 @@
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -2068,6 +2071,7 @@
                 status: "in_progress".to_string(),
             }],
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -2372,4 +2376,3 @@
             latest_extra_len
         );
     }
-

@@ -110,6 +110,7 @@
       :transcribing="transcribing"
       :record-hotkey="config.recordHotkey"
       :selected-chat-model-id="currentForegroundApiConfigId"
+      :plan-mode-enabled="currentConversationPlanModeEnabled"
       :chat-usage-percent="chatUsagePercent"
       :force-archive-tip="t('chat.forceArchiveTip')"
       :media-drag-active="mediaDragActive"
@@ -199,6 +200,7 @@
       :update-chat-input="handleChatInputUpdate"
       :update-selected-instruction-prompts="updateSelectedInstructionPrompts"
       :update-selected-chat-model-id="updateAssistantDepartmentApiConfigId"
+      :update-plan-mode-enabled="updatePlanModeEnabled"
       :set-side-conversation-list-visible="handleSideConversationListVisibleChange"
       :remove-clipboard-image="removeClipboardImage"
       :remove-queued-attachment-notice="removeQueuedAttachmentNotice"
@@ -213,6 +215,7 @@
       :on-reached-chat-bottom="trimForegroundMessagesToRecentLimit"
       :on-recall-turn="handleRecallTurn"
       :on-regenerate-turn="handleRegenerateTurn"
+      :confirm-plan="handleConfirmPlan"
       :on-lock-chat-workspace="openChatWorkspacePicker"
       :on-switch-conversation="switchUnarchivedConversation"
       :on-rename-conversation="renameCurrentConversation"
@@ -710,6 +713,10 @@ function updateSelectedInstructionPrompts(value: PromptCommandPreset[]) {
     : [];
 }
 
+async function updatePlanModeEnabled(value: boolean) {
+  await setCurrentConversationPlanMode(value);
+}
+
 function handleSideConversationListVisibleChange(value: boolean) {
   sideConversationListVisible.value = value;
 }
@@ -830,6 +837,104 @@ const {
   setStatus,
   setStatusError,
 });
+
+const currentConversationPlanModeEnabled = computed(() => {
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  if (!conversationId) return false;
+  return getConversationPlanModeEnabledById(conversationId);
+});
+
+const inFlightPlanModeRequests = new Map<string, Promise<boolean>>();
+const confirmedConversationPlanModeStates = new Map<string, boolean>();
+
+function getConversationPlanModeEnabledById(conversationId: string): boolean {
+  const normalizedConversationId = String(conversationId || "").trim();
+  if (!normalizedConversationId) return false;
+  return !!unarchivedConversations.value.find((item) =>
+    String(item.conversationId || "").trim() === normalizedConversationId
+  )?.planModeEnabled;
+}
+
+function patchConversationPlanModeInOverview(conversationId: string, planModeEnabled: boolean) {
+  const normalizedConversationId = String(conversationId || "").trim();
+  if (!normalizedConversationId) return;
+  let changed = false;
+  const next = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== normalizedConversationId) {
+      return item;
+    }
+    if (!!item.planModeEnabled === !!planModeEnabled) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      planModeEnabled: !!planModeEnabled,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = next;
+  }
+}
+
+function queueConversationPlanModeUpdate(
+  conversationId: string,
+  task: () => Promise<boolean>,
+): Promise<boolean> {
+  const previous = inFlightPlanModeRequests.get(conversationId) ?? Promise.resolve(true);
+  let queued!: Promise<boolean>;
+  queued = previous
+    .catch(() => false)
+    .then(task, task)
+    .finally(() => {
+      if (inFlightPlanModeRequests.get(conversationId) === queued) {
+        inFlightPlanModeRequests.delete(conversationId);
+      }
+    });
+  inFlightPlanModeRequests.set(conversationId, queued);
+  return queued;
+}
+
+async function setConversationPlanMode(conversationId: string, value: boolean): Promise<boolean> {
+  const normalizedConversationId = String(conversationId || "").trim();
+  if (!normalizedConversationId) return false;
+  const nextValue = !!value;
+  const previousValue = getConversationPlanModeEnabledById(normalizedConversationId);
+  if (!confirmedConversationPlanModeStates.has(normalizedConversationId)) {
+    confirmedConversationPlanModeStates.set(normalizedConversationId, previousValue);
+  }
+  if (previousValue === nextValue) return true;
+  patchConversationPlanModeInOverview(normalizedConversationId, nextValue);
+  return queueConversationPlanModeUpdate(normalizedConversationId, async () => {
+    try {
+      await invokeTauri<{ conversationId: string; planModeEnabled: boolean }>("set_conversation_plan_mode", {
+        input: {
+          conversationId: normalizedConversationId,
+          planModeEnabled: nextValue,
+        },
+      });
+      confirmedConversationPlanModeStates.set(normalizedConversationId, nextValue);
+      return true;
+    } catch (error) {
+      const fallbackValue = confirmedConversationPlanModeStates.get(normalizedConversationId) ?? previousValue;
+      if (getConversationPlanModeEnabledById(normalizedConversationId) === nextValue) {
+        patchConversationPlanModeInOverview(normalizedConversationId, fallbackValue);
+      }
+      console.warn("[计划模式] 保存会话计划状态失败", {
+        conversationId: normalizedConversationId,
+        nextValue,
+        error,
+      });
+      return false;
+    }
+  });
+}
+
+async function setCurrentConversationPlanMode(value: boolean): Promise<boolean> {
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  if (!conversationId) return false;
+  return setConversationPlanMode(conversationId, value);
+}
 const agentWorkPresence = useAgentWorkPresence();
 const {
   archiveImportPreviewDialogOpen,
@@ -2703,6 +2808,72 @@ async function confirmForceArchiveAction() {
   if (!forceArchivePreview.value?.canArchive) return;
   closeForceArchiveActionDialog();
   await forceArchiveNow();
+}
+
+type ConfirmPlanSessionContext = {
+  messageId: string;
+  apiConfigId: string;
+  agentId: string;
+  departmentId: string;
+  conversationId: string;
+};
+
+function currentConfirmPlanSessionContext(messageId: string): ConfirmPlanSessionContext {
+  return {
+    messageId: String(messageId || "").trim(),
+    apiConfigId: String(currentForegroundApiConfigId.value || "").trim(),
+    agentId: String(currentForegroundAgentId.value || "").trim(),
+    departmentId: String(currentForegroundDepartmentId.value || "").trim(),
+    conversationId: String(currentChatConversationId.value || "").trim(),
+  };
+}
+
+function isConfirmPlanSessionStillCurrent(session: ConfirmPlanSessionContext): boolean {
+  return (
+    session.conversationId === String(currentChatConversationId.value || "").trim()
+    && session.apiConfigId === String(currentForegroundApiConfigId.value || "").trim()
+    && session.agentId === String(currentForegroundAgentId.value || "").trim()
+    && session.departmentId === String(currentForegroundDepartmentId.value || "").trim()
+  );
+}
+
+async function handleConfirmPlan(payload: { messageId: string }) {
+  const session = currentConfirmPlanSessionContext(String(payload?.messageId || ""));
+  if (!session.messageId || !session.conversationId || chatting.value || forcingArchive.value) return;
+  const planModeDisabled = await setConversationPlanMode(session.conversationId, false);
+  if (!planModeDisabled) return;
+  if (!isConfirmPlanSessionStillCurrent(session)) return;
+
+  if (session.apiConfigId && session.agentId) {
+    try {
+      const preview = await invokeTauri<ForceCompactionPreviewResult>("preview_force_compact_current", {
+        input: {
+          apiConfigId: session.apiConfigId,
+          agentId: session.agentId,
+          departmentId: session.departmentId || null,
+          conversationId: session.conversationId,
+        },
+      });
+      if (!isConfirmPlanSessionStillCurrent(session)) return;
+      if (preview?.canCompact) {
+        await forceCompactNow();
+        if (!isConfirmPlanSessionStillCurrent(session)) return;
+      }
+    } catch (error) {
+      console.warn("[计划模式] 确认执行前压缩跳过", {
+        messageId: session.messageId,
+        error,
+      });
+    }
+  }
+
+  await nextTick();
+  if (!isConfirmPlanSessionStillCurrent(session)) return;
+  await chatFlow.sendChat({
+    text: "我同意，并执行计划。",
+    displayText: "我同意，并执行计划。",
+    skipInstructionPrompts: true,
+  });
 }
 
 async function confirmDeleteConversationFromArchiveDialog() {

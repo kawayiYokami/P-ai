@@ -136,6 +136,7 @@ fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
     !reply.assistant_text.trim().is_empty()
         || !reply.reasoning_standard.trim().is_empty()
         || !reply.reasoning_inline.trim().is_empty()
+        || reply.assistant_provider_meta.is_some()
         || reply.suppress_assistant_message
 }
 
@@ -203,5 +204,4 @@ fn estimate_prepared_prompt_tokens(
 
     total.ceil().max(0.0).min(u64::MAX as f64) as u64
 }
-
 

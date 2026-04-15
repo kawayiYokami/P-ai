@@ -3,6 +3,7 @@ struct ModelReply {
     assistant_text: String,
     reasoning_standard: String,
     reasoning_inline: String,
+    assistant_provider_meta: Option<Value>,
     tool_history_events: Vec<Value>,
     suppress_assistant_message: bool,
     trusted_input_tokens: Option<u64>,
@@ -511,6 +512,7 @@ async fn call_model_openai_non_stream(
         assistant_text,
         reasoning_standard,
         reasoning_inline: String::new(),
+        assistant_provider_meta: None,
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
         trusted_input_tokens,
@@ -595,6 +597,7 @@ async fn call_model_gemini(
         assistant_text: response.content.into_texts().join("\n"),
         reasoning_standard: response.reasoning_content.unwrap_or_default(),
         reasoning_inline: String::new(),
+        assistant_provider_meta: None,
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
         trusted_input_tokens: response

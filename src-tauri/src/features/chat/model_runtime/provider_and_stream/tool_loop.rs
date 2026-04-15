@@ -235,6 +235,11 @@ fn json_string_field(value: &Value, keys: &[&str]) -> Option<String> {
     })
 }
 
+struct TerminalToolResultMessage {
+    assistant_text: String,
+    provider_meta: Option<Value>,
+}
+
 fn terminal_task_complete_result(tool_name: &str, tool_args: &str, tool_result: &ProviderToolResult) -> Option<String> {
     if tool_name != "task" || tool_result.is_error {
         return None;
@@ -276,6 +281,48 @@ fn terminal_task_complete_result(tool_name: &str, tool_args: &str, tool_result: 
             "任务已结束。".to_string()
         }
     }))
+}
+
+fn terminal_plan_result(
+    tool_name: &str,
+    tool_args: &str,
+    tool_result: &ProviderToolResult,
+) -> Option<TerminalToolResultMessage> {
+    if tool_name != "plan" || tool_result.is_error {
+        return None;
+    }
+
+    let args_value = serde_json::from_str::<Value>(tool_args).ok();
+    let result_value = serde_json::from_str::<Value>(&tool_result.display_text).ok();
+    let action = args_value
+        .as_ref()
+        .and_then(|value| json_string_field(value, &["action"]))
+        .or_else(|| result_value.as_ref().and_then(|value| json_string_field(value, &["action"])))?;
+    let normalized_action = action.to_ascii_lowercase();
+    let context = args_value
+        .as_ref()
+        .and_then(|value| json_string_field(value, &["context"]))
+        .or_else(|| result_value.as_ref().and_then(|value| json_string_field(value, &["context"])))?;
+
+    let message_kind = match normalized_action.as_str() {
+        "present" => "plan_present",
+        "complete" => "plan_complete",
+        _ => return None,
+    };
+
+    Some(TerminalToolResultMessage {
+        assistant_text: String::new(),
+        provider_meta: Some(serde_json::json!({
+            "messageKind": message_kind,
+            "planCard": {
+                "action": action,
+                "context": context,
+            },
+            "message_meta": {
+                "kind": message_kind,
+            }
+        })),
+    })
 }
 
 fn tool_history_without_organize_context(events: &[Value]) -> Vec<Value> {
@@ -758,6 +805,7 @@ async fn run_genai_tool_loop(
                 assistant_text: full_assistant_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
+                assistant_provider_meta: None,
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
@@ -891,6 +939,7 @@ async fn run_genai_tool_loop(
                     assistant_text: String::new(),
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
+                    assistant_provider_meta: None,
                     tool_history_events: tool_history_without_organize_context(&tool_history_events),
                     suppress_assistant_message: true,
                     trusted_input_tokens: None,
@@ -903,6 +952,18 @@ async fn run_genai_tool_loop(
                     assistant_text: final_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
+                    assistant_provider_meta: None,
+                    tool_history_events,
+                    suppress_assistant_message: false,
+                    trusted_input_tokens,
+                });
+            }
+            if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
+                return Ok(ModelReply {
+                    assistant_text: plan_result.assistant_text,
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    assistant_provider_meta: plan_result.provider_meta,
                     tool_history_events,
                     suppress_assistant_message: false,
                     trusted_input_tokens,
@@ -983,6 +1044,7 @@ async fn run_genai_tool_loop(
                 assistant_text: final_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
+                assistant_provider_meta: None,
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
@@ -1001,6 +1063,7 @@ async fn run_genai_tool_loop(
         assistant_text: full_assistant_text,
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
+        assistant_provider_meta: None,
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,
@@ -1172,6 +1235,7 @@ async fn run_genai_tool_loop_non_stream(
                 assistant_text: full_assistant_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
+                assistant_provider_meta: None,
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
@@ -1299,6 +1363,7 @@ async fn run_genai_tool_loop_non_stream(
                     assistant_text: String::new(),
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
+                    assistant_provider_meta: None,
                     tool_history_events: tool_history_without_organize_context(&tool_history_events),
                     suppress_assistant_message: true,
                     trusted_input_tokens: None,
@@ -1311,6 +1376,18 @@ async fn run_genai_tool_loop_non_stream(
                     assistant_text: final_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
+                    assistant_provider_meta: None,
+                    tool_history_events,
+                    suppress_assistant_message: false,
+                    trusted_input_tokens,
+                });
+            }
+            if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
+                return Ok(ModelReply {
+                    assistant_text: plan_result.assistant_text,
+                    reasoning_standard: full_reasoning_standard,
+                    reasoning_inline: String::new(),
+                    assistant_provider_meta: plan_result.provider_meta,
                     tool_history_events,
                     suppress_assistant_message: false,
                     trusted_input_tokens,
@@ -1386,6 +1463,7 @@ async fn run_genai_tool_loop_non_stream(
                 assistant_text: final_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
+                assistant_provider_meta: None,
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
@@ -1404,6 +1482,7 @@ async fn run_genai_tool_loop_non_stream(
         assistant_text: full_assistant_text,
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
+        assistant_provider_meta: None,
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,

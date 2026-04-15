@@ -291,3 +291,9 @@ struct TaskToolArgsWire {
     #[serde(default)]
     trigger: Option<TaskTriggerInputLocal>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PlanToolArgs {
+    action: String,
+    context: String,
+}

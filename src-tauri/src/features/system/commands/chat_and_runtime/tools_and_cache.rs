@@ -27,14 +27,10 @@ fn check_tools_status(
         .cloned()
         .ok_or_else(|| format!("未找到人格：{target_agent_id}"))?;
     let mut selected_tools = selected_agent.tools.clone();
-    if !selected_tools.iter().any(|tool| tool.id == "command") {
-        selected_tools.push(ApiToolConfig {
-            id: "command".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["command".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        });
+    for default_tool in default_agent_tools() {
+        if !selected_tools.iter().any(|tool| tool.id == default_tool.id) {
+            selected_tools.push(default_tool);
+        }
     }
     let current_department = department_for_agent_id(&config, &target_agent_id);
 
@@ -116,6 +112,7 @@ fn check_tools_status(
             ),
             "operate" => ("loaded".to_string(), "桌面输入工具可用（鼠标/键盘/文本）".to_string()),
             "command" => ("loaded".to_string(), "统一命令工具可用".to_string()),
+            "plan" => ("loaded".to_string(), "计划协议工具可用".to_string()),
             "task" => ("loaded".to_string(), "任务工具可用".to_string()),
             "todo" => ("loaded".to_string(), "会话内 Todo 步骤追踪工具可用".to_string()),
             "delegate" => ("loaded".to_string(), "委托工具可用".to_string()),

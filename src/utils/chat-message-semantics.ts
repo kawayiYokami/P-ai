@@ -1,4 +1,4 @@
-import type { ChatMessage, TaskTriggerMessageCard } from "../types/app";
+import type { ChatMessage, PlanMessageCard, TaskTriggerMessageCard } from "../types/app";
 import {
   extractMessageAttachmentFiles,
   extractMessageAudios,
@@ -34,6 +34,7 @@ export type ChatMessageDisplayProjection = {
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   taskTrigger?: TaskTriggerMessageCard;
+  planCard?: PlanMessageCard;
   remoteImOrigin?: {
     senderName: string;
     remoteContactName?: string;
@@ -189,6 +190,21 @@ function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | unde
   };
 }
 
+function resolvePlanCard(message: ChatMessage): PlanMessageCard | undefined {
+  const meta = (message.providerMeta || {}) as Record<string, unknown>;
+  const raw = meta.planCard;
+  if (!raw || typeof raw !== "object") return undefined;
+  const card = raw as Record<string, unknown>;
+  const action = String(card.action || "").trim().toLowerCase();
+  if (action !== "present" && action !== "complete") return undefined;
+  const context = String(card.context || "").trim();
+  if (!context) return undefined;
+  return {
+    action,
+    context,
+  };
+}
+
 function resolveSpeakerAgentId(message: ChatMessage): string {
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const origin = meta.origin as Record<string, unknown> | undefined;
@@ -219,6 +235,7 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const toolSummary = summarizeToolActivityForDisplay(message);
   const taskTrigger = resolveTaskTrigger(message);
+  const planCard = resolvePlanCard(message);
   const origin = meta.origin as Record<string, unknown> | undefined;
   const senderName = String(origin?.sender_name || "").trim();
   const remoteContactName = String(origin?.contact_name || "").trim();
@@ -238,6 +255,7 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
     audios: extractMessageAudios(message),
     attachmentFiles: extractMessageAttachmentFiles(message),
     taskTrigger,
+    planCard,
     remoteImOrigin:
       origin && origin.kind === "remote_im" && (senderName || remoteContactName || channelId || contactId)
         ? {

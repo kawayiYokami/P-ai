@@ -763,6 +763,13 @@
       "kindEvery": "Recurring",
       "kindAt": "Scheduled"
     },
+    "plan": {
+      "mode": "Plan Mode",
+      "badge": "Execution Plan",
+      "completeBadge": "Plan Completed",
+      "confirmAction": "I agree, execute the plan",
+      "confirmHint": "If you disagree, just tell me your thoughts."
+    },
     "supervision": {
       "button": "Focus",
       "buttonActive": "Focused",

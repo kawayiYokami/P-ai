@@ -130,6 +130,7 @@
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -360,6 +361,7 @@
             ],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         };
 
         let preserved =

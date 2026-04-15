@@ -185,6 +185,7 @@ import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { open } from "@tauri-apps/plugin-dialog";
 import { type ToolListItem } from "../../components/ToolListCard.vue";
+import { defaultToolBindings, normalizeToolBindings } from "../../utils/builtin-tools";
 
 type TerminalShellCandidate = {
   kind: string;
@@ -495,7 +496,7 @@ function toolParameterExamples(id: string): string[] {
 const toolListItems = computed<ToolListItem[]>(() =>
   toolDefinitions.value.map((definition) => {
     const id = String(definition.function?.name || "").trim();
-    const matched = props.selectedPersona?.tools.find((tool) => tool.id === id);
+    const matched = normalizeToolBindings(props.selectedPersona?.tools).find((tool) => tool.id === id);
     const enabled = matched ? !!matched.enabled : true;
     return {
       id,
@@ -516,9 +517,20 @@ function onToggle(event: Event, id: string) {
   const payload = { id, enabled: !!target?.checked };
   const tools = props.selectedPersona?.tools;
   if (!tools) return;
-  const tool = tools.find((t) => t.id === payload.id);
-  if (!tool) return;
   if (toolSwitchDisabled(id)) return;
+  let tool = tools.find((t) => t.id === payload.id);
+  if (!tool) {
+    const fallback = defaultToolBindings().find((item) => item.id === payload.id);
+    if (!fallback) return;
+    tool = {
+      id: fallback.id,
+      command: fallback.command,
+      args: [...fallback.args],
+      enabled: fallback.enabled,
+      values: { ...(fallback.values as Record<string, unknown>) },
+    };
+    tools.push(tool);
+  }
   tool.enabled = payload.enabled;
   emit("toolSwitchChanged");
 }

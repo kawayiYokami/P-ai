@@ -1372,6 +1372,8 @@ struct UnarchivedConversationSummary {
     runtime_state: Option<MainSessionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     current_todo: Option<String>,
+    #[serde(default)]
+    plan_mode_enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     preview_messages: Vec<ConversationPreviewMessage>,
 }
@@ -1580,6 +1582,8 @@ fn build_unarchived_conversation_summary(
         is_main_conversation: conversation.id.trim() == main_conversation_id,
         runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
         current_todo: conversation_current_todo_text(conversation),
+        plan_mode_enabled: get_conversation_plan_mode_enabled(state, &conversation.id)
+            .unwrap_or(conversation.plan_mode_enabled),
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
 }
@@ -1733,6 +1737,20 @@ struct SwitchActiveConversationSnapshotOutput {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     current_todos: Vec<ConversationTodoItem>,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationPlanModeInput {
+    conversation_id: String,
+    plan_mode_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationPlanModeOutput {
+    conversation_id: String,
+    plan_mode_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2071,7 +2089,7 @@ fn switch_active_conversation_snapshot(
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
 
     Ok(SwitchActiveConversationSnapshotOutput {
-        conversation_id,
+        conversation_id: conversation_id.clone(),
         messages,
         has_more_history,
         current_todo: data
@@ -2084,6 +2102,38 @@ fn switch_active_conversation_snapshot(
             .map(|conversation| conversation.current_todos.clone())
             .unwrap_or_default(),
         unarchived_conversations,
+    })
+}
+
+#[tauri::command]
+fn set_conversation_plan_mode(
+    input: SetConversationPlanModeInput,
+    state: State<'_, AppState>,
+) -> Result<SetConversationPlanModeOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+
+    let current_enabled =
+        get_conversation_plan_mode_enabled(state.inner(), conversation_id).unwrap_or(false);
+    if current_enabled == input.plan_mode_enabled {
+        return Ok(SetConversationPlanModeOutput {
+            conversation_id: conversation_id.to_string(),
+            plan_mode_enabled: input.plan_mode_enabled,
+        });
+    }
+
+    set_conversation_plan_mode_enabled(state.inner(), conversation_id, input.plan_mode_enabled)?;
+    runtime_log_info(format!(
+        "[计划模式] 完成，任务=切换会话运行时计划模式，会话ID={}，状态={}",
+        conversation_id,
+        if input.plan_mode_enabled { "开启" } else { "关闭" }
+    ));
+
+    Ok(SetConversationPlanModeOutput {
+        conversation_id: conversation_id.to_string(),
+        plan_mode_enabled: input.plan_mode_enabled,
     })
 }
 

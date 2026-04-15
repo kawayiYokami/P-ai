@@ -58,7 +58,7 @@
         </button>
       </div>
     </div>
-    <div class="flex flex-col">
+    <div ref="composerRootRef" class="flex flex-col">
       <div v-if="instructionPanelOpen" class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto">
         <button
           v-for="(item, index) in normalizedInstructionPresets"
@@ -117,7 +117,7 @@
             <Mic class="h-3.5 w-3.5" />
           </button>
           <select
-            class="select select-ghost select-sm h-8 min-h-8 w-44 max-w-[11rem]"
+            class="select select-ghost select-sm h-8 min-h-8 w-44 max-w-44"
             :value="selectedChatModelId"
             :disabled="chatting || frozen || normalizedChatModelOptions.length === 0"
             title="首要模型"
@@ -133,6 +133,18 @@
           </select>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="btn btn-sm shrink-0 border-transparent"
+            :class="planModeEnabled
+              ? 'bg-info text-info-content hover:bg-info/90'
+              : 'btn-ghost text-base-content/70 hover:text-base-content hover:bg-base-200'"
+            :disabled="!planModeToggleAllowed"
+            :title="`${t('chat.plan.mode')} / Shift+Tab`"
+            @click="togglePlanMode"
+          >
+            {{ t("chat.plan.mode") }}
+          </button>
           <button
             class="btn btn-sm btn-circle btn-primary shrink-0"
             :disabled="frozen"
@@ -179,6 +191,7 @@ const props = defineProps<{
   recordHotkey: string;
   selectedChatModelId: string;
   chatModelOptions: ApiConfigItem[];
+  planModeEnabled: boolean;
   chatting: boolean;
   frozen: boolean;
   showSideConversationList: boolean;
@@ -201,6 +214,7 @@ const emit = defineEmits<{
   (e: "stopRecording"): void;
   (e: "pickAttachments"): void;
   (e: "update:selectedChatModelId", value: string): void;
+  (e: "update:planModeEnabled", value: boolean): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
 }>();
@@ -215,6 +229,7 @@ const localChatInput = computed({
 const CHAT_INPUT_HISTORY_STORAGE_KEY = "easy_call.chat_input_history.v1";
 const CHAT_INPUT_HISTORY_LIMIT = 100;
 
+const composerRootRef = ref<HTMLDivElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
 const chatInputHistory = ref<string[]>([]);
 const chatInputHistoryCursor = ref(-1);
@@ -242,6 +257,7 @@ const normalizedChatModelOptions = computed(() =>
     }))
     .filter((item) => !!item.id && !!item.name),
 );
+const planModeToggleAllowed = computed(() => !props.chatting && !props.frozen);
 
 function loadChatInputHistory() {
   try {
@@ -345,6 +361,11 @@ function handleChatModelChange(event: Event) {
   emit("update:selectedChatModelId", value);
 }
 
+function togglePlanMode() {
+  if (!planModeToggleAllowed.value) return;
+  emit("update:planModeEnabled", !props.planModeEnabled);
+}
+
 function resizeChatInput() {
   const el = chatInputRef.value;
   if (!el) return;
@@ -430,9 +451,21 @@ function handleSendChat() {
   closeInstructionPanel();
 }
 
+function handleWindowKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.repeat) return;
+  if (event.key !== "Tab" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (!planModeToggleAllowed.value) return;
+  const activeElement = document.activeElement;
+  const textareaFocused = !!chatInputRef.value && activeElement === chatInputRef.value;
+  const composerFocused = !!composerRootRef.value && activeElement === composerRootRef.value;
+  if (!textareaFocused && !composerFocused) return;
+  event.preventDefault();
+  togglePlanMode();
+}
+
 function handleChatInputKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
-  if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+  if (event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
     event.preventDefault();
     toggleInstructionPanel();
     return;
@@ -503,12 +536,14 @@ defineExpose({
 
 onMounted(() => {
   loadChatInputHistory();
+  window.addEventListener("keydown", handleWindowKeydown);
   nextTick(() => {
     resizeChatInput();
   });
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleWindowKeydown);
   if (resizeInputRaf.value) {
     cancelAnimationFrame(resizeInputRaf.value);
     resizeInputRaf.value = 0;

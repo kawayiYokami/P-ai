@@ -10,6 +10,7 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "read_file", command: "builtin", args: ["read_file"], enabled: true, values: {} },
   { id: "apply_patch", command: "builtin", args: ["apply_patch"], enabled: true, values: {} },
   { id: "command", command: "builtin", args: ["command"], enabled: true, values: {} },
+  { id: "plan", command: "builtin", args: ["plan"], enabled: true, values: {} },
   { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
   { id: "todo", command: "builtin", args: ["todo"], enabled: true, values: {} },
   { id: "delegate", command: "builtin", args: ["delegate"], enabled: true, values: {} },

@@ -100,6 +100,7 @@ async fn assemble_runtime_tools(
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_read_file = tool_enabled(selected_api, agent, current_department, "read_file");
     let has_apply_patch = tool_enabled(selected_api, agent, current_department, "apply_patch");
+    let has_plan = tool_enabled(selected_api, agent, current_department, "plan");
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
     let has_todo = tool_enabled(selected_api, agent, current_department, "todo");
     let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
@@ -353,6 +354,19 @@ async fn assemble_runtime_tools(
             false,
             false,
             department_reason("apply_patch").or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_plan {
+        tools.push(Box::new(BuiltinPlanTool));
+        tool_manifest.push(tool_manifest_item("builtin", "plan", true, true, None));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "plan",
+            false,
+            false,
+            department_reason("plan").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 

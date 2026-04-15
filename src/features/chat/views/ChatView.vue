@@ -111,8 +111,10 @@
               :playing-audio-id="playingAudioId"
               :active-turn-user="item.renderId === activeTurnUserId"
               :can-regenerate="canRegenerateBlock(item.block, item.blockIndex)"
+              :can-confirm-plan="canConfirmPlan(item.block)"
               @recall-turn="$emit('recallTurn', $event)"
               @regenerate-turn="$emit('regenerateTurn', $event)"
+              @confirm-plan="$emit('confirmPlan', $event)"
               @copy-message="copyMessage"
               @open-image-preview="openImagePreview"
               @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -143,8 +145,10 @@
                   :playing-audio-id="playingAudioId"
                   :active-turn-user="groupItem.renderId === activeTurnUserId"
                   :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
+                  :can-confirm-plan="canConfirmPlan(groupItem.block)"
                   @recall-turn="$emit('recallTurn', $event)"
                   @regenerate-turn="$emit('regenerateTurn', $event)"
+                  @confirm-plan="$emit('confirmPlan', $event)"
                   @copy-message="copyMessage"
                   @open-image-preview="openImagePreview"
                   @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -213,6 +217,7 @@
           :record-hotkey="recordHotkey"
           :selected-chat-model-id="selectedChatModelId"
           :chat-model-options="chatModelOptions"
+          :plan-mode-enabled="planModeEnabled"
           :chat-usage-percent="chatUsagePercent"
           :force-archive-tip="forceArchiveTip"
           :chatting="chatting"
@@ -233,6 +238,7 @@
           @stop-recording="$emit('stopRecording')"
           @pick-attachments="$emit('pickAttachments')"
           @update:selected-chat-model-id="$emit('update:selectedChatModelId', $event)"
+          @update:plan-mode-enabled="$emit('update:planModeEnabled', $event)"
           @send-chat="$emit('sendChat')"
           @stop-chat="$emit('stopChat')"
           @force-archive="$emit('forceArchive')"
@@ -326,6 +332,7 @@ const props = defineProps<{
   recordHotkey: string;
   selectedChatModelId: string;
   chatModelOptions: ApiConfigItem[];
+  planModeEnabled: boolean;
   chatUsagePercent: number;
   forceArchiveTip: string;
   mediaDragActive: boolean;
@@ -468,6 +475,22 @@ const activeTurnGroupId = computed(() => {
   return "";
 });
 const activeTurnUserId = computed(() => activeTurnGroupId.value);
+const latestPendingPlanMessageId = computed(() => {
+  for (let idx = props.messageBlocks.length - 1; idx >= 0; idx -= 1) {
+    const block = props.messageBlocks[idx];
+    if (block.isExtraTextBlock) continue;
+    const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
+    const messageMeta = ((providerMeta.message_meta || providerMeta.messageMeta || {}) as Record<string, unknown>);
+    const messageKind = String(messageMeta.kind || providerMeta.messageKind || "").trim();
+    if (messageKind === "plan_complete" || block.planCard?.action === "complete") {
+      return "";
+    }
+    if (messageKind === "plan_present" || block.planCard?.action === "present") {
+      return String(block.sourceMessageId || block.id || "").trim();
+    }
+  }
+  return "";
+});
 
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
@@ -479,11 +502,13 @@ const emit = defineEmits<{
   (e: "stopRecording"): void;
   (e: "pickAttachments"): void;
   (e: "update:selectedChatModelId", value: string): void;
+  (e: "update:planModeEnabled", value: boolean): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "forceArchive"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
+  (e: "confirmPlan", payload: { messageId: string }): void;
   (e: "lockWorkspace"): void;
   (e: "openSupervisionTask"): void;
   (e: "closeSupervisionTask"): void;
@@ -590,6 +615,16 @@ function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolea
     return idx === blockIndex;
   }
   return false;
+}
+
+function canConfirmPlan(block: ChatMessageBlock): boolean {
+  if (block.role !== "assistant" || block.isExtraTextBlock) return false;
+  if (block.planCard?.action !== "present") return false;
+  const targetId = String(block.sourceMessageId || block.id || "").trim();
+  if (targetId !== latestPendingPlanMessageId.value) return false;
+  const blockIndex = props.messageBlocks.findIndex((item) => String(item.id || "").trim() === String(block.id || "").trim());
+  if (blockIndex < 0) return false;
+  return !props.messageBlocks.slice(blockIndex + 1).some((item) => !item.isExtraTextBlock && item.role === "user");
 }
 
 function handleConversationListSelect(conversationId: string) {

@@ -508,6 +508,9 @@ impl RuntimeJsonTool for BuiltinApplyPatchTool {
 
 
 #[derive(Debug, Clone)]
+struct BuiltinPlanTool;
+
+#[derive(Debug, Clone)]
 struct BuiltinTaskTool {
     app_state: AppState,
     session_id: String,
@@ -552,6 +555,48 @@ impl RuntimeToolDyn for BuiltinTodoTool {
                 Err(err) => eprintln!("[工具执行] 内置工具 todo 执行失败: 错误={err}"),
             }
             result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinPlanTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "plan",
+            plan_tool_description(),
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "action": { "type": "string", "enum": ["present", "complete"] },
+                "context": { "type": "string", "description": "当 action=present 时表示计划内容；当 action=complete 时表示完成汇报" }
+              },
+              "required": ["action", "context"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinPlanTool {
+    const NAME: &'static str = "plan";
+    type Args = PlanToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+        runtime_log_debug(format!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=plan args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        ));
+        let result = builtin_plan(args).map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=plan result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => eprintln!("[工具执行] 内置工具 plan 执行失败: 错误={err}"),
+        }
+        result
         })
     }
 }

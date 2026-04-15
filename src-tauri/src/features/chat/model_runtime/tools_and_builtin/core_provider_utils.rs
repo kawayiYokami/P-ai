@@ -65,11 +65,13 @@ fn tool_enabled(
     if tool_restricted_by_department(current_department, id).is_some() {
         return false;
     }
-    selected_api.enable_tools
-        && agent
-            .tools
-            .iter()
-            .any(|tool| tool.id == id && tool.enabled)
+    if !selected_api.enable_tools {
+        return false;
+    }
+    if let Some(tool) = agent.tools.iter().find(|tool| tool.id == id) {
+        return tool.enabled;
+    }
+    true
 }
 
 #[derive(Debug)]

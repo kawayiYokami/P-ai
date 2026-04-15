@@ -690,6 +690,7 @@ mod terminal_exec_tests {
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         });
         state_write_app_data_cached(state, &data)
             .map_err(|err| format!("write app data failed: {err}"))?;

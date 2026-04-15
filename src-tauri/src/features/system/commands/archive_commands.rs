@@ -104,6 +104,7 @@ async fn get_prompt_preview(
             messages: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
         });
     let latest_user_message = conversation
         .messages

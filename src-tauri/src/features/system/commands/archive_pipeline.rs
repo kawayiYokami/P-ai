@@ -1095,6 +1095,56 @@ fn build_compaction_message(
     }
 }
 
+fn plan_message_kind_for_archive(message: &ChatMessage) -> Option<String> {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| {
+            meta.get("message_meta")
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("kind"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .or_else(|| {
+            message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("messageKind"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
+
+fn pending_plan_context_for_compaction(messages: &[ChatMessage]) -> Option<String> {
+    for message in messages.iter().rev() {
+        match plan_message_kind_for_archive(message).as_deref() {
+            Some("plan_complete") => return None,
+            Some("plan_present") => {
+                let context = message
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("planCard"))
+                    .and_then(Value::as_object)
+                    .and_then(|card| card.get("context"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned);
+                if context.is_some() {
+                    return context;
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn normalize_multiline_block(input: &str) -> String {
     input
         .lines()
@@ -1667,6 +1717,18 @@ async fn run_context_compaction_pipeline_inner(
     let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
     let applied_report =
         apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
+    let summary_with_pending_plan = if let Some(plan_context) =
+        pending_plan_context_for_compaction(&source.messages)
+    {
+        let plan_block = format!("未完成计划：\n{}", clean_text(plan_context.trim()));
+        if summary_draft.summary.trim().is_empty() {
+            plan_block
+        } else {
+            format!("{}\n\n{}", summary_draft.summary.trim(), plan_block)
+        }
+    } else {
+        summary_draft.summary.clone()
+    };
     let user_profile_snapshot = if conversation_is_delegate(source)
         || conversation_is_remote_im_contact(source)
     {
@@ -1687,7 +1749,7 @@ async fn run_context_compaction_pipeline_inner(
         .position(|item| item.id == source.id && item.summary.trim().is_empty())
         .ok_or_else(|| "活动对话已变化，请重试上下文整理。".to_string())?;
     let compression_message = build_compaction_message(
-        &summary_draft.summary,
+        &summary_with_pending_plan,
         compaction_reason,
         user_profile_snapshot.as_deref(),
         Some(&source.current_todos),
@@ -2027,4 +2089,3 @@ async fn run_archive_pipeline_inner(
         merge_groups: Some(applied_report.merged_groups),
     })
 }
-

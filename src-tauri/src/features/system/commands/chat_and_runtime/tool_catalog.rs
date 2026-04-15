@@ -176,6 +176,9 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinPlanTool.provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinTerminalExecTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

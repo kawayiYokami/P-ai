@@ -764,6 +764,13 @@
       "kindEvery": "循环任务",
       "kindAt": "定时任务"
     },
+    "plan": {
+      "mode": "计划模式",
+      "badge": "执行计划",
+      "completeBadge": "计划完成",
+      "confirmAction": "我同意，并执行计划",
+      "confirmHint": "不同意，请直接告诉我你的想法"
+    },
     "supervision": {
       "button": "督工",
       "buttonActive": "督工中",

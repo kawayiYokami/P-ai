@@ -79,6 +79,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       audios: projection.audios,
       attachmentFiles: projection.attachmentFiles,
       taskTrigger: projection.taskTrigger,
+      planCard: projection.planCard,
       remoteImOrigin: projection.remoteImOrigin,
       reasoningStandard: projection.reasoningStandard,
       reasoningInline: projection.reasoningInline,
@@ -95,6 +96,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       || baseBlock.audios.length > 0
       || baseBlock.attachmentFiles.length > 0
       || !!baseBlock.taskTrigger
+      || !!baseBlock.planCard
       || !!baseBlock.reasoningStandard
       || !!baseBlock.reasoningInline
       || baseBlock.toolCallCount > 0
@@ -123,6 +125,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
           audios: [],
           attachmentFiles: [],
           taskTrigger: undefined,
+          planCard: undefined,
           remoteImOrigin: projection.remoteImOrigin,
           reasoningStandard: "",
           reasoningInline: "",

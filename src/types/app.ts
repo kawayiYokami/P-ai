@@ -360,6 +360,11 @@ export type TaskTriggerMessageCard = {
   everyMinutes?: number;
 };
 
+export type PlanMessageCard = {
+  action: "present" | "complete";
+  context: string;
+};
+
 export type ChatTodoItem = {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -379,6 +384,7 @@ export type ChatMessage = {
     hiddenPromptText?: string;
     attachments?: Array<{ fileName: string; relativePath: string; mime?: string }>;
     taskTrigger?: TaskTriggerMessageCard;
+    planCard?: PlanMessageCard;
     [key: string]: unknown;
   };
   toolCall?: ToolCallMessage[];
@@ -408,6 +414,7 @@ export type ChatMessageBlock = {
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   taskTrigger?: TaskTriggerMessageCard;
+  planCard?: PlanMessageCard;
   remoteImOrigin?: {
     senderName: string;
     remoteContactName?: string;
@@ -454,6 +461,7 @@ export type UnarchivedConversationSummary = {
   isMainConversation?: boolean;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
   currentTodo?: string;
+  planModeEnabled?: boolean;
   currentTodos?: ChatTodoItem[];
   previewMessages?: ConversationPreviewMessage[];
 };

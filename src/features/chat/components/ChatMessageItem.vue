@@ -47,6 +47,25 @@
             'self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
             blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
           ]">
+            <div v-if="block.planCard" class="space-y-3">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-sm badge-ghost">
+                  {{ block.planCard.action === "complete" ? t("chat.plan.completeBadge") : t("chat.plan.badge") }}
+                </span>
+              </div>
+              <div class="whitespace-pre-wrap text-sm leading-6">{{ block.planCard.context }}</div>
+              <div v-if="block.planCard.action === 'present'" class="space-y-2">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  :disabled="chatting || frozen || !canConfirmPlan"
+                  @click="emit('confirmPlan', { messageId: block.sourceMessageId || block.id })"
+                >
+                  {{ t("chat.plan.confirmAction") }}
+                </button>
+                <div class="text-xs opacity-60">{{ t("chat.plan.confirmHint") }}</div>
+              </div>
+            </div>
             <div v-if="block.taskTrigger" class="space-y-2">
         <div class="flex items-center gap-2">
           <span class="badge badge-sm badge-ghost">{{ t("chat.taskTrigger.badge") }}</span>
@@ -430,11 +449,13 @@ const props = defineProps<{
   playingAudioId: string;
   activeTurnUser: boolean;
   canRegenerate: boolean;
+  canConfirmPlan: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
+  (e: "confirmPlan", payload: { messageId: string }): void;
   (e: "copyMessage", block: ChatMessageBlock): void;
   (e: "openImagePreview", image: { mime: string; bytesBase64?: string; dataUrl?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64: string } }): void;

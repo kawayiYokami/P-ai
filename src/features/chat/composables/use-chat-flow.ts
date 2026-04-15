@@ -153,6 +153,13 @@ type DeferredRoundCompletion = {
   };
 };
 
+type SendChatOverrides = {
+  text?: string;
+  displayText?: string;
+  extraTextBlocks?: string[];
+  skipInstructionPrompts?: boolean;
+};
+
 export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
   let round: RoundState = { phase: "idle" };
@@ -1196,11 +1203,20 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // 公共方法
   // =========================================================================
 
-  async function sendChat() {
-    const plainText = options.chatInput.value.trim();
-    const queuedAttachments = buildQueuedAttachmentPayload();
-    const instructionExtraTextBlocks = buildInstructionExtraTextBlocks();
-    if (!plainText && options.clipboardImages.value.length === 0 && queuedAttachments.length === 0 && instructionExtraTextBlocks.length === 0) return;
+  async function sendChat(overrides?: SendChatOverrides) {
+    const useOverrideMessage = !!overrides && typeof overrides.text === "string";
+    const plainText =
+      useOverrideMessage
+        ? String(overrides.text || "").trim()
+        : options.chatInput.value.trim();
+    const queuedAttachments = useOverrideMessage ? [] : buildQueuedAttachmentPayload();
+    const instructionExtraTextBlocks = overrides?.skipInstructionPrompts ? [] : buildInstructionExtraTextBlocks();
+    const extraTextBlocks = [
+      ...instructionExtraTextBlocks,
+      ...(Array.isArray(overrides?.extraTextBlocks) ? overrides.extraTextBlocks : []),
+    ].filter((item) => !!String(item || "").trim());
+    const finalImages = useOverrideMessage ? [] : [...options.clipboardImages.value];
+    if (!plainText && finalImages.length === 0 && queuedAttachments.length === 0 && extraTextBlocks.length === 0) return;
     const sendSession = options.getSession();
     if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
@@ -1212,16 +1228,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
       options.chatErrorText.value = "";
     }
 
-    const sentImages = [...options.clipboardImages.value];
+    const sentImages = finalImages;
     const attachments = [...queuedAttachments, ...buildImageAttachmentPayload(sentImages)];
     options.latestUserText.value = plainText;
     options.latestUserImages.value = sentImages.map((image) => ({
       mime: String(image.mime || ""),
       bytesBase64: String(image.bytesBase64 || ""),
     }));
-    options.chatInput.value = "";
-    options.clipboardImages.value = [];
-    if (options.queuedAttachmentNotices) options.queuedAttachmentNotices.value = [];
+    if (!useOverrideMessage) {
+      options.chatInput.value = "";
+      options.clipboardImages.value = [];
+      if (options.queuedAttachmentNotices) options.queuedAttachmentNotices.value = [];
+    }
 
     const gen = ++generation;
     sendChatActiveGen = gen;
@@ -1244,10 +1262,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
     try {
       const result = await options.invokeSendChatMessage({
         text: plainText,
-        displayText: plainText,
+        displayText:
+          overrides && typeof overrides.displayText === "string"
+            ? overrides.displayText
+            : plainText,
         images: sentImages,
         attachments: attachments.length > 0 ? attachments : undefined,
-        extraTextBlocks: instructionExtraTextBlocks.length > 0 ? instructionExtraTextBlocks : undefined,
+        extraTextBlocks: extraTextBlocks.length > 0 ? extraTextBlocks : undefined,
         session: {
           ...sendSession,
           conversationId: options.getConversationId ? options.getConversationId() : "",

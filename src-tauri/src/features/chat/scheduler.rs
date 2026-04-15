@@ -562,6 +562,39 @@ pub(crate) fn set_conversation_remote_im_activation_sources(
     Ok(())
 }
 
+pub(crate) fn set_conversation_plan_mode_enabled(
+    state: &AppState,
+    conversation_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
+    slot.plan_mode_enabled = enabled;
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn get_conversation_plan_mode_enabled(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let normalized_conversation_id = conversation_id.trim();
+    {
+        let slots = lock_conversation_runtime_slots(state)?;
+        if let Some(slot) = slots.get(normalized_conversation_id) {
+            return Ok(slot.plan_mode_enabled);
+        }
+    }
+    let data = state_read_app_data_cached(state)?;
+    Ok(data
+        .conversations
+        .iter()
+        .find(|conversation| conversation.id.trim() == normalized_conversation_id)
+        .map(|conversation| conversation.plan_mode_enabled)
+        .unwrap_or(false))
+}
+
 pub(crate) fn get_conversation_remote_im_activation_sources(
     state: &AppState,
     conversation_id: &str,
@@ -1626,5 +1659,3 @@ fn complete_pending_chat_events_with_error(
     }
     Ok(())
 }
-
-

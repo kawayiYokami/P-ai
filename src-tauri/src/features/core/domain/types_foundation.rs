@@ -316,6 +316,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "plan".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["plan".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "task".to_string(),
             command: "builtin".to_string(),
             args: vec!["task".to_string()],

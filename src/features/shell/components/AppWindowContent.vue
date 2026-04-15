@@ -126,6 +126,7 @@
         :record-hotkey="recordHotkey"
         :selected-chat-model-id="selectedChatModelId"
         :chat-model-options="textCapableApiConfigs"
+        :plan-mode-enabled="planModeEnabled"
         :chat-usage-percent="chatUsagePercent"
         :force-archive-tip="forceArchiveTip"
         :media-drag-active="mediaDragActive"
@@ -154,6 +155,7 @@
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
         @pick-attachments="pickAttachments"
         @update:selected-chat-model-id="updateSelectedChatModelId"
+        @update:plan-mode-enabled="updatePlanModeEnabled"
         @start-recording="startRecording"
         @stop-recording="stopRecording"
         @send-chat="sendChat"
@@ -161,6 +163,7 @@
         @reached-bottom="onReachedChatBottom"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
+        @confirm-plan="confirmPlan"
         @force-archive="openForceArchiveActionDialog"
         @lock-workspace="onLockChatWorkspace"
         @open-supervision-task="openSupervisionTaskDialog"
@@ -365,6 +368,7 @@ const props = defineProps<{
   transcribing: boolean;
   recordHotkey: string;
   selectedChatModelId: string;
+  planModeEnabled: boolean;
   chatUsagePercent: number;
   forceArchiveTip: string;
   mediaDragActive: boolean;
@@ -462,6 +466,7 @@ const props = defineProps<{
   updateChatInput: (value: string) => void;
   updateSelectedInstructionPrompts: (value: PromptCommandPreset[]) => void;
   updateSelectedChatModelId: (value: string) => void;
+  updatePlanModeEnabled: (value: boolean) => void;
   setSideConversationListVisible: (value: boolean) => void;
   removeClipboardImage: (index: number) => void;
   removeQueuedAttachmentNotice: (index: number) => void;
@@ -473,6 +478,7 @@ const props = defineProps<{
   onReachedChatBottom: () => void;
   onRecallTurn: (payload: { turnId: string }) => void;
   onRegenerateTurn: (payload: { turnId: string }) => void;
+  confirmPlan: (payload: { messageId: string }) => void;
   onLockChatWorkspace: () => void;
   openSupervisionTaskDialog: () => void;
   closeSupervisionTaskDialog: () => void;
