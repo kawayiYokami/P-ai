@@ -122,7 +122,7 @@
         <div class="flex items-center justify-between gap-2">
           <div>
             <h3 class="card-title text-base">指令预设</h3>
-            <div class="text-xs opacity-70 mt-1">维护输入面板可复用的快捷指令；发送时会作为文本附件附加到本轮消息。</div>
+            <div class="text-xs opacity-70 mt-1">维护输入面板可复用的极短指令；发送时会作为文本附件附加到本轮消息。</div>
           </div>
           <button class="btn btn-sm btn-ghost shrink-0" @click="addInstructionPreset">
             <Plus class="h-4 w-4" />
@@ -130,24 +130,18 @@
           </button>
         </div>
         <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">暂无指令预设</div>
-        <div v-for="item in instructionPresetsDraft" :key="item.id" class="rounded-box border border-base-300 p-3 grid gap-2">
-          <div class="flex items-center gap-2">
+        <div v-else class="overflow-hidden rounded-box border border-base-300 bg-base-200/20">
+          <div v-for="item in instructionPresetsDraft" :key="item.id" class="flex items-center gap-2 border-b border-base-300 px-3 py-2 last:border-b-0">
             <input
-              v-model="item.name"
+              v-model="item.prompt"
               type="text"
-              class="input input-bordered input-sm flex-1"
-              placeholder="指令名称，例如：表格总结"
+              class="input input-ghost input-sm flex-1"
+              placeholder="输入极短指令，例如：结果整理成表格"
             />
             <button class="btn btn-sm btn-ghost btn-square shrink-0" @click="removeInstructionPreset(item.id)">
               <Trash2 class="h-4 w-4" />
             </button>
           </div>
-          <textarea
-            v-model="item.prompt"
-            rows="3"
-            class="textarea textarea-bordered text-sm"
-            placeholder="输入这条指令的正文，例如：请把结果整理成表格"
-          ></textarea>
         </div>
         <div class="flex justify-end">
           <button class="btn btn-sm btn-primary" :disabled="!instructionPresetsDirty" @click="saveInstructionPresets">保存指令预设</button>
@@ -304,9 +298,10 @@ function normalizeInstructionPresets(value: PromptCommandPreset[]): PromptComman
   return (Array.isArray(value) ? value : [])
     .map((item) => ({
       id: String(item?.id || "").trim() || randomInstructionPresetId(),
-      name: String(item?.name || "").trim(),
-      prompt: String(item?.prompt || "").trim(),
-    }));
+      name: String(item?.prompt || item?.name || "").trim(),
+      prompt: String(item?.prompt || item?.name || "").trim(),
+    }))
+    .filter((item) => !!item.prompt);
 }
 
 const instructionPresetsDraft = ref<PromptCommandPreset[]>(normalizeInstructionPresets(props.instructionPresets));
@@ -342,10 +337,10 @@ function saveInstructionPresets() {
   const normalized = instructionPresetsDraft.value
     .map((item) => ({
       id: String(item.id || "").trim() || randomInstructionPresetId(),
-      name: String(item.name || "").trim(),
-      prompt: String(item.prompt || "").trim(),
+      name: String(item.prompt || item.name || "").trim(),
+      prompt: String(item.prompt || item.name || "").trim(),
     }))
-    .filter((item) => !!item.name && !!item.prompt);
+    .filter((item) => !!item.prompt);
   instructionPresetsDraft.value = normalized;
   emit("update:instructionPresets", normalized);
   emit("patchChatSettings", {

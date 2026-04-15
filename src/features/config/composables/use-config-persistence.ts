@@ -371,10 +371,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       ? settings.instructionPresets
           .map((item) => ({
             id: String(item?.id || "").trim(),
-            name: String(item?.name || "").trim(),
-            prompt: String(item?.prompt || "").trim(),
+            name: String(item?.prompt || item?.name || "").trim(),
+            prompt: String(item?.prompt || item?.name || "").trim(),
           }))
-          .filter((item) => !!item.id && !!item.name && !!item.prompt)
+          .filter((item) => !!item.id && !!item.prompt)
       : [];
   }
 
@@ -650,7 +650,11 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
     if (Object.prototype.hasOwnProperty.call(patch, "instructionPresets")) {
       normalizedPatch.instructionPresets = Array.isArray(patch.instructionPresets)
-        ? patch.instructionPresets.map((item) => ({ ...item }))
+        ? patch.instructionPresets.map((item) => ({
+            id: String(item?.id || "").trim(),
+            name: String(item?.prompt || item?.name || "").trim(),
+            prompt: String(item?.prompt || item?.name || "").trim(),
+          })).filter((item) => !!item.id && !!item.prompt)
         : [];
     }
     if (Object.keys(normalizedPatch).length === 0) return;

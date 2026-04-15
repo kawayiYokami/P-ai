@@ -161,6 +161,9 @@
       :update-selected-pdf-read-mode="updateSelectedPdfReadMode"
       :update-background-voice-screenshot-keywords="updateBackgroundVoiceScreenshotKeywords"
       :update-background-voice-screenshot-mode="updateBackgroundVoiceScreenshotMode"
+      :update-instruction-presets="updateInstructionPresets"
+      :patch-conversation-api-settings="patchConversationApiSettings"
+      :patch-chat-settings="patchChatSettings"
       :set-theme="setTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
@@ -680,10 +683,10 @@ function updateSelectedInstructionPrompts(value: PromptCommandPreset[]) {
     ? value
         .map((item) => ({
           id: String(item?.id || "").trim(),
-          name: String(item?.name || "").trim(),
-          prompt: String(item?.prompt || "").trim(),
+          name: String(item?.prompt || item?.name || "").trim(),
+          prompt: String(item?.prompt || item?.name || "").trim(),
         }))
-        .filter((item) => !!item.id && !!item.name && !!item.prompt)
+        .filter((item) => !!item.id && !!item.prompt)
     : [];
 }
 
@@ -1911,10 +1914,10 @@ function updateInstructionPresets(value: PromptCommandPreset[]) {
     ? value
         .map((item) => ({
           id: String(item?.id || "").trim(),
-          name: String(item?.name || "").trim(),
-          prompt: String(item?.prompt || "").trim(),
+          name: String(item?.prompt || item?.name || "").trim(),
+          prompt: String(item?.prompt || item?.name || "").trim(),
         }))
-        .filter((item) => !!item.id && !!item.name && !!item.prompt)
+        .filter((item) => !!item.id && !!item.prompt)
     : [];
 }
 
@@ -2787,10 +2790,10 @@ const appBootstrap = useAppBootstrap({
       instructionPresets.value = payload.instructionPresets
         .map((item) => ({
           id: String(item?.id || "").trim(),
-          name: String(item?.name || "").trim(),
-          prompt: String(item?.prompt || "").trim(),
+          name: String(item?.prompt || item?.name || "").trim(),
+          prompt: String(item?.prompt || item?.name || "").trim(),
         }))
-        .filter((item) => !!item.id && !!item.name && !!item.prompt);
+        .filter((item) => !!item.id && !!item.prompt);
     }
     if (viewMode.value === "chat") {
       await refreshConversationHistory();

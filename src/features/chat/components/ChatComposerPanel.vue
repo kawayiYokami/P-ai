@@ -51,29 +51,27 @@
         :key="item.id"
         class="badge badge-outline gap-1 py-3"
       >
-        <Command class="h-3.5 w-3.5" />
-        <span class="text-[11px]">{{ item.name }}</span>
+        <Layers2 class="h-3.5 w-3.5" />
+        <span class="max-w-48 truncate text-[11px]" :title="item.prompt">{{ item.prompt }}</span>
         <button class="btn btn-ghost btn-sm btn-square" :disabled="chatting || frozen" @click="removeSelectedInstructionPreset(item.id)">
           <X class="h-3 w-3" />
         </button>
       </div>
     </div>
-    <div class="flex flex-col gap-2">
-      <div v-if="instructionPanelOpen" class="rounded-box border border-base-300 bg-base-100 p-2 grid gap-1 max-h-48 overflow-y-auto">
+    <div class="flex flex-col">
+      <div v-if="instructionPanelOpen" class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto">
         <button
           v-for="(item, index) in normalizedInstructionPresets"
           :key="item.id"
           type="button"
-          class="btn btn-sm justify-start normal-case h-auto min-h-0 py-2 px-3"
+          class="btn btn-sm min-h-0 max-w-full justify-start normal-case px-3"
           :class="instructionFocusIndex === index ? 'btn-primary' : 'btn-ghost'"
+          :title="item.prompt"
           @click="applyInstructionPreset(item)"
         >
-          <span class="text-left w-full">
-            <span class="block text-sm font-medium">{{ item.name }}</span>
-            <span class="block text-[11px] opacity-70 whitespace-pre-wrap break-all">{{ item.prompt }}</span>
-          </span>
+          <span class="block max-w-64 truncate text-left text-sm sm:max-w-80">{{ item.prompt }}</span>
         </button>
-        <div v-if="normalizedInstructionPresets.length === 0" class="px-2 py-3 text-sm opacity-60">
+        <div v-if="normalizedInstructionPresets.length === 0" class="w-full px-2 py-3 text-sm opacity-60">
           {{ t("chat.noInstructionPresets") }}
         </div>
       </div>
@@ -87,16 +85,15 @@
         @input="scheduleResizeChatInput"
         @keydown="handleChatInputKeydown"
       ></textarea>
-      <div class="flex items-center justify-between gap-2">
+      <div class="mt-2 flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
           <button
-            class="btn btn-sm btn-ghost shrink-0"
+            class="btn btn-sm btn-circle btn-ghost shrink-0"
             :disabled="chatting || frozen"
             :title="t('chat.command')"
             @click="toggleInstructionPanel"
           >
-            <Command class="h-3.5 w-3.5" />
-            <span>{{ t("chat.command") }}</span>
+            <Layers2 class="h-3.5 w-3.5" />
           </button>
           <button
             class="btn btn-sm btn-circle btn-ghost shrink-0"
@@ -139,7 +136,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Command, FileText, Image as ImageIcon, Mic, Paperclip, Send, Square, X } from "lucide-vue-next";
+import { FileText, Image as ImageIcon, Layers2, Mic, Paperclip, Send, Square, X } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, PromptCommandPreset } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
@@ -214,10 +211,10 @@ const normalizedInstructionPresets = computed(() =>
   (Array.isArray(props.instructionPresets) ? props.instructionPresets : [])
     .map((item) => ({
       id: String(item?.id || "").trim(),
-      name: String(item?.name || "").trim(),
-      prompt: String(item?.prompt || "").trim(),
+      name: String(item?.prompt || item?.name || "").trim(),
+      prompt: String(item?.prompt || item?.name || "").trim(),
     }))
-    .filter((item) => !!item.id && !!item.name && !!item.prompt),
+    .filter((item) => !!item.id && !!item.prompt),
 );
 
 function loadChatInputHistory() {
@@ -283,9 +280,26 @@ function toggleInstructionPanel() {
 
 function applyInstructionPreset(item: PromptCommandPreset | undefined) {
   if (!item) return;
-  if (selectedInstructionPrompts.value.some((entry) => entry.id === item.id)) return;
-  selectedInstructionPrompts.value = [...selectedInstructionPrompts.value, item];
-  emitSelectedInstructionPrompts();
+  if (!selectedInstructionPrompts.value.some((entry) => entry.id === item.id)) {
+    selectedInstructionPrompts.value = [...selectedInstructionPrompts.value, item];
+    emitSelectedInstructionPrompts();
+  }
+  closeInstructionPanel();
+}
+
+function selectInstructionPresetByIndex(index: number) {
+  const list = normalizedInstructionPresets.value;
+  if (list.length === 0) return;
+  const nextIndex = Math.max(0, Math.min(list.length - 1, index));
+  instructionFocusIndex.value = nextIndex;
+  applyInstructionPreset(list[nextIndex]);
+}
+
+function moveInstructionFocus(delta: number) {
+  const list = normalizedInstructionPresets.value;
+  if (list.length === 0) return;
+  const next = instructionFocusIndex.value + delta;
+  instructionFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
 }
 
 function removeSelectedInstructionPreset(id: string) {
@@ -297,13 +311,6 @@ function clearSelectedInstructionPrompts() {
   if (selectedInstructionPrompts.value.length === 0) return;
   selectedInstructionPrompts.value = [];
   emitSelectedInstructionPrompts();
-}
-
-function moveInstructionFocus(delta: number) {
-  const list = normalizedInstructionPresets.value;
-  if (list.length === 0) return;
-  const next = instructionFocusIndex.value + delta;
-  instructionFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
 }
 
 function resizeChatInput() {
@@ -395,7 +402,7 @@ function handleChatInputKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
   if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
     event.preventDefault();
-    openInstructionPanel();
+    toggleInstructionPanel();
     return;
   }
   if (instructionPanelOpen.value) {
@@ -404,19 +411,19 @@ function handleChatInputKeydown(event: KeyboardEvent) {
       closeInstructionPanel();
       return;
     }
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
       event.preventDefault();
       moveInstructionFocus(-1);
       return;
     }
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
       event.preventDefault();
       moveInstructionFocus(1);
       return;
     }
     if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
       event.preventDefault();
-      applyInstructionPreset(normalizedInstructionPresets.value[instructionFocusIndex.value]);
+      selectInstructionPresetByIndex(instructionFocusIndex.value);
       return;
     }
   }
