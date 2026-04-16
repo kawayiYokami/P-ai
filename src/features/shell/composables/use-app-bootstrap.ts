@@ -5,6 +5,7 @@ type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
   assistantDepartmentApiConfigId: string;
   visionApiConfigId?: string;
+  toolReviewApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
 };
@@ -33,6 +34,8 @@ export type TerminalApprovalRequestPayload = {
   reason?: string;
   existingPaths?: string[];
   targetPaths?: string[];
+  reviewOpinion?: string;
+  reviewModelName?: string;
 };
 
 type AppBootstrapOptions = {

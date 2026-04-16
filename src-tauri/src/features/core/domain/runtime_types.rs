@@ -213,6 +213,8 @@ struct ConversationApiSettings {
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]
+    tool_review_api_config_id: Option<String>,
+    #[serde(default)]
     stt_api_config_id: Option<String>,
     #[serde(default)]
     stt_auto_send: bool,

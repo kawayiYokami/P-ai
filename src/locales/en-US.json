@@ -416,10 +416,13 @@
     "chatSettings": {
       "chatLlmProvider": "Assistant Department Model",
       "visionApi": "Vision API (Optional)",
+      "toolReviewApi": "Tool Review Model (Optional)",
+      "toolReviewApiHint": "Used to generate a safety assessment, command purpose, and review opinion before executing terminal commands that are not obviously safe.\nA token-based model is recommended. Do not use a per-request priced model, because usage will be very small.",
       "sttTitle": "Speech-to-Text (STT)",
       "sttLocalWebSpeech": "Local (Web Speech)",
       "sttAutoSend": "Send on completion",
       "noVision": "Not set",
+      "noToolReview": "Not set",
       "assistantPersona": "Assistant Department Persona",
       "responseStyle": "Response Style",
       "pdfReadMode": "PDF Read Mode",
@@ -901,7 +904,8 @@
     "noSpeechText": "No text recognized.",
     "recordAutoStopped": "Recording reached limit {seconds}s and stopped automatically.",
     "recordStartFailed": "Start recording failed: {err}",
-    "terminalApprovalQueueHint": "{count} terminal approval request(s) are still waiting."
+    "terminalApprovalQueueHint": "{count} terminal approval request(s) are still waiting.",
+    "reviewOpinion": "Review opinion:"
   },
   "archives": {
     "refresh": "Refresh Archives",

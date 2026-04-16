@@ -416,10 +416,13 @@
     "chatSettings": {
       "chatLlmProvider": "助理部门驱动模型",
       "visionApi": "图转文AI（可选）",
+      "toolReviewApi": "工具审查模型（可选）",
+      "toolReviewApiHint": "用于在执行非明显安全的终端命令前，先生成安全性评估、功能说明和审查意见。\n推荐使用 token 计费的模型，不要使用次数计费的模型，用量会非常小。",
       "sttTitle": "语音转写（STT）",
       "sttLocalWebSpeech": "本地（Web Speech）",
       "sttAutoSend": "完成后发送",
       "noVision": "不配置",
+      "noToolReview": "不配置",
       "assistantPersona": "助理部门主人格",
       "responseStyle": "对话风格",
       "pdfReadMode": "PDF 阅读方式",
@@ -906,7 +909,8 @@
     "noSpeechText": "未识别到文本。",
     "recordAutoStopped": "录音已达到上限 {seconds}s，自动停止。",
     "recordStartFailed": "开始录音失败: {err}",
-    "terminalApprovalQueueHint": "当前还有 {count} 条终端审批请求等待处理。"
+    "terminalApprovalQueueHint": "当前还有 {count} 条终端审批请求等待处理。",
+    "reviewOpinion": "审查意见："
   },
   "archives": {
     "refresh": "刷新归档",

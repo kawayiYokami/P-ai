@@ -174,6 +174,7 @@ const terminalApprovalCurrentPatchLines = computed(() => {
 const terminalApprovalPatchKinds = computed(() =>
   terminalApprovalPatchBlocks.value.map((lines) => getTerminalApprovalPatchKind(lines)),
 );
+const terminalApprovalReviewOpinion = computed(() => String(props.payload?.reviewOpinion || "").trim());
 
 const terminalApprovalCurrentDiffLineCount = computed(() =>
   terminalApprovalCurrentPatchLines.value.reduce((count, rawLine) => {
@@ -252,9 +253,22 @@ watch(terminalApprovalPatchBlocks, clampTerminalApprovalPatchIndex);
       <h3 class="font-semibold text-base">
         {{ terminalApprovalDialogTitle }}
       </h3>
+      <div v-if="props.payload?.reason" class="mt-3 rounded-box border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-base-content/80">
+        {{ props.payload?.reason }}
+      </div>
+      <div
+        v-if="terminalApprovalReviewOpinion"
+        class="mt-3"
+      >
+        <div>{{ t("status.reviewOpinion") }}</div>
+        <div class="min-h-24 max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-base-content/80">
+          {{ terminalApprovalReviewOpinion }}
+        </div>
+      </div>
       <TerminalApprovalImpactPanel
         :approval-kind="props.payload?.approvalKind"
         :command="props.payload?.command"
+        :review-opinion="props.payload?.reviewOpinion"
         :impact-summary="terminalApprovalImpactSummary"
         :patch-kinds="terminalApprovalPatchKinds"
       />

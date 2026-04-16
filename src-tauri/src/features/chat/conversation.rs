@@ -1464,6 +1464,7 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
         selected_api_config_id: String::new(),
         assistant_department_api_config_id: String::new(),
         vision_api_config_id: None,
+        tool_review_api_config_id: None,
         stt_api_config_id: None,
         stt_auto_send: false,
         terminal_shell_kind: default_terminal_shell_kind(),

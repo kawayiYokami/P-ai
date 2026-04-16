@@ -32,6 +32,10 @@ struct TerminalApprovalRequestPayload {
     existing_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     target_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_opinion: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_model_name: Option<String>,
 }
 
 fn terminal_has_output_redirection(command: &str) -> bool {
@@ -245,6 +249,8 @@ async fn terminal_request_user_approval(
     reason: Option<&str>,
     existing_paths: &[PathBuf],
     target_paths: &[PathBuf],
+    review_opinion: Option<&str>,
+    review_model_name: Option<&str>,
 ) -> Result<bool, String> {
     let request_id = Uuid::new_v4().to_string();
     let app_handle = {
@@ -305,6 +311,14 @@ async fn terminal_request_user_approval(
             .take(32)
             .map(|path| terminal_path_for_user(path))
             .collect(),
+        review_opinion: review_opinion
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string),
+        review_model_name: review_model_name
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string),
     };
 
     if let Err(err) = app_handle.emit("easy-call:terminal-approval-request", &payload) {

@@ -141,6 +141,7 @@
         <ChatSettingsTab
           v-else-if="props.configTab === 'chatSettings'"
           :config="config"
+          :text-capable-api-configs="textCapableApiConfigs"
           :image-capable-api-configs="imageCapableApiConfigs"
           :stt-capable-api-configs="sttCapableApiConfigs"
           :response-style-options="responseStyleOptions"

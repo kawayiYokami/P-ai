@@ -11,6 +11,17 @@
       </div>
     </div>
 
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base mb-3">{{ t("config.chatSettings.toolReviewApi") }}</h3>
+        <select :value="config.toolReviewApiConfigId ?? ''" class="select select-bordered select-sm" @change="onToolReviewSelectChange">
+          <option value="">{{ t("config.chatSettings.noToolReview") }}</option>
+          <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+        <div class="mt-3 text-xs opacity-70 whitespace-pre-line">{{ t("config.chatSettings.toolReviewApiHint") }}</div>
+      </div>
+    </div>
+
     <!-- 语音转写（STT） -->
     <div class="card bg-base-100 border border-base-300">
       <div class="card-body p-4">
@@ -187,6 +198,7 @@ import type { AppConfig, ApiConfigItem, ChatSettingsPatch, ConversationApiSettin
 
 const props = defineProps<{
   config: AppConfig;
+  textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
   sttCapableApiConfigs: ApiConfigItem[];
   responseStyleOptions: ResponseStyleOption[];
@@ -219,6 +231,13 @@ function onVisionSelectChange(event: Event) {
   props.config.visionApiConfigId = ((event.target as HTMLSelectElement).value || undefined);
   emit("patchConversationApiSettings", {
     visionApiConfigId: props.config.visionApiConfigId ?? null,
+  });
+}
+
+function onToolReviewSelectChange(event: Event) {
+  props.config.toolReviewApiConfigId = ((event.target as HTMLSelectElement).value || undefined);
+  emit("patchConversationApiSettings", {
+    toolReviewApiConfigId: props.config.toolReviewApiConfigId ?? null,
   });
 }
 

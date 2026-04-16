@@ -57,6 +57,9 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     if (options.config.visionApiConfigId === removedId) {
       options.config.visionApiConfigId = undefined;
     }
+    if (options.config.toolReviewApiConfigId === removedId) {
+      options.config.toolReviewApiConfigId = undefined;
+    }
     options.normalizeApiBindingsLocal();
     if (options.config.apiProviders.length > 0) {
       const provider = options.config.apiProviders[0];

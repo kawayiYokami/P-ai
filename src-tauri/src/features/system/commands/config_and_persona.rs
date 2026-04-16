@@ -1200,6 +1200,8 @@ struct ConversationApiSettingsPatch {
     #[serde(default)]
     vision_api_config_id: Option<Option<String>>,
     #[serde(default)]
+    tool_review_api_config_id: Option<Option<String>>,
+    #[serde(default)]
     stt_api_config_id: Option<Option<String>>,
     #[serde(default)]
     stt_auto_send: Option<bool>,
@@ -1216,6 +1218,7 @@ fn build_conversation_api_settings_payload(config: &AppConfig) -> ConversationAp
     ConversationApiSettings {
         assistant_department_api_config_id: config.assistant_department_api_config_id.clone(),
         vision_api_config_id: config.vision_api_config_id.clone(),
+        tool_review_api_config_id: config.tool_review_api_config_id.clone(),
         stt_api_config_id: config.stt_api_config_id.clone(),
         stt_auto_send: config.stt_auto_send,
     }
@@ -1227,6 +1230,9 @@ fn apply_conversation_api_settings_patch(config: &mut AppConfig, input: Conversa
     }
     if let Some(vision_api_config_id) = input.vision_api_config_id {
         config.vision_api_config_id = vision_api_config_id;
+    }
+    if let Some(tool_review_api_config_id) = input.tool_review_api_config_id {
+        config.tool_review_api_config_id = tool_review_api_config_id;
     }
     if let Some(stt_api_config_id) = input.stt_api_config_id {
         config.stt_api_config_id = stt_api_config_id;
@@ -1246,6 +1252,7 @@ fn save_conversation_api_settings(
         ConversationApiSettingsPatch {
             assistant_department_api_config_id: Some(input.assistant_department_api_config_id),
             vision_api_config_id: Some(input.vision_api_config_id),
+            tool_review_api_config_id: Some(input.tool_review_api_config_id),
             stt_api_config_id: Some(input.stt_api_config_id),
             stt_auto_send: Some(input.stt_auto_send),
         },

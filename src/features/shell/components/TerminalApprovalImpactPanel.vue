@@ -11,6 +11,7 @@ type ImpactItem = {
 const props = defineProps<{
   approvalKind?: string;
   command?: string;
+  reviewOpinion?: string;
   impactSummary: ImpactItem[];
   patchKinds?: Array<"update" | "add" | "delete" | "other">;
 }>();
@@ -20,6 +21,11 @@ type RiskLevel = "high" | "medium" | "low" | "info";
 const normalizedCommand = computed(() => String(props.command || "").trim());
 const normalizedApprovalKind = computed(() => String(props.approvalKind || "").trim());
 const normalizedPatchKinds = computed(() => Array.isArray(props.patchKinds) ? props.patchKinds : []);
+const normalizedReviewOpinion = computed(() => String(props.reviewOpinion || "").trim());
+const hasAiReviewSummary = computed(() =>
+  normalizedApprovalKind.value.startsWith("ai_tool_review")
+  && !!normalizedReviewOpinion.value,
+);
 
 const riskAssessment = computed(() => {
   const command = normalizedCommand.value.toLowerCase();
@@ -111,7 +117,7 @@ const impactKindClassMap: Record<ImpactItem["kind"], string> = {
 
 <template>
   <div class="mt-3 space-y-3">
-    <div class="rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
+    <div v-if="!hasAiReviewSummary" class="rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-xs font-medium text-base-content/60">危险等级评估</span>
         <span class="badge badge-sm" :class="riskClassMap[riskAssessment.level]">{{ riskAssessment.label }}</span>
@@ -121,9 +127,9 @@ const impactKindClassMap: Record<ImpactItem["kind"], string> = {
       </div>
     </div>
 
-    <div v-if="impactSummary.length > 0" class="rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
-      <div class="text-xs font-medium text-base-content/60">本次修改影响范围</div>
-      <div v-if="impactSummary.length > 0" class="mt-2 space-y-2">
+    <div v-if="impactSummary.length > 0">
+      <div>影响范围：</div>
+      <div class="mt-2 space-y-2">
         <div
           v-for="item in impactSummary"
           :key="item.path"

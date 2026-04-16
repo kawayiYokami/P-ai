@@ -155,6 +155,246 @@ fn terminal_is_python_like_command(command: &str) -> bool {
     matches!(exe.as_str(), "python" | "python.exe" | "py" | "py.exe")
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct TerminalSmartReviewReply {
+    #[serde(default)]
+    allow: bool,
+    #[serde(default)]
+    review_opinion: String,
+}
+
+#[derive(Debug, Clone)]
+struct TerminalSmartReviewDecision {
+    allow: bool,
+    review_opinion: String,
+    model_name: String,
+}
+
+#[derive(Debug, Clone)]
+enum TerminalSmartReviewOutcome {
+    Decision(TerminalSmartReviewDecision),
+    RawJson {
+        raw_json: String,
+        model_name: String,
+    },
+}
+
+fn terminal_command_is_clearly_safe(command: &str, write_risk: &TerminalWriteRisk) -> bool {
+    if terminal_is_python_like_command(command) || !matches!(write_risk, TerminalWriteRisk::None) {
+        return false;
+    }
+    let trimmed = command.trim();
+    if trimmed.is_empty()
+        || trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains('|')
+        || trimmed.contains(';')
+        || trimmed.contains('>')
+        || trimmed.contains('<')
+    {
+        return false;
+    }
+    let tokens = terminal_tokenize(trimmed);
+    let Some(first) = tokens.first() else {
+        return false;
+    };
+    let first = terminal_unquote_token(first).to_ascii_lowercase();
+    let second = tokens
+        .get(1)
+        .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(
+        first.as_str(),
+        "pwd"
+            | "ls"
+            | "dir"
+            | "cat"
+            | "type"
+            | "rg"
+            | "findstr"
+            | "get-childitem"
+            | "select-string"
+            | "where"
+            | "which"
+    ) || (first == "git" && matches!(second.as_str(), "status" | "diff" | "show" | "log"))
+}
+
+fn terminal_smart_review_language(ui_language: &str) -> &'static str {
+    match ui_language.trim() {
+        "en-US" => "English",
+        "zh-TW" => "繁體中文",
+        _ => "简体中文",
+    }
+}
+
+fn terminal_smart_review_extract_json(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    if let Some(stripped) = trimmed.strip_prefix("```json") {
+        return stripped.trim().trim_end_matches("```").trim();
+    }
+    if let Some(stripped) = trimmed.strip_prefix("```") {
+        return stripped.trim().trim_end_matches("```").trim();
+    }
+    trimmed
+}
+
+fn terminal_smart_review_local_risk_label(write_risk: &TerminalWriteRisk) -> &'static str {
+    match write_risk {
+        TerminalWriteRisk::None => "none",
+        TerminalWriteRisk::NewOnly { .. } => "new_write",
+        TerminalWriteRisk::Existing { .. } => "existing_write",
+        TerminalWriteRisk::Unknown => "unknown_write",
+    }
+}
+
+fn terminal_smart_review_local_risk_summary(write_risk: &TerminalWriteRisk) -> String {
+    match write_risk {
+        TerminalWriteRisk::None => "No local write risk was detected.".to_string(),
+        TerminalWriteRisk::NewOnly { count } => format!(
+            "The command appears to create or overwrite {count} new path(s)."
+        ),
+        TerminalWriteRisk::Existing { paths } => format!(
+            "The command appears to modify or delete {} existing path(s).",
+            paths.len()
+        ),
+        TerminalWriteRisk::Unknown => {
+            "The command may write, but the local parser could not identify the exact target."
+                .to_string()
+        }
+    }
+}
+
+fn terminal_smart_review_paths(paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .take(8)
+        .map(|path| terminal_path_for_user(path))
+        .collect()
+}
+
+fn tool_safety_review_system_prompt(language: &str) -> String {
+    format!(
+        "请使用{language}完成工具执行审查。\n\
+你负责判断当前工具执行结果是否可以直接放行，还是必须先交给用户确认。\n\
+你的目标是让不会编程的普通人也能看明白这次工具执行大概要做什么、可能影响什么、为什么建议直接执行或先确认。\n\
+请优先使用简单人话，而不是技术术语；如果看不清影响范围，就直接说明无法确认。\n\
+只返回一个 JSON 对象，不要输出 Markdown、代码块或额外解释。\n\
+JSON 只能包含这些字段：allow, review_opinion。\n\
+其中：allow 表示是否放行，review_opinion 表示给普通用户看的审查意见。"
+    )
+}
+
+fn build_tool_safety_review_user_prompt(tool_name: &str, context: &Value) -> String {
+    format!("当前待审查工具：{tool_name}\n请审查以下内容：\n{context}")
+}
+
+fn current_tool_review_api_config_id(state: &AppState) -> Result<Option<String>, String> {
+    let app_config = state_read_config_cached(state)?;
+    Ok(app_config
+        .tool_review_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string))
+}
+
+async fn run_tool_smart_review(
+    state: &AppState,
+    review_api_config_id: &str,
+    tool_name: &str,
+    scene: &'static str,
+    context: Value,
+) -> Result<TerminalSmartReviewOutcome, String> {
+    let app_config = state_read_config_cached(state)?;
+    let selected_api = resolve_selected_api_config(&app_config, Some(review_api_config_id))
+        .ok_or_else(|| format!("Tool review API config '{}' not found.", review_api_config_id))?;
+    if !selected_api.enable_text || !selected_api.request_format.is_chat_text() {
+        return Err(format!(
+            "Tool review API config '{}' does not support chat text.",
+            review_api_config_id
+        ));
+    }
+    let resolved_api = resolve_api_config(&app_config, Some(review_api_config_id))?;
+    let language = terminal_smart_review_language(&app_config.ui_language);
+    let prepared = PreparedPrompt {
+        preamble: tool_safety_review_system_prompt(language),
+        history_messages: Vec::new(),
+        latest_user_text: build_tool_safety_review_user_prompt(tool_name, &context),
+        latest_user_meta_text: String::new(),
+        latest_user_extra_text: String::new(),
+        latest_user_extra_blocks: Vec::new(),
+        latest_images: Vec::new(),
+        latest_audios: Vec::new(),
+    };
+    let reply = invoke_model_with_policy(
+        &resolved_api,
+        &selected_api.model,
+        prepared,
+        CallPolicy {
+            scene,
+            timeout_secs: Some(12),
+            json_only: true,
+        },
+        Some(state),
+    )
+    .await?;
+    let raw_json = terminal_smart_review_extract_json(&reply.assistant_text);
+    let parsed_value = match serde_json::from_str::<Value>(raw_json) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(TerminalSmartReviewOutcome::RawJson {
+                raw_json: raw_json.trim().to_string(),
+                model_name: selected_api.name.trim().to_string(),
+            });
+        }
+    };
+    let pretty_json = serde_json::to_string_pretty(&parsed_value)
+        .unwrap_or_else(|_| raw_json.trim().to_string());
+    let parsed = match serde_json::from_value::<TerminalSmartReviewReply>(parsed_value) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(TerminalSmartReviewOutcome::RawJson {
+                raw_json: pretty_json,
+                model_name: selected_api.name.trim().to_string(),
+            });
+        }
+    };
+    Ok(TerminalSmartReviewOutcome::Decision(TerminalSmartReviewDecision {
+        allow: parsed.allow,
+        review_opinion: parsed.review_opinion.trim().to_string(),
+        model_name: selected_api.name.trim().to_string(),
+    }))
+}
+
+async fn terminal_run_smart_review(
+    state: &AppState,
+    review_api_config_id: &str,
+    cwd: &Path,
+    command: &str,
+    effective_access: &str,
+    write_risk: &TerminalWriteRisk,
+    target_paths: &[PathBuf],
+    existing_paths: &[PathBuf],
+) -> Result<TerminalSmartReviewOutcome, String> {
+    let context = serde_json::json!({
+        "cwd": terminal_path_for_user(cwd),
+        "command": command,
+        "workspace_access": effective_access,
+        "local_risk": terminal_smart_review_local_risk_label(write_risk),
+        "local_risk_summary": terminal_smart_review_local_risk_summary(write_risk),
+        "target_paths": terminal_smart_review_paths(target_paths),
+        "existing_paths": terminal_smart_review_paths(existing_paths),
+    });
+    run_tool_smart_review(
+        state,
+        review_api_config_id,
+        "shell_exec",
+        "Tool safety review",
+        context,
+    )
+    .await
+}
+
 async fn builtin_shell_exec(
     state: &AppState,
     session_id: &str,
@@ -350,120 +590,292 @@ async fn builtin_shell_exec(
         }
     }
 
-    match write_risk {
-        TerminalWriteRisk::None => {}
-        TerminalWriteRisk::NewOnly { count } => {
-            runtime_log_debug(format!(
-                "[TOOL-DEBUG] shell_exec write-risk=NewOnly new_path_count={} session={}",
-                count, normalized_session
-            ));
-            if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
-                let message = format!(
-                    "该命令将创建或改写文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",
-                    terminal_path_for_user(&cwd)
-                );
-                let summary = format!("该命令将创建或改写 {} 个新路径。", count);
-                let approved = match terminal_request_user_approval(
-                    state,
-                    "终端执行审批",
-                    &message,
-                    &normalized_session,
-                    "new_write_risk",
-                    Some("shell_exec"),
-                    Some(&summary),
-                    Some(cmd),
-                    Some(&cwd),
-                    Some(cmd),
-                    None,
-                    None,
-                    &[],
-                    &[],
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(err) => return Err(err),
-                };
-                if !approved {
-                    return Ok(serde_json::json!({
-                        "ok": false,
-                        "approved": false,
-                        "blockedReason": "user_denied_new_file_change",
-                        "message": "用户拒绝了本次写入类终端命令。",
-                        "sessionId": normalized_session,
-                        "rootPath": session_root_text,
-                        "workspacePath": workspace_path_text,
-                        "cwd": terminal_path_for_user(&cwd),
-                        "command": cmd,
+    let mut smart_review_unavailable_notice = None::<String>;
+    let mut smart_review_handled = false;
+    let mut smart_review_history = None::<Value>;
+    let smart_review = if terminal_command_is_clearly_safe(cmd, &write_risk) {
+        None
+    } else {
+        let review_api_config_id = current_tool_review_api_config_id(state)?;
+        if let Some(review_api_config_id) = review_api_config_id {
+            match terminal_run_smart_review(
+                state,
+                &review_api_config_id,
+                &cwd,
+                cmd,
+                if is_write_command {
+                    effective_write_access.as_str()
+                } else {
+                    effective_access.as_str()
+                },
+                &write_risk,
+                &write_target_paths,
+                match &write_risk {
+                    TerminalWriteRisk::Existing { paths } => paths,
+                    _ => &[],
+                },
+            )
+            .await
+            {
+                Ok(TerminalSmartReviewOutcome::Decision(review)) => Some(review),
+                Ok(TerminalSmartReviewOutcome::RawJson {
+                    raw_json,
+                    model_name,
+                }) => {
+                    let review_note =
+                        "当前工具审查模型返回了不符合约定的结果，请直接查看原始返回内容后决定是否执行。";
+                    smart_review_history = Some(serde_json::json!({
+                        "kind": "raw_json",
+                        "allow": false,
+                        "reviewOpinion": review_note,
+                        "modelName": model_name,
+                        "rawContent": raw_json,
                     }));
+                    let approved = match terminal_request_user_approval(
+                        state,
+                        "工具智能审查",
+                        review_note,
+                        &normalized_session,
+                        "ai_tool_review_raw_json",
+                        Some("shell_exec"),
+                        Some(review_note),
+                        Some(&raw_json),
+                        Some(&cwd),
+                        Some(cmd),
+                        None,
+                        None,
+                        match &write_risk {
+                            TerminalWriteRisk::Existing { paths } => paths,
+                            _ => &[],
+                        },
+                        &write_target_paths,
+                        Some(review_note),
+                        Some(model_name.as_str()),
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(err) => return Err(err),
+                    };
+                    if !approved {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "user_denied_ai_review_raw_json_command",
+                            "message": "用户拒绝了查看原始审查结果后的终端命令。",
+                            "toolReview": smart_review_history.clone(),
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
+                    smart_review_handled = true;
+                    None
+                }
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[工具审查] 失败 session={} command={} err={:?}",
+                        normalized_session, cmd, err
+                    ));
+                    smart_review_unavailable_notice =
+                        Some("当前审查模型不可用，已降级为本地规则审查。".to_string());
+                    None
                 }
             }
+        } else {
+            None
         }
-        TerminalWriteRisk::Existing { paths } => {
-            if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
-                let mut lines = vec![
-                    "该命令将修改/删除已有文件，是否批准本次执行？".to_string(),
-                    format!("会话: {normalized_session}"),
-                    format!("工作目录: {}", terminal_path_for_user(&cwd)),
-                    format!("命令: {cmd}"),
-                    "命中已有路径：".to_string(),
-                ];
-                for path in paths.iter().take(8) {
-                    lines.push(format!("- {}", terminal_path_for_user(path)));
-                }
-                if paths.len() > 8 {
-                    lines.push(format!("... 其余 {} 项已省略", paths.len() - 8));
-                }
-                let summary = format!("该命令将修改或删除 {} 个已有路径。", paths.len());
-                let approved = match terminal_request_user_approval(
-                    state,
-                    "终端执行审批",
-                    &lines.join("\n"),
-                    &normalized_session,
-                    "existing_write_risk",
-                    Some("shell_exec"),
-                    Some(&summary),
-                    Some(cmd),
-                    Some(&cwd),
-                    Some(cmd),
-                    None,
-                    None,
-                    &paths,
-                    &paths,
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(err) => return Err(err),
-                };
-                if !approved {
-                    return Ok(serde_json::json!({
-                        "ok": false,
-                        "approved": false,
-                        "blockedReason": "user_denied_existing_file_change",
-                        "message": "用户拒绝了本次写入类终端命令。",
-                        "sessionId": normalized_session,
-                        "rootPath": session_root_text,
-                        "workspacePath": workspace_path_text,
-                        "cwd": terminal_path_for_user(&cwd),
-                        "command": cmd,
-                    }));
-                }
+    };
+
+    if let Some(review) = &smart_review {
+        smart_review_history = Some(serde_json::json!({
+            "kind": "decision",
+            "allow": review.allow,
+            "reviewOpinion": review.review_opinion,
+            "modelName": review.model_name,
+        }));
+        if !review.allow {
+            let mut lines = vec!["智能审查建议先由你确认后再执行。".to_string()];
+            if !review.review_opinion.is_empty() {
+                lines.push(format!("审查意见: {}", review.review_opinion));
             }
-        }
-        TerminalWriteRisk::Unknown => {
-            if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
+            let approved = match terminal_request_user_approval(
+                state,
+                "工具智能审查",
+                &lines.join("\n"),
+                &normalized_session,
+                "ai_tool_review",
+                Some("shell_exec"),
+                None,
+                None,
+                Some(&cwd),
+                None,
+                None,
+                None,
+                match &write_risk {
+                    TerminalWriteRisk::Existing { paths } => paths,
+                    _ => &[],
+                },
+                &write_target_paths,
+                (!review.review_opinion.is_empty()).then_some(review.review_opinion.as_str()),
+                (!review.model_name.is_empty()).then_some(review.model_name.as_str()),
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(err) => return Err(err),
+            };
+            if !approved {
                 return Ok(serde_json::json!({
                     "ok": false,
                     "approved": false,
-                    "blockedReason": "approval_requires_explicit_write_command",
-                    "message": "当前目录需要审批，但该命令无法明确识别具体写入目标，请改用 apply_patch 或更明确的文件修改命令。",
+                    "blockedReason": "user_denied_ai_reviewed_command",
+                    "message": "用户拒绝了智能审查后的终端命令。",
+                    "toolReview": smart_review_history.clone(),
                     "sessionId": normalized_session,
                     "rootPath": session_root_text,
                     "workspacePath": workspace_path_text,
                     "cwd": terminal_path_for_user(&cwd),
-                    "command": cmd,
                 }));
+            }
+        }
+        smart_review_handled = true;
+    }
+
+    if !smart_review_handled {
+        match write_risk {
+            TerminalWriteRisk::None => {}
+            TerminalWriteRisk::NewOnly { count } => {
+                runtime_log_debug(format!(
+                    "[工具审查] shell_exec 写入风险=仅新建 count={} session={}",
+                    count, normalized_session
+                ));
+                if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
+                    let message = format!(
+                        "{}该命令将创建或改写文件，是否批准本次执行？\n会话: {normalized_session}\n工作目录: {}\n命令: {cmd}",
+                        smart_review_unavailable_notice
+                            .as_deref()
+                            .map(|text| format!("{text}\n"))
+                            .unwrap_or_default(),
+                        terminal_path_for_user(&cwd)
+                    );
+                    let summary = format!("该命令将创建或改写 {} 个新路径。", count);
+                    let approved = match terminal_request_user_approval(
+                        state,
+                        "终端执行审批",
+                        &message,
+                        &normalized_session,
+                        "new_write_risk",
+                        Some("shell_exec"),
+                        Some(&summary),
+                        Some(cmd),
+                        Some(&cwd),
+                        Some(cmd),
+                        None,
+                        smart_review_unavailable_notice.as_deref(),
+                        &[],
+                        &[],
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(err) => return Err(err),
+                    };
+                    if !approved {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "user_denied_new_file_change",
+                            "message": "用户拒绝了本次写入类终端命令。",
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                            "command": cmd,
+                        }));
+                    }
+                }
+            }
+            TerminalWriteRisk::Existing { paths } => {
+                if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
+                    let mut lines = vec![
+                        "该命令将修改/删除已有文件，是否批准本次执行？".to_string(),
+                        format!("会话: {normalized_session}"),
+                        format!("工作目录: {}", terminal_path_for_user(&cwd)),
+                        format!("命令: {cmd}"),
+                        "命中已有路径：".to_string(),
+                    ];
+                    if let Some(notice) = &smart_review_unavailable_notice {
+                        lines.insert(0, notice.clone());
+                    }
+                    for path in paths.iter().take(8) {
+                        lines.push(format!("- {}", terminal_path_for_user(path)));
+                    }
+                    if paths.len() > 8 {
+                        lines.push(format!("... 其余 {} 项已省略", paths.len() - 8));
+                    }
+                    let summary = format!("该命令将修改或删除 {} 个已有路径。", paths.len());
+                    let approved = match terminal_request_user_approval(
+                        state,
+                        "终端执行审批",
+                        &lines.join("\n"),
+                        &normalized_session,
+                        "existing_write_risk",
+                        Some("shell_exec"),
+                        Some(&summary),
+                        Some(cmd),
+                        Some(&cwd),
+                        Some(cmd),
+                        None,
+                        smart_review_unavailable_notice.as_deref(),
+                        &paths,
+                        &paths,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(err) => return Err(err),
+                    };
+                    if !approved {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "user_denied_existing_file_change",
+                            "message": "用户拒绝了本次写入类终端命令。",
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                            "command": cmd,
+                        }));
+                    }
+                }
+            }
+            TerminalWriteRisk::Unknown => {
+                if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
+                    return Ok(serde_json::json!({
+                        "ok": false,
+                        "approved": false,
+                        "blockedReason": "approval_requires_explicit_write_command",
+                        "message": format!(
+                            "{}当前目录需要审批，但该命令无法明确识别具体写入目标，请改用 apply_patch 或更明确的文件修改命令。",
+                            smart_review_unavailable_notice
+                                .as_deref()
+                                .map(|text| format!("{text} "))
+                                .unwrap_or_default()
+                        ),
+                        "sessionId": normalized_session,
+                        "rootPath": session_root_text,
+                        "workspacePath": workspace_path_text,
+                        "cwd": terminal_path_for_user(&cwd),
+                        "command": cmd,
+                    }));
+                }
             }
         }
     }
@@ -480,6 +892,7 @@ async fn builtin_shell_exec(
                 "ok": false,
                 "shellKind": runtime_shell.kind,
                 "shellPath": runtime_shell.path,
+                "toolReview": smart_review_history,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -505,6 +918,7 @@ async fn builtin_shell_exec(
         "ok": execution.ok,
         "shellKind": execution.shell_kind,
         "shellPath": execution.shell_path,
+        "toolReview": smart_review_history,
         "sessionId": normalized_session,
         "rootPath": session_root_text,
         "workspacePath": workspace_path_text,

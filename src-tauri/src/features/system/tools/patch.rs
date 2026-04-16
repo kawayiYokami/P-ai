@@ -1009,68 +1009,245 @@ async fn builtin_apply_patch(
     let parsed = apply_patch_parse(input)?;
     let resolved = apply_patch_resolve_ops(&cwd, parsed)?;
     let preview = apply_patch_build_preview(&resolved)?;
+    let target_paths = apply_patch_collect_target_paths(&resolved);
+    let existing_paths = apply_patch_collect_existing_paths(&resolved);
+    let summary = apply_patch_operation_summary(&resolved);
 
     let safety = apply_patch_assess_safety(state, &normalized_session, &cwd, &resolved);
-    match safety {
-        ApplyPatchSafetyCheck::Reject { reason } => {
-            return Ok(serde_json::json!({
-                "ok": false,
-                "approved": false,
-                "blockedReason": "rejected",
-                "message": reason,
-                "sessionId": normalized_session,
+    let mut smart_review_unavailable_notice = None::<String>;
+    let mut smart_review_handled = false;
+    let mut smart_review_history = None::<Value>;
+    if !matches!(safety, ApplyPatchSafetyCheck::Reject { .. }) {
+        if let Some(review_api_config_id) = current_tool_review_api_config_id(state)? {
+            let context = serde_json::json!({
                 "cwd": terminal_path_for_user(&cwd),
-            }));
-        }
-        ApplyPatchSafetyCheck::AskUser { existing_paths } => {
-            let target_paths = apply_patch_collect_target_paths(&resolved);
-            let summary = apply_patch_operation_summary(&resolved);
-            let mut lines = vec![
-                "该补丁将在用户工具区执行，是否批准本次修改？".to_string(),
-                format!("会话: {}", normalized_session),
-                format!("工作目录: {}", terminal_path_for_user(&cwd)),
-                "命中已有文件：".to_string(),
-            ];
-            if existing_paths.is_empty() {
-                lines.push("- 未识别到已存在文件，但该区域仍需确认。".to_string());
-            } else {
-                for path in existing_paths.iter().take(8) {
-                    lines.push(format!("- {}", terminal_path_for_user(path)));
-                }
-            }
-            let approved = match terminal_request_user_approval(
+                "operation_summary": summary.clone(),
+                "target_paths": terminal_smart_review_paths(&target_paths),
+                "existing_paths": terminal_smart_review_paths(&existing_paths),
+                "patch_preview": preview.clone(),
+            });
+            match run_tool_smart_review(
                 state,
-                "补丁执行审批",
-                &lines.join("\n"),
-                &normalized_session,
-                "apply_patch_workspace_write",
-                Some("apply_patch"),
-                Some(&summary),
-                Some(&preview),
-                Some(&cwd),
-                None,
-                None,
-                Some("用户工具区修改需要审批"),
-                &existing_paths,
-                &target_paths,
+                &review_api_config_id,
+                "apply_patch",
+                "Tool safety review",
+                context,
             )
             .await
             {
-                Ok(v) => v,
-                Err(err) => return Err(err),
-            };
-            if !approved {
+                Ok(TerminalSmartReviewOutcome::Decision(review)) => {
+                    smart_review_history = Some(serde_json::json!({
+                        "kind": "decision",
+                        "allow": review.allow,
+                        "reviewOpinion": review.review_opinion,
+                        "modelName": review.model_name,
+                    }));
+                    if !review.allow {
+                        let mut lines = vec!["智能审查建议先由你确认后再执行。".to_string()];
+                        if !review.review_opinion.is_empty() {
+                            lines.push(format!("审查意见: {}", review.review_opinion));
+                        }
+                        let approved = match terminal_request_user_approval(
+                            state,
+                            "工具智能审查",
+                            &lines.join("\n"),
+                            &normalized_session,
+                            "ai_tool_review",
+                            Some("apply_patch"),
+                            None,
+                            Some(&preview),
+                            Some(&cwd),
+                            None,
+                            None,
+                            None,
+                            &existing_paths,
+                            &target_paths,
+                            (!review.review_opinion.is_empty()).then_some(review.review_opinion.as_str()),
+                            (!review.model_name.is_empty()).then_some(review.model_name.as_str()),
+                        )
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(err) => return Err(err),
+                        };
+                        if !approved {
+                            return Ok(serde_json::json!({
+                                "ok": false,
+                                "approved": false,
+                                "blockedReason": "user_denied_ai_reviewed_patch",
+                                "message": "用户拒绝了智能审查后的补丁执行。",
+                                "toolReview": smart_review_history.clone(),
+                                "sessionId": normalized_session,
+                                "cwd": terminal_path_for_user(&cwd),
+                            }));
+                        }
+                    }
+                    smart_review_handled = true;
+                }
+                Ok(TerminalSmartReviewOutcome::RawJson {
+                    raw_json,
+                    model_name,
+                }) => {
+                    let review_note =
+                        "当前工具审查模型返回了不符合约定的结果，请直接查看原始返回内容后决定是否执行。";
+                    smart_review_history = Some(serde_json::json!({
+                        "kind": "raw_json",
+                        "allow": false,
+                        "reviewOpinion": review_note,
+                        "modelName": model_name,
+                        "rawContent": raw_json,
+                    }));
+                    let approved = match terminal_request_user_approval(
+                        state,
+                        "工具智能审查",
+                        review_note,
+                        &normalized_session,
+                        "ai_tool_review_raw_json",
+                        Some("apply_patch"),
+                        Some(review_note),
+                        Some(&raw_json),
+                        Some(&cwd),
+                        None,
+                        None,
+                        None,
+                        &existing_paths,
+                        &target_paths,
+                        Some(review_note),
+                        Some(model_name.as_str()),
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(err) => return Err(err),
+                    };
+                    if !approved {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "user_denied_ai_review_raw_patch",
+                            "message": "用户拒绝了查看原始审查结果后的补丁执行。",
+                            "toolReview": smart_review_history.clone(),
+                            "sessionId": normalized_session,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
+                    smart_review_handled = true;
+                }
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[补丁审查] 失败 session={} err={:?}",
+                        normalized_session, err
+                    ));
+                    smart_review_unavailable_notice =
+                        Some("当前审查模型不可用，已降级为本地规则审查。".to_string());
+                }
+            }
+        }
+    }
+
+    if !smart_review_handled {
+        match safety {
+            ApplyPatchSafetyCheck::Reject { reason } => {
                 return Ok(serde_json::json!({
                     "ok": false,
                     "approved": false,
-                    "blockedReason": "user_denied_apply_patch",
-                    "message": "用户拒绝了本次补丁执行。",
+                    "blockedReason": "rejected",
+                    "message": reason,
                     "sessionId": normalized_session,
                     "cwd": terminal_path_for_user(&cwd),
                 }));
             }
+            ApplyPatchSafetyCheck::AskUser { existing_paths } => {
+                let mut lines = vec![
+                    "该补丁将在用户工具区执行，是否批准本次修改？".to_string(),
+                    format!("会话: {}", normalized_session),
+                    format!("工作目录: {}", terminal_path_for_user(&cwd)),
+                    "命中已有文件：".to_string(),
+                ];
+                if let Some(notice) = &smart_review_unavailable_notice {
+                    lines.insert(0, notice.clone());
+                }
+                if existing_paths.is_empty() {
+                    lines.push("- 未识别到已存在文件，但该区域仍需确认。".to_string());
+                } else {
+                    for path in existing_paths.iter().take(8) {
+                        lines.push(format!("- {}", terminal_path_for_user(path)));
+                    }
+                }
+                let approved = match terminal_request_user_approval(
+                    state,
+                    "补丁执行审批",
+                    &lines.join("\n"),
+                    &normalized_session,
+                    "apply_patch_workspace_write",
+                    Some("apply_patch"),
+                    Some(&summary),
+                    Some(&preview),
+                    Some(&cwd),
+                    None,
+                    None,
+                    smart_review_unavailable_notice
+                        .as_deref()
+                        .or(Some("用户工具区修改需要审批")),
+                    &existing_paths,
+                    &target_paths,
+                    None,
+                    None,
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(err) => return Err(err),
+                };
+                if !approved {
+                    return Ok(serde_json::json!({
+                        "ok": false,
+                        "approved": false,
+                        "blockedReason": "user_denied_apply_patch",
+                        "message": "用户拒绝了本次补丁执行。",
+                        "sessionId": normalized_session,
+                        "cwd": terminal_path_for_user(&cwd),
+                    }));
+                }
+            }
+            ApplyPatchSafetyCheck::AutoApprove => {
+                if let Some(notice) = &smart_review_unavailable_notice {
+                    let approved = match terminal_request_user_approval(
+                        state,
+                        "补丁执行审批",
+                        notice,
+                        &normalized_session,
+                        "apply_patch_workspace_write",
+                        Some("apply_patch"),
+                        Some(&summary),
+                        Some(&preview),
+                        Some(&cwd),
+                        None,
+                        None,
+                        Some(notice.as_str()),
+                        &existing_paths,
+                        &target_paths,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(err) => return Err(err),
+                    };
+                    if !approved {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "user_denied_apply_patch_after_review_fallback",
+                            "message": "用户拒绝了降级后的补丁执行。",
+                            "sessionId": normalized_session,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
+                }
+            }
         }
-        ApplyPatchSafetyCheck::AutoApprove => {}
     }
 
     let backup_record = apply_patch_prepare_backup_record(
@@ -1106,6 +1283,7 @@ async fn builtin_apply_patch(
     Ok(serde_json::json!({
         "ok": true,
         "approved": true,
+        "toolReview": smart_review_history,
         "sessionId": normalized_session,
         "cwd": terminal_path_for_user(&cwd),
         "changed": changed,

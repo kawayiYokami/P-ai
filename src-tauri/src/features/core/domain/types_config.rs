@@ -601,6 +601,8 @@ struct AppConfig {
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]
+    tool_review_api_config_id: Option<String>,
+    #[serde(default)]
     stt_api_config_id: Option<String>,
     #[serde(default)]
     stt_auto_send: bool,
@@ -637,6 +639,7 @@ impl Default for AppConfig {
             selected_api_config_id: api_config.id.clone(),
             assistant_department_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,
+            tool_review_api_config_id: None,
             stt_api_config_id: None,
             stt_auto_send: false,
             terminal_shell_kind: default_terminal_shell_kind(),

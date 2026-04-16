@@ -16,6 +16,8 @@ export type TerminalApprovalRequestPayload = {
   reason?: string;
   existingPaths?: string[];
   targetPaths?: string[];
+  reviewOpinion?: string;
+  reviewModelName?: string;
 };
 
 type UseTerminalApprovalOptions = {
@@ -50,6 +52,8 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
       command: String(payload.command || ""),
       requestedPath: String(payload.requestedPath || ""),
       reason: String(payload.reason || ""),
+      reviewOpinion: String(payload.reviewOpinion || ""),
+      reviewModelName: String(payload.reviewModelName || ""),
       existingPaths: Array.isArray(payload.existingPaths)
         ? payload.existingPaths.map((item) => String(item || "").trim()).filter(Boolean)
         : [],

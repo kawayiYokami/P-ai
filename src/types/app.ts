@@ -151,6 +151,7 @@ export type AppConfig = {
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).
   assistantDepartmentApiConfigId: string;
   visionApiConfigId?: string;
+  toolReviewApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
   terminalShellKind?: string;
@@ -554,6 +555,7 @@ export type ChatSettingsPatch = {
 export type ConversationApiSettings = {
   assistantDepartmentApiConfigId: string;
   visionApiConfigId?: string;
+  toolReviewApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
 };
@@ -561,6 +563,7 @@ export type ConversationApiSettings = {
 export type ConversationApiSettingsPatch = {
   assistantDepartmentApiConfigId?: string;
   visionApiConfigId?: string | null;
+  toolReviewApiConfigId?: string | null;
   sttApiConfigId?: string | null;
   sttAutoSend?: boolean;
 };

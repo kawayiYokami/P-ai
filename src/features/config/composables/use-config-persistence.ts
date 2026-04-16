@@ -222,6 +222,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.selectedApiConfigId = cfg.selectedApiConfigId;
     options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
     options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
+    options.config.toolReviewApiConfigId = cfg.toolReviewApiConfigId ?? undefined;
     options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
     options.config.sttAutoSend = !!cfg.sttAutoSend;
     options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
@@ -321,6 +322,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     lastConversationApiSettingsJson = JSON.stringify({
       assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId || null,
+      toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
       sttApiConfigId: options.config.sttApiConfigId || null,
       sttAutoSend: !!options.config.sttAutoSend,
     });
@@ -420,6 +422,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
       options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
+      options.config.toolReviewApiConfigId = saved.toolReviewApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
       options.config.terminalShellKind = String((saved as AppConfig).terminalShellKind ?? "");
@@ -555,6 +558,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       lastConversationApiSettingsJson = JSON.stringify({
         assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
         visionApiConfigId: options.config.visionApiConfigId || null,
+        toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
         sttApiConfigId: options.config.sttApiConfigId || null,
         sttAutoSend: !!options.config.sttAutoSend,
       });
@@ -617,6 +621,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     await patchConversationApiSettings({
       assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId || null,
+      toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
       sttApiConfigId: options.config.sttApiConfigId || null,
       sttAutoSend: !!options.config.sttAutoSend,
     });
@@ -716,6 +721,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     if (Object.prototype.hasOwnProperty.call(patch, "visionApiConfigId")) {
       normalizedPatch.visionApiConfigId = patch.visionApiConfigId ?? null;
     }
+    if (Object.prototype.hasOwnProperty.call(patch, "toolReviewApiConfigId")) {
+      normalizedPatch.toolReviewApiConfigId = patch.toolReviewApiConfigId ?? null;
+    }
     if (Object.prototype.hasOwnProperty.call(patch, "sttApiConfigId")) {
       normalizedPatch.sttApiConfigId = patch.sttApiConfigId ?? null;
     }
@@ -730,6 +738,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       visionApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "visionApiConfigId")
         ? normalizedPatch.visionApiConfigId
         : options.config.visionApiConfigId || null,
+      toolReviewApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "toolReviewApiConfigId")
+        ? normalizedPatch.toolReviewApiConfigId
+        : options.config.toolReviewApiConfigId || null,
       sttApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "sttApiConfigId")
         ? normalizedPatch.sttApiConfigId
         : options.config.sttApiConfigId || null,
@@ -746,6 +757,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       });
       options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
+      options.config.toolReviewApiConfigId = saved.toolReviewApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
       options.normalizeApiBindingsLocal();
@@ -753,6 +765,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       lastConversationApiSettingsJson = JSON.stringify({
         assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
         visionApiConfigId: options.config.visionApiConfigId || null,
+        toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
         sttApiConfigId: options.config.sttApiConfigId || null,
         sttAutoSend: !!options.config.sttAutoSend,
       });

@@ -431,6 +431,7 @@ const config = reactive<AppConfig>({
   selectedApiConfigId: "",
   assistantDepartmentApiConfigId: "",
   visionApiConfigId: undefined,
+  toolReviewApiConfigId: undefined,
   sttApiConfigId: undefined,
   sttAutoSend: false,
   terminalShellKind: "auto",
@@ -2377,6 +2378,7 @@ const appBootstrap = useAppBootstrap({
   onConversationApiUpdated: async (payload) => {
     config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId ?? "").trim();
     config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
+    config.toolReviewApiConfigId = payload.toolReviewApiConfigId ?? undefined;
     config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
     if ("sttAutoSend" in payload) {
       config.sttAutoSend = !!payload.sttAutoSend;
@@ -2459,6 +2461,9 @@ const appBootstrap = useAppBootstrap({
     }
     if ("visionApiConfigId" in payload) {
       config.visionApiConfigId = payload.visionApiConfigId ?? undefined;
+    }
+    if ("toolReviewApiConfigId" in payload) {
+      config.toolReviewApiConfigId = payload.toolReviewApiConfigId ?? undefined;
     }
     if ("sttApiConfigId" in payload) {
       config.sttApiConfigId = payload.sttApiConfigId ?? undefined;
