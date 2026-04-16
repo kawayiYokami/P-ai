@@ -530,47 +530,112 @@ async fn tool_review_run_for_call_internal(
     Ok(tool_review_item_detail_from_collected(&refreshed))
 }
 
-fn tool_review_collect_recent_context(conversation: &Conversation, max_chars: usize) -> String {
-    let blocks = conversation
+fn tool_review_last_related_message_index(
+    conversation: &Conversation,
+    batch: &ToolReviewCollectedBatch,
+) -> Option<usize> {
+    let user_message_id = batch.user_message_id.trim();
+    let related_call_ids = batch
+        .items
+        .iter()
+        .map(|item| item.call_id.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let mut last_related_index = conversation
         .messages
         .iter()
-        .filter(|message| {
-            if is_tool_review_report_message(message) {
-                return false;
+        .position(|message| message.id.trim() == user_message_id);
+
+    for (index, message) in conversation.messages.iter().enumerate() {
+        if message.id.trim() == user_message_id {
+            last_related_index = Some(index);
+            continue;
+        }
+
+        let mut matched = false;
+        for event in normalize_message_tool_history_events(message, MessageToolHistoryView::Display) {
+            if event.role == "assistant" {
+                matched = event.tool_calls.iter().any(|call| {
+                    call.invocation_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_some_and(|call_id| related_call_ids.contains(call_id))
+                });
+            } else if event.role == "tool" {
+                matched = event
+                    .tool_call_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_some_and(|call_id| related_call_ids.contains(call_id));
             }
-            matches!(
-                message.role.trim().to_ascii_lowercase().as_str(),
-                "user" | "assistant"
-            )
-        })
-        .filter_map(|message| {
-            let role = message.role.trim().to_ascii_lowercase();
-            if role == "user" && is_context_compaction_message(message, "user") {
-                return None;
+
+            if matched {
+                last_related_index = Some(index);
+                break;
             }
-            let text = if role == "user" {
-                render_prompt_user_text_only(message)
-            } else {
-                render_message_content_for_model(message)
-            };
-            let text = text.trim();
-            if text.is_empty() {
-                return None;
-            }
-            Some(format!(
-                "[{}] {}\n{}",
-                if role == "user" { "用户" } else { "助手" },
-                message.created_at.trim(),
-                text
-            ))
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let total_chars = blocks.chars().count();
-    if total_chars <= max_chars {
-        return blocks;
+        }
     }
-    blocks
+
+    last_related_index
+}
+
+fn tool_review_collect_recent_context(
+    conversation: &Conversation,
+    batch: &ToolReviewCollectedBatch,
+    max_chars: usize,
+) -> String {
+    let anchor_exclusive = tool_review_last_related_message_index(conversation, batch)
+        .map(|index| index.saturating_add(1))
+        .unwrap_or(conversation.messages.len());
+    let mut blocks = Vec::<String>::new();
+    let mut found_summary = false;
+
+    for message in conversation.messages[..anchor_exclusive].iter().rev() {
+        if is_tool_review_report_message(message) {
+            continue;
+        }
+        let role = message.role.trim().to_ascii_lowercase();
+        if !matches!(role.as_str(), "user" | "assistant") {
+            continue;
+        }
+        let is_summary = role == "user" && is_context_compaction_message(message, "user");
+        let text = if role == "user" {
+            render_prompt_user_text_only(message)
+        } else {
+            render_message_content_for_model(message)
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let block = format!(
+            "[{}] {}\n{}",
+            if role == "user" { "用户" } else { "助手" },
+            message.created_at.trim(),
+            text
+        );
+
+        if is_summary {
+            blocks.push(block);
+            found_summary = true;
+            break;
+        }
+        blocks.push(block);
+    }
+
+    if found_summary {
+        blocks.reverse();
+        return blocks.join("\n\n");
+    }
+
+    let joined = blocks.into_iter().rev().collect::<Vec<_>>().join("\n\n");
+    let total_chars = joined.chars().count();
+    if total_chars <= max_chars {
+        return joined;
+    }
+    joined
         .chars()
         .rev()
         .take(max_chars)
@@ -697,51 +762,7 @@ fn tool_review_report_insert_index(
     conversation: &Conversation,
     batch: &ToolReviewCollectedBatch,
 ) -> usize {
-    let user_message_id = batch.user_message_id.trim();
-    let related_call_ids = batch
-        .items
-        .iter()
-        .map(|item| item.call_id.trim())
-        .filter(|value| !value.is_empty())
-        .collect::<std::collections::HashSet<_>>();
-    let mut last_related_index = conversation
-        .messages
-        .iter()
-        .position(|message| message.id.trim() == user_message_id);
-
-    for (index, message) in conversation.messages.iter().enumerate() {
-        if message.id.trim() == user_message_id {
-            last_related_index = Some(index);
-            continue;
-        }
-
-        let mut matched = false;
-        for event in normalize_message_tool_history_events(message, MessageToolHistoryView::Display) {
-            if event.role == "assistant" {
-                matched = event.tool_calls.iter().any(|call| {
-                    call.invocation_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .is_some_and(|call_id| related_call_ids.contains(call_id))
-                });
-            } else if event.role == "tool" {
-                matched = event
-                    .tool_call_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_some_and(|call_id| related_call_ids.contains(call_id));
-            }
-
-            if matched {
-                last_related_index = Some(index);
-                break;
-            }
-        }
-    }
-
-    last_related_index
+    tool_review_last_related_message_index(conversation, batch)
         .map(|index| index.saturating_add(1))
         .unwrap_or(conversation.messages.len())
 }
@@ -971,7 +992,7 @@ async fn submit_tool_review_batch(
         history_messages: Vec::new(),
         latest_user_text: tool_review_submission_user_prompt(
             &batch,
-            &tool_review_collect_recent_context(&conversation, 20_000),
+            &tool_review_collect_recent_context(&conversation, &batch, 20_000),
             &tool_review_latest_unfinished_plan(&conversation),
         ),
         latest_user_meta_text: String::new(),
