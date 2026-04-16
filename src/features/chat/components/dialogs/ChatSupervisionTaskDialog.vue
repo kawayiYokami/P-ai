@@ -5,9 +5,6 @@
         <div class="text-base font-semibold">
           {{ activeTask ? t("chat.supervision.updateTitle") : t("chat.supervision.createTitle") }}
         </div>
-        <div class="mt-1 text-sm opacity-70">
-          {{ t("chat.supervision.subtitle") }}
-        </div>
       </div>
 
       <div class="space-y-4 px-5 py-4">
@@ -69,13 +66,34 @@
       </div>
 
       <div class="border-t border-base-300/70 bg-base-100 px-5 py-4">
-        <div class="flex items-center justify-end gap-2">
-          <button class="btn btn-ghost" :disabled="saving" @click="emit('close')">
-            {{ t("common.cancel") }}
-          </button>
-          <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
-            {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
-          </button>
+        <div class="flex items-end gap-4">
+          <div v-if="recentHistory.length" class="min-w-0 flex-1">
+            <div class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-base-content/50">
+              {{ t("chat.supervision.recentTitle") }}
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="(entry, index) in recentHistory"
+                :key="`${entry.goal}-${entry.todo}-${index}`"
+                type="button"
+                class="min-w-0 max-w-full rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-left transition hover:border-primary/40 hover:bg-base-200"
+                :disabled="saving"
+                @click="applyRecentHistory(entry)"
+              >
+                <div class="truncate text-sm font-medium text-base-content">
+                  {{ entry.goal }}
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+            <button class="btn btn-ghost" :disabled="saving" @click="emit('close')">
+              {{ t("common.cancel") }}
+            </button>
+            <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
+              {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -98,11 +116,19 @@ type ActiveSupervisionTask = {
   remainingHours: number;
 };
 
+type SupervisionHistoryEntry = {
+  goal: string;
+  why: string;
+  todo: string;
+  durationHours: number;
+};
+
 const props = defineProps<{
   open: boolean;
   saving: boolean;
   errorText: string;
   activeTask: ActiveSupervisionTask | null;
+  recentHistory: SupervisionHistoryEntry[];
 }>();
 
 const emit = defineEmits<{
@@ -139,6 +165,13 @@ function handleSave() {
     why: why.value.trim(),
     todo: todo.value.trim(),
   });
+}
+
+function applyRecentHistory(entry: SupervisionHistoryEntry) {
+  goal.value = String(entry.goal || "").trim();
+  why.value = String(entry.why || "").trim();
+  todo.value = String(entry.todo || "").trim();
+  durationHours.value = Math.min(24, Math.max(1, Number(entry.durationHours || 1)));
 }
 
 watch(

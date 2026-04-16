@@ -128,6 +128,7 @@
       :supervision-task-saving="supervisionTaskSaving"
       :supervision-task-error="supervisionTaskError"
       :active-supervision-task="activeSupervisionTask"
+      :recent-supervision-task-history="recentSupervisionTaskHistory"
       :chat-unarchived-conversation-items="chatUnarchivedConversationItems"
       :create-conversation-department-options="createConversationDepartmentOptions"
       :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -640,6 +641,7 @@ const {
   supervisionTaskSaving,
   supervisionTaskError,
   activeSupervisionTask,
+  recentSupervisionTaskHistory,
   chatSupervisionActive,
   chatSupervisionTitle,
   openSupervisionTaskDialog,

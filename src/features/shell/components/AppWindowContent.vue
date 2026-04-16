@@ -144,6 +144,7 @@
         :supervision-task-saving="supervisionTaskSaving"
         :supervision-task-error="supervisionTaskError"
         :active-supervision-task="activeSupervisionTask"
+        :recent-supervision-task-history="recentSupervisionTaskHistory"
         :unarchived-conversation-items="chatUnarchivedConversationItems"
         :create-conversation-department-options="createConversationDepartmentOptions"
         :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -394,6 +395,12 @@ const props = defineProps<{
     endAtLocal: string;
     remainingHours: number;
   } | null;
+  recentSupervisionTaskHistory: Array<{
+    goal: string;
+    why: string;
+    todo: string;
+    durationHours: number;
+  }>;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;
   defaultCreateConversationDepartmentId: string;

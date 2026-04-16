@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.9
 
+- 优化（supervision-dialog-history-polish）：督工弹窗移除顶部说明文案，最近督工记录区只保留目标文本，底部操作按钮固定回到右侧
 - 修复（tool-review-button-reset）：切换会话时立即清空工具审查批次与加载状态，避免上一条会话的可审查状态残留，导致空会话里审查按钮仍可点击
 - 重构（config-and-persona-command-split）：继续拆分 `config_and_persona.rs`，把会话快照与人格/聊天设置相关命令下沉到独立子模块，收口单文件复杂度
 - 修复（tool-review-refresh-guard）：批量评估、单项评估与提交审查报告后会刷新前台工具调用消息；当当前会话没有可审查内容时，审查按钮保持禁用且不会再打开空侧栏

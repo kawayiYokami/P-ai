@@ -278,6 +278,7 @@
         :saving="supervisionTaskSaving"
         :error-text="supervisionTaskError"
         :active-task="activeSupervisionTask"
+        :recent-history="recentSupervisionTaskHistory"
         @close="$emit('closeSupervisionTask')"
         @save="$emit('saveSupervisionTask', $event)"
       />
@@ -385,6 +386,12 @@ const props = defineProps<{
     endAtLocal: string;
     remainingHours: number;
   } | null;
+  recentSupervisionTaskHistory: Array<{
+    goal: string;
+    why: string;
+    todo: string;
+    durationHours: number;
+  }>;
   currentTheme: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
   createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;

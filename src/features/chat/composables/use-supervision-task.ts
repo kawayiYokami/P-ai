@@ -5,6 +5,8 @@ import { toErrorMessage } from "../../../utils/error";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 
 const SUPERVISION_TASK_GOAL_PREFIX = "督工任务：";
+const SUPERVISION_TASK_HISTORY_STORAGE_KEY = "chat-supervision-task-history";
+const SUPERVISION_TASK_HISTORY_LIMIT = 3;
 
 export type ActiveSupervisionTaskSummary = {
   taskId: string;
@@ -13,6 +15,13 @@ export type ActiveSupervisionTaskSummary = {
   todo: string;
   endAtLocal: string;
   remainingHours: number;
+};
+
+export type SupervisionTaskHistoryEntry = {
+  goal: string;
+  why: string;
+  todo: string;
+  durationHours: number;
 };
 
 type UseSupervisionTaskOptions = {
@@ -26,6 +35,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   const supervisionTaskSaving = ref(false);
   const supervisionTaskError = ref("");
   const activeSupervisionTask = ref<ActiveSupervisionTaskSummary | null>(null);
+  const recentSupervisionTaskHistory = ref<SupervisionTaskHistoryEntry[]>([]);
   let supervisionTaskPollTimer = 0;
 
   function clearSupervisionTaskPollTimer() {
@@ -57,6 +67,73 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     if (!raw) return null;
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function normalizeSupervisionTaskHistoryEntry(entry: Partial<SupervisionTaskHistoryEntry>): SupervisionTaskHistoryEntry | null {
+    const goal = String(entry.goal || "").trim();
+    const why = String(entry.why || "").trim();
+    const todo = String(entry.todo || "").trim();
+    const durationHours = Math.min(24, Math.max(1, Number(entry.durationHours || 1)));
+    if (!goal || !todo) return null;
+    return {
+      goal,
+      why,
+      todo,
+      durationHours,
+    };
+  }
+
+  function loadRecentSupervisionTaskHistory() {
+    try {
+      const raw = window.localStorage.getItem(SUPERVISION_TASK_HISTORY_STORAGE_KEY);
+      if (!raw) {
+        recentSupervisionTaskHistory.value = [];
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        recentSupervisionTaskHistory.value = [];
+        return;
+      }
+      const normalized: SupervisionTaskHistoryEntry[] = [];
+      const seen = new Set<string>();
+      for (const item of parsed) {
+        const entry = normalizeSupervisionTaskHistoryEntry(
+          (item || {}) as Partial<SupervisionTaskHistoryEntry>,
+        );
+        if (!entry) continue;
+        const dedupeKey = JSON.stringify(entry);
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        normalized.push(entry);
+        if (normalized.length >= SUPERVISION_TASK_HISTORY_LIMIT) break;
+      }
+      recentSupervisionTaskHistory.value = normalized;
+    } catch {
+      recentSupervisionTaskHistory.value = [];
+    }
+  }
+
+  function saveRecentSupervisionTaskHistory() {
+    try {
+      window.localStorage.setItem(
+        SUPERVISION_TASK_HISTORY_STORAGE_KEY,
+        JSON.stringify(recentSupervisionTaskHistory.value),
+      );
+    } catch {
+      // ignore persistence failures
+    }
+  }
+
+  function pushRecentSupervisionTaskHistory(entry: Partial<SupervisionTaskHistoryEntry>) {
+    const normalized = normalizeSupervisionTaskHistoryEntry(entry);
+    if (!normalized) return;
+    const dedupeKey = JSON.stringify(normalized);
+    recentSupervisionTaskHistory.value = [
+      normalized,
+      ...recentSupervisionTaskHistory.value.filter((item) => JSON.stringify(item) !== dedupeKey),
+    ].slice(0, SUPERVISION_TASK_HISTORY_LIMIT);
+    saveRecentSupervisionTaskHistory();
   }
 
   function supervisionTaskIsActive(task: TaskEntry, conversationId: string): boolean {
@@ -203,6 +280,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
           console.warn("[督工] 首次触发失败", dispatchError);
         }
       }
+      pushRecentSupervisionTaskHistory(payload);
       supervisionTaskDialogOpen.value = false;
       await refreshActiveSupervisionTask({ silent: true });
     } catch (error) {
@@ -225,11 +303,14 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     void refreshActiveSupervisionTask({ silent: true });
   }
 
+  loadRecentSupervisionTaskHistory();
+
   return {
     supervisionTaskDialogOpen,
     supervisionTaskSaving,
     supervisionTaskError,
     activeSupervisionTask,
+    recentSupervisionTaskHistory,
     chatSupervisionActive,
     chatSupervisionTitle,
     openSupervisionTaskDialog,

@@ -792,6 +792,7 @@
       "whyPlaceholder": "Why does this need active supervision right now?",
       "todoLabel": "How",
       "todoPlaceholder": "Describe how you will push this forward, focusing on the next step",
+      "recentTitle": "Recent focus tasks",
       "createAction": "Start Focus Task",
       "updateAction": "Update Focus Task",
       "createdStatus": "Focus task started for {hours} hour(s).",

@@ -792,6 +792,7 @@
       "whyPlaceholder": "寫為什麼這件事現在必須盯緊",
       "todoLabel": "怎麼做",
       "todoPlaceholder": "寫接下來準備怎麼推進，重點寫下一步",
+      "recentTitle": "最近督工",
       "createAction": "開始督工",
       "updateAction": "更新督工",
       "createdStatus": "已開始督工：持續 {hours} 小時。",
