@@ -848,6 +848,7 @@ fn list_tool_review_batches(
     input: ToolReviewConversationInput,
     state: State<'_, AppState>,
 ) -> Result<ListToolReviewBatchesOutput, String> {
+    let total_started_at = std::time::Instant::now();
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {
         return Ok(ListToolReviewBatchesOutput {
@@ -855,19 +856,38 @@ fn list_tool_review_batches(
             current_batch_key: None,
         });
     }
+    let lock_started_at = std::time::Instant::now();
     let guard = state
         .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let lock_wait_elapsed_ms = lock_started_at.elapsed().as_millis();
+    let read_started_at = std::time::Instant::now();
     let conversation = state_read_conversation_cached(&state, conversation_id)?;
+    let read_elapsed_ms = read_started_at.elapsed().as_millis();
     drop(guard);
+    let collect_started_at = std::time::Instant::now();
     let batches = collect_tool_review_batches_internal(&conversation);
+    let collect_elapsed_ms = collect_started_at.elapsed().as_millis();
+    let current_key_started_at = std::time::Instant::now();
     let current_batch_key = conversation
         .messages
         .iter()
         .rev()
         .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
         .map(|message| message.id.clone());
+    let current_key_elapsed_ms = current_key_started_at.elapsed().as_millis();
+    runtime_log_debug(format!(
+        "[工具审查] 批次读取 完成 total_ms={} lock_wait_ms={} read_ms={} collect_ms={} current_batch_ms={} conversation_id={} batch_count={} message_count={}",
+        total_started_at.elapsed().as_millis(),
+        lock_wait_elapsed_ms,
+        read_elapsed_ms,
+        collect_elapsed_ms,
+        current_key_elapsed_ms,
+        conversation_id,
+        batches.len(),
+        conversation.messages.len()
+    ));
     Ok(ListToolReviewBatchesOutput {
         current_batch_key,
         batches: batches

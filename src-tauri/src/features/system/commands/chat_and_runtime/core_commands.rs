@@ -77,10 +77,16 @@ async fn send_chat_message(
     }
 
     // 获取或创建会话ID
+    let prepare_started_at = std::time::Instant::now();
     let (conversation_id, department_id, model_config_id) = {
         let _guard = lock_conversation_with_metrics(&state, "send_chat_message_prepare_conversation")?;
+        let config_started_at = std::time::Instant::now();
         let app_config = state_read_config_cached(&state)?;
+        let config_elapsed_ms = config_started_at.elapsed().as_millis();
+        let app_data_started_at = std::time::Instant::now();
         let mut data = state_read_app_data_cached(&state)?;
+        let app_data_elapsed_ms = app_data_started_at.elapsed().as_millis();
+        let department_started_at = std::time::Instant::now();
         let department = if let Some(department_id) = requested_department_id.as_deref() {
             department_by_id(&app_config, department_id)
                 .ok_or_else(|| format!("部门不存在: {department_id}"))?
@@ -89,12 +95,13 @@ async fn send_chat_message(
                 .or_else(|| assistant_department(&app_config))
                 .ok_or_else(|| "未找到可用部门".to_string())?
         };
+        let department_elapsed_ms = department_started_at.elapsed().as_millis();
         let api_config_id = department_primary_api_config_id(department);
         if api_config_id.trim().is_empty() {
             return Err(format!("部门模型未配置: {}", department.id));
         }
 
-        let data_before = data.clone();
+        let conversation_started_at = std::time::Instant::now();
         let conversation_id = if let Some(cid) = session
             .conversation_id
             .as_deref()
@@ -151,7 +158,22 @@ async fn send_chat_message(
                 .map(|item| item.id.clone())
                 .ok_or_else(|| "活动会话索引超出范围".to_string())?
         };
-        persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+        let conversation_elapsed_ms = conversation_started_at.elapsed().as_millis();
+        let persist_started_at = std::time::Instant::now();
+        persist_single_conversation_runtime_fast(&state, &data, &conversation_id)?;
+        let persist_elapsed_ms = persist_started_at.elapsed().as_millis();
+        eprintln!(
+            "[聊天发送] 发送前准备耗时：总计={}ms，读取配置={}ms，读取应用数据={}ms，解析部门={}ms，定位会话={}ms，持久化={}ms，conversation_id={}，department_id={}，agent_id={}",
+            prepare_started_at.elapsed().as_millis(),
+            config_elapsed_ms,
+            app_data_elapsed_ms,
+            department_elapsed_ms,
+            conversation_elapsed_ms,
+            persist_elapsed_ms,
+            conversation_id,
+            department.id,
+            agent_id
+        );
 
         (conversation_id, department.id.clone(), api_config_id)
     };

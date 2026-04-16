@@ -111,6 +111,7 @@
       :transcribing="transcribing"
       :record-hotkey="config.recordHotkey"
       :selected-chat-model-id="currentForegroundApiConfigId"
+      :tool-review-refresh-tick="toolReviewRefreshTick"
       :plan-mode-enabled="currentConversationPlanModeEnabled"
       :chat-usage-percent="chatUsagePercent"
       :force-archive-tip="t('chat.forceArchiveTip')"
@@ -372,6 +373,7 @@ import type {
   PromptCommandPreset,
   ChatTodoItem,
   ChatPersonaPresenceChip,
+  ConversationPreviewMessage,
   ImageTextCacheStats,
   ResponseStyleOption,
   ToolLoadStatus,
@@ -454,7 +456,6 @@ let chatRoundCompletedUnlisten: UnlistenFn | null = null;
 let chatRoundFailedUnlisten: UnlistenFn | null = null;
 let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
-let chatConversationOverviewUpdatedUnlisten: UnlistenFn | null = null;
 let chatConversationTodosUpdatedUnlisten: UnlistenFn | null = null;
 let foregroundPaintTraceSeq = 0;
 let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1147,6 +1148,7 @@ const CONVERSATION_COLORS = [
 ] as const;
 
 const conversationScrollToBottomRequest = ref(0);
+const toolReviewRefreshTick = ref(0);
 const currentChatTodos = ref<ChatTodoItem[]>([]);
 let pendingConversationScrollToBottomConversationId = "";
 let pendingConversationScrollToBottomTimer = 0;
@@ -1158,11 +1160,6 @@ type SwitchConversationSnapshot = {
   currentTodo?: string;
   currentTodos?: ChatTodoItem[];
   unarchivedConversations: UnarchivedConversationSummary[];
-};
-
-type ConversationOverviewUpdatedPayload = {
-  unarchivedConversations?: UnarchivedConversationSummary[];
-  preferredConversationId?: string | null;
 };
 
 type ConversationTodosUpdatedPayload = {
@@ -2125,12 +2122,6 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   scheduleConversationScrollToBottomFallback(nextConversationId);
 }
 
-function applyConversationOverviewPayload(payload?: ConversationOverviewUpdatedPayload | null) {
-  unarchivedConversations.value = Array.isArray(payload?.unarchivedConversations)
-    ? payload.unarchivedConversations
-    : [];
-}
-
 function applyConversationTodosUpdated(payload?: ConversationTodosUpdatedPayload | null) {
   const conversationId = String(payload?.conversationId || "").trim();
   if (!conversationId) return;
@@ -2155,6 +2146,86 @@ function applyConversationTodosUpdated(payload?: ConversationTodosUpdatedPayload
       }
       : item
   );
+}
+
+function isOverviewDraftMessage(message?: ChatMessage): boolean {
+  const messageId = String(message?.id || "").trim();
+  return messageId.startsWith(DRAFT_ASSISTANT_ID_PREFIX) || messageId.startsWith("__draft_user__:");
+}
+
+function previewMessageFromChatMessage(message: ChatMessage): ConversationPreviewMessage {
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  const textPreview = parts
+    .filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text")
+    .map((part) => String((part as { text?: unknown }).text || "").trim())
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 160);
+  const providerMeta = (message.providerMeta || {}) as Record<string, unknown>;
+  const attachmentEntries = Array.isArray(providerMeta.attachments) ? providerMeta.attachments : [];
+  const hasPdfAttachment = attachmentEntries.some((entry) => {
+    const item = entry as Record<string, unknown>;
+    return String(item?.mime || "").toLowerCase().includes("pdf");
+  });
+  return {
+    messageId: String(message.id || "").trim(),
+    role: (String(message.role || "").trim() || "assistant") as ConversationPreviewMessage["role"],
+    speakerAgentId: String(message.speakerAgentId || "").trim() || undefined,
+    createdAt: String(message.createdAt || "").trim() || undefined,
+    textPreview: textPreview || undefined,
+    hasImage: parts.some((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "image"),
+    hasPdf: hasPdfAttachment,
+    hasAudio: parts.some((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "audio"),
+    hasAttachment: attachmentEntries.length > 0,
+  };
+}
+
+function updateForegroundConversationOverviewFromMessages(
+  conversationId: string,
+  assistantMessage?: ChatMessage | null,
+) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (cid !== currentConversationId) return;
+  const formalMessages = allMessages.value
+    .filter((message) => !isOverviewDraftMessage(message));
+  const nextMessages = assistantMessage
+    ? [...formalMessages, assistantMessage].filter((message, index, items) => {
+      const messageId = String(message?.id || "").trim();
+      if (!messageId) return true;
+      return items.findIndex((item) => String(item?.id || "").trim() === messageId) === index;
+    })
+    : formalMessages;
+  const previewMessages = nextMessages
+    .slice(-2)
+    .map(previewMessageFromChatMessage);
+  const lastMessage = nextMessages[nextMessages.length - 1];
+  const lastMessageAt = String(lastMessage?.createdAt || "").trim();
+  let changed = false;
+  const reordered = [
+    ...unarchivedConversations.value.filter((item) => String(item.conversationId || "").trim() === cid),
+    ...unarchivedConversations.value.filter((item) => String(item.conversationId || "").trim() !== cid),
+  ].map((item, index) => {
+    if (String(item.conversationId || "").trim() !== cid) {
+      return {
+        ...item,
+        isMainConversation: index === 0,
+      };
+    }
+    changed = true;
+    return {
+      ...item,
+      messageCount: nextMessages.length,
+      updatedAt: lastMessageAt || item.updatedAt,
+      lastMessageAt: lastMessageAt || item.lastMessageAt,
+      previewMessages,
+      isMainConversation: index === 0,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = reordered;
+  }
 }
 
 async function requestConversationSnapshot(conversationId?: string | null): Promise<SwitchConversationSnapshot> {
@@ -2201,14 +2272,6 @@ async function recoverForegroundConversationFromOverview(reason: string, preferr
   } finally {
     conversationForegroundSyncing.value = false;
   }
-}
-
-async function handleConversationOverviewUpdated(payload?: ConversationOverviewUpdatedPayload | null) {
-  applyConversationOverviewPayload(payload);
-  await recoverForegroundConversationFromOverview(
-    "overview_updated",
-    String(payload?.preferredConversationId || "").trim() || null,
-  );
 }
 
 function syncCurrentConversationWorkspaceLabel() {
@@ -2590,12 +2653,18 @@ onMounted(() => {
     void listen<unknown>("easy-call:round-completed", (event) => {
       const payloadConversationId = readConversationIdFromPayload(event.payload);
       const currentConversationId = String(currentChatConversationId.value || "").trim();
+      const payloadObject = event.payload && typeof event.payload === "object"
+        ? event.payload as Record<string, unknown>
+        : null;
+      const assistantMessage = (payloadObject?.assistantMessage || null) as ChatMessage | null;
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "completed");
         return;
       }
       if (!hasActiveForegroundConversation(payloadConversationId)) return;
       clearConversationBadge(payloadConversationId);
+      toolReviewRefreshTick.value += 1;
+      updateForegroundConversationOverviewFromMessages(payloadConversationId || currentConversationId, assistantMessage);
       void chatFlow.handleExternalRoundCompleted(event.payload);
     })
       .then((unlisten) => {
@@ -2620,17 +2689,6 @@ onMounted(() => {
       })
       .catch((error) => {
         console.error("[聊天追踪][轮次失败] 监听器注册失败", error);
-      });
-    void listen<ConversationOverviewUpdatedPayload>("easy-call:conversation-overview-updated", (event) => {
-      void handleConversationOverviewUpdated(event.payload).catch((error) => {
-        console.warn("[会话概览] 推送更新处理失败", error);
-      });
-    })
-      .then((unlisten) => {
-        chatConversationOverviewUpdatedUnlisten = unlisten;
-      })
-      .catch((error) => {
-        console.error("[会话概览] 监听器注册失败", error);
       });
     void listen<ConversationTodosUpdatedPayload>("easy-call:conversation-todos-updated", (event) => {
       applyConversationTodosUpdated(event.payload);
@@ -2694,10 +2752,6 @@ onBeforeUnmount(() => {
   if (chatConversationMessagesAfterSyncedUnlisten) {
     chatConversationMessagesAfterSyncedUnlisten();
     chatConversationMessagesAfterSyncedUnlisten = null;
-  }
-  if (chatConversationOverviewUpdatedUnlisten) {
-    chatConversationOverviewUpdatedUnlisten();
-    chatConversationOverviewUpdatedUnlisten = null;
   }
   if (chatConversationTodosUpdatedUnlisten) {
     chatConversationTodosUpdatedUnlisten();

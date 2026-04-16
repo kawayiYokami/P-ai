@@ -168,6 +168,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
   let pendingTerminalEvent: PendingTerminalEvent | null = null;
   let deferredRoundCompletion: DeferredRoundCompletion | null = null;
+  const sendStartedAtMsByGen = new Map<number, number>();
 
   // ── 流式统计 ──
   let streamToolCallCount = 0;
@@ -377,6 +378,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   function insertDraft(gen: number): string {
     const draftId = `${DRAFT_ASSISTANT_ID_PREFIX}${gen}`;
+    const startedAtMs = sendStartedAtMsByGen.get(gen) || 0;
+    const elapsedMs = startedAtMs > 0 ? Math.max(0, Date.now() - startedAtMs) : -1;
+    console.warn("[聊天前端耗时] 助理草稿出现", {
+      gen,
+      elapsedMs,
+      conversationId: String(options.getConversationId ? options.getConversationId() : "").trim(),
+      activeHistoryMessageCount,
+      latestUserTextLength: String(options.latestUserText.value || "").length,
+    });
     const agentId = String(options.getSession()?.agentId || "").trim();
     const msg: ChatMessage = {
       id: draftId,
@@ -735,8 +745,19 @@ export function useChatFlow(options: UseChatFlowOptions) {
     source: "sendChat" | "bound",
   ) {
     const flushed = readHistoryFlushedPayload(parsed.message);
+    const startedAtMs = sendStartedAtMsByGen.get(gen) || 0;
+    const elapsedMs = startedAtMs > 0 ? Math.max(0, Date.now() - startedAtMs) : -1;
     const shouldActivate = source === "sendChat" || !!flushed?.activateAssistant;
     const shouldForceReset = !!flushed?.compactionApplied;
+    console.warn("[聊天前端耗时] history_flushed 到达", {
+      source,
+      gen,
+      elapsedMs,
+      conversationId: String(flushed?.conversationId || "").trim(),
+      shouldActivate,
+      shouldForceReset,
+      messageCount: Math.max(0, Math.round(Number(flushed?.messageCount || 0))),
+    });
     console.info("[CHAT_TRACE][history_flushed] 开始", {
       source,
       gen,
@@ -869,12 +890,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
       assistantMessage?: ChatMessage;
     },
   ) {
+    sendStartedAtMsByGen.delete(gen);
     if (round.phase !== "streaming" || round.gen !== gen) return;
     deferredRoundCompletion = { gen, result };
     finalizeDeferredRoundCompletion();
   }
 
   function handleRoundFailed(gen: number, error: unknown) {
+    sendStartedAtMsByGen.delete(gen);
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
     deferredRoundCompletion = null;
@@ -1243,6 +1266,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     const gen = ++generation;
     sendChatActiveGen = gen;
+    sendStartedAtMsByGen.set(gen, Date.now());
+    console.warn("[聊天前端耗时] 发送开始", {
+      gen,
+      conversationId: String(options.getConversationId ? options.getConversationId() : "").trim(),
+      textLength: plainText.length,
+      imageCount: sentImages.length,
+      attachmentCount: attachments.length,
+      extraBlockCount: extraTextBlocks.length,
+    });
     pendingTerminalEvent = null;
     if (!hasForegroundRoundInFlight) {
       insertUserDraft(gen, plainText, sentImages, attachments);
@@ -1298,6 +1330,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
           removeDraft(pendingUserDraftId);
         }
+        sendStartedAtMsByGen.delete(gen);
         options.chatErrorText.value = options.formatRequestFailed(error);
         return;
       }
@@ -1318,6 +1351,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
           removeDraft(pendingUserDraftId);
         }
+        sendStartedAtMsByGen.delete(gen);
         round = { phase: "idle" };
         options.chatting.value = false;
         reasoningStartedAtMs.value = 0;
@@ -1330,6 +1364,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
           removeDraft(pendingUserDraftId);
         }
+        sendStartedAtMsByGen.delete(gen);
         round = { phase: "idle" };
         options.chatting.value = false;
         reasoningStartedAtMs.value = 0;
@@ -1350,6 +1385,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     // queued 阶段：尚未进入流式，直接本地中断，不请求后端 stop。
     if (round.phase === "queued") {
+      sendStartedAtMsByGen.delete(round.gen);
       ++generation;
       sendChatActiveGen = 0;
       pendingTerminalEvent = null;

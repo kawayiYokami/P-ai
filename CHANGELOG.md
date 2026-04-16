@@ -2,6 +2,8 @@
 
 ## 发布：v0.9.10
 
+- 性能（chat-send-hotpath-persist）：发送热路径改为“单会话快速写入”，不再走整份 `before/after` 运行态比较；会话概览从消息链路中移出，工具审查批次改为首次进入会话与轮次完成时刷新，显著降低发送前锁持有与无意义后端轮询
+- 修复（runtime-log-visibility）：补齐 `app_handle` 锁异常日志，工具审查批次读取聚合耗时改为 debug 级结构化日志，避免静默吞错与高频 stderr 噪音
 - 修复（release-lockfile-checksum）：修正发布时误把第三方依赖 `memmap2` 从 `0.9.9` 改成 `0.9.10` 的锁文件问题，恢复正确版本与校验值，避免 CI 因 checksum mismatch 构建失败
 - 修复（tool-review-anchor-context）：提交工具审查报告时，聊天上下文改为以当前审查批次为锚点向前回溯；后续新聊天不会再污染本次审查，且命中上下文摘要时会整条保留摘要内容
 - 修复（delegate-same-agent-guard）：委托候选部门会排除与当前人格相同的部门；若模型仍尝试委托给同人格部门，运行时会直接拦截并返回“该部门主管就是你自己，自己解决。”

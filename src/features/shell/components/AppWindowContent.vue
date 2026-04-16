@@ -125,6 +125,7 @@
         :transcribing="transcribing"
         :record-hotkey="recordHotkey"
         :selected-chat-model-id="selectedChatModelId"
+        :tool-review-refresh-tick="toolReviewRefreshTick"
         :chat-model-options="textCapableApiConfigs"
         :plan-mode-enabled="planModeEnabled"
         :chat-usage-percent="chatUsagePercent"
@@ -370,6 +371,7 @@ const props = defineProps<{
   transcribing: boolean;
   recordHotkey: string;
   selectedChatModelId: string;
+  toolReviewRefreshTick: number;
   planModeEnabled: boolean;
   chatUsagePercent: number;
   forceArchiveTip: string;

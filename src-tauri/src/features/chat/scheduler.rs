@@ -1457,12 +1457,6 @@ fn emit_history_flushed_event(
             );
         }
     }
-    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
-        eprintln!(
-            "[会话概览] history_flushed 后推送失败: conversation_id={}, error={}",
-            conversation_id, err
-        );
-    }
 }
 
 fn emit_round_completed_event(
@@ -1496,12 +1490,6 @@ fn emit_round_completed_event(
             conversation_id, err
         ),
     }
-    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
-        eprintln!(
-            "[会话概览] round_completed 后推送失败: conversation_id={}, error={}",
-            conversation_id, err
-        );
-    }
 }
 
 fn emit_round_failed_event(
@@ -1530,12 +1518,6 @@ fn emit_round_failed_event(
             "[聊天推送] emit round_failed 失败: conversation_id={}, error={}",
             conversation_id, err
         ),
-    }
-    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
-        eprintln!(
-            "[会话概览] round_failed 后推送失败: conversation_id={}, error={}",
-            conversation_id, err
-        );
     }
 }
 

@@ -55,6 +55,7 @@ type UseChatToolReviewOptions = {
   activeConversationId: Ref<string>;
   selectedChatModelId: Ref<string>;
   messageBlocks: ComputedRef<ChatMessageBlock[]>;
+  refreshTick: Ref<number>;
   t: (key: string, params?: Record<string, unknown>) => string;
   onRefreshMessages?: () => void | Promise<void>;
 };
@@ -70,6 +71,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   const toolReviewSubmittingBatchKey = ref("");
   const toolReviewErrorText = ref("");
   const toolReviewReportErrorText = ref("");
+  const loadedConversationId = ref("");
 
   function formatToolReviewError(error: unknown): string {
     const message = error instanceof Error ? String(error.message || "").trim() : String(error);
@@ -91,8 +93,13 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   const toolReviewButtonLabel = computed(() =>
     options.t("chat.toolReview.button", { count: toolReviewButtonCount.value })
   );
+  const toolReviewLoadedForCurrentConversation = computed(
+    () => String(loadedConversationId.value || "").trim() === String(options.activeConversationId.value || "").trim()
+  );
   const toolReviewButtonEnabled = computed(
-    () => !!String(options.activeConversationId.value || "").trim() && toolReviewHasReviewableContent.value
+    () =>
+      !!String(options.activeConversationId.value || "").trim()
+      && (!toolReviewLoadedForCurrentConversation.value || toolReviewHasReviewableContent.value)
   );
 
   async function refreshMessagesAfterReviewMutation() {
@@ -106,6 +113,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       toolReviewBatches.value = [];
       toolReviewCurrentBatchKey.value = "";
       toolReviewDetailMap.value = {};
+      loadedConversationId.value = "";
       return;
     }
     try {
@@ -128,6 +136,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       toolReviewDetailMap.value = Object.fromEntries(
         Object.entries(toolReviewDetailMap.value).filter(([callId]) => validCallIds.has(callId))
       );
+      loadedConversationId.value = conversationId;
       toolReviewErrorText.value = "";
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
@@ -256,19 +265,16 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   }
 
   watch(
-    () => [
-      String(options.activeConversationId.value || "").trim(),
-      options.messageBlocks.value.map((block) => `${block.id}:${block.toolCallCount}:${block.text.length}`).join("|"),
-    ],
+    () => options.refreshTick.value,
     () => {
+      if (!String(options.activeConversationId.value || "").trim()) return;
       void refreshToolReviewBatches();
     },
-    { immediate: true },
   );
 
   watch(
     () => String(options.activeConversationId.value || "").trim(),
-    () => {
+    (conversationId) => {
       toolReviewPanelOpen.value = false;
       toolReviewBatches.value = [];
       toolReviewDetailMap.value = {};
@@ -277,9 +283,14 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       toolReviewBatchReviewingKey.value = "";
       toolReviewSubmittingBatchKey.value = "";
       toolReviewCurrentBatchKey.value = "";
+      loadedConversationId.value = "";
       toolReviewErrorText.value = "";
       toolReviewReportErrorText.value = "";
+      if (conversationId) {
+        void refreshToolReviewBatches();
+      }
     },
+    { immediate: true },
   );
 
   return {
@@ -296,6 +307,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     toolReviewErrorText,
     toolReviewReportErrorText,
     toggleToolReviewPanel,
+    refreshToolReviewBatches,
     setToolReviewCurrentBatchKey,
     loadToolReviewItemDetail,
     runToolReviewForCall,

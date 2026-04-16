@@ -360,6 +360,7 @@ const props = defineProps<{
   transcribing: boolean;
   recordHotkey: string;
   selectedChatModelId: string;
+  toolReviewRefreshTick: number;
   chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean;
   chatUsagePercent: number;
@@ -632,6 +633,7 @@ const {
   toolReviewErrorText,
   toolReviewReportErrorText,
   toggleToolReviewPanel,
+  refreshToolReviewBatches,
   setToolReviewCurrentBatchKey,
   loadToolReviewItemDetail,
   runToolReviewForCall,
@@ -641,6 +643,7 @@ const {
   activeConversationId: toRef(props, "activeConversationId"),
   selectedChatModelId: toRef(props, "selectedChatModelId"),
   messageBlocks: computed(() => props.messageBlocks),
+  refreshTick: toRef(props, "toolReviewRefreshTick"),
   t,
   onRefreshMessages: () => emit("refreshToolReviewMessages"),
 });

@@ -564,30 +564,55 @@ fn persist_conversation_set_delta(
     before: &[Conversation],
     after: &[Conversation],
 ) -> Result<(), String> {
+    let total_started_at = std::time::Instant::now();
+    let before_map_started_at = std::time::Instant::now();
     let before_map = before
         .iter()
         .map(|conversation| (conversation.id.clone(), conversation))
         .collect::<std::collections::HashMap<_, _>>();
+    let before_map_elapsed_ms = before_map_started_at.elapsed().as_millis();
+    let after_ids_started_at = std::time::Instant::now();
     let after_ids = after
         .iter()
         .map(|conversation| conversation.id.clone())
         .collect::<std::collections::HashSet<_>>();
+    let after_ids_elapsed_ms = after_ids_started_at.elapsed().as_millis();
 
+    let compare_and_write_started_at = std::time::Instant::now();
+    let mut changed_count = 0usize;
     for conversation in after {
         let changed = before_map
             .get(&conversation.id)
             .map(|previous| serde_json::to_vec(previous).ok() != serde_json::to_vec(conversation).ok())
             .unwrap_or(true);
         if changed {
+            changed_count += 1;
             state_write_conversation_cached(state, conversation)?;
         }
     }
+    let compare_and_write_elapsed_ms = compare_and_write_started_at.elapsed().as_millis();
 
+    let delete_started_at = std::time::Instant::now();
+    let mut deleted_count = 0usize;
     for conversation in before {
         if !after_ids.contains(&conversation.id) {
+            deleted_count += 1;
             state_delete_conversation_cached(state, &conversation.id)?;
         }
     }
+    let delete_elapsed_ms = delete_started_at.elapsed().as_millis();
+    eprintln!(
+        "[会话持久化] 会话集合增量耗时：总计={}ms，构建旧映射={}ms，构建新ID集合={}ms，比较并写会话={}ms，删除会话={}ms，before_count={}，after_count={}，changed_count={}，deleted_count={}",
+        total_started_at.elapsed().as_millis(),
+        before_map_elapsed_ms,
+        after_ids_elapsed_ms,
+        compare_and_write_elapsed_ms,
+        delete_elapsed_ms,
+        before.len(),
+        after.len(),
+        changed_count,
+        deleted_count
+    );
 
     Ok(())
 }
@@ -597,21 +622,91 @@ fn persist_app_data_conversation_runtime_delta(
     before: &AppData,
     after: &AppData,
 ) -> Result<(), String> {
+    let total_started_at = std::time::Instant::now();
+    let conversations_compare_started_at = std::time::Instant::now();
     let conversations_changed =
         serde_json::to_vec(&before.conversations).ok() != serde_json::to_vec(&after.conversations).ok();
+    let conversations_compare_elapsed_ms = conversations_compare_started_at.elapsed().as_millis();
+    let runtime_before_started_at = std::time::Instant::now();
     let runtime_before = build_runtime_state_file(before);
+    let runtime_before_elapsed_ms = runtime_before_started_at.elapsed().as_millis();
+    let runtime_after_started_at = std::time::Instant::now();
     let runtime_after = build_runtime_state_file(after);
+    let runtime_after_elapsed_ms = runtime_after_started_at.elapsed().as_millis();
+    let runtime_compare_started_at = std::time::Instant::now();
     let runtime_changed =
         serde_json::to_vec(&runtime_before).ok() != serde_json::to_vec(&runtime_after).ok();
+    let runtime_compare_elapsed_ms = runtime_compare_started_at.elapsed().as_millis();
 
+    let conversation_delta_started_at = std::time::Instant::now();
     if conversations_changed {
         persist_conversation_set_delta(state, &before.conversations, &after.conversations)?;
         let chat_index = build_chat_index_file(&after.conversations);
         state_write_chat_index_cached(state, &chat_index)?;
     }
+    let conversation_delta_elapsed_ms = conversation_delta_started_at.elapsed().as_millis();
+    let runtime_write_started_at = std::time::Instant::now();
     if runtime_changed {
         state_write_runtime_state_cached(state, &runtime_after)?;
     }
+    let runtime_write_elapsed_ms = runtime_write_started_at.elapsed().as_millis();
+    eprintln!(
+        "[会话持久化] 运行态增量耗时：总计={}ms，会话列表比较={}ms，构建运行态(before)={}ms，构建运行态(after)={}ms，运行态比较={}ms，会话增量落盘+索引={}ms，运行态落盘={}ms，conversation_count_before={}，conversation_count_after={}，conversations_changed={}，runtime_changed={}",
+        total_started_at.elapsed().as_millis(),
+        conversations_compare_elapsed_ms,
+        runtime_before_elapsed_ms,
+        runtime_after_elapsed_ms,
+        runtime_compare_elapsed_ms,
+        conversation_delta_elapsed_ms,
+        runtime_write_elapsed_ms,
+        before.conversations.len(),
+        after.conversations.len(),
+        conversations_changed,
+        runtime_changed
+    );
+
+    Ok(())
+}
+
+fn persist_single_conversation_runtime_fast(
+    state: &AppState,
+    data: &AppData,
+    conversation_id: &str,
+) -> Result<(), String> {
+    let total_started_at = std::time::Instant::now();
+    let cid = conversation_id.trim();
+    if cid.is_empty() {
+        return Ok(());
+    }
+    let conversation = data
+        .conversations
+        .iter()
+        .find(|item| item.id == cid)
+        .ok_or_else(|| format!("会话不存在，无法快速持久化: {cid}"))?;
+
+    let conversation_write_started_at = std::time::Instant::now();
+    state_write_conversation_cached(state, conversation)?;
+    let conversation_write_elapsed_ms = conversation_write_started_at.elapsed().as_millis();
+
+    let chat_index_started_at = std::time::Instant::now();
+    let chat_index = build_chat_index_file(&data.conversations);
+    state_write_chat_index_cached(state, &chat_index)?;
+    let chat_index_elapsed_ms = chat_index_started_at.elapsed().as_millis();
+
+    let runtime_state_started_at = std::time::Instant::now();
+    let runtime_state = build_runtime_state_file(data);
+    state_write_runtime_state_cached(state, &runtime_state)?;
+    let runtime_state_elapsed_ms = runtime_state_started_at.elapsed().as_millis();
+
+    eprintln!(
+        "[会话持久化] 单会话快速写入耗时：总计={}ms，会话写入={}ms，聊天索引写入={}ms，运行态写入={}ms，conversation_id={}，conversation_count={}",
+        total_started_at.elapsed().as_millis(),
+        conversation_write_elapsed_ms,
+        chat_index_elapsed_ms,
+        runtime_state_elapsed_ms,
+        cid,
+        data.conversations.len()
+    );
 
     Ok(())
 }
@@ -622,7 +717,10 @@ fn emit_unarchived_conversation_overview_updated_payload(
 ) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
-        Err(_) => None,
+        Err(err) => {
+            eprintln!("[会话概览] 获取 app_handle 失败：锁已损坏，error={:?}", err);
+            None
+        }
     };
     let Some(app_handle) = app_handle else {
         eprintln!("[会话概览] 推送跳过：无法获取 app_handle");
@@ -639,7 +737,10 @@ fn emit_conversation_todos_updated_payload(
 ) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
-        Err(_) => None,
+        Err(err) => {
+            eprintln!("[Todo] 获取 app_handle 失败：锁已损坏，error={:?}", err);
+            None
+        }
     };
     let Some(app_handle) = app_handle else {
         eprintln!("[Todo] 推送跳过：无法获取 app_handle");
@@ -743,21 +844,54 @@ fn update_conversation_todos_and_emit(
 }
 
 fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) -> Result<(), String> {
+    let total_started_at = std::time::Instant::now();
     let guard = state
         .conversation_lock
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let app_data_started_at = std::time::Instant::now();
     let mut data = state_read_app_data_cached(state)?;
+    let app_data_elapsed_ms = app_data_started_at.elapsed().as_millis();
+    let clone_started_at = std::time::Instant::now();
     let data_before = data.clone();
+    let clone_elapsed_ms = clone_started_at.elapsed().as_millis();
+    let config_started_at = std::time::Instant::now();
     let app_config = state_read_config_cached(state)?;
+    let config_elapsed_ms = config_started_at.elapsed().as_millis();
+    let normalize_main_started_at = std::time::Instant::now();
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
+    let normalize_main_elapsed_ms = normalize_main_started_at.elapsed().as_millis();
+    let normalize_department_started_at = std::time::Instant::now();
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
+    let normalize_department_elapsed_ms = normalize_department_started_at.elapsed().as_millis();
+    let persist_started_at = std::time::Instant::now();
     if normalized_changed || department_changed {
         persist_app_data_conversation_runtime_delta(state, &data_before, &data)?;
     }
+    let persist_elapsed_ms = persist_started_at.elapsed().as_millis();
+    let payload_started_at = std::time::Instant::now();
     let payload = build_unarchived_conversation_overview_payload(state, &app_config, &data);
+    let payload_elapsed_ms = payload_started_at.elapsed().as_millis();
+    let lock_held_elapsed_ms = total_started_at.elapsed().as_millis();
     drop(guard);
+    let emit_started_at = std::time::Instant::now();
     emit_unarchived_conversation_overview_updated_payload(state, &payload);
+    let emit_elapsed_ms = emit_started_at.elapsed().as_millis();
+    eprintln!(
+        "[会话概览] 状态刷新耗时：总计={}ms，锁内={}ms，读取应用数据={}ms，克隆数据={}ms，读取配置={}ms，主会话归一化={}ms，部门归一化={}ms，持久化={}ms，构建概览={}ms，事件推送={}ms，normalized_changed={}，department_changed={}",
+        total_started_at.elapsed().as_millis(),
+        lock_held_elapsed_ms,
+        app_data_elapsed_ms,
+        clone_elapsed_ms,
+        config_elapsed_ms,
+        normalize_main_elapsed_ms,
+        normalize_department_elapsed_ms,
+        persist_elapsed_ms,
+        payload_elapsed_ms,
+        emit_elapsed_ms,
+        normalized_changed,
+        department_changed
+    );
     Ok(())
 }
 
@@ -845,4 +979,3 @@ fn set_active_unarchived_conversation(
     drop(guard);
     Ok(SetActiveUnarchivedConversationOutput { conversation_id })
 }
-
