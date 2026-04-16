@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.9
 
+- 修复（tool-review-button-reset）：切换会话时立即清空工具审查批次与加载状态，避免上一条会话的可审查状态残留，导致空会话里审查按钮仍可点击
 - 重构（config-and-persona-command-split）：继续拆分 `config_and_persona.rs`，把会话快照与人格/聊天设置相关命令下沉到独立子模块，收口单文件复杂度
 - 修复（tool-review-refresh-guard）：批量评估、单项评估与提交审查报告后会刷新前台工具调用消息；当当前会话没有可审查内容时，审查按钮保持禁用且不会再打开空侧栏
 - 修复（codex-spark-capability-guard）：Codex 供应商默认不再向 `OpenAI Responses` 下发 `reasoning.summary`，并强制 `gpt-5.3-codex-spark` 关闭图片能力，避免该模型因不支持相关参数而请求失败

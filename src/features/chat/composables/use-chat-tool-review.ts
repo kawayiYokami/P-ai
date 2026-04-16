@@ -270,7 +270,12 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     () => String(options.activeConversationId.value || "").trim(),
     () => {
       toolReviewPanelOpen.value = false;
+      toolReviewBatches.value = [];
       toolReviewDetailMap.value = {};
+      toolReviewDetailLoadingCallId.value = "";
+      toolReviewReviewingCallId.value = "";
+      toolReviewBatchReviewingKey.value = "";
+      toolReviewSubmittingBatchKey.value = "";
       toolReviewCurrentBatchKey.value = "";
       toolReviewErrorText.value = "";
       toolReviewReportErrorText.value = "";
