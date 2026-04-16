@@ -1196,7 +1196,6 @@ fn rewind_conversation_from_message(
     let mut app_config = read_config(&state.config_path)?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let mut runtime_data = data.clone();
     merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
     if !runtime_data
@@ -1219,11 +1218,12 @@ fn rewind_conversation_from_message(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let idx = resolve_rewind_target_conversation_index(&data, &requested_agent_id, requested_conversation_id)?;
-    let (removed_count, remaining_count, mut recalled_user_message) = {
+    let (conversation_id, removed_count, remaining_count, mut recalled_user_message) = {
         let conversation = data
             .conversations
             .get_mut(idx)
             .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
+        let conversation_id = conversation.id.clone();
 
         let remove_from = conversation
             .messages
@@ -1271,10 +1271,15 @@ fn rewind_conversation_from_message(
         }
         let (removed_count, remaining_count) =
             persist_rewind_conversation_state(conversation, remove_from)?;
-        (removed_count, remaining_count, recalled_user_message)
+        (
+            conversation_id,
+            removed_count,
+            remaining_count,
+            recalled_user_message,
+        )
     };
     if removed_count > 0 {
-        persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+        persist_single_conversation_runtime_fast(&state, &data, &conversation_id)?;
     }
     drop(guard);
 
