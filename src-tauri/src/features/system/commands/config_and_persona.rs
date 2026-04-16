@@ -1444,7 +1444,7 @@ fn get_chat_snapshot(
         .messages
         .iter()
         .rev()
-        .find(|m| m.role == "assistant")
+        .find(|m| m.role == "assistant" && !is_tool_review_report_message(m))
         .cloned();
 
     persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
@@ -1461,7 +1461,11 @@ fn get_chat_snapshot(
         conversation_id: conversation.id.clone(),
         latest_user,
         latest_assistant,
-        active_message_count: conversation.messages.len(),
+        active_message_count: conversation
+            .messages
+            .iter()
+            .filter(|message| !is_tool_review_report_message(message))
+            .count(),
     })
 }
 
@@ -1618,6 +1622,9 @@ fn build_conversation_preview_messages(
         .messages
         .iter()
         .filter(|message| {
+            if is_tool_review_report_message(message) {
+                return false;
+            }
             matches!(
                 message.role.trim().to_ascii_lowercase().as_str(),
                 "user" | "assistant" | "tool"
@@ -1708,7 +1715,11 @@ fn build_unarchived_conversation_summary(
         },
         updated_at: conversation.updated_at.clone(),
         last_message_at,
-        message_count: conversation.messages.len(),
+        message_count: conversation
+            .messages
+            .iter()
+            .filter(|message| !is_tool_review_report_message(message))
+            .count(),
         unread_count: conversation_unread_count(conversation),
         agent_id: conversation.agent_id.clone(),
         department_id,
@@ -3187,6 +3198,7 @@ fn get_active_conversation_messages_after(
         messages: page,
     })
 }
+
 
 #[tauri::command]
 fn request_conversation_messages_after_async(

@@ -1,6 +1,9 @@
 // ==================== 配置与人格命令 ====================
 include!("commands/config_and_persona.rs");
 
+// ==================== 工具审查命令 ====================
+include!("commands/tool_review.rs");
+
 // ==================== Codex OAuth 命令 ====================
 include!("commands/codex_auth.rs");
 

@@ -47,6 +47,12 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   }
 
   function buildMessageBlocks(message: ChatMessage): ChatMessageBlock[] {
+    const providerMeta = (message.providerMeta || {}) as Record<string, unknown>;
+    const messageMeta = ((providerMeta.message_meta || providerMeta.messageMeta || {}) as Record<string, unknown>);
+    const messageKind = String(messageMeta.kind || providerMeta.messageKind || "").trim();
+    if (messageKind === "tool_review_report") {
+      return [];
+    }
     const signature = messageSignature(message);
     const cached = messageBlockCache.get(message);
     if (cached && cached.signature === signature) {

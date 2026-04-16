@@ -11,12 +11,21 @@ type ParsedLine = {
 const props = defineProps<{
   lines: string[];
   diffOnly?: boolean;
+  highlightStyle?: "text" | "background";
+  showPrefixes?: boolean;
 }>();
 
 const lineClassMap: Record<ApprovalLineKind, string> = {
   add: "text-success",
   remove: "text-error",
   warning: "bg-warning text-warning-content",
+  normal: "",
+};
+
+const lineRowClassMap: Record<ApprovalLineKind, string> = {
+  add: "bg-success/10",
+  remove: "bg-error/10",
+  warning: "bg-warning/20",
   normal: "",
 };
 
@@ -91,7 +100,21 @@ const parsedLines = computed<ParsedLine[]>(() => {
 </script>
 
 <template>
-  <div class="mockup-code w-full max-h-[60vh] overflow-x-auto overflow-y-auto">
-    <pre v-for="(item, idx) in parsedLines" :key="idx" :data-prefix="item.prefix"><code :class="lineClassMap[item.kind]">{{ item.line }}</code></pre>
+  <div
+    class="mockup-code w-full max-h-[60vh] overflow-x-auto overflow-y-auto"
+    :class="{ 'approval-patch-sample--no-prefix': props.showPrefixes === false }"
+  >
+    <pre
+      v-for="(item, idx) in parsedLines"
+      :key="idx"
+      :data-prefix="item.prefix"
+      :class="props.highlightStyle === 'background' ? lineRowClassMap[item.kind] : ''"
+    ><code :class="props.highlightStyle === 'background' ? '' : lineClassMap[item.kind]">{{ item.line }}</code></pre>
   </div>
 </template>
+
+<style scoped>
+.approval-patch-sample--no-prefix pre::before {
+  display: none;
+}
+</style>

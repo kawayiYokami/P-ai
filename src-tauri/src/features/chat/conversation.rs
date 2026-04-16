@@ -1269,6 +1269,13 @@ fn is_context_compaction_message(message: &ChatMessage, role: &str) -> bool {
     )
 }
 
+fn is_tool_review_report_message(message: &ChatMessage) -> bool {
+    matches!(
+        provider_meta_message_kind(message).as_deref(),
+        Some("tool_review_report")
+    )
+}
+
 fn message_attachment_paths_by_mime(
     message: &ChatMessage,
     prefix: &str,
@@ -1958,6 +1965,9 @@ fn build_prompt_with_mode(
                 break;
             }
         }
+        if is_tool_review_report_message(message) {
+            continue;
+        }
         let Some(role) = prompt_role_for_message(message, &agent.id) else {
             continue;
         };
@@ -1971,6 +1981,9 @@ fn build_prompt_with_mode(
     }
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
     for (idx, message) in enriched_conversation.messages.iter().enumerate() {
+        if is_tool_review_report_message(message) {
+            continue;
+        }
         let Some(role) = prompt_role_for_message(message, &agent.id) else {
             continue;
         };

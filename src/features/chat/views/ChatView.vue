@@ -16,7 +16,8 @@
       @rename="handleConversationRename"
     />
 
-    <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         v-if="mediaDragActive && !chatting && !frozen"
         class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"
@@ -172,8 +173,12 @@
             :supervision-label="t('chat.supervision.button')"
             :supervision-active-label="t('chat.supervision.buttonActive')"
             :supervision-title="supervisionButtonTitle"
+            :review-button-label="toolReviewButtonLabel"
+            :review-panel-open="toolReviewPanelOpen"
+            :review-button-enabled="toolReviewButtonEnabled"
             @lock-workspace="$emit('lockWorkspace')"
             @open-supervision-task="$emit('openSupervisionTask')"
+            @toggle-tool-review="toggleToolReviewPanel"
           />
         </div>
       </div>
@@ -276,7 +281,26 @@
         @close="$emit('closeSupervisionTask')"
         @save="$emit('saveSupervisionTask', $event)"
       />
-
+      </div>
+        <ToolReviewSidebar
+          v-if="toolReviewPanelOpen"
+          class="w-[26rem] max-w-[42vw] shrink-0 border-l border-base-300 bg-base-100"
+          :batches="toolReviewBatches"
+          :current-batch-key="toolReviewCurrentBatchKey"
+        :detail-map="toolReviewDetailMap"
+        :detail-loading-call-id="toolReviewDetailLoadingCallId"
+          :reviewing-call-id="toolReviewReviewingCallId"
+          :batch-reviewing-key="toolReviewBatchReviewingKey"
+          :submitting-batch-key="toolReviewSubmittingBatchKey"
+          :error-text="toolReviewErrorText"
+          :report-error-text="toolReviewReportErrorText"
+          :markdown-is-dark="markdownIsDark"
+          @select-batch="setToolReviewCurrentBatchKey"
+          @load-item-detail="loadToolReviewItemDetail"
+          @review-item="runToolReviewForCall"
+        @review-batch="runToolReviewForBatch"
+        @submit-batch="submitToolReviewBatch"
+      />
     </div>
   </div>
 </template>
@@ -293,11 +317,13 @@ import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
+import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
+import { useChatToolReview } from "../composables/use-chat-tool-review";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 
 type ChatRenderItem =
@@ -584,6 +610,31 @@ const {
   stopAudioPlayback,
   toggleAudioPlayback,
 } = useChatMessageActions();
+const {
+  toolReviewPanelOpen,
+  toolReviewBatches,
+  toolReviewCurrentBatchKey,
+  toolReviewButtonLabel,
+  toolReviewButtonEnabled,
+  toolReviewDetailMap,
+  toolReviewDetailLoadingCallId,
+  toolReviewReviewingCallId,
+  toolReviewBatchReviewingKey,
+  toolReviewSubmittingBatchKey,
+  toolReviewErrorText,
+  toolReviewReportErrorText,
+  toggleToolReviewPanel,
+  setToolReviewCurrentBatchKey,
+  loadToolReviewItemDetail,
+  runToolReviewForCall,
+  runToolReviewForBatch,
+  submitToolReviewBatch,
+} = useChatToolReview({
+  activeConversationId: toRef(props, "activeConversationId"),
+  selectedChatModelId: toRef(props, "selectedChatModelId"),
+  messageBlocks: computed(() => props.messageBlocks),
+  t,
+});
 
 function isOwnMessage(block: ChatMessageBlock): boolean {
   return isRightAlignedMessage(block);
