@@ -1,5 +1,12 @@
 # 变更日志
 
+## 发布：v0.9.9
+
+- 发布（release-0.9.9）：同步版本号，并纳入本轮安装版自动更新目录保留修复与 README 大幅更新
+- 修复（updater-installer-dir）：Windows 安装版自动更新时，显式把当前运行中的安装目录传给 NSIS 安装器，避免更新后回落到默认安装目录
+- 文档（readme-refresh）：重写 README，补齐 0.8 之后的关键能力演进、当前产品定位与核心依赖致谢
+- 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本统一升级到 `0.9.9`
+
 ## 更新：安装版自动更新保留自定义目录
 
 - 修复（updater-installer-dir）：Windows 安装版自动更新时，显式把当前运行中的安装目录传给 NSIS 安装器，避免用户最初装在自定义目录时，更新后又回落到默认安装目录
