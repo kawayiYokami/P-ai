@@ -1,3 +1,111 @@
+const MODELS_DEV_CACHE_FILE_NAME: &str = "models_dev_api_cache.json";
+const MODELS_DEV_CACHE_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ModelsDevCacheFile {
+    updated_at: String,
+    fetched_at_ms: i64,
+    root: Value,
+}
+
+fn models_dev_cache_path(state: &AppState) -> std::path::PathBuf {
+    state
+        .config_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(MODELS_DEV_CACHE_FILE_NAME)
+}
+
+fn read_models_dev_cache_file(state: &AppState) -> Result<Option<ModelsDevCacheFile>, String> {
+    let path = models_dev_cache_path(state);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read(&path)
+        .map_err(|err| format!("Read models.dev cache failed ({}): {err}", path.display()))?;
+    let cache = serde_json::from_slice::<ModelsDevCacheFile>(&raw)
+        .map_err(|err| format!("Parse models.dev cache failed ({}): {err}", path.display()))?;
+    Ok(Some(cache))
+}
+
+fn write_models_dev_cache_file(
+    state: &AppState,
+    root: &Value,
+) -> Result<ModelsDevCacheFile, String> {
+    let path = models_dev_cache_path(state);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "Create models.dev cache directory failed ({}): {err}",
+                parent.display()
+            )
+        })?;
+    }
+    let cache = ModelsDevCacheFile {
+        updated_at: now_iso(),
+        fetched_at_ms: chrono::Utc::now().timestamp_millis(),
+        root: root.clone(),
+    };
+    let raw = serde_json::to_vec_pretty(&cache)
+        .map_err(|err| format!("Serialize models.dev cache failed: {err}"))?;
+    std::fs::write(&path, raw)
+        .map_err(|err| format!("Write models.dev cache failed ({}): {err}", path.display()))?;
+    Ok(cache)
+}
+
+fn models_dev_cache_is_stale(cache: &ModelsDevCacheFile) -> bool {
+    let age_ms = chrono::Utc::now().timestamp_millis() - cache.fetched_at_ms;
+    age_ms > MODELS_DEV_CACHE_MAX_AGE_MS
+}
+
+async fn fetch_models_dev_root(state: &AppState) -> Result<Value, String> {
+    let resp = state
+        .shared_http_client
+        .get(MODELS_DEV_API_URL)
+        .send()
+        .await
+        .map_err(|err| format!("Fetch models.dev metadata failed: {err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        let snippet = body.chars().take(400).collect::<String>();
+        return Err(format!(
+            "Fetch models.dev metadata failed: {status} | {snippet}"
+        ));
+    }
+    resp.json::<Value>()
+        .await
+        .map_err(|err| format!("Parse models.dev metadata failed: {err}"))
+}
+
+async fn ensure_models_dev_cache_current(state: &AppState) -> Result<ModelsDevCacheFile, String> {
+    let cached = read_models_dev_cache_file(state)?;
+    match cached {
+        Some(cache) if !models_dev_cache_is_stale(&cache) => Ok(cache),
+        Some(cache) => match fetch_models_dev_root(state).await {
+            Ok(root) => write_models_dev_cache_file(state, &root),
+            Err(err) => {
+                eprintln!(
+                    "[models.dev缓存] 刷新失败，回退旧缓存: error={:?}, updated_at={}, fetched_at_ms={}",
+                    err, cache.updated_at, cache.fetched_at_ms
+                );
+                Ok(cache)
+            }
+        },
+        None => {
+            let root = fetch_models_dev_root(state).await?;
+            write_models_dev_cache_file(state, &root)
+        }
+    }
+}
+
+fn read_models_dev_cache_only(state: &AppState) -> Result<ModelsDevCacheFile, String> {
+    read_models_dev_cache_file(state)?
+        .ok_or_else(|| "暂无模型元数据缓存，请先手动刷新模型列表。".to_string())
+}
+
 async fn fetch_models_gemini_native(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
     let base = input.base_url.trim().trim_end_matches('/');
     let has_version_path = base.contains("/v1beta") || base.contains("/v1/");
@@ -162,33 +270,15 @@ fn normalize_model_id(input: &str) -> String {
 
 #[tauri::command]
 async fn fetch_model_metadata(
+    state: State<'_, AppState>,
     input: FetchModelMetadataInput,
 ) -> Result<FetchModelMetadataOutput, String> {
     let requested_model = input.model.trim();
     if requested_model.is_empty() {
         return Err("Model is empty.".to_string());
     }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-    let resp = client
-        .get("https://models.dev/api.json")
-        .send()
-        .await
-        .map_err(|err| format!("Fetch models.dev metadata failed: {err}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let snippet = body.chars().take(400).collect::<String>();
-        return Err(format!(
-            "Fetch models.dev metadata failed: {status} | {snippet}"
-        ));
-    }
-    let root = resp
-        .json::<Value>()
-        .await
-        .map_err(|err| format!("Parse models.dev metadata failed: {err}"))?;
+    let cache = read_models_dev_cache_only(&state)?;
+    let root = cache.root;
     let providers = root
         .as_object()
         .ok_or_else(|| "Invalid models.dev payload: expected root object.".to_string())?;
@@ -283,12 +373,22 @@ async fn fetch_model_metadata(
 }
 
 #[tauri::command]
-async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String> {
+async fn refresh_models(
+    state: State<'_, AppState>,
+    input: RefreshModelsInput,
+) -> Result<Vec<String>, String> {
     if !input.request_format.is_codex() && input.api_key.trim().is_empty() {
         return Err("API key is empty.".to_string());
     }
     if input.base_url.trim().is_empty() {
         return Err("Base URL is empty.".to_string());
+    }
+
+    if let Err(err) = ensure_models_dev_cache_current(&state).await {
+        eprintln!(
+            "[models.dev缓存] 刷新模型时更新元数据缓存失败: error={:?}",
+            err
+        );
     }
 
     match input.request_format {

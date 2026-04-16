@@ -248,11 +248,15 @@
                             @input="modelCard.contextWindowTokens = Number(($event.target as HTMLInputElement).value)"
                             type="range" :min="SLIDER_CONTEXT_MIN" :max="contextWindowMax(modelCard)" step="1000"
                             class="range range-sm flex-1" />
-                          <input :value="modelCard.contextWindowTokens"
-                            @input="modelCard.contextWindowTokens = Number(($event.target as HTMLInputElement).value)"
-                            @blur="clampModelCardValues(modelCard)"
-                            type="number" :min="SLIDER_CONTEXT_MIN" :max="contextWindowMax(modelCard)" step="1000"
-                            class="input input-bordered input-sm w-28 text-right font-mono" />
+                          <div class="relative w-28">
+                            <input :value="Math.round(Number(modelCard.contextWindowTokens || 0) / 1000)"
+                              @input="modelCard.contextWindowTokens = Number(($event.target as HTMLInputElement).value || 0) * 1000"
+                              @blur="clampManualContextWindowValue(modelCard)"
+                              type="number" :min="Math.round(SLIDER_CONTEXT_MIN / 1000)"
+                              :max="2000" step="1"
+                              class="input input-bordered input-sm w-full pr-7 text-right font-mono" />
+                            <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs opacity-70">K</span>
+                          </div>
                         </div>
                       </label>
 
@@ -874,10 +878,22 @@ function clampModelCardValues(modelCard: ApiModelConfigItem) {
 
   const nextOutput = Math.round(Number(modelCard.maxOutputTokens ?? 4_096));
   const clampedOutput = Math.max(256, Math.min(maxOutputTokensMax(modelCard), nextOutput));
-  if (Number.isFinite(nextOutput) && nextOutput !== clampedOutput) {
-    modelCard.maxOutputTokens = clampedOutput;
+    if (Number.isFinite(nextOutput) && nextOutput !== clampedOutput) {
+      modelCard.maxOutputTokens = clampedOutput;
+    }
   }
-}
+
+  function clampManualContextWindowValue(modelCard: ApiModelConfigItem) {
+    const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? 128_000));
+    const clampedContext = Math.max(SLIDER_CONTEXT_MIN, Math.min(2_000_000, nextContext));
+    if (!Number.isFinite(nextContext)) {
+      modelCard.contextWindowTokens = 128_000;
+      return;
+    }
+    if (nextContext !== clampedContext) {
+      modelCard.contextWindowTokens = clampedContext;
+    }
+  }
 
 function selectModelOption(modelCard: ApiModelConfigItem, option: string) {
   modelCard.model = option;
@@ -921,7 +937,20 @@ async function syncModelMetadata(modelCard: ApiModelConfigItem) {
     };
     clampModelCardValues(modelCard);
   } catch (error) {
+    const message = String(error || "").trim();
+    if (message.includes("暂无模型元数据缓存")) {
+      return;
+    }
     console.warn("[API] fetch model metadata failed:", error);
+  }
+}
+
+async function syncSelectedProviderModelMetadata() {
+  const provider = selectedProvider.value;
+  if (!provider || provider.requestFormat === "codex") return;
+  for (const modelCard of provider.models || []) {
+    if (!String(modelCard.model || "").trim()) continue;
+    await syncModelMetadata(modelCard);
   }
 }
 
@@ -1087,9 +1116,19 @@ watch(
       void refreshCodexAuthStatus(provider);
       return;
     }
+    void syncSelectedProviderModelMetadata();
     stopCodexAuthPolling();
   },
   { immediate: true },
+);
+
+watch(
+  () => props.refreshingModels,
+  (refreshing, wasRefreshing) => {
+    if (wasRefreshing && !refreshing && props.modelRefreshOk) {
+      void syncSelectedProviderModelMetadata();
+    }
+  },
 );
 
 onUnmounted(() => {
