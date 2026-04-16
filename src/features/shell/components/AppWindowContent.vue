@@ -169,6 +169,7 @@
         @open-supervision-task="openSupervisionTaskDialog"
         @close-supervision-task="closeSupervisionTaskDialog"
         @save-supervision-task="saveSupervisionTask"
+        @refresh-tool-review-messages="onReloadMessages"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
         @create-conversation="onCreateConversation"
@@ -483,6 +484,7 @@ const props = defineProps<{
   openSupervisionTaskDialog: () => void;
   closeSupervisionTaskDialog: () => void;
   saveSupervisionTask: (payload: { durationHours: number; goal: string; why: string; todo: string }) => void;
+  onReloadMessages: () => void;
   onSwitchConversation: (conversationId: string) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;

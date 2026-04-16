@@ -45,6 +45,7 @@
       :config-tab="configTab"
       :locale-options="localeOptions"
       :current-theme="currentTheme"
+      :on-reload-messages="() => reloadForegroundConversationMessages('tool_review_refresh')"
       :selected-api-config="selectedApiConfig"
       :tool-api-config="toolApiConfig"
       :base-url-reference="baseUrlReference"

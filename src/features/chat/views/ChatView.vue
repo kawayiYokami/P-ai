@@ -284,7 +284,7 @@
       </div>
         <ToolReviewSidebar
           v-if="toolReviewPanelOpen"
-          class="w-[26rem] max-w-[42vw] shrink-0 border-l border-base-300 bg-base-100"
+          class="w-104 max-w-[42vw] shrink-0 border-l border-base-300 bg-base-100"
           :batches="toolReviewBatches"
           :current-batch-key="toolReviewCurrentBatchKey"
         :detail-map="toolReviewDetailMap"
@@ -546,6 +546,7 @@ const emit = defineEmits<{
   (e: "createConversation", input?: { title?: string; departmentId?: string }): void;
   (e: "openConversationSummary", conversationId: string): void;
   (e: "reachedBottom"): void;
+  (e: "refreshToolReviewMessages"): void;
 }>();
 const { t } = useI18n();
 
@@ -634,6 +635,7 @@ const {
   selectedChatModelId: toRef(props, "selectedChatModelId"),
   messageBlocks: computed(() => props.messageBlocks),
   t,
+  onRefreshMessages: () => emit("refreshToolReviewMessages"),
 });
 
 function isOwnMessage(block: ChatMessageBlock): boolean {

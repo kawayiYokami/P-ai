@@ -56,6 +56,7 @@ type UseChatToolReviewOptions = {
   selectedChatModelId: Ref<string>;
   messageBlocks: ComputedRef<ChatMessageBlock[]>;
   t: (key: string, params?: Record<string, unknown>) => string;
+  onRefreshMessages?: () => void | Promise<void>;
 };
 
 export function useChatToolReview(options: UseChatToolReviewOptions) {
@@ -84,10 +85,20 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!currentKey) return 0;
     return toolReviewBatches.value.find((batch) => batch.batchKey === currentKey)?.itemCount || 0;
   });
+  const toolReviewHasReviewableContent = computed(() =>
+    toolReviewBatches.value.some((batch) => Number(batch.itemCount || 0) > 0)
+  );
   const toolReviewButtonLabel = computed(() =>
     options.t("chat.toolReview.button", { count: toolReviewButtonCount.value })
   );
-  const toolReviewButtonEnabled = computed(() => !!String(options.activeConversationId.value || "").trim());
+  const toolReviewButtonEnabled = computed(
+    () => !!String(options.activeConversationId.value || "").trim() && toolReviewHasReviewableContent.value
+  );
+
+  async function refreshMessagesAfterReviewMutation() {
+    if (!options.onRefreshMessages) return;
+    await options.onRefreshMessages();
+  }
 
   async function refreshToolReviewBatches() {
     const conversationId = String(options.activeConversationId.value || "").trim();
@@ -104,6 +115,9 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         },
       });
       toolReviewBatches.value = Array.isArray(result?.batches) ? result.batches : [];
+      if (!toolReviewBatches.value.some((batch) => Number(batch.itemCount || 0) > 0)) {
+        toolReviewPanelOpen.value = false;
+      }
       const currentKey = String(toolReviewCurrentBatchKey.value || "").trim();
       if (currentKey && toolReviewBatches.value.some((batch) => batch.batchKey === currentKey)) {
         toolReviewCurrentBatchKey.value = currentKey;
@@ -163,6 +177,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         [normalizedCallId]: detail,
       };
       await refreshToolReviewBatches();
+      await refreshMessagesAfterReviewMutation();
       toolReviewErrorText.value = "";
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
@@ -190,6 +205,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         await loadToolReviewItemDetail(callId);
       }
       await refreshToolReviewBatches();
+      await refreshMessagesAfterReviewMutation();
       toolReviewErrorText.value = "";
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
@@ -215,6 +231,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         },
       });
       await refreshToolReviewBatches();
+      await refreshMessagesAfterReviewMutation();
       toolReviewReportErrorText.value = "";
       toolReviewErrorText.value = "";
     } catch (error) {
@@ -227,6 +244,10 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   }
 
   function toggleToolReviewPanel() {
+    if (!toolReviewButtonEnabled.value) {
+      toolReviewPanelOpen.value = false;
+      return;
+    }
     toolReviewPanelOpen.value = !toolReviewPanelOpen.value;
   }
 

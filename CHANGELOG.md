@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.9
 
+- 修复（tool-review-refresh-guard）：批量评估、单项评估与提交审查报告后会刷新前台工具调用消息；当当前会话没有可审查内容时，审查按钮保持禁用且不会再打开空侧栏
 - 修复（codex-spark-capability-guard）：Codex 供应商默认不再向 `OpenAI Responses` 下发 `reasoning.summary`，并强制 `gpt-5.3-codex-spark` 关闭图片能力，避免该模型因不支持相关参数而请求失败
 - 发布（release-0.9.9）：同步版本号，并纳入本轮安装版自动更新目录保留修复与 README 大幅更新
 - 修复（updater-installer-dir）：Windows 安装版自动更新时，显式把当前运行中的安装目录传给 NSIS 安装器，避免更新后回落到默认安装目录
