@@ -1,6 +1,6 @@
 # 变更日志
 
-## 发布：v0.9.9
+## 发布：v0.9.10
 
 - 修复（tool-review-anchor-context）：提交工具审查报告时，聊天上下文改为以当前审查批次为锚点向前回溯；后续新聊天不会再污染本次审查，且命中上下文摘要时会整条保留摘要内容
 - 修复（delegate-same-agent-guard）：委托候选部门会排除与当前人格相同的部门；若模型仍尝试委托给同人格部门，运行时会直接拦截并返回“该部门主管就是你自己，自己解决。”
@@ -10,10 +10,10 @@
 - 重构（config-and-persona-command-split）：继续拆分 `config_and_persona.rs`，把会话快照与人格/聊天设置相关命令下沉到独立子模块，收口单文件复杂度
 - 修复（tool-review-refresh-guard）：批量评估、单项评估与提交审查报告后会刷新前台工具调用消息；当当前会话没有可审查内容时，审查按钮保持禁用且不会再打开空侧栏
 - 修复（codex-spark-capability-guard）：Codex 供应商默认不再向 `OpenAI Responses` 下发 `reasoning.summary`，并强制 `gpt-5.3-codex-spark` 关闭图片能力，避免该模型因不支持相关参数而请求失败
-- 发布（release-0.9.9）：同步版本号，并纳入本轮安装版自动更新目录保留修复与 README 大幅更新
+- 发布（release-0.9.10）：同步版本号，并纳入本轮工具审查上下文锚点修复与近期已验证交互修复
 - 修复（updater-installer-dir）：Windows 安装版自动更新时，显式把当前运行中的安装目录传给 NSIS 安装器，避免更新后回落到默认安装目录
 - 文档（readme-refresh）：重写 README，补齐 0.8 之后的关键能力演进、当前产品定位与核心依赖致谢
-- 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本统一升级到 `0.9.9`
+- 前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本统一升级到 `0.9.10`
 
 ## 更新：安装版自动更新保留自定义目录
 
