@@ -92,7 +92,8 @@ fn run_case(
         let query_tokens = tokenize_cn(query_text);
         let query = qp.parse_query(&query_tokens)?;
         let hit_count = searcher.search(&query, &Count)?;
-        let hits = searcher.search(&query, &TopDocs::with_limit(3))?;
+        let collector = TopDocs::with_limit(3).order_by_score();
+        let hits: Vec<(f32, tantivy::DocAddress)> = searcher.search(&query, &collector)?;
         println!("query_raw: {query_text}");
         println!("query_tokens: {query_tokens}");
         println!("hit_count: {hit_count}");

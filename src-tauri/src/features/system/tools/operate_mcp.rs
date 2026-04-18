@@ -60,13 +60,12 @@ impl OperateMcpServer {
 #[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for OperateMcpServer {
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo {
-            capabilities: rmcp::model::ServerCapabilities::builder()
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            instructions: Some("P-ai operate MCP server".to_string()),
-            ..Default::default()
-        }
+        )
+        .with_instructions("P-ai operate MCP server")
     }
 }
 

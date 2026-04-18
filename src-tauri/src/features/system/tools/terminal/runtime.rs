@@ -298,7 +298,7 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
         fn first_existing_path(candidates: &[String]) -> Option<String> {
             candidates
                 .iter()
-                .find(|candidate| Path::new(candidate.as_str()).is_file())
+                .find(|candidate| Path::new(candidate).is_file())
                 .cloned()
         }
 

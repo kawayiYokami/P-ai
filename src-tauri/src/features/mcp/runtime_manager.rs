@@ -141,12 +141,7 @@ impl RuntimeToolDyn for McpRuntimeTool {
             };
             let result = self
                 .client
-                .call_tool(rmcp::model::CallToolRequestParams {
-                    name: name.clone(),
-                    arguments: Some(arguments),
-                    meta: None,
-                    task: None,
-                })
+                .call_tool(rmcp::model::CallToolRequestParams::new(name.clone()).with_arguments(arguments))
                 .await
                 .map_err(|err| format!("Call MCP tool '{}' failed: {err}", name.as_ref()))?;
             Ok(provider_tool_result_from_mcp_call(name.as_ref(), result))
@@ -268,6 +263,16 @@ struct CustomStreamableHttpClient {
     client: reqwest::Client,
 }
 
+fn custom_streamable_http_apply_headers(
+    mut request_builder: reqwest::RequestBuilder,
+    custom_headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
+) -> reqwest::RequestBuilder {
+    for (name, value) in custom_headers {
+        request_builder = request_builder.header(name, value);
+    }
+    request_builder
+}
+
 impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStreamableHttpClient {
     type Error = reqwest::Error;
 
@@ -277,6 +282,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         session_id: std::sync::Arc<str>,
         last_event_id: Option<String>,
         auth_header: Option<String>,
+        custom_headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
     ) -> Result<
         futures_util::stream::BoxStream<'static, Result<sse_stream::Sse, sse_stream::Error>>,
         rmcp::transport::streamable_http_client::StreamableHttpError<Self::Error>,
@@ -306,6 +312,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         if let Some(token) = auth_header {
             request_builder = request_builder.bearer_auth(token);
         }
+        request_builder = custom_streamable_http_apply_headers(request_builder, custom_headers);
 
         let response = request_builder
             .send()
@@ -356,6 +363,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         uri: std::sync::Arc<str>,
         session_id: std::sync::Arc<str>,
         auth_header: Option<String>,
+        custom_headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
     ) -> Result<(), rmcp::transport::streamable_http_client::StreamableHttpError<Self::Error>>
     {
         let mut request_builder = self.client.delete(uri.as_ref()).header(
@@ -365,6 +373,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         if let Some(token) = auth_header {
             request_builder = request_builder.bearer_auth(token);
         }
+        request_builder = custom_streamable_http_apply_headers(request_builder, custom_headers);
         let response = request_builder
             .send()
             .await
@@ -384,7 +393,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         message: rmcp::model::ClientJsonRpcMessage,
         session_id: Option<std::sync::Arc<str>>,
         auth_header: Option<String>,
-        _headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
+        headers: std::collections::HashMap<tauri::http::HeaderName, tauri::http::HeaderValue>,
     ) -> Result<
         rmcp::transport::streamable_http_client::StreamableHttpPostResponse,
         rmcp::transport::streamable_http_client::StreamableHttpError<Self::Error>,
@@ -409,6 +418,7 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
                 session_id.as_ref(),
             );
         }
+        request = custom_streamable_http_apply_headers(request, headers);
         let response = request
             .json(&message)
             .send()

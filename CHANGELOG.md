@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.13
 
+- 维护（deps-phase-3-high-risk）：按依赖升级盘点计划完成第三阶高风险升级；前端提升 `vite`、`@vitejs/plugin-vue`、`typescript`、`vue-i18n`、`shiki`、`lucide-vue-next`、`cropperjs`，后端提升 `time`、`rmcp`、`reqwest`、`genai`、`rusqlite`、`tantivy`、`zip`，并补齐新版 `cropperjs` 裁剪流程、`rmcp` builder/HTTP 头签名、`tantivy` 搜索 collector 与若干终端/记忆兼容改造；通过 `pnpm typecheck` 与 `cargo check` 校验
 - 维护（deps-phase-2-medium-risk）：按依赖升级盘点计划完成第二阶中风险升级；前端提升 `mermaid` 与 `markstream-vue`，后端提升 `async-openai`、`tokio`、`tokio-tungstenite`、`pdf_oxide`、`xcap`、`windows-sys`，并收口 `ChatShikiCodeBlockNode` 对新版 `markstream-vue` 的 `themes` 类型兼容；通过 `pnpm typecheck` 与 `cargo check` 校验
 - 维护（deps-phase-1-low-risk）：按依赖升级盘点计划完成第一阶低风险升级；前端提升 `@tauri-apps/plugin-dialog`、`@tauri-apps/cli`、`vue`、`vue-tsc`、`tailwindcss`、`@tailwindcss/postcss`、`postcss`、`katex`、`stream-markdown`，后端提升 `tauri`、`tauri-build`、`tauri-plugin-dialog`、`tauri-plugin-updater`、`tauri-plugin-single-instance` 与 `captis`，并通过 `pnpm typecheck`、`cargo check`、`pnpm exec tauri info` 校验
 - 功能（github-update-entry-and-badge）：更新检查流程收口为 GitHub 单源；配置窗口启动后与每天凌晨 4 点会静默检查更新，检测到新版本时会在设置侧栏“关于”项显示角标，并在配置页标题栏左上角显示“立即更新”入口；按钮点击会复用现有更新确认/下载弹窗，更新进行中支持重新唤起进度窗口

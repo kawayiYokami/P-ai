@@ -136,7 +136,7 @@ fn terminal_workspace_access_rank(access: &str) -> i32 {
 fn terminal_strictest_workspace_access(accesses: &[String]) -> String {
     accesses
         .iter()
-        .max_by_key(|access| terminal_workspace_access_rank(access.as_str()))
+        .max_by_key(|access| terminal_workspace_access_rank(access))
         .cloned()
         .unwrap_or_else(|| SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string())
 }

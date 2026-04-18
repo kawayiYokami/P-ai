@@ -76,13 +76,12 @@ impl DesktopScreenshotMcpServer {
 #[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for DesktopScreenshotMcpServer {
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo {
-            capabilities: rmcp::model::ServerCapabilities::builder()
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            instructions: Some("P-ai desktop screenshot MCP server".to_string()),
-            ..Default::default()
-        }
+        )
+        .with_instructions("P-ai desktop screenshot MCP server")
     }
 }
 
@@ -103,5 +102,4 @@ fn run_desktop_screenshot_mcp_server() -> Result<(), String> {
         Ok::<(), String>(())
     })
 }
-
 

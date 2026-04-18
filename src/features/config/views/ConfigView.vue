@@ -832,14 +832,14 @@ async function processAvatarFile(file: File) {
       localCropError.value = t("config.persona.cropInitFailed");
       return;
     }
-    cropper = new Cropper(cropImageEl.value, {
-      aspectRatio: 1,
-      viewMode: 1,
-      dragMode: "move",
-      autoCropArea: 1,
-      background: false,
-      guides: false,
-    });
+    cropper = new Cropper(cropImageEl.value);
+    const selection = cropper.getCropperSelection();
+    if (selection) {
+      selection.aspectRatio = 1;
+      selection.initialAspectRatio = 1;
+      selection.initialCoverage = 1;
+      selection.$center();
+    }
     cropperReady.value = true;
     cropDialog.value?.showModal();
   } catch (e) {
@@ -870,7 +870,7 @@ onMounted(() => {
   window.addEventListener("paste", handleAvatarPaste);
 });
 
-function confirmCrop() {
+async function confirmCrop() {
   if (!cropTarget) {
     localCropError.value = t("config.persona.cropMissingTarget");
     return;
@@ -880,26 +880,38 @@ function confirmCrop() {
     return;
   }
   localCropError.value = "";
-  const canvas = cropper.getCroppedCanvas({
-    width: 128,
-    height: 128,
-    imageSmoothingEnabled: true,
-    imageSmoothingQuality: "high",
-  });
-  const dataUrl = canvas.toDataURL("image/webp", 0.8);
-  const marker = "base64,";
-  const idx = dataUrl.indexOf(marker);
-  if (idx < 0) {
-    localCropError.value = t("config.persona.avatarSaveEncodeFailed");
+  const selection = cropper.getCropperSelection();
+  if (!selection) {
+    localCropError.value = t("config.persona.cropperNotReady");
     return;
   }
-  const bytesBase64 = dataUrl.slice(idx + marker.length);
-  emit("saveAgentAvatar", {
-    agentId: cropTarget.agentId,
-    mime: "image/webp",
-    bytesBase64,
-  });
-  closeCropDialog();
+  try {
+    const canvas = await selection.$toCanvas({
+      width: 128,
+      height: 128,
+      beforeDraw(context) {
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+      },
+    });
+    const dataUrl = canvas.toDataURL("image/webp", 0.8);
+    const marker = "base64,";
+    const idx = dataUrl.indexOf(marker);
+    if (idx < 0) {
+      localCropError.value = t("config.persona.avatarSaveEncodeFailed");
+      return;
+    }
+    const bytesBase64 = dataUrl.slice(idx + marker.length);
+    emit("saveAgentAvatar", {
+      agentId: cropTarget.agentId,
+      mime: "image/webp",
+      bytesBase64,
+    });
+    closeCropDialog();
+  } catch (error) {
+    localCropError.value = t("config.persona.avatarSaveEncodeFailed");
+    console.warn("[配置][头像裁剪] 保存失败", error);
+  }
 }
 
 onBeforeUnmount(() => {

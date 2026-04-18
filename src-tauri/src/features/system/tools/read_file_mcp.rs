@@ -99,13 +99,12 @@ impl ReadFileMcpServer {
 #[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for ReadFileMcpServer {
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo {
-            capabilities: rmcp::model::ServerCapabilities::builder()
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            instructions: Some("P-ai read_file MCP server".to_string()),
-            ..Default::default()
-        }
+        )
+        .with_instructions("P-ai read_file MCP server")
     }
 }
 

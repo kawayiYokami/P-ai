@@ -440,10 +440,11 @@ fn memory_tantivy_bm25_scores(
             )
         }
     };
+    let collector = TopDocs::with_limit(limit).order_by_score();
     let searched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        searcher.search(&query, &TopDocs::with_limit(limit))
+        searcher.search(&query, &collector)
     }));
-    let hits = match searched {
+    let hits: Vec<(f32, tantivy::DocAddress)> = match searched {
         Ok(Ok(hits)) => hits,
         Ok(Err(err)) => return Err(format!("Search tantivy bm25 failed: {err}")),
         Err(_) => {

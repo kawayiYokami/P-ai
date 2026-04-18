@@ -24,14 +24,14 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
-time = { version = "=0.3.36", features = ["local-offset"] }
-rmcp = { version = "0.16.0", features = ["client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+time = { version = "0.3.47", features = ["local-offset"] }
+rmcp = { version = "1.5.0", features = ["client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1.52.1", features = ["rt-multi-thread", "sync"] }
 tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }
 dingtalk-stream = "0.1.5"
-reqwest = { version = "0.11.27", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "multipart", "query", "form", "rustls"] }
 async-openai = { version = "0.34.0", default-features = false, features = ["rustls", "chat-completion", "byot"] }
-genai = { git = "https://github.com/jeremychone/rust-genai", rev = "d40abb2583f2aacdda0a51b79b164965ebda03a9" }
+genai = { git = "https://github.com/jeremychone/rust-genai", rev = "13a7348bba1538d45b808a9b0feb1090a4f650b4" }
 base64 = "0.22"
 aes = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -54,14 +54,14 @@ rayon = "1.10"
 tiktoken-rs = "0.7"
 captis = "0.6"
 xcap = "0.9.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
-tantivy = "0.22"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+tantivy = "0.26.0"
 font-kit = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
 undoc = "0.1.8"
 litchi = { git = "https://github.com/DevExzh/litchi.git", rev = "5a931961d58bf71c6bb5b7e82f450bda34349e3d" }
 walkdir = "2.5.0"
-zip = { version = "2.2.2", default-features = false, features = ["deflate", "aes-crypto"] }
+zip = { version = "8.5.1", default-features = false, features = ["deflate", "aes-crypto"] }
 
 [features]
 default = ["custom-protocol"]

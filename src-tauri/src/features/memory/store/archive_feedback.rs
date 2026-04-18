@@ -226,7 +226,7 @@ fn memory_store_apply_archive_feedback(
         .collect::<HashSet<String>>();
     let useful_accepted = useful
         .iter()
-        .filter(|id| recalled_set.contains(id.as_str()))
+        .filter(|id| recalled_set.contains(*id))
         .cloned()
         .collect::<Vec<_>>();
     let useful_accepted_set = useful_accepted
