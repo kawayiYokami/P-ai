@@ -212,6 +212,10 @@
             {{ departmentOptionLabel(department) }}
           </option>
         </select>
+        <label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
+          <input v-model="createConversationCopyCurrent" type="checkbox" class="checkbox checkbox-sm" />
+          <span class="label-text text-sm">{{ t("chat.copyCurrentConversation") }}</span>
+        </label>
         <div v-if="recentConversationTopics.length > 0" class="flex flex-col gap-2">
           <div class="text-xs font-medium opacity-70">{{ t("chat.recentConversationTopics") }}</div>
           <div class="flex flex-wrap gap-2">
@@ -255,6 +259,12 @@ type ConversationDepartmentOption = {
   ownerName: string;
 };
 
+type CreateConversationInput = {
+  title?: string;
+  departmentId?: string;
+  copyCurrent?: boolean;
+};
+
 const RECENT_CONVERSATION_TOPICS_STORAGE_KEY = "easy_call.recent_conversation_topics.v1";
 const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
 
@@ -291,7 +301,7 @@ const emit = defineEmits<{
   (e: "toggle-maximize-window"): void;
   (e: "switch-conversation", conversationId: string): void;
   (e: "rename-conversation", payload: { conversationId: string; title: string }): void;
-  (e: "create-conversation", input?: { title?: string; departmentId?: string }): void;
+  (e: "create-conversation", input?: CreateConversationInput): void;
   (e: "force-archive"): void;
   (e: "close-window"): void;
   (e: "update:config-search-query", value: string): void;
@@ -348,6 +358,7 @@ const recentConversationTopics = ref<string[]>([]);
 const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
+const createConversationCopyCurrent = ref(false);
 const configSearchOpen = ref(false);
 
 function loadRecentConversationTopics() {
@@ -458,9 +469,14 @@ function handleConfigSearchKeydown(event: KeyboardEvent) {
 function handleCreateConversation() {
   closeConversationList();
   createConversationTitle.value = "";
+  const activeConversation = props.conversationItems.find(
+    (item) => String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim(),
+  );
   createConversationDepartmentId.value =
-    String(props.defaultCreateConversationDepartmentId || "").trim()
+    String(activeConversation?.departmentId || "").trim()
+    || String(props.defaultCreateConversationDepartmentId || "").trim()
     || String(props.createConversationDepartmentOptions[0]?.id || "").trim();
+  createConversationCopyCurrent.value = false;
   createConversationDialogOpen.value = true;
   nextTick(() => createConversationInputRef.value?.focus());
 }
@@ -469,6 +485,7 @@ function closeCreateConversationDialog() {
   createConversationDialogOpen.value = false;
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
+  createConversationCopyCurrent.value = false;
 }
 
 function applyRecentConversationTopic(topic: string) {
@@ -485,15 +502,18 @@ function departmentOptionLabel(department: ConversationDepartmentOption): string
 function confirmCreateConversation() {
   const title = String(createConversationTitle.value || "").trim();
   const departmentId = String(createConversationDepartmentId.value || "").trim();
+  const copyCurrent = !!createConversationCopyCurrent.value;
   if (title) {
     pushRecentConversationTopic(title);
   }
   createConversationDialogOpen.value = false;
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
+  createConversationCopyCurrent.value = false;
   emit("create-conversation", {
     title,
     departmentId: departmentId || undefined,
+    copyCurrent,
   });
 }
 

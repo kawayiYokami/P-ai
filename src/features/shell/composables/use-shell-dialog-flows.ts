@@ -1,6 +1,6 @@
 import { ref, type Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessage, RuntimeLogEntry } from "../../../types/app";
+import type { ChatMessage, RuntimeLogEntry, UnarchivedConversationSummary } from "../../../types/app";
 import type { ConfigSaveErrorInfo } from "../../config/composables/use-config-persistence";
 import { inspectUndoablePatchCalls } from "../../../utils/chat-message-semantics";
 
@@ -35,10 +35,11 @@ type UseShellDialogFlowsOptions = {
   currentForegroundAgentId: Ref<string>;
   currentForegroundDepartmentId: Ref<string>;
   currentChatConversationId: Ref<string>;
+  unarchivedConversations: Ref<UnarchivedConversationSummary[]>;
   setStatus: (message: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   forceCompactNow: () => Promise<void>;
-  forceArchiveNow: () => Promise<void>;
+  forceArchiveNow: (targetConversationId?: string) => Promise<void>;
   deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
 };
 
@@ -77,7 +78,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
       options.setStatus("当前没有可处理的会话。");
       return;
     }
-    forceArchiveActionDialogOpen.value = true;
+    forceArchiveActionDialogOpen.value = false;
     forceArchivePreviewLoading.value = true;
     forceArchivePreview.value = null;
     forceCompactionPreview.value = null;
@@ -102,6 +103,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
       ]);
       forceArchivePreview.value = archivePreview;
       forceCompactionPreview.value = compactionPreview;
+      forceArchiveActionDialogOpen.value = true;
     } catch (error) {
       closeForceArchiveActionDialog();
       options.setStatusError("status.loadConversationActionPreviewFailed", error);
@@ -116,10 +118,11 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     await options.forceCompactNow();
   }
 
-  async function confirmForceArchiveAction() {
+  async function confirmForceArchiveAction(targetConversationId?: string) {
     if (!forceArchivePreview.value?.canArchive) return;
+    const normalizedTargetConversationId = String(targetConversationId || "").trim();
     closeForceArchiveActionDialog();
-    await options.forceArchiveNow();
+    await options.forceArchiveNow(normalizedTargetConversationId);
   }
 
   async function confirmDeleteConversationFromArchiveDialog() {

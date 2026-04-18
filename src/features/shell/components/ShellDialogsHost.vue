@@ -27,7 +27,7 @@ type ForceCompactionPreviewResult = {
   compactionDisabledReason?: string | null;
 } | null;
 
-defineProps<{
+const props = defineProps<{
   updateDialogOpen: boolean;
   updateDialogTitle: string;
   updateDialogBody: string;
@@ -83,6 +83,22 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+function handleConfirmForceArchiveAction() {
+  emit("confirmForceArchiveAction");
+}
+
+function handleCloseForceArchiveActionDialog() {
+  emit("closeForceArchiveActionDialog");
+}
+
+function handleConfirmForceCompactionAction() {
+  emit("confirmForceCompactionAction");
+}
+
+function handleConfirmDeleteConversationFromArchiveDialog() {
+  emit("confirmDeleteConversationFromArchiveDialog");
+}
 </script>
 
 <template>
@@ -226,7 +242,7 @@ const { t } = useI18n();
   </dialog>
 
   <dialog class="modal" :class="{ 'modal-open': forceArchiveActionDialogOpen }">
-    <div class="modal-box max-w-md">
+    <div class="modal-box w-[80vw] max-w-[80vw]">
       <h3 class="font-semibold text-base">处理当前会话</h3>
       <div v-if="forceArchivePreviewLoading" class="mt-3 text-sm opacity-70">正在判断当前会话适合压缩、归档还是丢弃...</div>
       <template v-else>
@@ -242,8 +258,13 @@ const { t } = useI18n();
           </div>
         </div>
         <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
+          <div class="font-medium">丢弃</div>
+          <div class="mt-1 opacity-80">直接删除当前会话，不生成摘要，也不保留归档。</div>
+          <div class="mt-2 text-xs opacity-70">适合测试、误触发，或确认这段内容不需要留痕时使用。</div>
+        </div>
+        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
           <div class="font-medium">归档</div>
-          <div class="mt-1 opacity-80">生成摘要并提炼记忆，保留为归档记录。</div>
+          <div class="mt-1 opacity-80">生成结论汇报并提炼记忆，保留为归档记录。</div>
           <div class="mt-2 text-xs opacity-70">适合这段会话已经结束，准备沉淀为历史记录时使用。</div>
           <div
             v-if="forceArchivePreview?.archiveDisabledReason"
@@ -252,46 +273,42 @@ const { t } = useI18n();
             {{ forceArchivePreview.archiveDisabledReason }}
           </div>
         </div>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">丢弃</div>
-          <div class="mt-1 opacity-80">直接删除当前会话，不生成摘要，也不保留归档。</div>
-          <div class="mt-2 text-xs opacity-70">适合测试、误触发，或确认这段内容不需要留痕时使用。</div>
-        </div>
-        <div class="mt-3 text-sm opacity-80">
+      </template>
+      <div class="mt-4 flex items-end justify-between gap-4">
+        <div class="text-xs opacity-60">
           <div>当前会话消息数：{{ forceArchivePreview?.messageCount ?? 0 }}</div>
-          <div>助理是否已回复：{{ forceArchivePreview?.hasAssistantReply ? "是" : "否" }}</div>
           <div>当前上下文占用：{{ forceCompactionPreview?.contextUsagePercent ?? 0 }}%</div>
         </div>
-      </template>
-      <div class="modal-action">
+        <div class="modal-action mt-0">
         <button
           class="btn btn-sm btn-error"
           :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canDropConversation || forcingArchive"
-          @click="emit('confirmDeleteConversationFromArchiveDialog')"
+          @click="handleConfirmDeleteConversationFromArchiveDialog"
         >
           丢弃
         </button>
         <button
           class="btn btn-sm btn-primary"
           :disabled="forceArchivePreviewLoading || !forceCompactionPreview?.canCompact || forcingArchive"
-          @click="emit('confirmForceCompactionAction')"
+          @click="handleConfirmForceCompactionAction"
         >
           压缩
         </button>
         <button
           class="btn btn-sm btn-secondary"
           :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canArchive || forcingArchive"
-          @click="emit('confirmForceArchiveAction')"
+          @click="handleConfirmForceArchiveAction"
         >
           归档
         </button>
-        <button class="btn btn-sm" :disabled="forceArchivePreviewLoading || forcingArchive" @click="emit('closeForceArchiveActionDialog')">
+        <button class="btn btn-sm" :disabled="forceArchivePreviewLoading || forcingArchive" @click="handleCloseForceArchiveActionDialog">
           {{ t("common.cancel") }}
         </button>
+        </div>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeForceArchiveActionDialog')">close</button>
+      <button @click.prevent="handleCloseForceArchiveActionDialog">close</button>
     </form>
   </dialog>
 </template>

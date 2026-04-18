@@ -120,6 +120,8 @@
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
+      :deriving-conversation="derivingConversation"
+      :delivering-conversation-selection="deliveringConversationSelection"
       :visible-message-blocks="displayMessageBlocks"
       :latest-own-message-align-request="latestOwnMessageAlignRequest"
       :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
@@ -227,6 +229,8 @@
       :on-switch-conversation="switchUnarchivedConversation"
       :on-rename-conversation="renameCurrentConversation"
       :on-create-conversation="createUnarchivedConversation"
+      :on-derive-conversation-from-selection="deriveConversationFromSelection"
+      :on-deliver-conversation-from-selection="deliverConversationFromSelection"
       :on-open-skill-panel="openSkillPlaceholderDialog"
       :load-archives="loadArchives"
       :select-archive="selectArchive"
@@ -299,7 +303,7 @@
       @close-skill-placeholder-dialog="closeSkillPlaceholderDialog"
       @confirm-delete-conversation-from-archive-dialog="confirmDeleteConversationFromArchiveDialog"
       @confirm-force-compaction-action="confirmForceCompactionAction"
-      @confirm-force-archive-action="confirmForceArchiveAction"
+      @confirm-force-archive-action="confirmForceArchiveAction()"
       @close-force-archive-action-dialog="closeForceArchiveActionDialog"
     />
     <ChatWorkspacePickerDialog
@@ -573,6 +577,8 @@ const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
 const forcingArchive = ref(false);
+const derivingConversation = ref(false);
+const deliveringConversationSelection = ref(false);
 const hasMoreBackendHistory = ref(false);
 const refreshingModels = ref(false);
 const modelRefreshError = ref("");
@@ -1246,6 +1252,8 @@ const chatUnarchivedConversationItems = computed(() => {
       agentId: String(item.agentId || "").trim(),
       departmentId: String(item.departmentId || "").trim(),
       departmentName: String(item.departmentName || "").trim(),
+      parentConversationId: String(item.parentConversationId || "").trim() || undefined,
+      forkMessageCursor: String(item.forkMessageCursor || "").trim() || undefined,
       workspaceLabel: String(item.workspaceLabel || "").trim() || "默认工作空间",
       isActive: !!item.isActive,
       isMainConversation: !!item.isMainConversation,
@@ -1894,6 +1902,7 @@ const {
   currentForegroundAgentId,
   currentForegroundDepartmentId,
   currentChatConversationId,
+  unarchivedConversations,
   setStatus,
   setStatusError,
   forceCompactNow,
@@ -2423,16 +2432,20 @@ async function switchUnarchivedConversation(conversationId: string) {
   }
 }
 
-async function createUnarchivedConversation(input?: { title?: string; departmentId?: string }) {
+async function createUnarchivedConversation(input?: { title?: string; departmentId?: string; copyCurrent?: boolean }) {
   const departmentId =
     String(input?.departmentId || "").trim()
     || defaultCreateConversationDepartmentId.value;
   if (!departmentId) return;
   try {
+    const copySourceConversationId = input?.copyCurrent
+      ? String(currentChatConversationId.value || "").trim()
+      : "";
     const result = await invokeTauri<{ conversationId: string }>("create_unarchived_conversation", {
       input: {
         departmentId,
         title: String(input?.title || "").trim() || null,
+        copySourceConversationId: copySourceConversationId || null,
       },
     });
     const conversationId = String(result?.conversationId || "").trim();
@@ -2440,7 +2453,93 @@ async function createUnarchivedConversation(input?: { title?: string; department
     const snapshot = await requestConversationSnapshot(conversationId);
     applyConversationSnapshot(snapshot);
   } catch (error) {
+    setStatus(`投送失败：${formatI18nError(tr, "status.requestFailed", error)}`);
+  }
+}
+
+async function deriveConversationFromSelection(payload: { count: number; messageIds: string[] }) {
+  const sourceConversationId = String(currentChatConversationId.value || "").trim();
+  const selectedMessageIds = Array.isArray(payload?.messageIds)
+    ? payload.messageIds
+        .map((item) => String(item || "").trim())
+        .filter((item, index, array) => !!item && array.indexOf(item) === index)
+    : [];
+  if (
+    !sourceConversationId
+    || selectedMessageIds.length === 0
+    || derivingConversation.value
+    || deliveringConversationSelection.value
+  ) return;
+  derivingConversation.value = true;
+  try {
+    const result = await invokeTauri<{
+      conversationId: string;
+      title: string;
+      warning?: string | null;
+    }>("derive_unarchived_conversation_from_selection", {
+      input: {
+        sourceConversationId,
+        selectedMessageIds,
+      },
+    });
+    const conversationId = String(result?.conversationId || "").trim();
+    if (!conversationId) return;
+    const snapshot = await requestConversationSnapshot(conversationId);
+    applyConversationSnapshot(snapshot);
+    const warning = String(result?.warning || "").trim();
+    if (warning) {
+      setStatus(`派生完成（降级整理）：${warning}`);
+    } else {
+      setStatus(`已派生为新会话：${String(result?.title || "").trim() || conversationId}`);
+    }
+  } catch (error) {
     setStatusError("status.loadMessagesFailed", error);
+  } finally {
+    derivingConversation.value = false;
+  }
+}
+
+async function deliverConversationFromSelection(payload: {
+  count: number;
+  messageIds: string[];
+  targetConversationId: string;
+}) {
+  const sourceConversationId = String(currentChatConversationId.value || "").trim();
+  const targetConversationId = String(payload?.targetConversationId || "").trim();
+  const selectedMessageIds = Array.isArray(payload?.messageIds)
+    ? payload.messageIds
+        .map((item) => String(item || "").trim())
+        .filter((item, index, array) => !!item && array.indexOf(item) === index)
+    : [];
+  if (
+    !sourceConversationId
+    || !targetConversationId
+    || selectedMessageIds.length === 0
+    || forcingArchive.value
+    || derivingConversation.value
+    || deliveringConversationSelection.value
+  ) return;
+  deliveringConversationSelection.value = true;
+  try {
+    const result = await invokeTauri<{
+      targetConversationId: string;
+      deliveredCount: number;
+    }>("deliver_unarchived_conversation_selection", {
+      input: {
+        sourceConversationId,
+        targetConversationId,
+        selectedMessageIds,
+      },
+    });
+    const effectiveTargetConversationId = String(result?.targetConversationId || targetConversationId).trim();
+    if (!effectiveTargetConversationId) return;
+    const snapshot = await requestConversationSnapshot(effectiveTargetConversationId);
+    applyConversationSnapshot(snapshot);
+    setStatus(`已投送 ${Number(result?.deliveredCount || selectedMessageIds.length)} 条消息`);
+  } catch (error) {
+    setStatusError("status.loadMessagesFailed", error);
+  } finally {
+    deliveringConversationSelection.value = false;
   }
 }
 

@@ -223,6 +223,10 @@ fn build_conversation_record(
         },
         agent_id: agent_id.to_string(),
         department_id: department_id.trim().to_string(),
+        bound_conversation_id: None,
+        parent_conversation_id: None,
+        child_conversation_ids: Vec::new(),
+        fork_message_cursor: None,
         last_read_message_id: String::new(),
         conversation_kind: conversation_kind.trim().to_string(),
         root_conversation_id,
@@ -1184,27 +1188,15 @@ fn prompt_user_extra_blocks_for_message(
     state: Option<&AppState>,
     conversation: Option<&Conversation>,
     message: &ChatMessage,
-    agents: &[AgentProfile],
-    prompt_user_name: &str,
-    ui_language: &str,
-    include_remote_identity: bool,
+    _agents: &[AgentProfile],
+    _prompt_user_name: &str,
+    _ui_language: &str,
+    _include_remote_identity: bool,
     recall_memories: Option<&[MemoryEntry]>,
     seen_memory_ids: &mut HashSet<String>,
     include_conversation_workspace: bool,
 ) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
-    if let Some(meta_block) = build_prompt_user_meta_text(
-        message,
-        agents,
-        prompt_user_name,
-        ui_language,
-        include_remote_identity,
-    ) {
-        let trimmed = meta_block.trim();
-        if !trimmed.is_empty() {
-            blocks.push(trimmed.to_string());
-        }
-    }
     if let Some(recall_block) =
         prompt_recall_memory_block_for_message(message, recall_memories, seen_memory_ids)
     {
@@ -1818,6 +1810,77 @@ fn find_last_context_compaction_index(
         .last()
 }
 
+fn merge_optional_text_block(current: &mut Option<String>, next: Option<String>) {
+    let Some(next_text) = next.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    match current {
+        Some(existing) if !existing.trim().is_empty() => {
+            existing.push_str("\n\n");
+            existing.push_str(&next_text);
+        }
+        _ => {
+            *current = Some(next_text);
+        }
+    }
+}
+
+fn merge_history_message_text(current: &mut String, next: String) {
+    if current.trim().is_empty() {
+        *current = next;
+        return;
+    }
+    if next.trim().is_empty() {
+        return;
+    }
+    current.push_str("\n\n");
+    current.push_str(&next);
+}
+
+fn merge_adjacent_assistant_history_messages(
+    messages: Vec<PreparedHistoryMessage>,
+) -> Vec<PreparedHistoryMessage> {
+    let mut merged = Vec::<PreparedHistoryMessage>::new();
+    for message in messages {
+        if message.role == "assistant" {
+            if let Some(last) = merged.last_mut() {
+                if last.role == "assistant" {
+                    merge_history_message_text(&mut last.text, message.text);
+                    last.extra_text_blocks.extend(message.extra_text_blocks);
+                    last.images.extend(message.images);
+                    last.audios.extend(message.audios);
+                    if let Some(mut next_calls) = message.tool_calls {
+                        if let Some(current_calls) = last.tool_calls.as_mut() {
+                            current_calls.append(&mut next_calls);
+                        } else {
+                            last.tool_calls = Some(next_calls);
+                        }
+                    }
+                    if last.tool_call_id.is_none() {
+                        last.tool_call_id = message.tool_call_id;
+                    }
+                    merge_optional_text_block(&mut last.user_time_text, message.user_time_text);
+                    merge_optional_text_block(&mut last.reasoning_content, message.reasoning_content);
+                    continue;
+                }
+            }
+        }
+        merged.push(message);
+    }
+    merged
+}
+
+fn normalized_prepared_history_messages(
+    messages: &[PreparedHistoryMessage],
+) -> Vec<PreparedHistoryMessage> {
+    merge_adjacent_assistant_history_messages(messages.to_vec())
+}
+
+fn normalize_prepared_history_messages_in_place(prepared: &mut PreparedPrompt) {
+    prepared.history_messages =
+        merge_adjacent_assistant_history_messages(std::mem::take(&mut prepared.history_messages));
+}
+
 fn build_prompt_with_mode(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1936,6 +1999,10 @@ fn build_prompt_with_mode(
         title: conversation.title.clone(),
         agent_id: conversation.agent_id.clone(),
         department_id: conversation.department_id.clone(),
+        bound_conversation_id: conversation.bound_conversation_id.clone(),
+        parent_conversation_id: conversation.parent_conversation_id.clone(),
+        child_conversation_ids: conversation.child_conversation_ids.clone(),
+        fork_message_cursor: conversation.fork_message_cursor.clone(),
         last_read_message_id: conversation.last_read_message_id.clone(),
         conversation_kind: conversation.conversation_kind.clone(),
         root_conversation_id: conversation.root_conversation_id.clone(),
@@ -2028,24 +2095,33 @@ fn build_prompt_with_mode(
             ));
         }
         let is_user = role == "user";
-        let history_extra_blocks = if is_user {
+        let (history_user_meta_text, history_extra_blocks) = if is_user {
             let include_remote_identity = remote_im_contact_key_from_message(message)
                 .map(|key| seen_remote_contacts.insert(key))
                 .unwrap_or(false);
-            prompt_user_extra_blocks_for_message(
-                state,
-                Some(conversation),
-                message,
-                agents,
-                prompt_user_name,
-                ui_language,
-                include_remote_identity,
-                recall_memories.as_deref(),
-                &mut seen_prompt_memory_ids,
-                false,
+            (
+                build_prompt_user_meta_text(
+                    message,
+                    agents,
+                    prompt_user_name,
+                    ui_language,
+                    include_remote_identity,
+                ),
+                prompt_user_extra_blocks_for_message(
+                    state,
+                    Some(conversation),
+                    message,
+                    agents,
+                    prompt_user_name,
+                    ui_language,
+                    include_remote_identity,
+                    recall_memories.as_deref(),
+                    &mut seen_prompt_memory_ids,
+                    false,
+                ),
             )
         } else {
-            Vec::new()
+            (None, Vec::new())
         };
         let mut text = if is_user {
             let rendered = render_prompt_user_text_only(message);
@@ -2073,7 +2149,7 @@ fn build_prompt_with_mode(
             role: role.clone(),
             text,
             extra_text_blocks: history_extra_blocks,
-            user_time_text: None,
+            user_time_text: history_user_meta_text,
             images,
             audios,
             tool_calls: None,
@@ -2245,6 +2321,14 @@ fn build_prompt_with_mode(
         let include_remote_identity = remote_im_contact_key_from_message(&msg)
             .map(|key| seen_remote_contacts.insert(key))
             .unwrap_or(false);
+        latest_user_meta_text = build_prompt_user_meta_text(
+            &msg,
+            agents,
+            prompt_user_name,
+            ui_language,
+            include_remote_identity,
+        )
+        .unwrap_or_default();
         let latest_extra_blocks = prompt_user_extra_blocks_for_message(
             state,
             Some(conversation),
@@ -2257,7 +2341,6 @@ fn build_prompt_with_mode(
             &mut seen_prompt_memory_ids,
             true,
         );
-        latest_user_meta_text = String::new();
         latest_user_text = latest_user_text_rendered;
         latest_images = resolved_images;
         latest_audios = resolved_audios;
@@ -2277,6 +2360,8 @@ fn build_prompt_with_mode(
             latest_user_text = " ".to_string();
         }
     }
+
+    let history_messages = merge_adjacent_assistant_history_messages(history_messages);
 
     PreparedPrompt {
         preamble,

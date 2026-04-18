@@ -134,7 +134,7 @@
         :force-archive-tip="forceArchiveTip"
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
-        :frozen="forcingArchive"
+        :frozen="forcingArchive || derivingConversation || deliveringConversationSelection"
         :message-blocks="visibleMessageBlocks"
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
         :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
@@ -171,6 +171,11 @@
         @regenerate-turn="onRegenerateTurn"
         @confirm-plan="confirmPlan"
         @force-archive="openForceArchiveActionDialog"
+        @selection-action-copy="setStatus(`已复制 ${$event.count} 条消息`)"
+        @selection-action-copy-error="setStatus(props.t('chat.copyFailed'))"
+        @selection-action-derive="onDeriveConversationFromSelection($event)"
+        @selection-action-deliver="onDeliverConversationFromSelection($event)"
+        @selection-action-share="setStatus(props.t('chat.shareNotSupported'))"
         @lock-workspace="onLockChatWorkspace"
         @open-supervision-task="openSupervisionTaskDialog"
         @close-supervision-task="closeSupervisionTaskDialog"
@@ -182,13 +187,13 @@
         @open-conversation-summary="openConversationSummary"
       />
       <div
-        v-if="forcingArchive"
+        v-if="chatBusyOverlay"
         class="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px]"
       >
         <div class="rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm flex flex-col items-center gap-1">
           <span class="loading loading-spinner loading-sm"></span>
-          <div class="text-sm">{{ t("chat.archiving") }}</div>
-          <div class="text-sm opacity-70">{{ t("chat.archivingLock") }}</div>
+          <div class="text-sm">{{ chatBusyOverlay.title }}</div>
+          <div class="text-sm opacity-70">{{ chatBusyOverlay.detail }}</div>
         </div>
       </div>
     </div>
@@ -273,7 +278,7 @@ import ChatView from "../../chat/views/ChatView.vue";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
 import MemoryDialog from "../../memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
-import type { VNodeRef } from "vue";
+import { computed, type VNodeRef } from "vue";
 import type {
   ApiConfigItem,
   AppConfig,
@@ -385,6 +390,8 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
+  derivingConversation: boolean;
+  deliveringConversationSelection: boolean;
   visibleMessageBlocks: ChatMessageBlock[];
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
@@ -506,6 +513,8 @@ const props = defineProps<{
   onSwitchConversation: (conversationId: string) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;
+  onDeriveConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
+  onDeliverConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectUnarchivedConversation: (id: string) => void;
@@ -534,4 +543,26 @@ const memoryDialogVNodeRef: VNodeRef = (el) => {
 const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
   props.setPromptPreviewDialogRef((el as Element | null) ?? null);
 };
+
+const chatBusyOverlay = computed(() => {
+  if (props.forcingArchive) {
+    return {
+      title: props.t("chat.archiving"),
+      detail: props.t("chat.archivingLock"),
+    };
+  }
+  if (props.derivingConversation) {
+    return {
+      title: props.t("chat.derivingConversation"),
+      detail: props.t("chat.derivingConversationDetail"),
+    };
+  }
+  if (props.deliveringConversationSelection) {
+    return {
+      title: props.t("chat.deliveringConversationSelection"),
+      detail: props.t("chat.deliveringConversationSelectionDetail"),
+    };
+  }
+  return null;
+});
 </script>

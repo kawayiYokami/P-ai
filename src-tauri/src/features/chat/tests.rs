@@ -456,6 +456,133 @@
     }
 
     #[test]
+    fn build_prompt_should_merge_adjacent_plain_assistant_history_messages() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut user_message = test_text_message("user", "先听我说", &now);
+        user_message.speaker_agent_id = None;
+        let mut assistant_message_1 = test_text_message("assistant", "第一段回复", &now);
+        assistant_message_1.speaker_agent_id = Some(agent.id.clone());
+        let mut assistant_message_2 = test_text_message("assistant", "第二段补充", &now);
+        assistant_message_2.speaker_agent_id = Some(agent.id.clone());
+        let messages = vec![user_message, assistant_message_1, assistant_message_2];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(prepared.history_messages.len(), 2);
+        assert_eq!(prepared.history_messages[0].role, "user");
+        assert_eq!(prepared.history_messages[1].role, "assistant");
+        assert_eq!(prepared.history_messages[1].text, "第一段回复\n\n第二段补充");
+    }
+
+    #[test]
+    fn prepared_prompt_to_messages_json_should_merge_adjacent_assistant_messages_with_reasoning_and_tool_calls(
+    ) {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "user".to_string(),
+                    text: "查一下结果".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "我先调用工具".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_docs",
+                            "arguments": "{\"q\":\"结果\"}"
+                        }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("先查资料".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "工具结果我看完了".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {
+                            "name": "resolve_link",
+                            "arguments": "{\"query\":\"结果详情\"}"
+                        }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("再补一轮定位".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true}".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_2".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = prepared_prompt_to_messages_json(&prepared);
+
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(messages[2]["role"], "assistant");
+        assert_eq!(
+            messages[2]["content"].as_str(),
+            Some("我先调用工具\n\n工具结果我看完了")
+        );
+        assert_eq!(
+            messages[2]["reasoning_content"].as_str(),
+            Some("先查资料\n\n再补一轮定位")
+        );
+        assert_eq!(
+            messages[2]["tool_calls"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(messages[3]["role"], "tool");
+    }
+
+    #[test]
     fn prepared_prompt_to_messages_json_should_omit_empty_latest_user_turn() {
         let prepared = PreparedPrompt {
             preamble: "sys".to_string(),
@@ -1407,6 +1534,10 @@
             title: conversation_id.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
             department_id: String::new(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
             last_read_message_id: String::new(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
@@ -1814,6 +1945,10 @@
             title: "main".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
             department_id: String::new(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
             last_read_message_id: String::new(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
@@ -2085,6 +2220,10 @@
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
             department_id: String::new(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
             last_read_message_id: String::new(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
@@ -2151,6 +2290,10 @@
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
             department_id: String::new(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
             last_read_message_id: String::new(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,

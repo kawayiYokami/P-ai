@@ -96,7 +96,8 @@ fn prepared_history_to_genai_messages(
     let mut chat_history = Vec::<genai::chat::ChatMessage>::new();
     let mut tool_call_id_to_provider_call_id =
         std::collections::HashMap::<String, String>::new();
-    for hm in &prepared.history_messages {
+    let normalized_history_messages = normalized_prepared_history_messages(&prepared.history_messages);
+    for hm in &normalized_history_messages {
         if hm.role == "user" {
             let base_user_text = if hm.text.trim().is_empty() {
                 " ".to_string()

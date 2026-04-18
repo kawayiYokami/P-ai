@@ -4,10 +4,29 @@
     :data-message-role="isOwnMessage(block) ? 'user' : block.role"
     :data-active-turn-user="activeTurnUser ? 'true' : undefined"
     :class="[
-      'chat group/user-turn mt-3 ecall-message-enter',
+      'chat group/user-turn mt-3 rounded-2xl px-3 py-2 transition-colors ecall-message-enter',
       isOwnMessage(block) ? 'chat-end' : 'chat-start',
+      selectionModeEnabled && selected ? 'ecall-message-selected bg-neutral/10 ring-1 ring-neutral/20 shadow-sm' : '',
     ]"
+    @click="handleSelectionRowClick"
   >
+    <div
+      v-if="selectionModeEnabled && isOwnMessage(block)"
+      class="flex w-5 min-w-5 items-start justify-center self-stretch pt-1"
+    >
+      <button
+        type="button"
+        data-selection-ignore="true"
+        class="inline-flex h-4 w-4 items-center justify-center rounded-sm border transition-colors"
+        :class="selected
+          ? 'border-primary bg-primary text-primary-content'
+          : 'border-base-300 bg-base-100 text-transparent hover:border-primary/60'"
+        :title="selected ? '取消选择' : '选择消息'"
+        @click.stop="emit('toggleMessageSelected', selectionKey)"
+      >
+        <span class="text-[10px] leading-none">✓</span>
+      </button>
+    </div>
     <div class="chat-image self-start ecall-chat-avatar-col">
       <div class="flex w-7 flex-col items-center gap-2">
         <div class="avatar">
@@ -23,6 +42,19 @@
             </div>
           </div>
         </div>
+        <button
+          v-if="selectionModeEnabled && !isOwnMessage(block)"
+          type="button"
+          data-selection-ignore="true"
+          class="inline-flex h-4 w-4 items-center justify-center rounded-sm border transition-colors"
+          :class="selected
+            ? 'border-primary bg-primary text-primary-content'
+            : 'border-base-300 bg-base-100 text-transparent hover:border-primary/60'"
+          :title="selected ? '取消选择' : '选择消息'"
+          @click.stop="emit('toggleMessageSelected', selectionKey)"
+        >
+          <span class="text-[10px] leading-none">✓</span>
+        </button>
       </div>
     </div>
     <template v-if="!isOwnMessage(block)">
@@ -262,19 +294,32 @@
           <div
             :class="[
               'chat-footer mt-1 flex h-6 items-center gap-1.5 transition-opacity',
-              canRegenerate
+              selectionModeEnabled
                 ? 'opacity-100 pointer-events-auto'
-                : !chatting && !frozen
-                  ? 'opacity-0 pointer-events-none group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto'
-                  : 'opacity-0 pointer-events-none',
+                : canRegenerate
+                  ? 'opacity-100 pointer-events-auto'
+                  : !chatting && !frozen
+                    ? 'opacity-0 pointer-events-none group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto'
+                    : 'opacity-0 pointer-events-none',
             ]"
           >
+            <button
+              v-if="!selectionModeEnabled"
+              type="button"
+              class="inline-flex h-6 min-w-6 items-center justify-center rounded px-1 text-[11px] text-base-content/55 hover:text-base-content"
+              :title="'多选'"
+              :class="!block.isStreaming && !chatting && !frozen ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="block.isStreaming || chatting || frozen"
+              @click="emit('enterSelectionMode', selectionKey)"
+            >
+              <CircleCheckBig class="h-3.5 w-3.5" />
+            </button>
             <button
               type="button"
               class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
               :title="t('chat.copy')"
-              :class="!block.isStreaming && !chatting && !frozen ? '' : 'opacity-0 pointer-events-none'"
-              :disabled="block.isStreaming || chatting || frozen"
+              :class="!selectionModeEnabled && !block.isStreaming && !chatting && !frozen ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="selectionModeEnabled || block.isStreaming || chatting || frozen"
               @click="emit('copyMessage', block)"
             >
               <Copy class="h-3.5 w-3.5" />
@@ -283,8 +328,8 @@
               type="button"
               class="inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
               :title="t('chat.regenerate')"
-              :class="!block.isStreaming && !chatting && !frozen && canRegenerate ? '' : 'opacity-0 pointer-events-none'"
-              :disabled="block.isStreaming || chatting || frozen || !canRegenerate"
+              :class="!selectionModeEnabled && !block.isStreaming && !chatting && !frozen && canRegenerate ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="selectionModeEnabled || block.isStreaming || chatting || frozen || !canRegenerate"
               @click="emit('regenerateTurn', { turnId: block.sourceMessageId || block.id })"
             >
               <RotateCcw class="h-3.5 w-3.5" />
@@ -300,10 +345,10 @@
           type="button"
           :class="[
             'inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content opacity-0 pointer-events-none transition-opacity',
-            !chatting && !frozen ? 'group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto' : '',
+            !selectionModeEnabled && !chatting && !frozen ? 'group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto' : '',
           ]"
           :title="t('chat.recall')"
-          :disabled="chatting || frozen"
+          :disabled="selectionModeEnabled || chatting || frozen"
           @click="emit('recallTurn', { turnId: block.sourceMessageId || block.id })"
         >
           <Undo2 class="h-3 w-3" />
@@ -393,7 +438,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
+import { CircleCheckBig, Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock } from "../../../types/app";
@@ -438,6 +483,9 @@ const imageDataUrlPromiseCache = new Map<string, Promise<string>>();
 
 const props = defineProps<{
   block: ChatMessageBlock;
+  selectionKey: string;
+  selectionModeEnabled: boolean;
+  selected: boolean;
   chatting: boolean;
   frozen: boolean;
   userAlias: string;
@@ -453,6 +501,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (e: "enterSelectionMode", selectionKey: string): void;
+  (e: "toggleMessageSelected", selectionKey: string): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
@@ -562,6 +612,16 @@ function toolNamesLabel(block: ChatMessageBlock): string {
 
 function formattedBlockTime(value?: string): string {
   return formatIsoToLocalHourMinute(value, "");
+}
+
+function handleSelectionRowClick(event: MouseEvent): void {
+  if (!props.selectionModeEnabled) return;
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  if (target.closest('[data-selection-ignore="true"], button, a, input, textarea, select, summary, label')) {
+    return;
+  }
+  emit("toggleMessageSelected", props.selectionKey);
 }
 
 function splitThinkText(raw: string): { visible: string; inline: string } {

@@ -2,6 +2,10 @@
 
 ## 发布：v0.9.12
 
+- 功能（chat-selection-derive-and-deliver）：聊天窗口新增消息多选模式；可从单条消息操作区进入多选，整行勾选消息，并在输入区切换为 `派生 / 复制 / 分享 / 投送 / 取消` 操作条；其中 `复制` 已支持按 `[角色名]: 内容` 格式汇总已选消息，`分享` 当前保留为暂不支持提示，`投送` 会把已选原消息连同工具调用与元数据一起插入目标会话末尾，`派生` 会继承当前会话部门/人格/计划模式/工作区等设置，并以“最新压缩消息 + 已选原消息”生成新会话；同时新增“继承当前会话”创建入口、派生/投送忙态遮罩，以及目标会话忙碌时的拒绝保护
+- 功能（archive-report-and-fork-scope）：会话分叉与归档语义继续收口；前台会话关系以父会话与分叉点为主，归档统一生成结论汇报，并在存在有效 `fork_message_cursor` 时仅总结分叉点之后的讨论；处理当前会话弹窗收口为“压缩 / 丢弃 / 归档”，不再在当前前台主流程暴露归档投放目标
+- 修复（prompt-adjacent-assistant-normalization）：最终请求体构建新增连续 assistant 归一化，`build_prompt`、工具回放追加、最终 JSON 序列化与 provider request 构建前都会消除相邻 assistant 消息，并合并 `text / reasoning_content / tool_calls`；同时修复非 self persona 历史消息与最新用户消息的说话人/时间元数据落位，避免 prompt 中 speaker block 丢失
+- 修复（selection-deliver-and-copy-hardening）：修正投送链路在会话锁外预读运行态导致的 TOCTOU 竞态，改为先拿 `conversation_lock` 再检查目标会话流式/整理态；补齐多选投送目标有效性校验、选择态 `v-memo` 依赖、剪贴板复制异常处理，以及多选摘要/忙态提示/分享提示的 i18n 文案
 - 修复（read-file-start-count-rename）：`read_file` 工具参数从 `offset/limit` 重命名为 `start/count`，并同步更新返回字段与续读提示；现在对文本/代码/Office 明确表示“起始行 + 行数”，对 PDF 明确表示“起始页 + 页数”，降低模型把分页参数误解为通用偏移量的概率
 - 修复（chat-session-binding-rebind）：聊天发送与 `@人格` 发送前新增会话绑定纠偏；当旧会话引用的部门已不存在时，直接提示“部门已经消失”；当部门仍在但原人格已不再属于该部门时，会自动切换到该部门当前可用人格并回写会话绑定，避免继续抛出 `Agent ... is not assigned to department ...`
 - 修复（mcp-tool-parameter-visibility）：MCP 配置页工具列表新增参数展示；后端会把工具 `input_schema` 一并返回前端，已部署工具现在可在名称下看到参数类型、必填标记、枚举/范围与示例内容，避免只能看见工具名和描述却无法判断调用入参

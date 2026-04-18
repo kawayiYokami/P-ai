@@ -122,6 +122,10 @@ struct UnarchivedConversationSummary {
     agent_id: String,
     department_id: String,
     department_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_message_cursor: Option<String>,
     workspace_label: String,
     #[serde(default)]
     is_active: bool,
@@ -343,6 +347,18 @@ fn build_unarchived_conversation_summary(
         agent_id: conversation.agent_id.clone(),
         department_id,
         department_name,
+        parent_conversation_id: conversation
+            .parent_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        fork_message_cursor: conversation
+            .fork_message_cursor
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
         workspace_label: workspace_label_for_unarchived_conversation(state, conversation),
         is_active: conversation.status.trim() == "active",
         is_main_conversation: conversation.id.trim() == main_conversation_id,
@@ -352,6 +368,119 @@ fn build_unarchived_conversation_summary(
             .unwrap_or(conversation.plan_mode_enabled),
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
+}
+
+fn unarchived_conversation_sort_key(summary: &UnarchivedConversationSummary) -> (&str, &str) {
+    (
+        summary
+            .last_message_at
+            .as_deref()
+            .unwrap_or(summary.updated_at.as_str()),
+        summary.updated_at.as_str(),
+    )
+}
+
+fn sort_unarchived_conversation_summaries_with_parent_first(
+    summaries: Vec<UnarchivedConversationSummary>,
+) -> Vec<UnarchivedConversationSummary> {
+    let mut ordered = summaries;
+    ordered.sort_by(|a, b| {
+        if a.is_main_conversation != b.is_main_conversation {
+            return b.is_main_conversation.cmp(&a.is_main_conversation);
+        }
+        let (a_primary, a_secondary) = unarchived_conversation_sort_key(a);
+        let (b_primary, b_secondary) = unarchived_conversation_sort_key(b);
+        b_primary
+            .cmp(a_primary)
+            .then_with(|| b_secondary.cmp(a_secondary))
+            .then_with(|| a.conversation_id.cmp(&b.conversation_id))
+    });
+
+    let ordered_ids = ordered
+        .iter()
+        .map(|item| item.conversation_id.clone())
+        .collect::<Vec<_>>();
+    let children_by_parent = ordered.iter().enumerate().fold(
+        std::collections::HashMap::<String, Vec<String>>::new(),
+        |mut acc, (_index, item)| {
+            if let Some(parent_id) = item
+                .parent_conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                acc.entry(parent_id.to_string())
+                    .or_default()
+                    .push(item.conversation_id.clone());
+            }
+            acc
+        },
+    );
+    let mut by_id = ordered
+        .into_iter()
+        .map(|item| (item.conversation_id.clone(), item))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut visited = std::collections::HashSet::<String>::new();
+    let mut output = Vec::<UnarchivedConversationSummary>::new();
+
+    fn append_with_children(
+        conversation_id: &str,
+        by_id: &mut std::collections::HashMap<String, UnarchivedConversationSummary>,
+        children_by_parent: &std::collections::HashMap<String, Vec<String>>,
+        visited: &mut std::collections::HashSet<String>,
+        output: &mut Vec<UnarchivedConversationSummary>,
+    ) {
+        let normalized_id = conversation_id.trim();
+        if normalized_id.is_empty() || !visited.insert(normalized_id.to_string()) {
+            return;
+        }
+        let Some(item) = by_id.remove(normalized_id) else {
+            return;
+        };
+        output.push(item);
+        if let Some(child_ids) = children_by_parent.get(normalized_id) {
+            for child_id in child_ids {
+                append_with_children(child_id, by_id, children_by_parent, visited, output);
+            }
+        }
+    }
+
+    for conversation_id in &ordered_ids {
+        let Some(parent_id) = by_id
+            .get(conversation_id)
+            .and_then(|item| item.parent_conversation_id.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            append_with_children(
+                conversation_id,
+                &mut by_id,
+                &children_by_parent,
+                &mut visited,
+                &mut output,
+            );
+            continue;
+        };
+        if !by_id.contains_key(parent_id) {
+            append_with_children(
+                conversation_id,
+                &mut by_id,
+                &children_by_parent,
+                &mut visited,
+                &mut output,
+            );
+        }
+    }
+    for conversation_id in ordered_ids {
+        append_with_children(
+            &conversation_id,
+            &mut by_id,
+            &children_by_parent,
+            &mut visited,
+            &mut output,
+        );
+    }
+    output
 }
 
 fn collect_unarchived_conversation_summaries(
@@ -365,7 +494,7 @@ fn collect_unarchived_conversation_summaries(
         .map(str::trim)
         .unwrap_or_default()
         .to_string();
-    let mut summaries = data
+    let summaries = data
         .conversations
         .iter()
         .filter(|conversation| {
@@ -381,21 +510,7 @@ fn collect_unarchived_conversation_summaries(
             )
         })
         .collect::<Vec<_>>();
-    summaries.sort_by(|a, b| {
-        if a.is_main_conversation != b.is_main_conversation {
-            return b.is_main_conversation.cmp(&a.is_main_conversation);
-        }
-        let bk = b
-            .last_message_at
-            .as_deref()
-            .unwrap_or(b.updated_at.as_str());
-        let ak = a
-            .last_message_at
-            .as_deref()
-            .unwrap_or(a.updated_at.as_str());
-        bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
-    });
-    summaries
+    sort_unarchived_conversation_summaries_with_parent_first(summaries)
 }
 
 fn delegate_conversation_summary_from_runtime_thread(
@@ -978,4 +1093,50 @@ fn set_active_unarchived_conversation(
     }
     drop(guard);
     Ok(SetActiveUnarchivedConversationOutput { conversation_id })
+}
+
+#[cfg(test)]
+mod conversation_snapshot_api_tests {
+    use super::*;
+
+    fn test_summary(
+        conversation_id: &str,
+        updated_at: &str,
+        parent_conversation_id: Option<&str>,
+    ) -> UnarchivedConversationSummary {
+        UnarchivedConversationSummary {
+            conversation_id: conversation_id.to_string(),
+            title: conversation_id.to_string(),
+            updated_at: updated_at.to_string(),
+            last_message_at: Some(updated_at.to_string()),
+            message_count: 1,
+            unread_count: 0,
+            agent_id: "agent-a".to_string(),
+            department_id: "dept-a".to_string(),
+            department_name: "部门A".to_string(),
+            parent_conversation_id: parent_conversation_id.map(ToOwned::to_owned),
+            fork_message_cursor: None,
+            workspace_label: "默认工作空间".to_string(),
+            is_active: false,
+            is_main_conversation: false,
+            runtime_state: None,
+            current_todo: None,
+            plan_mode_enabled: false,
+            preview_messages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn sort_unarchived_conversation_summaries_should_keep_parent_before_child() {
+        let ordered = sort_unarchived_conversation_summaries_with_parent_first(vec![
+            test_summary("child", "2026-04-18T10:02:00Z", Some("parent")),
+            test_summary("independent", "2026-04-18T10:03:00Z", None),
+            test_summary("parent", "2026-04-18T10:01:00Z", None),
+        ]);
+        let ids = ordered
+            .iter()
+            .map(|item| item.conversation_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["independent", "parent", "child"]);
+    }
 }

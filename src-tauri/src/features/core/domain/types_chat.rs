@@ -109,6 +109,14 @@ struct Conversation {
     #[serde(default)]
     department_id: String,
     #[serde(default)]
+    bound_conversation_id: Option<String>,
+    #[serde(default)]
+    parent_conversation_id: Option<String>,
+    #[serde(default)]
+    child_conversation_ids: Vec<String>,
+    #[serde(default)]
+    fork_message_cursor: Option<String>,
+    #[serde(default)]
     last_read_message_id: String,
     #[serde(default)]
     conversation_kind: String,

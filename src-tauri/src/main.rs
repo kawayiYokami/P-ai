@@ -502,6 +502,8 @@ fn main() {
             switch_active_conversation_snapshot,
             set_conversation_plan_mode,
             create_unarchived_conversation,
+            derive_unarchived_conversation_from_selection,
+            deliver_unarchived_conversation_selection,
             rename_unarchived_conversation,
             mark_conversation_read,
             get_unarchived_conversation_messages,

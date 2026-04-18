@@ -49,7 +49,10 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     return value || null;
   }
 
-  async function runConversationMaintenance(action: ConversationMaintenanceAction) {
+  async function runConversationMaintenance(
+    action: ConversationMaintenanceAction,
+    targetConversationId?: string,
+  ) {
     const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
     const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
     if (!apiConfigId || !agentId) {
@@ -75,12 +78,22 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     options.setChatError("");
     options.forcingArchive.value = true;
     try {
+      const normalizedTargetConversationId = String(targetConversationId || "").trim();
       const result = await invokeTauri<ForceArchiveResult>(action.command, {
-        input: {
-          apiConfigId,
-          agentId,
-          conversationId: currentConversationIdOrNull(),
-        },
+        input: action.command === "force_archive_current"
+          ? {
+            session: {
+              apiConfigId,
+              agentId,
+              conversationId: currentConversationIdOrNull(),
+            },
+            targetConversationId: normalizedTargetConversationId || null,
+          }
+          : {
+            apiConfigId,
+            agentId,
+            conversationId: currentConversationIdOrNull(),
+          },
       });
       const activeConversationId = String(result.activeConversationId || "").trim();
       if (activeConversationId && options.currentConversationId) {
@@ -127,7 +140,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     }
   }
 
-  async function forceArchiveNow() {
+  async function forceArchiveNow(targetConversationId?: string) {
     await runConversationMaintenance({
       command: "force_archive_current",
       runningKey: "status.forceArchiveRunning",
@@ -135,7 +148,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       doneKey: "status.forceArchiveDone",
       failedKey: "status.forceArchiveFailed",
       isDone: (result) => result.archived,
-    });
+    }, targetConversationId);
   }
 
   async function forceCompactNow() {

@@ -249,7 +249,8 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
         }));
     }
 
-    for hm in &prepared.history_messages {
+    let normalized_history_messages = normalized_prepared_history_messages(&prepared.history_messages);
+    for hm in &normalized_history_messages {
         if hm.role == "assistant" && hm.tool_calls.is_some() {
             let mut msg = serde_json::Map::new();
             msg.insert("role".to_string(), Value::String("assistant".to_string()));

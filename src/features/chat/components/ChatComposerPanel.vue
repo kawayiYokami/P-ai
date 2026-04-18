@@ -19,6 +19,91 @@
     >
       <span>{{ chatErrorText }}</span>
     </div>
+    <div
+      v-if="selectionModeEnabled"
+      class="rounded-box border border-base-300 bg-base-100 px-3 py-3"
+    >
+      <div class="text-xs opacity-70">已选择 {{ selectedMessageCount }} 条消息</div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :disabled="selectedMessageCount === 0"
+          @click="emit('selectionActionDerive')"
+        >
+          派生
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :disabled="selectedMessageCount === 0 || selectionDeliverTargetOptions.length === 0"
+          @click="openSelectionDeliverCard"
+        >
+          投送
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :disabled="selectedMessageCount === 0"
+          @click="emit('selectionActionCopy')"
+        >
+          复制
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :disabled="selectedMessageCount === 0"
+          @click="emit('selectionActionShare')"
+        >
+          分享
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost ml-auto"
+          @click="handleExitSelectionMode"
+        >
+          取消
+        </button>
+      </div>
+      <div
+        v-if="selectionDeliverCardOpen"
+        class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3"
+      >
+        <div class="text-sm font-medium">投送到会话</div>
+        <div class="mt-1 text-xs opacity-70">会把当前选中的原消息插入到目标会话末尾；如果目标会话正在流式输出，会直接失败。</div>
+        <select
+          v-model="selectionDeliverTargetConversationId"
+          class="select select-bordered select-sm mt-3 w-full"
+          :disabled="selectionDeliverTargetOptions.length === 0"
+        >
+          <option
+            v-for="item in selectionDeliverTargetOptions"
+            :key="item.conversationId"
+            :value="item.conversationId"
+          >
+            {{ selectionDeliverOptionLabel(item) }}
+          </option>
+        </select>
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="btn btn-sm"
+            @click="closeSelectionDeliverCard"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="!selectionDeliverTargetConversationId"
+            @click="confirmSelectionDeliver"
+          >
+            确定投送
+          </button>
+        </div>
+      </div>
+    </div>
+    <template v-else>
     <div v-if="clipboardImages.length > 0 || queuedAttachmentNotices.length > 0" class="mb-2 flex flex-wrap gap-1">
       <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-ghost gap-1 py-3">
         <ImageIcon v-if="isImageMime(img.mime)" class="h-3.5 w-3.5" />
@@ -225,6 +310,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -245,6 +331,8 @@ type ConversationDepartmentOption = {
 };
 
 const props = defineProps<{
+  selectionModeEnabled: boolean;
+  selectedMessageCount: number;
   chatInput: string;
   instructionPresets: PromptCommandPreset[];
   mentionOptions: ChatMentionTarget[];
@@ -276,6 +364,11 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (e: "exitSelectionMode"): void;
+  (e: "selectionActionDerive"): void;
+  (e: "selectionActionDeliver", targetConversationId: string): void;
+  (e: "selectionActionCopy"): void;
+  (e: "selectionActionShare"): void;
   (e: "update:chatInput", value: string): void;
   (e: "update:selectedInstructionPrompts", value: PromptCommandPreset[]): void;
   (e: "addMention", value: ChatMentionTarget): void;
@@ -315,6 +408,8 @@ const mentionPanelOpen = ref(false);
 const mentionQuery = ref("");
 const mentionFocusIndex = ref(0);
 const mentionRange = ref<{ start: number; end: number } | null>(null);
+const selectionDeliverCardOpen = ref(false);
+const selectionDeliverTargetConversationId = ref("");
 const mentionPanelStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
@@ -360,7 +455,59 @@ const filteredMentionOptions = computed(() => {
     }))
     .filter((item) => !!item.agentId && !!item.departmentId && !!item.agentName);
 });
+const selectionDeliverTargetOptions = computed(() =>
+  (Array.isArray(props.unarchivedConversationItems) ? props.unarchivedConversationItems : [])
+    .filter((item) => String(item.conversationId || "").trim() !== String(props.activeConversationId || "").trim())
+    .map((item) => ({
+      conversationId: String(item.conversationId || "").trim(),
+      title: String(item.title || "").trim() || "未命名会话",
+      departmentName: String(item.departmentName || "").trim() || undefined,
+      runtimeState: item.runtimeState,
+    }))
+    .filter((item) => !!item.conversationId),
+);
 const planModeToggleAllowed = computed(() => !props.chatting && !props.frozen);
+
+function selectionDeliverOptionLabel(item: {
+  title: string;
+  departmentName?: string;
+  runtimeState?: ChatConversationOverviewItem["runtimeState"];
+}): string {
+  const parts = [String(item.title || "").trim() || "未命名会话"];
+  const departmentName = String(item.departmentName || "").trim();
+  if (departmentName) parts.push(departmentName);
+  if (item.runtimeState === "assistant_streaming") parts.push("流式中");
+  if (item.runtimeState === "organizing_context") parts.push("整理中");
+  return parts.join(" / ");
+}
+
+function openSelectionDeliverCard() {
+  if (selectionDeliverTargetOptions.value.length === 0) return;
+  const currentTargetConversationId = String(selectionDeliverTargetConversationId.value || "").trim();
+  const hasValidTarget = selectionDeliverTargetOptions.value.some(
+    (item) => item.conversationId === currentTargetConversationId,
+  );
+  if (!currentTargetConversationId || !hasValidTarget) {
+    selectionDeliverTargetConversationId.value = selectionDeliverTargetOptions.value[0]?.conversationId || "";
+  }
+  selectionDeliverCardOpen.value = true;
+}
+
+function closeSelectionDeliverCard() {
+  selectionDeliverCardOpen.value = false;
+}
+
+function confirmSelectionDeliver() {
+  const targetConversationId = String(selectionDeliverTargetConversationId.value || "").trim();
+  if (!targetConversationId) return;
+  closeSelectionDeliverCard();
+  emit("selectionActionDeliver", targetConversationId);
+}
+
+function handleExitSelectionMode() {
+  closeSelectionDeliverCard();
+  emit("exitSelectionMode");
+}
 
 function loadChatInputHistory() {
   try {

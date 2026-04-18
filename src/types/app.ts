@@ -467,6 +467,8 @@ export type UnarchivedConversationSummary = {
   agentId: string;
   departmentId: string;
   departmentName: string;
+  parentConversationId?: string;
+  forkMessageCursor?: string;
   apiConfigId?: string;
   workspaceLabel?: string;
   isActive?: boolean;
@@ -498,6 +500,8 @@ export type ChatConversationOverviewItem = {
   agentId?: string;
   departmentId?: string;
   departmentName?: string;
+  parentConversationId?: string;
+  forkMessageCursor?: string;
   updatedAt?: string;
   workspaceLabel?: string;
   isActive?: boolean;

@@ -126,6 +126,7 @@ fn append_tool_loop_transient_history_to_prepared(
             MessageToolHistoryView::PromptReplay,
         ),
     );
+    normalize_prepared_history_messages_in_place(prepared);
 }
 
 fn tool_loop_active_conversation_snapshot(

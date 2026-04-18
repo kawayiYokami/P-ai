@@ -101,8 +101,11 @@
           </div>
           <template v-else-if="item.kind === 'message'">
             <ChatMessageItem
-              v-memo="[item.block, chatting, frozen, markdownIsDark, playingAudioId, userAlias, userAvatarUrl, personaNameMap, personaAvatarUrlMap]"
+              v-memo="[item.block, chatting, frozen, markdownIsDark, playingAudioId, userAlias, userAvatarUrl, personaNameMap, personaAvatarUrlMap, messageSelectionModeEnabled, selectedMessageRenderIdSet.has(item.renderId)]"
               :block="item.block"
+              :selection-key="item.renderId"
+              :selection-mode-enabled="messageSelectionModeEnabled"
+              :selected="selectedMessageRenderIdSet.has(item.renderId)"
               :chatting="chatting"
               :frozen="frozen"
               :user-alias="userAlias"
@@ -118,6 +121,8 @@
               @recall-turn="$emit('recallTurn', $event)"
               @regenerate-turn="$emit('regenerateTurn', $event)"
               @confirm-plan="$emit('confirmPlan', $event)"
+              @enter-selection-mode="enterMessageSelectionMode"
+              @toggle-message-selected="toggleMessageSelected"
               @copy-message="copyMessage"
               @open-image-preview="openImagePreview"
               @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -137,6 +142,9 @@
                 <ChatMessageItem
                   v-memo="[groupItem.block, chatting, frozen, markdownIsDark, activeTurnUserId, playingAudioId, userAlias, userAvatarUrl, personaNameMap, personaAvatarUrlMap]"
                   :block="groupItem.block"
+                  :selection-key="groupItem.renderId"
+                  :selection-mode-enabled="messageSelectionModeEnabled"
+                  :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
                   :chatting="chatting"
                   :frozen="frozen"
                   :user-alias="userAlias"
@@ -152,6 +160,8 @@
                   @recall-turn="$emit('recallTurn', $event)"
                   @regenerate-turn="$emit('regenerateTurn', $event)"
                   @confirm-plan="$emit('confirmPlan', $event)"
+                  @enter-selection-mode="enterMessageSelectionMode"
+                  @toggle-message-selected="toggleMessageSelected"
                   @copy-message="copyMessage"
                   @open-image-preview="openImagePreview"
                   @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -222,6 +232,8 @@
       <div ref="composerContainer" class="shrink-0 border-t border-base-300 bg-base-100 p-2">
         <ChatComposerPanel
           ref="composerPanelRef"
+          :selection-mode-enabled="messageSelectionModeEnabled"
+          :selected-message-count="selectedMessageBlocks.length"
           :chat-input="chatInput"
           :instruction-presets="instructionPresets"
           :mention-options="mentionOptions"
@@ -264,6 +276,11 @@
           @update:plan-mode-enabled="$emit('update:planModeEnabled', $event)"
           @send-chat="$emit('sendChat')"
           @stop-chat="$emit('stopChat')"
+          @exit-selection-mode="exitMessageSelectionMode"
+          @selection-action-copy="copySelectedMessages"
+          @selection-action-derive="emitSelectionAction('derive')"
+          @selection-action-deliver="emitSelectionAction('deliver', $event)"
+          @selection-action-share="emitSelectionAction('share')"
           @force-archive="$emit('forceArchive')"
           @switch-conversation="$emit('switchConversation', $event)"
           @create-conversation="$emit('createConversation', $event)"
@@ -585,11 +602,18 @@ const emit = defineEmits<{
   (e: "openConversationSummary", conversationId: string): void;
   (e: "reachedBottom"): void;
   (e: "refreshToolReviewMessages"): void;
+  (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
+  (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
+  (e: "selectionActionDerive", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
+  (e: "selectionActionDeliver", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }): void;
+  (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
 }>();
 const { t } = useI18n();
 
 const linkOpenErrorText = ref("");
 const composerPanelRef = ref<{ focusInput: (options?: FocusOptions) => void } | null>(null);
+const messageSelectionModeEnabled = ref(false);
+const selectedMessageRenderIds = ref<string[]>([]);
 
 const {
   scrollContainer,
@@ -624,6 +648,12 @@ watch(
   },
   { immediate: true },
 );
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  () => {
+    exitMessageSelectionMode();
+  },
+);
 const {
   imagePreviewOpen,
   imagePreviewDataUrl,
@@ -649,6 +679,35 @@ const {
   stopAudioPlayback,
   toggleAudioPlayback,
 } = useChatMessageActions();
+const selectedMessageRenderIdSet = computed(() => new Set(selectedMessageRenderIds.value));
+const renderedMessageItems = computed(() =>
+  chatRenderItems.value.flatMap((item) => {
+    if (item.kind === "message") {
+      return [{ renderId: item.renderId, block: item.block }];
+    }
+    if (item.kind === "group") {
+      return item.items.map((groupItem) => ({ renderId: groupItem.renderId, block: groupItem.block }));
+    }
+    return [];
+  }),
+);
+const selectedMessageBlocks = computed(() =>
+  renderedMessageItems.value.filter((item) => selectedMessageRenderIdSet.value.has(item.renderId)),
+);
+watch(
+  () => ({
+    selectionModeEnabled: messageSelectionModeEnabled.value,
+    selectedRenderIdCount: selectedMessageRenderIds.value.length,
+    selectedBlockCount: selectedMessageBlocks.value.length,
+  }),
+  ({ selectionModeEnabled, selectedRenderIdCount, selectedBlockCount }) => {
+    if (!selectionModeEnabled) return;
+    if (selectedRenderIdCount === 0) return;
+    if (selectedBlockCount === 0) {
+      exitMessageSelectionMode();
+    }
+  },
+);
 const {
   toolReviewPanelOpen,
   toolReviewBatches,
@@ -745,6 +804,121 @@ function openConversationSummary() {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId) return;
   emit("openConversationSummary", conversationId);
+}
+
+function enterMessageSelectionMode(selectionKey: string) {
+  const normalizedSelectionKey = String(selectionKey || "").trim();
+  if (!normalizedSelectionKey) return;
+  messageSelectionModeEnabled.value = true;
+  if (!selectedMessageRenderIds.value.includes(normalizedSelectionKey)) {
+    selectedMessageRenderIds.value = [...selectedMessageRenderIds.value, normalizedSelectionKey];
+  }
+}
+
+function toggleMessageSelected(selectionKey: string) {
+  const normalizedSelectionKey = String(selectionKey || "").trim();
+  if (!normalizedSelectionKey) return;
+  if (!messageSelectionModeEnabled.value) {
+    enterMessageSelectionMode(normalizedSelectionKey);
+    return;
+  }
+  if (selectedMessageRenderIds.value.includes(normalizedSelectionKey)) {
+    selectedMessageRenderIds.value = selectedMessageRenderIds.value.filter((item) => item !== normalizedSelectionKey);
+    return;
+  }
+  selectedMessageRenderIds.value = [...selectedMessageRenderIds.value, normalizedSelectionKey];
+}
+
+function exitMessageSelectionMode() {
+  messageSelectionModeEnabled.value = false;
+  selectedMessageRenderIds.value = [];
+}
+
+function selectionPayload() {
+  const blocks = selectedMessageBlocks.value.map((item) => item.block);
+  return {
+    count: blocks.length,
+    messageIds: blocks
+      .map((block) => String(block.sourceMessageId || block.id || "").trim())
+      .filter((item) => !!item),
+    blocks,
+  };
+}
+
+function selectionDisplayName(block: ChatMessageBlock): string {
+  if (block.remoteImOrigin) {
+    return block.remoteImOrigin.senderName || block.remoteImOrigin.remoteContactName || "IM";
+  }
+  const speakerAgentId = String(block.speakerAgentId || "").trim();
+  if (speakerAgentId && props.personaNameMap[speakerAgentId]) {
+    return props.personaNameMap[speakerAgentId];
+  }
+  if (!speakerAgentId || speakerAgentId === "user-persona" || block.role === "user") {
+    return props.userAlias || t("archives.roleUser");
+  }
+  return speakerAgentId || block.role;
+}
+
+function selectionBlockSummary(block: ChatMessageBlock): string {
+  const parts: string[] = [];
+  const text = String(block.text || "").trim();
+  if (text) {
+    parts.push(text);
+  }
+  if (block.images.length > 0) {
+    parts.push(t("chat.imageCount", { count: block.images.length }));
+  }
+  if (block.audios.length > 0) {
+    parts.push(t("chat.audioCount", { count: block.audios.length }));
+  }
+  if (block.attachmentFiles.length > 0) {
+    parts.push(
+      t("chat.attachmentList", {
+        names: block.attachmentFiles.map((item) => item.fileName).join("、"),
+      }),
+    );
+  }
+  return parts.join("\n").trim();
+}
+
+async function copySelectedMessages() {
+  const payload = selectionPayload();
+  if (payload.count === 0) return;
+  const text = payload.blocks
+    .map((block) => {
+      const body = selectionBlockSummary(block);
+      return `[${selectionDisplayName(block)}]: ${body || "[空消息]"}`;
+    })
+    .join("\n\n");
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    emit("selectionActionCopy", payload);
+  } catch (error) {
+    emit("selectionActionCopyError", {
+      ...payload,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function emitSelectionAction(kind: "derive" | "share" | "deliver", targetConversationId = "") {
+  const payload = selectionPayload();
+  if (payload.count === 0) return;
+  if (kind === "derive") {
+    emit("selectionActionDerive", payload);
+    return;
+  }
+  if (kind === "deliver") {
+    const normalizedTargetConversationId = String(targetConversationId || "").trim();
+    if (!normalizedTargetConversationId) return;
+    emit("selectionActionDeliver", {
+      ...payload,
+      targetConversationId: normalizedTargetConversationId,
+    });
+    return;
+  }
+  emit("selectionActionShare", payload);
 }
 
 async function handleAssistantLinkClick(event: MouseEvent) {

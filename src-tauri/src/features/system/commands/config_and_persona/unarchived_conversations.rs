@@ -135,12 +135,45 @@ struct CreateUnarchivedConversationInput {
     department_id: Option<String>,
     #[serde(default)]
     title: Option<String>,
+    #[serde(default)]
+    copy_source_conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateUnarchivedConversationOutput {
     conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeriveUnarchivedConversationFromSelectionInput {
+    source_conversation_id: String,
+    selected_message_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeriveUnarchivedConversationFromSelectionOutput {
+    conversation_id: String,
+    title: String,
+    #[serde(default)]
+    warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliverUnarchivedConversationSelectionInput {
+    source_conversation_id: String,
+    target_conversation_id: String,
+    selected_message_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliverUnarchivedConversationSelectionOutput {
+    target_conversation_id: String,
+    delivered_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +188,221 @@ struct RenameUnarchivedConversationInput {
 struct RenameUnarchivedConversationOutput {
     conversation_id: String,
     title: String,
+}
+
+fn trimmed_option(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn clone_chat_message_for_copied_conversation(message: &ChatMessage) -> ChatMessage {
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: message.role.clone(),
+        created_at: message.created_at.clone(),
+        speaker_agent_id: message.speaker_agent_id.clone(),
+        parts: message.parts.clone(),
+        extra_text_blocks: message.extra_text_blocks.clone(),
+        provider_meta: message.provider_meta.clone(),
+        tool_call: message.tool_call.clone(),
+        mcp_call: message.mcp_call.clone(),
+    }
+}
+
+fn clone_foreground_conversation_for_copy(
+    source: &Conversation,
+    agent_id: &str,
+    department_id: &str,
+    title: &str,
+) -> Conversation {
+    let now = now_iso();
+    let mut conversation = source.clone();
+    conversation.id = Uuid::new_v4().to_string();
+    conversation.title = if title.trim().is_empty() {
+        source.title.clone()
+    } else {
+        title.trim().to_string()
+    };
+    conversation.agent_id = agent_id.trim().to_string();
+    conversation.department_id = department_id.trim().to_string();
+    conversation.bound_conversation_id = None;
+    conversation.parent_conversation_id = Some(source.id.clone());
+    conversation.child_conversation_ids = Vec::new();
+    conversation.last_read_message_id = String::new();
+    conversation.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+    conversation.root_conversation_id = None;
+    conversation.delegate_id = None;
+    conversation.status = "active".to_string();
+    conversation.summary = String::new();
+    conversation.archived_at = None;
+    conversation.created_at = now.clone();
+    conversation.updated_at = now.clone();
+    conversation.last_context_usage_ratio = 0.0;
+    conversation.last_effective_prompt_tokens = 0;
+    conversation.messages = source
+        .messages
+        .iter()
+        .map(clone_chat_message_for_copied_conversation)
+        .collect::<Vec<_>>();
+    conversation.fork_message_cursor = conversation
+        .messages
+        .last()
+        .map(|message| message.id.clone());
+    conversation.last_read_message_id = conversation
+        .messages
+        .last()
+        .map(|message| message.id.clone())
+        .unwrap_or_default();
+    conversation
+}
+
+fn build_derived_conversation_title(
+    source_title: &str,
+    first_selected_ordinal: usize,
+    source_is_main_conversation: bool,
+) -> String {
+    let base_title = source_title.trim();
+    let prefix = if source_is_main_conversation {
+        "主会话"
+    } else if base_title.is_empty() {
+        "未命名会话"
+    } else {
+        base_title
+    };
+    format!("{prefix}[派生自第{first_selected_ordinal}条对话]")
+}
+
+fn collect_selected_messages_for_derive(
+    source: &Conversation,
+    selected_message_ids: &[String],
+) -> (Vec<ChatMessage>, usize) {
+    let selected_ids = selected_message_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let mut selected_messages = Vec::new();
+    let mut visible_ordinal = 0usize;
+    let mut first_selected_ordinal = 0usize;
+    for message in &source.messages {
+        if archive_pipeline_is_context_compaction_message(message) {
+            continue;
+        }
+        visible_ordinal += 1;
+        if !selected_ids.contains(message.id.trim()) {
+            continue;
+        }
+        if first_selected_ordinal == 0 {
+            first_selected_ordinal = visible_ordinal;
+        }
+        selected_messages.push(message.clone());
+    }
+    (selected_messages, first_selected_ordinal)
+}
+
+fn derive_conversation_settings_agent_id(
+    data: &AppData,
+    department: &DepartmentConfig,
+    requested_agent_id: &str,
+) -> String {
+    let normalized_requested_agent_id = requested_agent_id.trim();
+    if !normalized_requested_agent_id.is_empty()
+        && department
+            .agent_ids
+            .iter()
+            .any(|item| item.trim() == normalized_requested_agent_id)
+    {
+        return normalized_requested_agent_id.to_string();
+    }
+    department
+        .agent_ids
+        .iter()
+        .find(|item| !item.trim().is_empty())
+        .map(|item| item.trim().to_string())
+        .unwrap_or_else(|| data.assistant_department_agent_id.trim().to_string())
+}
+
+fn build_derived_conversation_record_from_selection(
+    data_path: &PathBuf,
+    data: &AppData,
+    source: &Conversation,
+    department: &DepartmentConfig,
+    title: &str,
+    latest_compaction_message: Option<&ChatMessage>,
+    selected_messages: &[ChatMessage],
+) -> Conversation {
+    let agent_id = derive_conversation_settings_agent_id(data, department, &source.agent_id);
+    let mut conversation = build_conversation_record(
+        &department_primary_api_config_id(department),
+        &agent_id,
+        &department.id,
+        title,
+        CONVERSATION_KIND_CHAT,
+        None,
+        None,
+    );
+    conversation.parent_conversation_id = Some(source.id.clone());
+    conversation.plan_mode_enabled = source.plan_mode_enabled;
+    conversation.shell_workspace_path = source.shell_workspace_path.clone();
+    conversation.shell_workspaces = source.shell_workspaces.clone();
+    conversation.current_todos = source.current_todos.clone();
+    let user_profile_snapshot = data
+        .agents
+        .iter()
+        .find(|item| item.id == agent_id)
+        .and_then(|agent| match build_user_profile_snapshot_block(data_path, agent, 12) {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[派生会话] 跳过，任务=构建用户画像快照，agent_id={}，error={}",
+                    agent.id, err
+                ));
+                None
+            }
+        })
+        .or_else(|| {
+            let snapshot = source.user_profile_snapshot.trim();
+            if snapshot.is_empty() {
+                None
+            } else {
+                Some(snapshot.to_string())
+            }
+        });
+    if let Some(snapshot) = user_profile_snapshot.clone() {
+        conversation.user_profile_snapshot = snapshot;
+    }
+    if let Some(message) = latest_compaction_message {
+        conversation
+            .messages
+            .push(clone_chat_message_for_copied_conversation(message));
+    } else {
+        conversation.messages.push(build_initial_summary_context_message(
+            None,
+            user_profile_snapshot.as_deref(),
+            Some(&conversation.current_todos),
+        ));
+    }
+    conversation.messages.extend(
+        selected_messages
+            .iter()
+            .map(clone_chat_message_for_copied_conversation),
+    );
+    if let Some(last_message) = conversation.messages.last() {
+        conversation.last_read_message_id = last_message.id.clone();
+        conversation.updated_at = last_message.created_at.clone();
+        conversation.last_user_at = Some(last_message.created_at.clone());
+    }
+    conversation
+}
+
+fn latest_compaction_message_for_derive(source: &Conversation) -> Option<ChatMessage> {
+    source
+        .messages
+        .iter()
+        .rev()
+        .find(|message| archive_pipeline_is_context_compaction_message(message))
+        .cloned()
 }
 
 #[tauri::command]
@@ -209,6 +457,7 @@ fn create_unarchived_conversation(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or_default();
+    let copy_source_conversation_id = trimmed_option(input.copy_source_conversation_id.as_deref());
 
     for conversation in &mut data.conversations {
         if !conversation_visible_in_foreground_lists(conversation) || !conversation.summary.trim().is_empty() {
@@ -216,14 +465,33 @@ fn create_unarchived_conversation(
         }
         conversation.status = "active".to_string();
     }
-    let conversation = build_foreground_chat_conversation_record(
-        &state.data_path,
-        &data,
-        &api_config_id,
-        &agent_id,
-        &department.id,
-        conversation_title,
-    );
+    let conversation = if let Some(source_conversation_id) = copy_source_conversation_id.as_deref() {
+        let source_conversation = data
+            .conversations
+            .iter()
+            .find(|conversation| {
+                conversation.id == source_conversation_id
+                    && conversation.summary.trim().is_empty()
+                    && conversation_visible_in_foreground_lists(conversation)
+            })
+            .cloned()
+            .ok_or_else(|| "要复制的当前会话不存在或已归档".to_string())?;
+        clone_foreground_conversation_for_copy(
+            &source_conversation,
+            &agent_id,
+            &department.id,
+            conversation_title,
+        )
+    } else {
+        build_foreground_chat_conversation_record(
+            &state.data_path,
+            &data,
+            &api_config_id,
+            &agent_id,
+            &department.id,
+            conversation_title,
+        )
+    };
     let conversation_id = conversation.id.clone();
     data.conversations.push(conversation);
     if data
@@ -256,6 +524,268 @@ fn create_unarchived_conversation(
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
 
     Ok(CreateUnarchivedConversationOutput { conversation_id })
+}
+
+#[tauri::command]
+async fn derive_unarchived_conversation_from_selection(
+    input: DeriveUnarchivedConversationFromSelectionInput,
+    state: State<'_, AppState>,
+) -> Result<DeriveUnarchivedConversationFromSelectionOutput, String> {
+    let source_conversation_id = input.source_conversation_id.trim();
+    if source_conversation_id.is_empty() {
+        return Err("sourceConversationId 不能为空".to_string());
+    }
+    let normalized_selected_message_ids = input
+        .selected_message_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if normalized_selected_message_ids.is_empty() {
+        return Err("selectedMessageIds 不能为空".to_string());
+    }
+
+    let (
+        app_config,
+        source_conversation,
+        selected_messages,
+        derived_title,
+        department,
+        latest_compaction_message,
+    ) = {
+        let guard = state
+            .conversation_lock
+            .lock()
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        let app_config = state_read_config_cached(&state)?;
+        let data = state_read_app_data_cached(&state)?;
+        let source_conversation = data
+            .conversations
+            .iter()
+            .find(|conversation| {
+                conversation.id == source_conversation_id
+                    && conversation.summary.trim().is_empty()
+                    && conversation_visible_in_foreground_lists(conversation)
+            })
+            .cloned()
+            .ok_or_else(|| "源会话不存在或已归档".to_string())?;
+        let (selected_messages, first_selected_ordinal) =
+            collect_selected_messages_for_derive(&source_conversation, &normalized_selected_message_ids);
+        if selected_messages.is_empty() {
+            drop(guard);
+            return Err("未找到可派生的已选消息".to_string());
+        }
+        let department = department_by_id(&app_config, source_conversation.department_id.trim())
+            .cloned()
+            .ok_or_else(|| "源会话所属部门不存在".to_string())?;
+        let derived_title = build_derived_conversation_title(
+            &source_conversation.title,
+            first_selected_ordinal.max(1),
+            data.main_conversation_id.as_deref().map(str::trim)
+                == Some(source_conversation.id.as_str()),
+        );
+        let latest_compaction_message = latest_compaction_message_for_derive(&source_conversation);
+        drop(guard);
+        (
+            app_config,
+            source_conversation,
+            selected_messages,
+            derived_title,
+            department,
+            latest_compaction_message,
+        )
+    };
+
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let before_conversations = data.conversations.clone();
+    if !data.conversations.iter().any(|conversation| {
+        conversation.id == source_conversation.id
+            && conversation.summary.trim().is_empty()
+            && conversation_visible_in_foreground_lists(conversation)
+    }) {
+        drop(guard);
+        return Err("源会话已变化，请重新选择消息后再试".to_string());
+    }
+    let conversation = build_derived_conversation_record_from_selection(
+        &state.data_path,
+        &data,
+        &source_conversation,
+        &department,
+        &derived_title,
+        latest_compaction_message.as_ref(),
+        &selected_messages,
+    );
+    let conversation_id = conversation.id.clone();
+    data.conversations.push(conversation);
+    if data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        data.main_conversation_id = Some(conversation_id.clone());
+    }
+    let overview_payload =
+        build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
+    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
+    let chat_index_before = state_read_chat_index_cached(state.inner())?;
+    let chat_index = build_chat_index_file(&data.conversations);
+    if chat_index_before != chat_index {
+        state_write_chat_index_cached(state.inner(), &chat_index)?;
+    }
+    if data.main_conversation_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
+        != state_read_runtime_state_cached(&state)?
+            .main_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        state_write_runtime_state_cached(&state, &build_runtime_state_file(&data))?;
+    }
+    drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    runtime_log_info(format!(
+        "[派生会话] 完成，任务=按已选消息派生新会话，source_conversation_id={}，conversation_id={}，selected_count={}，has_compaction_seed={}",
+        source_conversation.id,
+        conversation_id,
+        selected_messages.len(),
+        latest_compaction_message.is_some()
+    ));
+
+    Ok(DeriveUnarchivedConversationFromSelectionOutput {
+        conversation_id,
+        title: derived_title,
+        warning: None,
+    })
+}
+
+#[tauri::command]
+fn deliver_unarchived_conversation_selection(
+    input: DeliverUnarchivedConversationSelectionInput,
+    state: State<'_, AppState>,
+) -> Result<DeliverUnarchivedConversationSelectionOutput, String> {
+    let source_conversation_id = input.source_conversation_id.trim();
+    let target_conversation_id = input.target_conversation_id.trim();
+    if source_conversation_id.is_empty() {
+        return Err("sourceConversationId 不能为空".to_string());
+    }
+    if target_conversation_id.is_empty() {
+        return Err("targetConversationId 不能为空".to_string());
+    }
+    if source_conversation_id == target_conversation_id {
+        return Err("目标会话不能是当前会话".to_string());
+    }
+    let normalized_selected_message_ids = input
+        .selected_message_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if normalized_selected_message_ids.is_empty() {
+        return Err("selectedMessageIds 不能为空".to_string());
+    }
+
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let target_runtime_state = {
+        let runtime_slots = lock_conversation_runtime_slots(state.inner())?;
+        runtime_slots
+            .get(target_conversation_id)
+            .map(|slot| slot.state.clone())
+            .unwrap_or(MainSessionState::Idle)
+    };
+    if target_runtime_state == MainSessionState::AssistantStreaming {
+        drop(guard);
+        return Err("目标会话正在流式输出中，暂时无法投送".to_string());
+    }
+    if target_runtime_state == MainSessionState::OrganizingContext {
+        drop(guard);
+        return Err("目标会话正在整理上下文，暂时无法投送".to_string());
+    }
+    let app_config = state_read_config_cached(&state)?;
+    let mut data = state_read_app_data_cached(&state)?;
+    let before_conversations = data.conversations.clone();
+
+    let source_conversation = data
+        .conversations
+        .iter()
+        .find(|conversation| {
+            conversation.id == source_conversation_id
+                && conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+        })
+        .cloned()
+        .ok_or_else(|| "源会话不存在或已归档".to_string())?;
+    let (selected_messages, _) =
+        collect_selected_messages_for_derive(&source_conversation, &normalized_selected_message_ids);
+    if selected_messages.is_empty() {
+        drop(guard);
+        return Err("未找到可投送的已选消息".to_string());
+    }
+
+    let target_idx = data
+        .conversations
+        .iter()
+        .position(|conversation| {
+            conversation.id == target_conversation_id
+                && conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+        })
+        .ok_or_else(|| "目标会话不存在或已归档".to_string())?;
+
+    let now = now_iso();
+    {
+        let target_conversation = data
+            .conversations
+            .get_mut(target_idx)
+            .ok_or_else(|| "目标会话索引无效".to_string())?;
+        target_conversation.messages.extend(
+            selected_messages
+                .iter()
+                .map(clone_chat_message_for_copied_conversation),
+        );
+        target_conversation.updated_at = now.clone();
+        target_conversation.status = "active".to_string();
+        if let Some(last_message) = target_conversation.messages.last() {
+            target_conversation.last_read_message_id = last_message.id.clone();
+            if last_message.role.trim().eq_ignore_ascii_case("assistant") {
+                target_conversation.last_assistant_at = Some(now.clone());
+            } else if last_message.role.trim().eq_ignore_ascii_case("user") {
+                target_conversation.last_user_at = Some(now.clone());
+            }
+        }
+    }
+
+    let overview_payload =
+        build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
+    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
+    let chat_index_before = state_read_chat_index_cached(state.inner())?;
+    let chat_index = build_chat_index_file(&data.conversations);
+    if chat_index_before != chat_index {
+        state_write_chat_index_cached(state.inner(), &chat_index)?;
+    }
+    drop(guard);
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    runtime_log_info(format!(
+        "[投送消息] 完成，任务=投送已选消息到目标会话，source_conversation_id={}，target_conversation_id={}，message_count={}",
+        source_conversation_id,
+        target_conversation_id,
+        selected_messages.len()
+    ));
+
+    Ok(DeliverUnarchivedConversationSelectionOutput {
+        target_conversation_id: target_conversation_id.to_string(),
+        delivered_count: selected_messages.len(),
+    })
 }
 
 #[tauri::command]
@@ -1297,4 +1827,191 @@ fn rewind_conversation_from_message(
         remaining_count,
         recalled_user_message,
     })
+}
+
+#[cfg(test)]
+mod unarchived_conversations_tests {
+    use super::*;
+
+    fn build_test_message(id: &str, text: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.to_string(),
+            role: "assistant".to_string(),
+            created_at: "2026-04-18T10:00:00Z".to_string(),
+            speaker_agent_id: Some("agent-a".to_string()),
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        }
+    }
+
+    fn build_test_conversation() -> Conversation {
+        Conversation {
+            id: "source-conversation".to_string(),
+            title: "原会话".to_string(),
+            agent_id: "agent-a".to_string(),
+            department_id: "dept-a".to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            last_read_message_id: String::new(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: "2026-04-18T10:00:00Z".to_string(),
+            updated_at: "2026-04-18T10:01:00Z".to_string(),
+            last_user_at: None,
+            last_assistant_at: Some("2026-04-18T10:01:00Z".to_string()),
+            last_context_usage_ratio: 0.4,
+            last_effective_prompt_tokens: 2048,
+            status: "active".to_string(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            archived_at: None,
+            messages: vec![build_test_message("m1", "hello"), build_test_message("m2", "world")],
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: true,
+        }
+    }
+
+    fn build_test_compaction_message(id: &str) -> ChatMessage {
+        let mut message = build_test_message(id, "[上下文整理]");
+        message.role = "user".to_string();
+        message.speaker_agent_id = Some(SYSTEM_PERSONA_ID.to_string());
+        message.provider_meta = Some(serde_json::json!({
+            "message_meta": {
+                "kind": "context_compaction",
+                "scene": "compaction",
+            }
+        }));
+        message
+    }
+
+    #[test]
+    fn clone_foreground_conversation_for_copy_should_record_parent_and_fork_cursor() {
+        let source = build_test_conversation();
+        let cloned = clone_foreground_conversation_for_copy(&source, "agent-b", "dept-b", "");
+
+        assert_ne!(cloned.id, source.id);
+        assert_eq!(cloned.title, source.title);
+        assert_eq!(cloned.parent_conversation_id.as_deref(), Some(source.id.as_str()));
+        assert!(cloned.bound_conversation_id.is_none());
+        assert_eq!(cloned.agent_id, "agent-b");
+        assert_eq!(cloned.department_id, "dept-b");
+        assert_eq!(cloned.messages.len(), source.messages.len());
+        assert_ne!(cloned.messages[0].id, source.messages[0].id);
+        assert_eq!(
+            cloned.fork_message_cursor.as_deref(),
+            cloned.messages.last().map(|message| message.id.as_str())
+        );
+    }
+
+    #[test]
+    fn collect_selected_messages_for_derive_should_keep_source_order_and_visible_ordinal() {
+        let mut source = build_test_conversation();
+        source.messages.insert(
+            0,
+            build_initial_summary_context_message(Some("历史摘要"), None, None),
+        );
+        let (selected, first_selected_ordinal) = collect_selected_messages_for_derive(
+            &source,
+            &["m2".to_string(), "m1".to_string()],
+        );
+
+        assert_eq!(first_selected_ordinal, 1);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].id, "m1");
+        assert_eq!(selected[1].id, "m2");
+    }
+
+    #[test]
+    fn build_derived_conversation_title_should_include_source_title_and_ordinal() {
+        assert_eq!(
+            build_derived_conversation_title("原会话", 7, false),
+            "原会话[派生自第7条对话]"
+        );
+        assert_eq!(
+            build_derived_conversation_title("Chat 2026-04-18T10:00", 3, true),
+            "主会话[派生自第3条对话]"
+        );
+    }
+
+    #[test]
+    fn build_derived_conversation_record_should_copy_latest_compaction_and_selected_messages() {
+        let mut data = AppData::default();
+        data.assistant_department_agent_id = "agent-a".to_string();
+        data.user_alias = "用户".to_string();
+        data.agents.push(AgentProfile {
+            id: "agent-a".to_string(),
+            name: "助手".to_string(),
+            system_prompt: String::new(),
+            tools: Vec::new(),
+            created_at: "2026-04-18T10:00:00Z".to_string(),
+            updated_at: "2026-04-18T10:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            source: "manual".to_string(),
+            scope: "global".to_string(),
+        });
+        let source = Conversation {
+            messages: vec![
+                build_test_compaction_message("seed-1"),
+                build_test_message("m1", "hello"),
+                build_test_compaction_message("seed-2"),
+                build_test_message("m2", "world"),
+            ],
+            ..build_test_conversation()
+        };
+        let department = DepartmentConfig {
+            id: "dept-a".to_string(),
+            name: "部门".to_string(),
+            summary: String::new(),
+            guide: String::new(),
+            agent_ids: vec!["agent-a".to_string()],
+            api_config_id: "api-a".to_string(),
+            api_config_ids: vec!["api-a".to_string()],
+            order_index: 0,
+            is_built_in_assistant: false,
+            created_at: "2026-04-18T10:00:00Z".to_string(),
+            updated_at: "2026-04-18T10:00:00Z".to_string(),
+            source: "main_config".to_string(),
+            scope: "global".to_string(),
+        };
+
+        let derived = build_derived_conversation_record_from_selection(
+            &PathBuf::from("."),
+            &data,
+            &source,
+            &department,
+            "派生标题",
+            latest_compaction_message_for_derive(&source).as_ref(),
+            &[source.messages[1].clone(), source.messages[3].clone()],
+        );
+
+        assert_eq!(derived.messages.len(), 3);
+        assert_eq!(
+            render_prompt_message_text(&derived.messages[0]),
+            render_prompt_message_text(&source.messages[2])
+        );
+        assert_eq!(
+            render_prompt_message_text(&derived.messages[1]),
+            render_prompt_message_text(&source.messages[1])
+        );
+        assert_eq!(
+            render_prompt_message_text(&derived.messages[2]),
+            render_prompt_message_text(&source.messages[3])
+        );
+        assert_ne!(derived.messages[0].id, source.messages[2].id);
+    }
 }
