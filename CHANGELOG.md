@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.13
 
+- 修复（remote-im-bound-department-agent-fallback）：远程 IM 联系人已绑定部门但未显式绑定人格时，不再错误回退到全局 `default-agent`；现在会优先从目标部门自身的 `agent_ids` 中选择可用人格，避免出现 `agentId 与部门不匹配` 导致消息持续入队失败
 - 修复（chat-draft-scroll-and-render-stability）：普通发送现在会像 `@人格` 路径一样在本地用户草稿插入后立刻上推，不再等到助理流式草稿出现；同时收口聊天消息列表在 `history_flushed / 助理草稿开始` 阶段的重绘范围，移除历史消息对全局 `chatting` 等状态的无差别订阅、稳定消息 `renderId`，并在前台消息合并时尽量复用旧消息对象，降低助理草稿出现时整列消息一起闪动的概率
 - 修复（tool-review-sidebar-polish）：修正工具审查批次在 `currentBatchKey` 指向无效 key 时出现“计数为 0 仍可点开 / 明明有历史批次却打开空侧栏”的问题；同时收口工具审查侧栏列表与折叠卡层级，统一分页贴底、状态徽标、按钮样式与右侧面板留白
 - 修复（markdown-renderer-polish）：适配新版 `markstream-vue` 后续渲染样式回归，收口聊天消息与工具审查侧栏中的 Markdown 排版、列表/引用字号、代码块主题与本地化文案；补齐新版代码块头部与正文配色、展开按钮显隐判断，并移除旧版 `cropperjs/dist/cropper.css` 入口以兼容 `cropperjs 2.x` 构建路径变更

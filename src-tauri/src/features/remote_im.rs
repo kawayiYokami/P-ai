@@ -1054,19 +1054,33 @@ fn resolve_department_agent_pair(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_default();
-    let agent_id = if !requested_agent_id.is_empty() {
-        requested_agent_id
-    } else {
-        assistant_department_agent_id(config)
-            .ok_or_else(|| "路由信息不完整（缺少 agentId）".to_string())?
-    };
     let department = if let Some(department_id) = requested_department_id.as_deref() {
         department_by_id(config, department_id)
             .ok_or_else(|| format!("路由部门不存在: {department_id}"))?
     } else {
+        let agent_id = if !requested_agent_id.is_empty() {
+            requested_agent_id.clone()
+        } else {
+            assistant_department_agent_id(config)
+                .ok_or_else(|| "路由信息不完整（缺少 agentId）".to_string())?
+        };
         department_for_agent_id(config, &agent_id)
             .or_else(|| assistant_department(config))
             .ok_or_else(|| "路由部门不存在".to_string())?
+    };
+    let agent_id = if !requested_agent_id.is_empty() {
+        requested_agent_id
+    } else if requested_department_id.is_some() {
+        department
+            .agent_ids
+            .iter()
+            .map(|id| id.trim())
+            .find(|id| !id.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| format!("部门没有可用人格：{}", department.id))?
+    } else {
+        assistant_department_agent_id(config)
+            .ok_or_else(|| "路由信息不完整（缺少 agentId）".to_string())?
     };
     if !department
         .agent_ids
