@@ -1,5 +1,9 @@
 # 变更日志
 
+## 发布：v0.9.13
+
+- 发布（release-0.9.13）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.13`，用于触发本轮版本更新构建
+
 ## 发布：v0.9.12
 
 - 修复（chat-local-link-percent-decode）：聊天消息里的本地文件链接在浏览器自动编码中文文件名或 `file:` URL 后，现在会先做安全解码再交给本地打开链路；修正 `%E8%8E%89...` 这类 UTF-8 百分号编码路径无法被 Windows 资源管理器识别的问题，并兼容盘符路径、`file://` 形式与 UNC 路径
