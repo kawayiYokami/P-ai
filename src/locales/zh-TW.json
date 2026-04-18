@@ -747,6 +747,7 @@
   "chat": {
     "command": "指令",
     "noInstructionPresets": "暫無指令預設",
+    "noMentionCandidates": "暫無可提及人格",
     "loadMore": "載入更多...",
     "copy": "複製",
     "regenerate": "重新生成",

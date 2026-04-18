@@ -135,62 +135,16 @@ fn delegate_enqueue_result_message(
         tool_call: None,
         mcp_call: None,
     };
-
-    // 创建事件并入队
-    let event_id = Uuid::new_v4().to_string();
-    let mut runtime_context = runtime_context_new("delegate_result", "delegate_publish");
-    runtime_context.request_id = Some(format!("delegate-result-{}", Uuid::new_v4()));
-    runtime_context.dispatch_id = Some(event_id.clone());
-    runtime_context.origin_conversation_id = Some(root_conversation_id.to_string());
-    runtime_context.target_conversation_id = Some(target_conversation_id.clone());
-    runtime_context.root_conversation_id = Some(root_conversation_id.to_string());
-    runtime_context.executor_agent_id = Some(agent_id.clone());
-    runtime_context.executor_department_id = Some(department_id.clone());
-    let event = ChatPendingEvent {
-        id: event_id,
-        conversation_id: target_conversation_id,
-        created_at: now_iso(),
-        source: ChatEventSource::Delegate,
-        messages: vec![delegate_message],
-        activate_assistant: notify_assistant,
-        session_info: ChatSessionInfo {
+    append_delegate_result_message_and_emit(
+        app_state,
+        &target_conversation_id,
+        &delegate_message,
+        notify_assistant,
+        Some(ChatSessionInfo {
             department_id,
             agent_id,
-        },
-        runtime_context: Some(runtime_context),
-        sender_info: None,
-    };
-
-    let ingress_started_at = std::time::Instant::now();
-    let ingress = ingress_chat_event(app_state, event)?;
-    let ingress_duration_ms = ingress_started_at
-        .elapsed()
-        .as_millis()
-        .min(u128::from(u64::MAX)) as u64;
-    let (ingress_route, ingress_mode, ingress_key_count) = match &ingress {
-        ChatEventIngress::Direct(event) => (
-            "direct_write",
-            "direct",
-            usize::from(!event.id.trim().is_empty()),
-        ),
-        ChatEventIngress::Queued { event_id } => (
-            "queue",
-            "queued",
-            usize::from(!event_id.trim().is_empty()),
-        ),
-    };
-    eprintln!(
-        "[聊天] 任务=chat_ingress 操作=delegate_publish 状态=完成 路由={} 模式={} 关键计数={} 耗时毫秒={}",
-        ingress_route,
-        ingress_mode,
-        ingress_key_count,
-        ingress_duration_ms
-    );
-
-    // 异步触发处理：直写或排队由 ingress 判定，排队仅在确实滞留时通知前端。
-    trigger_chat_event_after_ingress(app_state, ingress);
-
-    Ok(())
+        }),
+    )
 }
 
 const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work-start";
@@ -253,6 +207,7 @@ async fn delegate_execute_agent_run(
             attachments: None,
             model: None,
             extra_text_blocks: None,
+            mentions: None,
             provider_meta: Some(delegate_build_trigger_provider_meta(delegate, root_conversation_id)),
         },
         session: Some(SessionSelector {
@@ -443,5 +398,3 @@ async fn delegate_run_thread_to_completion(
         }
     }
 }
-
-

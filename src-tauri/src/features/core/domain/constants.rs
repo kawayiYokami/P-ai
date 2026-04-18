@@ -8,6 +8,7 @@ const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
 const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const FRONT_DESK_DEPARTMENT_ID: &str = "front-desk-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
+const DELEGATE_TOOL_KIND_USER_MENTION: &str = "user_async_delegate";
 const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const CONVERSATION_KIND_REMOTE_IM_CONTACT: &str = "remote_im_contact";

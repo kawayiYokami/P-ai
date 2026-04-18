@@ -548,6 +548,7 @@ fn main() {
             open_external_url,
             open_workspace_file,
             send_chat_message,
+            send_user_mention_message,
             bind_active_chat_view_stream,
              stop_chat_message,
              get_chat_queue_snapshot,

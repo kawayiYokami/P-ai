@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { ref, type Ref } from "vue";
-import type { ChatMessage, PromptCommandPreset } from "../../../types/app";
+import type { ChatMentionTarget, ChatMessage, PromptCommandPreset } from "../../../types/app";
 
 // ---------------------------------------------------------------------------
 // 1. 类型声明
@@ -43,6 +43,7 @@ type UseChatFlowOptions = {
   getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
   getConversationId?: () => string;
   chatInput: Ref<string>;
+  selectedMentions?: Ref<ChatMentionTarget[]>;
   selectedInstructionPrompts?: Ref<PromptCommandPreset[]>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
   queuedAttachmentNotices?: Ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>;
@@ -65,6 +66,7 @@ type UseChatFlowOptions = {
     images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>;
     attachments?: Array<{ fileName: string; relativePath: string; mime: string }>;
     extraTextBlocks?: string[];
+    mentions?: ChatMentionTarget[];
     session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
     onDelta: Channel<AssistantDeltaEvent>;
   }) => Promise<{
@@ -344,6 +346,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     text: string,
     images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>,
     attachments: Array<{ fileName: string; relativePath: string; mime: string }>,
+    mentions: ChatMentionTarget[],
   ): string {
     const draftId = `${DRAFT_USER_ID_PREFIX}${gen}`;
     const parts: ChatMessage["parts"] = [];
@@ -366,6 +369,17 @@ export function useChatFlow(options: UseChatFlowOptions) {
       parts,
       providerMeta: {
         attachments: attachmentPayload.length > 0 ? attachmentPayload : undefined,
+        message_meta: mentions.length > 0
+          ? {
+              kind: "user_message",
+              mentions: mentions.map((item) => ({
+                agentId: item.agentId,
+                agentName: item.agentName,
+                departmentId: item.departmentId,
+                departmentName: item.departmentName,
+              })),
+            }
+          : undefined,
         _optimistic: true,
       },
     };
@@ -1234,6 +1248,17 @@ export function useChatFlow(options: UseChatFlowOptions) {
         : options.chatInput.value.trim();
     const queuedAttachments = useOverrideMessage ? [] : buildQueuedAttachmentPayload();
     const instructionExtraTextBlocks = overrides?.skipInstructionPrompts ? [] : buildInstructionExtraTextBlocks();
+    const selectedMentions = Array.isArray(options.selectedMentions?.value)
+      ? options.selectedMentions.value
+        .map((item) => ({
+          agentId: String(item.agentId || "").trim(),
+          agentName: String(item.agentName || "").trim(),
+          departmentId: String(item.departmentId || "").trim(),
+          departmentName: String(item.departmentName || "").trim(),
+          avatarUrl: String(item.avatarUrl || "").trim() || undefined,
+        }))
+        .filter((item) => !!item.agentId && !!item.departmentId)
+      : [];
     const extraTextBlocks = [
       ...instructionExtraTextBlocks,
       ...(Array.isArray(overrides?.extraTextBlocks) ? overrides.extraTextBlocks : []),
@@ -1262,6 +1287,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       options.chatInput.value = "";
       options.clipboardImages.value = [];
       if (options.queuedAttachmentNotices) options.queuedAttachmentNotices.value = [];
+      if (options.selectedMentions) options.selectedMentions.value = [];
     }
 
     const gen = ++generation;
@@ -1277,7 +1303,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     });
     pendingTerminalEvent = null;
     if (!hasForegroundRoundInFlight) {
-      insertUserDraft(gen, plainText, sentImages, attachments);
+      insertUserDraft(gen, plainText, sentImages, attachments, selectedMentions);
     }
 
     if (!hasForegroundRoundInFlight) {
@@ -1301,6 +1327,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         images: sentImages,
         attachments: attachments.length > 0 ? attachments : undefined,
         extraTextBlocks: extraTextBlocks.length > 0 ? extraTextBlocks : undefined,
+        mentions: selectedMentions.length > 0 ? selectedMentions : undefined,
         session: {
           ...sendSession,
           conversationId: options.getConversationId ? options.getConversationId() : "",

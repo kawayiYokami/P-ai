@@ -82,6 +82,7 @@ fn delegate_resolve_context(
 
 fn delegate_create_record(
     app_state: &AppState,
+    kind: &str,
     root_conversation_id: &str,
     parent_delegate_id: Option<String>,
     source_department_id: &str,
@@ -99,7 +100,7 @@ fn delegate_create_record(
     delegate_store_create_delegate(
         &app_state.data_path,
         &DelegateCreateInput {
-            kind: DELEGATE_TOOL_KIND_DELEGATE.to_string(),
+            kind: kind.to_string(),
             conversation_id: root_conversation_id.to_string(),
             parent_delegate_id,
             source_department_id: source_department_id.to_string(),
@@ -384,6 +385,7 @@ async fn builtin_delegate(
 
     let delegate = delegate_create_record(
         app_state,
+        DELEGATE_TOOL_KIND_DELEGATE,
         &preflight.root_conversation_id,
         None,
         &preflight.source_department.id,
@@ -466,6 +468,7 @@ async fn delegate_execute_sync(
         .map(|thread| thread.delegate_id.clone());
     let delegate = delegate_create_record(
         app_state,
+        DELEGATE_TOOL_KIND_DELEGATE,
         &preflight.root_conversation_id,
         parent_delegate_id,
         &preflight.source_department.id,

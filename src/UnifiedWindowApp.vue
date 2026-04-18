@@ -91,6 +91,8 @@
       :chat-persona-name-map="chatPersonaNameMap"
       :chat-persona-avatar-url-map="chatPersonaAvatarUrlMap"
       :chat-persona-presence-chips="chatPersonaPresenceChips"
+      :chat-mention-options="chatMentionOptions"
+      :selected-chat-mentions="selectedChatMentions"
       :latest-user-text="latestUserText"
       :latest-user-images="latestUserImages"
       :latest-assistant-text="latestAssistantText"
@@ -202,6 +204,8 @@
       :clear-agent-avatar="clearAgentAvatar"
       :update-chat-input="handleChatInputUpdate"
       :update-selected-instruction-prompts="updateSelectedInstructionPrompts"
+      :add-chat-mention="addChatMention"
+      :remove-chat-mention="removeChatMention"
       :update-selected-chat-model-id="updateAssistantDepartmentApiConfigId"
       :update-plan-mode-enabled="updatePlanModeEnabled"
       :set-side-conversation-list-visible="handleSideConversationListVisibleChange"
@@ -369,6 +373,7 @@ import type { ChatWorkspaceChoice } from "./features/chat/composables/use-chat-w
 import type {
   PersonaProfile,
   AppConfig,
+  ChatMentionTarget,
   ChatMessage,
   PromptCommandPreset,
   ChatTodoItem,
@@ -404,6 +409,11 @@ type ConversationMessagesAfterSyncedPayload = {
   messages?: ChatMessage[];
   fallbackMode?: string | null;
   error?: string | null;
+};
+
+type ConversationMessageAppendedPayload = {
+  conversationId?: string;
+  message?: ChatMessage | null;
 };
 
 const viewMode = ref<"chat" | "archives" | "config">(props.fixedViewMode ?? "config");
@@ -456,6 +466,7 @@ let chatRoundCompletedUnlisten: UnlistenFn | null = null;
 let chatRoundFailedUnlisten: UnlistenFn | null = null;
 let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
+let chatConversationMessageAppendedUnlisten: UnlistenFn | null = null;
 let chatConversationTodosUpdatedUnlisten: UnlistenFn | null = null;
 let foregroundPaintTraceSeq = 0;
 let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -477,6 +488,7 @@ const backgroundVoiceScreenshotKeywords = ref("");
 const backgroundVoiceScreenshotMode = ref<"desktop" | "focused_window">("focused_window");
 const instructionPresets = ref<PromptCommandPreset[]>([]);
 const selectedInstructionPrompts = ref<PromptCommandPreset[]>([]);
+const selectedChatMentions = ref<ChatMentionTarget[]>([]);
 const chatInput = ref("");
 const currentChatConversationId = ref("");
 const sideConversationListVisible = ref(false);
@@ -519,6 +531,29 @@ function updateSelectedInstructionPrompts(value: PromptCommandPreset[]) {
         }))
         .filter((item) => !!item.id && !!item.prompt)
     : [];
+}
+
+function addChatMention(value: ChatMentionTarget) {
+  const agentId = String(value?.agentId || "").trim();
+  const departmentId = String(value?.departmentId || "").trim();
+  const agentName = String(value?.agentName || "").trim();
+  if (!agentId || !departmentId || !agentName) return;
+  if (selectedChatMentions.value.some((item) => item.agentId === agentId)) return;
+  selectedChatMentions.value = [
+    ...selectedChatMentions.value,
+    {
+      agentId,
+      agentName,
+      departmentId,
+      departmentName: String(value?.departmentName || "").trim(),
+      avatarUrl: String(value?.avatarUrl || "").trim() || undefined,
+    },
+  ];
+}
+
+function removeChatMention(agentId: string) {
+  const normalizedAgentId = String(agentId || "").trim();
+  selectedChatMentions.value = selectedChatMentions.value.filter((item) => item.agentId !== normalizedAgentId);
 }
 
 async function updatePlanModeEnabled(value: boolean) {
@@ -1345,7 +1380,7 @@ const chatPersonaPresenceChips = computed<ChatPersonaPresenceChip[]>(() => {
       departmentName:
         String(chatPersonaDepartmentNameMap.value[id] || "").trim()
         || (id === "user-persona" ? "用户" : "未归属部门"),
-      isFrontSpeaking: chatting.value && id === currentForegroundAgentId.value,
+      isFrontSpeaking: id === currentForegroundAgentId.value,
       hasBackgroundTask: backgroundTaskCount > 0,
     });
   }
@@ -1356,6 +1391,31 @@ const chatPersonaPresenceChips = computed<ChatPersonaPresenceChip[]>(() => {
     if (right.id === "user-persona" && left.id !== "user-persona") return 1;
     return left.name.localeCompare(right.name, config.uiLanguage === "en-US" ? "en" : "zh-CN");
   });
+});
+const chatMentionOptions = computed<ChatMentionTarget[]>(() => {
+  const seen = new Set<string>();
+  const next: ChatMentionTarget[] = [];
+  for (const department of config.departments) {
+    const departmentId = String(department.id || "").trim();
+    if (!departmentId) continue;
+    const departmentName = String(department.name || "").trim() || departmentId;
+    const firstAgentId = Array.isArray(department.agentIds)
+      ? department.agentIds.map((item) => String(item || "").trim()).find((item) => !!item)
+      : "";
+    if (!firstAgentId || seen.has(firstAgentId)) continue;
+    if (firstAgentId === currentForegroundAgentId.value) continue;
+    const persona = personas.value.find((item) => String(item.id || "").trim() === firstAgentId);
+    if (!persona || persona.isBuiltInUser || persona.isBuiltInSystem) continue;
+    seen.add(firstAgentId);
+    next.push({
+      agentId: firstAgentId,
+      agentName: String(persona.name || "").trim() || firstAgentId,
+      departmentId,
+      departmentName,
+      avatarUrl: String(chatPersonaAvatarUrlMap.value[firstAgentId] || "").trim() || undefined,
+    });
+  }
+  return next;
 });
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
@@ -2100,6 +2160,32 @@ async function applyConversationMessagesAfterSynced(payload: ConversationMessage
   }
 }
 
+function applyConversationMessageAppended(payload?: ConversationMessageAppendedPayload | null) {
+  const conversationId = String(payload?.conversationId || "").trim();
+  const message = payload?.message || null;
+  const messageId = String(message?.id || "").trim();
+  if (!conversationId || !message || !messageId) return;
+
+  const cachedDisplay = freezeConversationMessages(conversationMessageCache.value[conversationId] || []);
+  const cachedFormal = formalizeConversationMessages(cachedDisplay);
+  const nextCached = cachedFormal.some((item) => String(item?.id || "").trim() === messageId)
+    ? cachedFormal
+    : [...cachedFormal, message];
+  cacheConversationMessages(conversationId, nextCached);
+
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (conversationId !== currentConversationId) {
+    setConversationBadge(conversationId, "completed");
+    return;
+  }
+
+  const existing = allMessages.value.filter((item) => String(item?.id || "").trim() !== messageId);
+  allMessages.value = [...existing, message];
+  clearConversationBadge(conversationId);
+  updateForegroundConversationOverviewFromMessages(conversationId, message);
+  triggerConversationScrollToBottom(conversationId, "delegate_message_appended");
+}
+
 function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   const nextConversationId = String(snapshot.conversationId || "").trim();
   const nextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
@@ -2720,6 +2806,15 @@ onMounted(() => {
       .catch((error) => {
         console.error("[聊天追踪][异步补消息] 监听器注册失败", error);
       });
+    void listen<ConversationMessageAppendedPayload>("easy-call:conversation-message-appended", (event) => {
+      applyConversationMessageAppended(event.payload);
+    })
+      .then((unlisten) => {
+        chatConversationMessageAppendedUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[聊天追踪][追加消息] 监听器注册失败", error);
+      });
 
   }
   scheduleChatWindowActiveStateSync("mounted");
@@ -2752,6 +2847,10 @@ onBeforeUnmount(() => {
   if (chatConversationMessagesAfterSyncedUnlisten) {
     chatConversationMessagesAfterSyncedUnlisten();
     chatConversationMessagesAfterSyncedUnlisten = null;
+  }
+  if (chatConversationMessageAppendedUnlisten) {
+    chatConversationMessageAppendedUnlisten();
+    chatConversationMessageAppendedUnlisten = null;
   }
   if (chatConversationTodosUpdatedUnlisten) {
     chatConversationTodosUpdatedUnlisten();
@@ -2899,6 +2998,7 @@ const chatFlow = useChatFlow({
   getConversationId: () => String(currentChatConversationId.value || "").trim(),
   chatInput,
   selectedInstructionPrompts,
+  selectedMentions: selectedChatMentions,
   clipboardImages,
   queuedAttachmentNotices,
   latestUserText,
@@ -2914,8 +3014,12 @@ const chatFlow = useChatFlow({
   t: tr,
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   removeBinaryPlaceholders,
-  invokeSendChatMessage: ({ text, displayText, images, attachments, extraTextBlocks, session, onDelta }) =>
-    invokeTauri("send_chat_message", {
+  invokeSendChatMessage: ({ text, displayText, images, attachments, extraTextBlocks, mentions, session, onDelta }) =>
+    invokeTauri(
+      Array.isArray(mentions) && mentions.length > 0
+        ? "send_user_mention_message"
+        : "send_chat_message",
+      {
       input: {
         payload: {
           text,
@@ -2923,6 +3027,14 @@ const chatFlow = useChatFlow({
           images,
           attachments: attachments && attachments.length > 0 ? attachments : undefined,
           extraTextBlocks: extraTextBlocks && extraTextBlocks.length > 0 ? extraTextBlocks : undefined,
+          mentions: Array.isArray(mentions) && mentions.length > 0
+            ? mentions.map((item) => ({
+                agentId: item.agentId,
+                agentName: item.agentName,
+                departmentId: item.departmentId,
+                departmentName: item.departmentName,
+              }))
+            : undefined,
         },
         session: {
           apiConfigId: session.apiConfigId,
@@ -3024,7 +3136,8 @@ const chatFlow = useChatFlow({
         windowLabel: tauriWindowLabel.value,
         appended: appendedSummary,
       })}`);
-      if (appended.some((message) => isLocalOwnUserMessage(message))) {
+      const appendedOwnUserMessage = appended.some((message) => isLocalOwnUserMessage(message));
+      if (appendedOwnUserMessage) {
         latestOwnMessageAlignRequest.value += 1;
       }
       console.warn("[聊天追踪][历史刷写处理] 合并完成", {
@@ -3105,6 +3218,13 @@ watch(
 );
 
 watch(
+  () => String(currentChatConversationId.value || "").trim(),
+  () => {
+    selectedChatMentions.value = [];
+  },
+);
+
+watch(
   [() => String(currentChatConversationId.value || "").trim(), () => allMessages.value],
   ([conversationId, messages]) => {
     if (!conversationId) return;
@@ -3157,6 +3277,7 @@ const {
   chatting,
   forcingArchive,
   chatInput,
+  selectedMentions: selectedChatMentions,
   clipboardImages,
   deleteUnarchivedConversationFromArchives,
   sendChat: chatFlow.sendChat,

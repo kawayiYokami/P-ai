@@ -747,6 +747,7 @@
   "chat": {
     "command": "Command",
     "noInstructionPresets": "No instruction presets yet",
+    "noMentionCandidates": "No mentionable personas",
     "loadMore": "Load more...",
     "stop": "Stop",
     "stopReplying": "Stop Replying",

@@ -40,6 +40,7 @@ fn build_remote_im_enqueue_input(
             attachments: if attachments.is_empty() { None } else { Some(attachments) },
             model: None,
             extra_text_blocks: None,
+            mentions: None,
             provider_meta: None,
         },
     }

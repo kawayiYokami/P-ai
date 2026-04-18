@@ -169,6 +169,8 @@
             :workspace-button-label="t('chat.allowedWorkspaceButton')"
             :workspace-button-name="currentWorkspaceName"
             :persona-presence-chips="personaPresenceChips"
+            :mentionable-agent-ids="mentionableAgentIds"
+            :selected-mention-agent-ids="selectedMentionAgentIds"
             :supervision-active="supervisionActive"
             :supervision-label="t('chat.supervision.button')"
             :supervision-active-label="t('chat.supervision.buttonActive')"
@@ -177,6 +179,16 @@
             :review-panel-open="toolReviewPanelOpen"
             :review-button-enabled="toolReviewButtonEnabled"
             @lock-workspace="$emit('lockWorkspace')"
+            @mention-persona="agentId => {
+              const normalizedAgentId = String(agentId || '').trim();
+              if (!normalizedAgentId) return;
+              if (selectedMentionAgentIds.includes(normalizedAgentId)) {
+                emit('removeMention', normalizedAgentId);
+                return;
+              }
+              const match = mentionOptions.find((item) => String(item.agentId || '').trim() === normalizedAgentId);
+              if (match) emit('addMention', match);
+            }"
             @open-supervision-task="$emit('openSupervisionTask')"
             @toggle-tool-review="toggleToolReviewPanel"
           />
@@ -212,6 +224,8 @@
           ref="composerPanelRef"
           :chat-input="chatInput"
           :instruction-presets="instructionPresets"
+          :mention-options="mentionOptions"
+          :selected-mentions="selectedMentions"
           :chat-input-placeholder="chatInputPlaceholder"
           :clipboard-images="clipboardImages"
           :queued-attachment-notices="queuedAttachmentNotices"
@@ -239,6 +253,8 @@
           :create-conversation-department-options="createConversationDepartmentOptions"
           :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
           @update:chat-input="$emit('update:chatInput', $event)"
+          @add-mention="$emit('addMention', $event)"
+          @remove-mention="$emit('removeMention', $event)"
           @remove-clipboard-image="$emit('removeClipboardImage', $event)"
           @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
           @start-recording="$emit('startRecording')"
@@ -313,7 +329,7 @@ import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, ListTodo } from "lucide-vue-next";
 import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, PromptCommandPreset } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, PromptCommandPreset } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
@@ -340,6 +356,8 @@ const props = defineProps<{
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
   personaPresenceChips: ChatPersonaPresenceChip[];
+  mentionOptions: ChatMentionTarget[];
+  selectedMentions: ChatMentionTarget[];
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
@@ -511,6 +529,16 @@ const activeTurnGroupId = computed(() => {
   return "";
 });
 const activeTurnUserId = computed(() => activeTurnGroupId.value);
+const mentionableAgentIds = computed(() =>
+  props.mentionOptions
+    .map((item) => String(item?.agentId || "").trim())
+    .filter((value, index, list) => !!value && list.indexOf(value) === index),
+);
+const selectedMentionAgentIds = computed(() =>
+  (Array.isArray(props.selectedMentions) ? props.selectedMentions : [])
+    .map((item) => String(item?.agentId || "").trim())
+    .filter((value, index, list) => !!value && list.indexOf(value) === index),
+);
 const latestPendingPlanMessageId = computed(() => {
   for (let idx = props.messageBlocks.length - 1; idx >= 0; idx -= 1) {
     const block = props.messageBlocks[idx];
@@ -531,6 +559,8 @@ const latestPendingPlanMessageId = computed(() => {
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
   (e: "update:selectedInstructionPrompts", value: PromptCommandPreset[]): void;
+  (e: "addMention", value: ChatMentionTarget): void;
+  (e: "removeMention", agentId: string): void;
   (e: "sideConversationListVisibleChange", value: boolean): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;

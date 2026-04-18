@@ -2,6 +2,8 @@
 
 ## 发布：v0.9.11
 
+- 功能（user-mention-async-delegate）：聊天输入区新增结构化 `@人格` 异步委托链路；候选按人格去重，只允许选择存在部门归属的人格，点击工具栏头像或输入裸 `@` 均可 toggle mention；带 mention 的消息会走独立 `send_user_mention_message` 路径，不再触发当前会话负责部门主回答，而是按人格映射首部门并发派发用户级异步委托；mentions 会写入消息元数据、随撤回/重生恢复，并在用户气泡与发给模型的正文前缀中统一显示为 `@A,@B`
+- 修复（delegate-result-append-event）：所有委托结果（用户 mention 委托与 LLM delegate）统一改为“写回原会话后直接追加消息事件”推送前端，不再依赖 `history_flushed` 才能看见结果；同时移除请求体中误泄漏的 `targetAgentId/targetDepartmentId` 内部上下文字段，补齐委托失败写回日志，降低“后端完成但前端黑洞”的偶发问题
 - 发布（release-0.9.11）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.11`，用于触发本轮版本更新构建
 - 重构（terminal-command-analyzer）：新增终端命令语义分析器，按 shell 语义区分读取白名单、重定向与路径访问意图；读取类白名单命令允许跨目录读取，非白名单命令再按工作目录权限等级处理，`full_access` 下跳过 AI 审查但仍保留路径边界校验；同时修复 `2>/dev/null` / `2>nul` 误判、补齐相关测试，并让终端/补丁拒绝结果继续回给模型而不再非人为打断整轮工具调用
 

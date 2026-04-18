@@ -24,6 +24,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const lastScrollTop = ref(0);
   const userScrollingDown = ref(false);
   const suppressNextAnimatedConversationScroll = ref(false);
+  let suppressAnimatedConversationScrollUntilMs = 0;
 
   let composerResizeObserver: ResizeObserver | null = null;
   let activeTurnLayoutObserver: ResizeObserver | null = null;
@@ -200,6 +201,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     options.activeConversationId,
     () => {
       suppressNextAnimatedConversationScroll.value = true;
+      suppressAnimatedConversationScrollUntilMs = Date.now() + 480;
       nextTick(() => {
         updateActiveTurnLayout();
         syncActiveTurnLayoutObserver();
@@ -231,10 +233,15 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
         if (!options.lastMessageIsOwn.value) {
-          const behavior: ScrollBehavior = suppressNextAnimatedConversationScroll.value ? "auto" : "smooth";
+          const shouldSuppressAnimation =
+            suppressNextAnimatedConversationScroll.value
+            || Date.now() < suppressAnimatedConversationScrollUntilMs;
+          const behavior: ScrollBehavior = shouldSuppressAnimation ? "auto" : "smooth";
           requestAnimationFrame(() => {
             alignActiveTurnUserToTop(behavior);
-            suppressNextAnimatedConversationScroll.value = false;
+            if (Date.now() >= suppressAnimatedConversationScrollUntilMs) {
+              suppressNextAnimatedConversationScroll.value = false;
+            }
           });
         } else {
           suppressNextAnimatedConversationScroll.value = false;
@@ -257,6 +264,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         updateActiveTurnLayout();
         syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
+        requestAnimationFrame(() => {
+          alignActiveTurnUserToTop("smooth");
+        });
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);

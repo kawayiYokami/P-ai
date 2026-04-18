@@ -126,6 +126,7 @@ const CHAT_HISTORY_FLUSHED_EVENT: &str = "easy-call:history-flushed";
 const CHAT_ROUND_COMPLETED_EVENT: &str = "easy-call:round-completed";
 const CHAT_ROUND_FAILED_EVENT: &str = "easy-call:round-failed";
 const CHAT_ASSISTANT_DELTA_EVENT: &str = "easy-call:assistant-delta";
+const CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT: &str = "easy-call:conversation-message-appended";
 const CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT: &str = "easy-call:conversation-overview-updated";
 const CHAT_CONCURRENCY_LIMIT: usize = 8;
 
@@ -1189,6 +1190,7 @@ async fn activate_main_assistant(
             attachments: None,
             model: None,
             extra_text_blocks: None,
+            mentions: None,
             provider_meta: None,
         },
         speaker_agent_id: None,

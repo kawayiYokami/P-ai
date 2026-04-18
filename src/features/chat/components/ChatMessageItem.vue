@@ -332,10 +332,10 @@
           ],
       ]">
         <div
-          v-if="block.text"
+          v-if="isOwnMessage(block) ? !!ownMessageDisplayText(block).trim() : !!block.text"
           class="whitespace-pre-wrap break-all"
           style="overflow-wrap: anywhere;"
-        >{{ block.text }}</div>
+        >{{ isOwnMessage(block) ? ownMessageDisplayText(block) : block.text }}</div>
         <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
           <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
             <img
@@ -499,6 +499,18 @@ function isOwnMessage(block: ChatMessageBlock): boolean {
   if (block.remoteImOrigin) return false;
   const id = String(block.speakerAgentId || "").trim();
   return !id || id === "user-persona";
+}
+
+function ownMessageDisplayText(block: ChatMessageBlock): string {
+  const mentions = Array.isArray(block.mentions) ? block.mentions : [];
+  const mentionPrefix = mentions
+    .map((item) => `@${String(item.agentName || "").trim()}`)
+    .filter((item) => item !== "@")
+    .join(",");
+  const body = String(block.text || "");
+  if (!mentionPrefix) return body;
+  if (!body.trim()) return mentionPrefix;
+  return `${mentionPrefix} ${body}`;
 }
 
 function showStreamingUi(block: ChatMessageBlock): boolean {

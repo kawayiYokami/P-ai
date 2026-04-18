@@ -1,4 +1,4 @@
-import type { ChatMessage, PlanMessageCard, TaskTriggerMessageCard } from "../types/app";
+import type { ChatMentionTarget, ChatMessage, PlanMessageCard, TaskTriggerMessageCard } from "../types/app";
 import {
   extractMessageAttachmentFiles,
   extractMessageAudios,
@@ -29,6 +29,7 @@ export type NormalizedToolHistoryEvent = {
 
 export type ChatMessageDisplayProjection = {
   speakerAgentId?: string;
+  mentions: ChatMentionTarget[];
   text: string;
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
@@ -229,6 +230,32 @@ function resolveSpeakerAgentId(message: ChatMessage): string {
   return "";
 }
 
+function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
+  const meta = (message.providerMeta || {}) as Record<string, unknown>;
+  const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
+  const raw = Array.isArray(messageMeta.mentions) ? messageMeta.mentions : [];
+  const seen = new Set<string>();
+  const mentions: ChatMentionTarget[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const mention = item as Record<string, unknown>;
+    const agentId = String(mention.agentId || "").trim();
+    const departmentId = String(mention.departmentId || "").trim();
+    if (!agentId || !departmentId) continue;
+    const dedupKey = `${agentId}::${departmentId}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    mentions.push({
+      agentId,
+      agentName: String(mention.agentName || agentId).trim() || agentId,
+      departmentId,
+      departmentName: String(mention.departmentName || departmentId).trim() || departmentId,
+      avatarUrl: undefined,
+    });
+  }
+  return mentions;
+}
+
 export function projectMessageForDisplay(message: ChatMessage): ChatMessageDisplayProjection {
   const rendered = removeBinaryPlaceholders(renderMessage(message));
   const parsed = parseAssistantStoredText(rendered);
@@ -250,6 +277,7 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
         : rendered;
   return {
     speakerAgentId: resolveSpeakerAgentId(message) || undefined,
+    mentions: resolveMessageMentions(message),
     text: displayText,
     images: extractMessageImages(message),
     audios: extractMessageAudios(message),

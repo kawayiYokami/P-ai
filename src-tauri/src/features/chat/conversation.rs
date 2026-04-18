@@ -1040,6 +1040,20 @@ fn prompt_current_date_timezone_line(_ui_language: &str) -> String {
 }
 
 fn render_prompt_message_text(message: &ChatMessage) -> String {
+    // 注意：这里是“通用消息渲染”层，只负责把一条消息已有内容转换成模型可读文本。
+    // 不要在这里注入 latest user 专属策略，也不要在这里拼接用户 @ mention 前缀。
+    //
+    // 原因：
+    // 1. 最终请求体分成“history_messages”和“latest_user_text”两块分别组装；
+    // 2. 预览与实际发送都依赖这两块的最终组装结果，而不是单靠这里；
+    // 3. 若把 @ mention、最新消息特判等逻辑塞进这里，容易出现：
+    //    - 预览看不到
+    //    - 只有部分消息生效
+    //    - 历史消息 / 最新消息行为不一致
+    //
+    // 正确边界：
+    // - 这里：只做通用内容渲染
+    // - build_prompt_with_mode(...)：负责 history / latest user 的请求体组装策略
     render_message_content_for_model(message)
 }
 
@@ -1053,6 +1067,31 @@ fn render_prompt_user_text_only(message: &ChatMessage) -> String {
         }
     }
     chunks.join("\n")
+}
+
+fn render_prompt_user_mention_prefix(message: &ChatMessage) -> String {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("message_meta").or_else(|| meta.get("messageMeta")))
+        .and_then(Value::as_object)
+        .and_then(|message_meta| message_meta.get("mentions"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("agentName")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| format!("@{}", value))
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default()
 }
 
 fn remote_im_origin_from_message(message: &ChatMessage) -> Option<&Value> {
@@ -1080,32 +1119,6 @@ fn remote_im_contact_key_from_message(message: &ChatMessage) -> Option<String> {
         return None;
     }
     Some(format!("{}::{}", channel_id, contact_id))
-}
-
-fn build_prompt_message_context_block(message: &ChatMessage) -> Option<String> {
-    let mut lines = Vec::<String>::new();
-    if let Some(meta) = message.provider_meta.as_ref() {
-        if let Some(target_department_id) = meta
-            .get("targetDepartmentId")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            lines.push(format!("targetDepartmentId: {}", target_department_id));
-        }
-        if let Some(target_agent_id) = meta
-            .get("targetAgentId")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            lines.push(format!("targetAgentId: {}", target_agent_id));
-        }
-    }
-    if lines.is_empty() {
-        return None;
-    }
-    Some(format!("[消息上下文]\n{}", lines.join("\n")))
 }
 
 fn prompt_retrieved_memory_ids_from_message(message: &ChatMessage) -> Vec<String> {
@@ -1191,9 +1204,6 @@ fn prompt_user_extra_blocks_for_message(
         if !trimmed.is_empty() {
             blocks.push(trimmed.to_string());
         }
-    }
-    if let Some(context_block) = build_prompt_message_context_block(message) {
-        blocks.push(context_block);
     }
     if let Some(recall_block) =
         prompt_recall_memory_block_for_message(message, recall_memories, seen_memory_ids)
@@ -2038,7 +2048,15 @@ fn build_prompt_with_mode(
             Vec::new()
         };
         let mut text = if is_user {
-            render_prompt_user_text_only(message)
+            let rendered = render_prompt_user_text_only(message);
+            let mention_prefix = render_prompt_user_mention_prefix(message);
+            if mention_prefix.is_empty() {
+                rendered
+            } else if rendered.trim().is_empty() {
+                mention_prefix
+            } else {
+                format!("{mention_prefix}\n{rendered}")
+            }
         } else {
             render_prompt_message_text(message)
         };
@@ -2211,7 +2229,17 @@ fn build_prompt_with_mode(
     let mut latest_audios = Vec::<PreparedBinaryPayload>::new();
 
     if let Some(msg) = latest_user {
-        let latest_user_text_rendered = render_prompt_user_text_only(&msg);
+        let latest_user_text_rendered = {
+            let rendered = render_prompt_user_text_only(&msg);
+            let mention_prefix = render_prompt_user_mention_prefix(&msg);
+            if mention_prefix.is_empty() {
+                rendered
+            } else if rendered.trim().is_empty() {
+                mention_prefix
+            } else {
+                format!("{mention_prefix}\n{rendered}")
+            }
+        };
         let (resolved_images, resolved_audios) =
             resolve_media_from_message(&msg, data_path, "[提示词] 最新消息");
         let include_remote_identity = remote_im_contact_key_from_message(&msg)

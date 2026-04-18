@@ -119,6 +119,7 @@ async fn handle_weixin_oc_inbound_message(
                 },
                 model: None,
                 extra_text_blocks: None,
+                mentions: None,
                 provider_meta: msg.context_token.map(|token| {
                     serde_json::json!({
                         "contextToken": token,

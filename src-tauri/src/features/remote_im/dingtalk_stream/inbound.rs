@@ -232,6 +232,7 @@ async fn parse_and_enqueue_dingtalk_callback(
             },
             model: None,
             extra_text_blocks: None,
+            mentions: None,
             provider_meta: Some(provider_meta),
         },
     };
@@ -247,7 +248,7 @@ async fn run_single_dingtalk_stream_session(
     let client_secret = credential_text(&channel.credentials, "clientSecret");
     if client_id.is_empty() || client_secret.is_empty() {
         return Err(format!(
-            "dingtalk channel '{}' missing clientId/clientSecret",
+            "钉钉渠道 '{}' 缺少 clientId/clientSecret",
             channel.id
         ));
     }
@@ -257,7 +258,7 @@ async fn run_single_dingtalk_stream_session(
             &channel.id,
             "info",
             &format!(
-                "[钉钉生命周期] task={} status=开始 trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms=0",
+                "[钉钉生命周期] 开始 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms=0",
                 channel.id
             ),
         )
@@ -304,7 +305,7 @@ async fn run_single_dingtalk_stream_session(
             &channel.id,
             "info",
             &format!(
-                "[钉钉生命周期] task={} status=完成 trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms={}",
+                "[钉钉生命周期] 完成 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms={}",
                 channel.id,
                 started_at.elapsed().as_millis()
             ),
@@ -312,4 +313,3 @@ async fn run_single_dingtalk_stream_session(
         .await;
     Ok(())
 }
-

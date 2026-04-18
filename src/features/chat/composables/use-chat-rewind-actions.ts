@@ -1,6 +1,6 @@
 import { type Ref, type ShallowRef } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessage } from "../../../types/app";
+import type { ChatMentionTarget, ChatMessage } from "../../../types/app";
 
 type RewindConversationResult = {
   removedCount: number;
@@ -18,6 +18,7 @@ type UseChatRewindActionsOptions = {
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   chatInput: Ref<string>;
+  selectedMentions: Ref<ChatMentionTarget[]>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
   deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
   sendChat: () => Promise<void>;
@@ -53,6 +54,33 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     }
     return String(error);
   }
+
+  function extractRecallableMentions(message: ChatMessage): ChatMentionTarget[] {
+    const providerMeta = (message.providerMeta || {}) as Record<string, unknown>;
+    const messageMeta = ((providerMeta.message_meta || providerMeta.messageMeta || {}) as Record<string, unknown>);
+    const raw = Array.isArray(messageMeta.mentions) ? messageMeta.mentions : [];
+    const seen = new Set<string>();
+    const mentions: ChatMentionTarget[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as Record<string, unknown>;
+      const agentId = String(entry.agentId || "").trim();
+      const departmentId = String(entry.departmentId || "").trim();
+      if (!agentId || !departmentId) continue;
+      const dedupKey = `${agentId}::${departmentId}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      mentions.push({
+        agentId,
+        agentName: String(entry.agentName || agentId).trim() || agentId,
+        departmentId,
+        departmentName: String(entry.departmentName || departmentId).trim() || departmentId,
+        avatarUrl: undefined,
+      });
+    }
+    return mentions;
+  }
+
   function resolveRewindTargetUserMessage(currentMessages: ChatMessage[], turnId: string): { targetUserMessageId: string; keepCountFromLocal: number } | null {
     const turnMessageId = String(turnId || "").trim();
     if (!turnMessageId) return null;
@@ -203,9 +231,11 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       return;
     }
     options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
+    options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
     options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
     console.info("[会话撤回] 已回填输入框", {
       textLength: options.chatInput.value.length,
+      mentionCount: options.selectedMentions.value.length,
       imageCount: options.clipboardImages.value.length,
       turnId: payload.turnId,
     });
@@ -217,6 +247,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
     if (!recalledUserMessage) return;
     options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
+    options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
     options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
     await options.sendChat();
   }

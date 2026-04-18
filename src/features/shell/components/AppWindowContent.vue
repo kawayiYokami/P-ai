@@ -105,6 +105,8 @@
         :persona-name-map="chatPersonaNameMap"
         :persona-avatar-url-map="chatPersonaAvatarUrlMap"
         :persona-presence-chips="chatPersonaPresenceChips"
+        :mention-options="chatMentionOptions"
+        :selected-mentions="selectedChatMentions"
         :latest-user-text="latestUserText"
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
@@ -152,6 +154,8 @@
         :current-theme="currentTheme"
         @update:chat-input="updateChatInput"
         @update:selected-instruction-prompts="updateSelectedInstructionPrompts"
+        @add-mention="addChatMention"
+        @remove-mention="removeChatMention"
         @side-conversation-list-visible-change="setSideConversationListVisible"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
@@ -275,6 +279,7 @@ import type {
   AppConfig,
   ArchiveSummary,
   ChatConversationOverviewItem,
+  ChatMentionTarget,
   ChatMessage,
   ChatMessageBlock,
   ChatTodoItem,
@@ -352,6 +357,8 @@ const props = defineProps<{
   chatPersonaNameMap: Record<string, string>;
   chatPersonaAvatarUrlMap: Record<string, string>;
   chatPersonaPresenceChips: ChatPersonaPresenceChip[];
+  chatMentionOptions: ChatMentionTarget[];
+  selectedChatMentions: ChatMentionTarget[];
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
@@ -475,6 +482,8 @@ const props = defineProps<{
   clearAgentAvatar: (input: { agentId: string }) => void;
   updateChatInput: (value: string) => void;
   updateSelectedInstructionPrompts: (value: PromptCommandPreset[]) => void;
+  addChatMention: (value: ChatMentionTarget) => void;
+  removeChatMention: (agentId: string) => void;
   updateSelectedChatModelId: (value: string) => void;
   updatePlanModeEnabled: (value: boolean) => void;
   setSideConversationListVisible: (value: boolean) => void;

@@ -410,6 +410,7 @@ export type ChatMessageBlock = {
   speakerAgentId?: string;
   createdAt?: string;
   providerMeta?: ChatMessage["providerMeta"];
+  mentions?: ChatMentionTarget[];
   text: string;
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
@@ -437,6 +438,14 @@ export type ChatPersonaPresenceChip = {
   departmentName: string;
   isFrontSpeaking: boolean;
   hasBackgroundTask: boolean;
+};
+
+export type ChatMentionTarget = {
+  agentId: string;
+  agentName: string;
+  departmentId: string;
+  departmentName: string;
+  avatarUrl?: string;
 };
 
 export type ArchiveSummary = {

@@ -21,7 +21,20 @@ struct ChatInputPayload {
     #[serde(default)]
     extra_text_blocks: Option<Vec<String>>,
     #[serde(default)]
+    mentions: Option<Vec<UserMentionTargetInput>>,
+    #[serde(default)]
     provider_meta: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserMentionTargetInput {
+    agent_id: String,
+    #[serde(default)]
+    agent_name: Option<String>,
+    department_id: String,
+    #[serde(default)]
+    department_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

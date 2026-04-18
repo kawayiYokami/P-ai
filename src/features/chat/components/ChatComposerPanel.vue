@@ -45,6 +45,23 @@
       <span class="loading loading-spinner loading-sm"></span>
       <span>{{ t("chat.transcribing") }}</span>
     </div>
+    <div v-if="selectedMentions.length > 0" class="mb-2 flex flex-wrap gap-1">
+      <span
+        v-for="item in selectedMentions"
+        :key="item.agentId"
+        class="badge gap-1 bg-base-300 px-3 py-3 text-sm text-base-content border-transparent"
+      >
+        <span class="max-w-24 truncate leading-none">@{{ item.agentName }}</span>
+        <button
+          type="button"
+          class="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-base-content transition hover:bg-error hover:text-error-content"
+          :disabled="chatting || frozen"
+          @click.stop="removeSelectedMention(item.agentId)"
+        >
+          <X class="h-3 w-3" />
+        </button>
+      </span>
+    </div>
     <div v-if="selectedInstructionPrompts.length > 0" class="mb-2 flex flex-wrap gap-1">
       <div
         v-for="item in selectedInstructionPrompts"
@@ -75,16 +92,67 @@
           {{ t("chat.noInstructionPresets") }}
         </div>
       </div>
-      <textarea
-        ref="chatInputRef"
-        v-model="localChatInput"
-        class="w-full textarea resize-none overflow-y-auto chat-input-no-focus scrollbar-gutter-stable min-h-8"
-        rows="1"
-        :disabled="frozen"
-        :placeholder="chatInputPlaceholder"
-        @input="scheduleResizeChatInput"
-        @keydown="handleChatInputKeydown"
-      ></textarea>
+      <div class="relative">
+        <textarea
+          ref="chatInputRef"
+          v-model="localChatInput"
+          class="w-full textarea resize-none overflow-y-auto chat-input-no-focus scrollbar-gutter-stable min-h-8"
+          rows="1"
+          :disabled="frozen"
+          :placeholder="chatInputPlaceholder"
+          @input="handleChatInputInput"
+          @keydown="handleChatInputKeydown"
+        ></textarea>
+      </div>
+      <Teleport to="body">
+        <div
+          v-if="mentionPanelOpen"
+          class="fixed z-[1200]"
+          :style="mentionPanelStyle"
+        >
+          <div class="dropdown-content mt-2 w-max max-w-[min(80vw,20rem)] overflow-hidden rounded-box border border-base-300 bg-base-100 p-1 shadow-xl">
+            <ul class="flex flex-col gap-1">
+              <li
+                v-for="(item, index) in filteredMentionOptions"
+                :key="`${item.agentId}:${item.departmentId}`"
+              >
+                <button
+                  type="button"
+                  class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors hover:bg-base-200/80"
+                  :class="mentionFocusIndex === index ? 'bg-base-200' : ''"
+                  @click="applyMention(item)"
+                >
+                  <div class="indicator shrink-0">
+                    <span
+                      v-if="isMentionSelected(item.agentId)"
+                      class="indicator-item inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-content"
+                    >
+                      @
+                    </span>
+                    <div class="avatar">
+                      <div class="w-7 rounded-full">
+                        <img
+                          v-if="item.avatarUrl"
+                          :src="item.avatarUrl"
+                          :alt="item.agentName"
+                          class="w-7 h-7 rounded-full object-cover"
+                        />
+                        <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-[10px]">
+                          {{ avatarInitial(item.agentName) }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="min-w-0 flex-1 truncate pr-0.5 text-sm leading-5">{{ item.agentName }}</span>
+                </button>
+              </li>
+            </ul>
+            <div v-if="filteredMentionOptions.length === 0" class="px-2.5 py-2 text-sm opacity-60">
+              {{ t("chat.noMentionCandidates") }}
+            </div>
+          </div>
+        </div>
+      </Teleport>
       <div class="mt-2 flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
           <button
@@ -164,7 +232,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { FileText, Image as ImageIcon, Layers2, Mic, Paperclip, Send, Square, X } from "lucide-vue-next";
-import type { ApiConfigItem, ChatConversationOverviewItem, PromptCommandPreset } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionTarget, PromptCommandPreset } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
 
@@ -179,6 +247,8 @@ type ConversationDepartmentOption = {
 const props = defineProps<{
   chatInput: string;
   instructionPresets: PromptCommandPreset[];
+  mentionOptions: ChatMentionTarget[];
+  selectedMentions: ChatMentionTarget[];
   chatInputPlaceholder: string;
   clipboardImages: BinaryAttachment[];
   queuedAttachmentNotices: QueuedAttachmentNotice[];
@@ -208,6 +278,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
   (e: "update:selectedInstructionPrompts", value: PromptCommandPreset[]): void;
+  (e: "addMention", value: ChatMentionTarget): void;
+  (e: "removeMention", agentId: string): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "startRecording"): void;
@@ -239,6 +311,15 @@ const resizeInputRaf = ref(0);
 const instructionPanelOpen = ref(false);
 const instructionFocusIndex = ref(0);
 const selectedInstructionPrompts = ref<PromptCommandPreset[]>([]);
+const mentionPanelOpen = ref(false);
+const mentionQuery = ref("");
+const mentionFocusIndex = ref(0);
+const mentionRange = ref<{ start: number; end: number } | null>(null);
+const mentionPanelStyle = ref<Record<string, string>>({
+  left: "0px",
+  top: "0px",
+  transform: "translateY(calc(-100% - 8px))",
+});
 
 const normalizedInstructionPresets = computed(() =>
   (Array.isArray(props.instructionPresets) ? props.instructionPresets : [])
@@ -257,6 +338,28 @@ const normalizedChatModelOptions = computed(() =>
     }))
     .filter((item) => !!item.id && !!item.name),
 );
+const selectedMentions = computed(() =>
+  (Array.isArray(props.selectedMentions) ? props.selectedMentions : [])
+    .map((item) => ({
+      agentId: String(item?.agentId || "").trim(),
+      agentName: String(item?.agentName || "").trim(),
+      departmentId: String(item?.departmentId || "").trim(),
+      departmentName: String(item?.departmentName || "").trim(),
+      avatarUrl: String(item?.avatarUrl || "").trim() || undefined,
+    }))
+    .filter((item) => !!item.agentId && !!item.departmentId && !!item.agentName),
+);
+const filteredMentionOptions = computed(() => {
+  return (Array.isArray(props.mentionOptions) ? props.mentionOptions : [])
+    .map((item) => ({
+      agentId: String(item?.agentId || "").trim(),
+      agentName: String(item?.agentName || "").trim(),
+      departmentId: String(item?.departmentId || "").trim(),
+      departmentName: String(item?.departmentName || "").trim(),
+      avatarUrl: String(item?.avatarUrl || "").trim() || undefined,
+    }))
+    .filter((item) => !!item.agentId && !!item.departmentId && !!item.agentName);
+});
 const planModeToggleAllowed = computed(() => !props.chatting && !props.frozen);
 
 function loadChatInputHistory() {
@@ -312,6 +415,24 @@ function closeInstructionPanel() {
   instructionPanelOpen.value = false;
 }
 
+function closeMentionPanel() {
+  mentionPanelOpen.value = false;
+  mentionQuery.value = "";
+  mentionFocusIndex.value = 0;
+  mentionRange.value = null;
+}
+
+function refreshMentionPanelPosition() {
+  const el = chatInputRef.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  mentionPanelStyle.value = {
+    left: `${Math.round(rect.left)}px`,
+    top: `${Math.round(rect.top)}px`,
+    transform: "translateY(calc(-100% - 8px))",
+  };
+}
+
 function toggleInstructionPanel() {
   if (instructionPanelOpen.value) {
     closeInstructionPanel();
@@ -355,6 +476,73 @@ function clearSelectedInstructionPrompts() {
   emitSelectedInstructionPrompts();
 }
 
+function removeSelectedMention(agentId: string) {
+  emit("removeMention", agentId);
+  closeMentionPanel();
+}
+
+function applyMention(item: ChatMentionTarget | undefined) {
+  if (!item || !mentionRange.value) return;
+  const current = String(localChatInput.value || "");
+  const before = current.slice(0, mentionRange.value.start);
+  const after = current.slice(mentionRange.value.end);
+  const nextValue = `${before}${after}`;
+  localChatInput.value = nextValue;
+  if (selectedMentions.value.some((entry) => entry.agentId === item.agentId)) {
+    emit("removeMention", item.agentId);
+  } else {
+    emit("addMention", item);
+  }
+  closeMentionPanel();
+  nextTick(() => {
+    const el = chatInputRef.value;
+    if (!el) return;
+    const cursor = Math.min(before.length, nextValue.length);
+    el.focus();
+    el.setSelectionRange(cursor, cursor);
+    scheduleResizeChatInput();
+  });
+}
+
+function selectMentionByIndex(index: number) {
+  const list = filteredMentionOptions.value;
+  if (list.length === 0) return;
+  const nextIndex = Math.max(0, Math.min(list.length - 1, index));
+  mentionFocusIndex.value = nextIndex;
+  applyMention(list[nextIndex]);
+}
+
+function moveMentionFocus(delta: number) {
+  const list = filteredMentionOptions.value;
+  if (list.length === 0) return;
+  const next = mentionFocusIndex.value + delta;
+  mentionFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
+}
+
+function updateMentionState() {
+  const el = chatInputRef.value;
+  if (!el || el.selectionStart !== el.selectionEnd) {
+    closeMentionPanel();
+    return;
+  }
+  const value = String(localChatInput.value || "");
+  const cursor = el.selectionStart ?? value.length;
+  const beforeCursor = value.slice(0, cursor);
+  const match = beforeCursor.match(/(?:^|\s)@$/);
+  if (!match) {
+    closeMentionPanel();
+    return;
+  }
+  mentionQuery.value = "";
+  const queryStart = cursor - 1;
+  mentionRange.value = { start: queryStart, end: cursor };
+  refreshMentionPanelPosition();
+  mentionPanelOpen.value = true;
+  if (mentionFocusIndex.value >= filteredMentionOptions.value.length) {
+    mentionFocusIndex.value = 0;
+  }
+}
+
 function handleChatModelChange(event: Event) {
   const value = String((event.target as HTMLSelectElement)?.value || "").trim();
   if (!value || value === props.selectedChatModelId) return;
@@ -375,6 +563,11 @@ function resizeChatInput() {
   const nextHeight = Math.max(Math.min(el.scrollHeight, maxHeight), minHeight);
   el.style.height = `${nextHeight}px`;
   el.style.overflowY = "auto";
+}
+
+function handleChatInputInput() {
+  scheduleResizeChatInput();
+  updateMentionState();
 }
 
 function scheduleResizeChatInput() {
@@ -449,6 +642,7 @@ function handleSendChat() {
   recordSentTextIfNeeded(plainText);
   clearSelectedInstructionPrompts();
   closeInstructionPanel();
+  closeMentionPanel();
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {
@@ -465,6 +659,28 @@ function handleWindowKeydown(event: KeyboardEvent) {
 
 function handleChatInputKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
+  if (mentionPanelOpen.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMentionPanel();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveMentionFocus(-1);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveMentionFocus(1);
+      return;
+    }
+    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      selectMentionByIndex(mentionFocusIndex.value);
+      return;
+    }
+  }
   if (event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
     event.preventDefault();
     toggleInstructionPanel();
@@ -517,6 +733,16 @@ function isPdfMime(mime: string): boolean {
   return (mime || "").trim().toLowerCase() === "application/pdf";
 }
 
+function avatarInitial(name: string): string {
+  const text = String(name || "").trim();
+  if (!text) return "?";
+  return text[0].toUpperCase();
+}
+
+function isMentionSelected(agentId: string): boolean {
+  return selectedMentions.value.some((item) => item.agentId === agentId);
+}
+
 function handleRecallToInput(event: { source?: string; messagePreview?: string; id?: string }) {
   if (event.source === "user") {
     localChatInput.value = event.messagePreview || "";
@@ -537,13 +763,18 @@ defineExpose({
 onMounted(() => {
   loadChatInputHistory();
   window.addEventListener("keydown", handleWindowKeydown);
+  window.addEventListener("resize", refreshMentionPanelPosition);
+  window.addEventListener("scroll", refreshMentionPanelPosition, true);
   nextTick(() => {
     resizeChatInput();
+    refreshMentionPanelPosition();
   });
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleWindowKeydown);
+  window.removeEventListener("resize", refreshMentionPanelPosition);
+  window.removeEventListener("scroll", refreshMentionPanelPosition, true);
   if (resizeInputRaf.value) {
     cancelAnimationFrame(resizeInputRaf.value);
     resizeInputRaf.value = 0;
@@ -558,6 +789,10 @@ watch(
       chatInputHistoryDraft.value = "";
     }
     nextTick(() => scheduleResizeChatInput());
+    nextTick(() => {
+      refreshMentionPanelPosition();
+      updateMentionState();
+    });
   },
 );
 
@@ -574,6 +809,7 @@ watch(
   () => props.activeConversationId,
   () => {
     closeInstructionPanel();
+    closeMentionPanel();
     clearSelectedInstructionPrompts();
     nextTick(() => scheduleResizeChatInput());
   },
@@ -598,5 +834,12 @@ watch(
     emitSelectedInstructionPrompts();
   },
   { deep: true },
+);
+
+watch(
+  () => props.selectedMentions.map((item) => `${item.agentId}:${item.departmentId}`).join("|"),
+  () => {
+    closeMentionPanel();
+  },
 );
 </script>

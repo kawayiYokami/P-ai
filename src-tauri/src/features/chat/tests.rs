@@ -498,6 +498,94 @@
     }
 
     #[test]
+    fn build_prompt_should_prefix_latest_user_text_with_mentions() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut user_message = test_text_message("user", "请你看看这个方案", &now);
+        user_message.provider_meta = Some(serde_json::json!({
+            "message_meta": {
+                "kind": "user_message",
+                "mentions": [
+                    {
+                        "agentId": "agent-fairy",
+                        "agentName": "fairy",
+                        "departmentId": "department-fairy",
+                        "departmentName": "测试部门"
+                    },
+                    {
+                        "agentId": "agent-zhongli",
+                        "agentName": "钟离",
+                        "departmentId": "department-zhongli",
+                        "departmentName": "璃月顾问组"
+                    }
+                ]
+            }
+        }));
+        let conv = test_active_conversation_with_messages(vec![user_message], Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(prepared.latest_user_text, "@fairy,@钟离\n请你看看这个方案");
+    }
+
+    #[test]
+    fn prepared_prompt_to_messages_json_should_keep_mention_prefix_for_latest_user() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "assistant".to_string(),
+                text: "收到".to_string(),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: Vec::new(),
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            }],
+            latest_user_text: "@fairy,@钟离\n请你看看这个方案".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = prepared_prompt_to_messages_json(&prepared);
+        let latest_user = messages
+            .last()
+            .and_then(Value::as_object)
+            .cloned()
+            .expect("latest user message should exist");
+        assert_eq!(latest_user.get("role").and_then(Value::as_str), Some("user"));
+        let content = latest_user
+            .get("content")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                latest_user
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .and_then(|items| items.first())
+                    .and_then(|item| item.get("text"))
+                    .and_then(Value::as_str)
+            });
+        assert_eq!(content, Some("@fairy,@钟离\n请你看看这个方案"));
+    }
+
+    #[test]
     fn build_prompt_should_not_duplicate_compaction_message_into_latest_user_text() {
         let now = now_iso();
         let agent = default_agent();
