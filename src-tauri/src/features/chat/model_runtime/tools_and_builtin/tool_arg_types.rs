@@ -24,8 +24,11 @@ struct RecallToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct CommandToolArgs {
-    command: String,
+struct EmptyToolArgs {}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct WaitToolArgs {
+    ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -41,145 +44,19 @@ struct TerminalExecToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct RemoteImSendToolArgs {
-    #[serde(
-        default = "remote_im_action_default",
-        deserialize_with = "deserialize_remote_im_action"
-    )]
-    action: String,
-    #[serde(default)]
-    channel_id: Option<String>,
-    #[serde(default)]
-    contact_id: Option<String>,
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(
-        default = "remote_im_send_status_default",
-        deserialize_with = "deserialize_remote_im_send_status"
-    )]
-    status: String,
-    #[serde(default)]
-    file_paths: Option<Vec<String>>,
+struct ContactReplyToolArgs {
+    text: String,
 }
 
-fn remote_im_action_default() -> String {
-    "send".to_string()
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ContactSendFilesToolArgs {
+    file_paths: Vec<String>,
 }
 
-fn deserialize_remote_im_action<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct RemoteImActionVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for RemoteImActionVisitor {
-        type Value = String;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("action string: list, send or no_reply")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            let normalized = value.trim().to_ascii_lowercase();
-            match normalized.as_str() {
-                "list" | "send" | "no_reply" => Ok(normalized),
-                _ => Err(E::custom(format!(
-                    "action 非法：`{value}`。请返回正确动作：list、send 或 no_reply"
-                ))),
-            }
-        }
-
-        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            self.visit_str(&value)
-        }
-
-        fn visit_unit<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(remote_im_action_default())
-        }
-    }
-
-    deserializer.deserialize_any(RemoteImActionVisitor)
-}
-
-fn remote_im_send_status_default() -> String {
-    "done".to_string()
-}
-
-fn deserialize_remote_im_send_status<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct RemoteImStatusVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for RemoteImStatusVisitor {
-        type Value = String;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("status string: continue or done")
-        }
-
-        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(if value { "done" } else { "continue" }.to_string())
-        }
-
-        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(if value == 0 { "continue" } else { "done" }.to_string())
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(if value == 0 { "continue" } else { "done" }.to_string())
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            let normalized = value.trim().to_ascii_lowercase();
-            match normalized.as_str() {
-                "done" => Ok("done".to_string()),
-                "continue" => Ok("continue".to_string()),
-                "true" | "1" | "yes" | "y" | "on" => Ok("done".to_string()),
-                "false" | "0" | "no" | "n" | "off" => Ok("continue".to_string()),
-                _ => Err(E::custom(format!(
-                    "status 非法：`{value}`。请返回正确状态：continue 或 done"
-                ))),
-            }
-        }
-
-        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            self.visit_str(&value)
-        }
-
-        fn visit_unit<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(remote_im_send_status_default())
-        }
-    }
-
-    deserializer.deserialize_any(RemoteImStatusVisitor)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ContactNoReplyToolArgs {
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

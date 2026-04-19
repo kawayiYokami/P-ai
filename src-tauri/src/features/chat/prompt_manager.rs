@@ -230,7 +230,7 @@ fn build_conversation_environment_prompt_snapshot_uncached(
     if conversation_is_remote_im_contact(conversation) {
         im_rule_blocks.push(prompt_xml_block(
             "remote im contact rules",
-            "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。",
+            "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n联系人专用工具只会作用于当前联系人：提前回应请使用 `contact_reply`，发送附件请使用 `contact_send_files`，若本轮不应自动回复请使用 `contact_no_reply`。",
         ));
     }
     im_rule_blocks.extend(
@@ -457,14 +457,12 @@ fn build_system_prompt_ordered_blocks(
     let department_config = departments_only_config(departments);
     let current_department = department_for_agent_id(&department_config, &agent.id);
     let mut tool_rule_blocks = Vec::<String>::new();
-    if ["remember", "recall"]
-        .into_iter()
-        .any(|tool_id| department_builtin_tool_enabled(current_department, tool_id))
-    {
-        tool_rule_blocks.push(build_memory_rag_rule_block());
+    tool_rule_blocks.push(build_memory_rag_rule_block());
+    if let Some(todo_block) = build_builtin_tool_rule_block("todo") {
+        tool_rule_blocks.push(todo_block);
     }
     tool_rule_blocks.extend(department_snapshot.department_tool_rule_blocks.iter().cloned());
-    if department_builtin_tool_enabled(current_department, "plan") {
+    if !conversation_is_remote_im_contact(conversation) {
         tool_rule_blocks.push(build_question_and_planning_rule_block());
     }
     if department_builtin_tool_enabled(current_department, "meme") {
@@ -472,10 +470,28 @@ fn build_system_prompt_ordered_blocks(
             tool_rule_blocks.push(meme_block.trim().to_string());
         }
     }
+    if conversation_is_remote_im_contact(conversation) {
+        tool_rule_blocks.push(prompt_xml_block(
+            "contact tools rule",
+            "联系人专用工具仅对当前联系人生效。\n\
+             1. 若需要先回应一句“收到、我先看一下、稍后回复”，请使用 `contact_reply`。\n\
+             2. 若需要发送图片或文件，请使用 `contact_send_files`。\n\
+             3. 若判断本轮结束时不应自动向联系人发送最终回复，请使用 `contact_no_reply`，并在 `reason` 中简要记录原因。\n\
+             4. `contact_reply` 与 `contact_send_files` 是中途动作，不会取消本轮结束后的自动最终回复。\n\
+             5. 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给当前联系人。",
+        ));
+    }
 
     let (tool_rule_extra_blocks, runtime_extra_blocks, im_extra_blocks) =
         split_system_preamble_blocks(system_preamble_blocks);
     tool_rule_blocks.extend(tool_rule_extra_blocks);
+    if !tool_rule_blocks
+        .iter()
+        .any(|block| block.contains("<builtin tool general rule>"))
+        && !tool_rule_blocks.is_empty()
+    {
+        tool_rule_blocks.insert(0, build_builtin_tool_general_rule_block());
+    }
 
     let environment_snapshot = get_or_build_conversation_environment_prompt_snapshot(
         state,

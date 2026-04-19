@@ -91,38 +91,34 @@ const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_GUIDE: &str = r#"行为准则
 
 最终裁决
 
-如果步骤一不满足，并且通过步骤二的社交资格审查发现“你不是那个人”，或对是否应该主动介入有任何犹豫，你必须使用「远程联系人回复决策工具」来完成回复决策。对于来自联系人的消息，必须且只能通过本工具做出决定：
-- 回复时，使用 action=send。
-- 决定不回复时，使用 action=no_reply（该动作会内置先等待 7 秒，再结束本轮，且不会刷新上次成功回复时间）。
-- 不要直接输出给联系人的回复正文来代替工具调用。
-- action=list 仅用于获取可用联系人。
+如果你只是想先打个招呼、确认已收到、或告诉对方“我先看一下”，请使用 `contact_reply`。
 
-参数说明：
-- action：string [list, send, no_reply] —— 动作。list=列出可用联系人；send=向联系人发送消息；no_reply=本轮决定不回复。对于联系人消息，最终必须使用 send 或 no_reply 做出决策。
-- channel_id：string —— action=send 时必填；action=list 时可选（用于按渠道过滤）。
-- contact_id：string —— action=send 时必填；必须使用 action=list 返回的 contact_id，不要使用联系人记录主键（UUID）。
-- file_paths：array —— 可选附件路径列表：图片按图片发送，其他文件按附件发送。
-- status：string [continue, done] —— 发送后状态。continue=还需继续下一步；done=本轮已完成并停止后续工具链。大小写不敏感，内部统一转小写。
-- text：string —— action=send 时可选；要发送的文本内容（当传入 file_paths 时可为空）。
+如果你需要把文件或图片发给当前联系人，请使用 `contact_send_files`。
 
-远程联系人通讯工具可用（支持 list/send/no_reply）。"#;
+如果你判断本轮不应该对外回复，请使用 `contact_no_reply`，并在 `reason` 中简要记录原因，供后续轮次参考。
 
-const REMOTE_IM_SEND_TOOL_DESCRIPTION: &str = "远程联系人回复决策工具。对于来自联系人的消息，必须且只能通过本工具做出最终决定：回复时使用 action=send；决定不回复时使用 action=no_reply（会先等待 7 秒，再结束本轮，且不会刷新上次成功回复时间）；不要直接输出给联系人的回复正文来代替工具调用。action=list 仅用于获取可用联系人。";
+额外规则：
+- 这三个工具都只作用于“当前联系人”，你不能自行选择其他联系人、渠道或目标。
+- `contact_reply` 与 `contact_send_files` 只是中途动作，不会取消本轮结束后的自动最终回复。
+- 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给当前联系人。
+- 不要直接输出给联系人的回复正文来替代这些工具。
 
-const REMOTE_IM_SEND_TOOL_ACTION_DESCRIPTION: &str =
-    "动作。list=列出可用联系人；send=向联系人发送消息；no_reply=本轮决定不回复。对于联系人消息，最终必须使用 send 或 no_reply 做出决策。";
+联系人专用工具可用：`contact_reply`、`contact_send_files`、`contact_no_reply`。"#;
 
-const REMOTE_IM_SEND_TOOL_CHANNEL_ID_DESCRIPTION: &str =
-    "action=send 时必填；action=list 时可选（用于按渠道过滤）。";
+const CONTACT_REPLY_TOOL_DESCRIPTION: &str =
+    "联系人专用即时回复工具。立刻给当前联系人发一句话，适合复杂任务开始前先确认已收到、先安抚一句或同步处理中状态。它不会取消本轮结束后的自动最终回复。";
 
-const REMOTE_IM_SEND_TOOL_CONTACT_ID_DESCRIPTION: &str =
-    "action=send 时必填；必须使用 action=list 返回的 contact_id，不要使用联系人记录主键（UUID）。";
+const CONTACT_REPLY_TOOL_TEXT_DESCRIPTION: &str =
+    "要立刻发给当前联系人的文本内容。";
 
-const REMOTE_IM_SEND_TOOL_TEXT_DESCRIPTION: &str =
-    "action=send 时可选；要发送的文本内容（当传入 file_paths 时可为空）。";
+const CONTACT_SEND_FILES_TOOL_DESCRIPTION: &str =
+    "联系人专用附件发送工具。立刻把文件发给当前联系人；图片按图片发送，其他文件按附件发送。它不会取消本轮结束后的自动最终回复。";
 
-const REMOTE_IM_SEND_TOOL_STATUS_DESCRIPTION: &str =
-    "发送后状态。continue=还需继续下一步；done=本轮已完成并停止后续工具链。大小写不敏感，内部统一转小写。";
+const CONTACT_SEND_FILES_TOOL_FILE_PATHS_DESCRIPTION: &str =
+    "要发送给当前联系人的文件路径列表。";
 
-const REMOTE_IM_SEND_TOOL_FILE_PATHS_DESCRIPTION: &str =
-    "可选附件路径列表：图片按图片发送，其他文件按附件发送。";
+const CONTACT_NO_REPLY_TOOL_DESCRIPTION: &str =
+    "联系人专用静默决策工具。声明本轮结束时不要自动向当前联系人发送最终回复，并可记录本轮不回复的原因供后续轮次参考。";
+
+const CONTACT_NO_REPLY_TOOL_REASON_DESCRIPTION: &str =
+    "本轮决定不回复的简短原因。只做内部记录，不会发给联系人。";

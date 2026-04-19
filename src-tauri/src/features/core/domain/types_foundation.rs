@@ -261,20 +261,6 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "remember".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["remember".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
-            id: "recall".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["recall".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
             id: "operate".to_string(),
             command: "builtin".to_string(),
             args: vec!["operate".to_string()],
@@ -303,16 +289,23 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "command".to_string(),
+            id: "reload".to_string(),
             command: "builtin".to_string(),
-            args: vec!["command".to_string()],
+            args: vec!["reload".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "plan".to_string(),
+            id: "organize_context".to_string(),
             command: "builtin".to_string(),
-            args: vec!["plan".to_string()],
+            args: vec!["organize_context".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "wait".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["wait".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
@@ -320,13 +313,6 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             id: "task".to_string(),
             command: "builtin".to_string(),
             args: vec!["task".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
-            id: "todo".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["todo".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },
@@ -344,16 +330,50 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             enabled: true,
             values: serde_json::json!({}),
         },
-        ApiToolConfig {
-            id: "remote_im_send".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["remote_im_send".to_string()],
-            enabled: false,
-            values: serde_json::json!({}),
-        },
     ]
 }
 
 fn default_agent_tools() -> Vec<ApiToolConfig> {
-    default_api_tools()
+    let mut tools = default_api_tools();
+    tools.insert(
+        2,
+        ApiToolConfig {
+            id: "remember".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["remember".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+    );
+    tools.insert(
+        3,
+        ApiToolConfig {
+            id: "recall".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["recall".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+    );
+    tools.insert(
+        9,
+        ApiToolConfig {
+            id: "plan".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["plan".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+    );
+    tools.insert(
+        11,
+        ApiToolConfig {
+            id: "todo".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["todo".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+    );
+    tools
 }

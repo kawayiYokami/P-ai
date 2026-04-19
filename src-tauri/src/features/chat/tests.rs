@@ -966,7 +966,7 @@
     }
 
     #[test]
-    fn build_remote_im_activation_runtime_block_should_require_explicit_send_for_multiple_sources() {
+    fn build_remote_im_activation_runtime_block_should_warn_multiple_sources_no_auto_send() {
         let sources = vec![
             RemoteImActivationSource {
                 channel_id: "remote-im-a".to_string(),
@@ -988,13 +988,13 @@
             build_remote_im_activation_runtime_block(&sources, "zh-CN").expect("runtime block");
 
         assert!(block.contains("多个远程 IM 来源共同激活"));
-        assert!(block.contains("必须显式调用 `remote_im_send`"));
+        assert!(block.contains("系统不会自动外发本轮最终回复"));
         assert!(block.contains("channel_id=remote-im-a"));
         assert!(block.contains("channel_id=remote-im-b"));
     }
 
     #[test]
-    fn resolve_remote_im_auto_send_target_should_only_allow_single_source() {
+    fn resolve_remote_im_auto_send_target_should_only_auto_send_single_source_without_no_reply() {
         let single_source = RemoteImActivationSource {
             channel_id: "remote-im-a".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -1005,12 +1005,12 @@
         let single_target = resolve_remote_im_auto_send_target(
             "你好，这里是最终回复。",
             &[single_source.clone()],
-            false,
+            None,
         )
         .expect("single target");
         assert_eq!(single_target, Some(single_source.clone()));
 
-        let err = resolve_remote_im_auto_send_target(
+        let multiple_sources = resolve_remote_im_auto_send_target(
             "你好，这里是最终回复。",
             &[
                 single_source,
@@ -1022,12 +1022,16 @@
                     remote_contact_name: "李四".to_string(),
                 },
             ],
-            false,
+            None,
         )
-        .expect_err("multiple sources should require explicit tool");
-        assert!(err.contains("多个远程IM来源"));
+        .expect("multiple sources should skip auto send");
+        assert!(multiple_sources.is_none());
 
-        let explicit_decision = resolve_remote_im_auto_send_target(
+        let no_reply_decision = RemoteImReplyDecisionSummary {
+            action: "no_reply".to_string(),
+            target: None,
+        };
+        let no_reply_target = resolve_remote_im_auto_send_target(
             "你好，这里是最终回复。",
             &[RemoteImActivationSource {
                 channel_id: "remote-im-a".to_string(),
@@ -1036,36 +1040,10 @@
                 remote_contact_id: "contact-a".to_string(),
                 remote_contact_name: "张三".to_string(),
             }],
-            true,
+            Some(&no_reply_decision),
         )
-        .expect("explicit decision bypass");
-        assert!(explicit_decision.is_none());
-    }
-
-    #[test]
-    fn runtime_remote_im_activation_sources_should_force_send_tool() {
-        let state = test_chat_runtime_state();
-        set_conversation_remote_im_activation_sources(
-            &state,
-            "conversation-a",
-            vec![RemoteImActivationSource {
-                channel_id: "remote-im-a".to_string(),
-                platform: RemoteImPlatform::OnebotV11,
-                remote_contact_type: "private".to_string(),
-                remote_contact_id: "contact-a".to_string(),
-                remote_contact_name: "张三".to_string(),
-            }],
-        )
-        .expect("set activation sources");
-
-        assert!(remote_im_activation_runtime_forces_send_tool(
-            Some(&state),
-            "chat::conversation-a"
-        ));
-        assert!(!remote_im_activation_runtime_forces_send_tool(
-            Some(&state),
-            "chat::conversation-b"
-        ));
+        .expect("no_reply should suppress auto send");
+        assert!(no_reply_target.is_none());
     }
 
     #[test]

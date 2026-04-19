@@ -732,7 +732,7 @@ fn remote_im_finalize_round_completion(
         }
         let should_follow_up_after_round = previous_pending;
         match reply_decision.unwrap_or("") {
-            "send" => {
+            "reply" | "send_files" | "send" | "reply_async" => {
                 let target_matched = reply_target
                     .map(|target| remote_im_contact_matches_reply_target(source, target))
                     .unwrap_or(activated_sources.len() == 1);

@@ -470,6 +470,7 @@
       "permissionCatalogLoadFailed": "权限目录加载失败：{err}",
       "permissionBuiltinTools": "内置工具",
       "permissionSkills": "技能",
+      "permissionSkillsRequireExec": "需要先允许终端（exec）工具，技能才可选。",
       "permissionMcpTools": "MCP 工具",
       "assignee": "任命",
       "assigneePlaceholder": "暂不指定",

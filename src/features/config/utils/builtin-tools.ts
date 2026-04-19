@@ -3,19 +3,16 @@ import type { ApiToolItem } from "../../../types/app";
 const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "fetch", command: "npx", args: ["-y", "@iflow-mcp/fetch"], enabled: true, values: {} },
   { id: "websearch", command: "npx", args: ["-y", "bing-cn-mcp"], enabled: true, values: {} },
-  { id: "remember", command: "builtin", args: ["remember"], enabled: true, values: {} },
-  { id: "recall", command: "builtin", args: ["recall"], enabled: true, values: {} },
   { id: "operate", command: "builtin", args: ["operate"], enabled: true, values: {} },
   { id: "exec", command: "builtin", args: ["exec"], enabled: true, values: {} },
   { id: "read_file", command: "builtin", args: ["read_file"], enabled: true, values: {} },
   { id: "apply_patch", command: "builtin", args: ["apply_patch"], enabled: true, values: {} },
-  { id: "command", command: "builtin", args: ["command"], enabled: true, values: {} },
-  { id: "plan", command: "builtin", args: ["plan"], enabled: true, values: {} },
+  { id: "reload", command: "builtin", args: ["reload"], enabled: true, values: {} },
+  { id: "organize_context", command: "builtin", args: ["organize_context"], enabled: true, values: {} },
+  { id: "wait", command: "builtin", args: ["wait"], enabled: true, values: {} },
   { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
-  { id: "todo", command: "builtin", args: ["todo"], enabled: true, values: {} },
   { id: "delegate", command: "builtin", args: ["delegate"], enabled: true, values: {} },
   { id: "meme", command: "builtin", args: ["meme"], enabled: true, values: {} },
-  { id: "remote_im_send", command: "builtin", args: ["remote_im_send"], enabled: false, values: {} },
 ];
 
 export function defaultToolBindings(): ApiToolItem[] {

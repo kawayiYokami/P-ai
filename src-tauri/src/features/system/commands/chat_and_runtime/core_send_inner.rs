@@ -36,7 +36,7 @@ fn remote_im_parse_tool_arguments(raw: &Value) -> Option<Value> {
 fn remote_im_is_reply_decision_action(action: &str) -> bool {
     matches!(
         action.trim().to_ascii_lowercase().as_str(),
-        "send" | "send_async" | "no_reply"
+        "reply" | "send_files" | "reply_async" | "send" | "send_async" | "no_reply"
     )
 }
 
@@ -61,38 +61,45 @@ fn remote_im_extract_reply_decision_from_tool_history(
             let Some(name) = function.get("name").and_then(Value::as_str) else {
                 continue;
             };
-            if name.trim() != "remote_im_send" {
-                continue;
-            }
-            let Some(action) = function
-                .get("arguments")
-                .and_then(remote_im_extract_action_from_tool_arguments)
-            else {
+            let action = match name.trim() {
+                "remote_im_send" => function
+                    .get("arguments")
+                    .and_then(remote_im_extract_action_from_tool_arguments),
+                "contact_reply" => Some("reply".to_string()),
+                "contact_send_files" => Some("send_files".to_string()),
+                "contact_no_reply" => Some("no_reply".to_string()),
+                _ => None,
+            };
+            let Some(action) = action else {
                 continue;
             };
             if remote_im_is_reply_decision_action(&action) {
-                let target = function
-                    .get("arguments")
-                    .and_then(remote_im_parse_tool_arguments)
-                    .and_then(|value| {
-                        let object = value.as_object()?;
-                        let channel_id = object
-                            .get("channel_id")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())?
-                            .to_string();
-                        let contact_id = object
-                            .get("contact_id")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())?
-                            .to_string();
-                        Some(RemoteImReplyTarget {
-                            channel_id,
-                            contact_id,
+                let target = if name.trim() == "remote_im_send" {
+                    function
+                        .get("arguments")
+                        .and_then(remote_im_parse_tool_arguments)
+                        .and_then(|value| {
+                            let object = value.as_object()?;
+                            let channel_id = object
+                                .get("channel_id")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())?
+                                .to_string();
+                            let contact_id = object
+                                .get("contact_id")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())?
+                                .to_string();
+                            Some(RemoteImReplyTarget {
+                                channel_id,
+                                contact_id,
+                            })
                         })
-                    });
+                } else {
+                    None
+                };
                 latest = Some(RemoteImReplyDecisionSummary { action, target });
             }
         }
@@ -258,27 +265,27 @@ fn build_remote_im_activation_runtime_block(
         .join("\n");
     let block = match (ui_language.trim(), sources.len()) {
         ("en-US", 1) => format!(
-            "This round was activated by exactly one remote IM source.\n{}\nIf you do not explicitly call `remote_im_send`, the system may automatically send your final assistant reply to that source.\nIf you need to reply to another target or choose not to send, you must explicitly call `remote_im_send`.",
+            "This round was activated by exactly one remote IM source.\n{}\nIf you do not call `contact_no_reply`, the system may automatically send your final assistant reply to the current contact at the end of this round.\nUse `contact_reply` for an immediate short acknowledgement, and `contact_send_files` when you need to send files or images first.",
             source_lines
         ),
         ("en-US", _) => format!(
-            "This round was activated by multiple remote IM sources.\n{}\nThe system will not auto-send any final reply in this round.\nIf you need to send anything outward, you must explicitly call `remote_im_send` and specify the target `channel_id` + `contact_id`.",
+            "This round was activated by multiple remote IM sources.\n{}\nThe system will not auto-send any final reply in this round.\nDo not send anything outward in this round unless a later stage narrows the target to one current contact.",
             source_lines
         ),
         ("zh-TW", 1) => format!(
-            "本輪由唯一一個遠端 IM 來源啟動。\n{}\n若你未明確呼叫 `remote_im_send`，系統可能會在本輪結束後自動將最終回覆發送到該來源。\n若要改發其他目標，或決定不外發，必須明確呼叫 `remote_im_send`。",
+            "本輪由唯一一個遠端 IM 來源啟動。\n{}\n若你未呼叫 `contact_no_reply`，系統可能會在本輪結束後自動將最終回覆發送給目前聯絡人。\n若你只是要先回一句、告知正在處理，請使用 `contact_reply`；若要先發圖片或檔案，請使用 `contact_send_files`。",
             source_lines
         ),
         ("zh-TW", _) => format!(
-            "本輪由多個遠端 IM 來源共同啟動。\n{}\n系統不會自動外發本輪最終回覆。\n若需要對外發送，必須明確呼叫 `remote_im_send`，並指定目標 `channel_id` + `contact_id`。",
+            "本輪由多個遠端 IM 來源共同啟動。\n{}\n系統不會自動外發本輪最終回覆。\n此時不要對外發送任何內容，應等待後續流程先收斂到唯一目前聯絡人。",
             source_lines
         ),
         (_, 1) => format!(
-            "本轮由唯一一个远程 IM 来源激活。\n{}\n如果你未显式调用 `remote_im_send`，系统可能会在本轮结束后自动将最终回复发送到该来源。\n如果需要改发其他目标，或决定不外发，必须显式调用 `remote_im_send`。",
+            "本轮由唯一一个远程 IM 来源激活。\n{}\n如果你没有调用 `contact_no_reply`，系统可能会在本轮结束后自动将最终回复发送给当前联系人。\n如果你只是要先回一句、告知正在处理，请使用 `contact_reply`；如果要先发图片或文件，请使用 `contact_send_files`。",
             source_lines
         ),
         _ => format!(
-            "本轮由多个远程 IM 来源共同激活。\n{}\n系统不会自动外发本轮最终回复。\n如果需要对外发送，必须显式调用 `remote_im_send`，并指定目标 `channel_id` + `contact_id`。",
+            "本轮由多个远程 IM 来源共同激活。\n{}\n系统不会自动外发本轮最终回复。\n此时不要对外发送任何内容，应等待后续流程先收敛到唯一当前联系人。",
             source_lines
         ),
     };
@@ -288,22 +295,22 @@ fn build_remote_im_activation_runtime_block(
 fn resolve_remote_im_auto_send_target(
     assistant_text: &str,
     activation_sources: &[RemoteImActivationSource],
-    has_explicit_reply_decision: bool,
+    reply_decision: Option<&RemoteImReplyDecisionSummary>,
 ) -> Result<Option<RemoteImActivationSource>, String> {
-    if has_explicit_reply_decision || activation_sources.is_empty() {
+    if activation_sources.is_empty() {
+        return Ok(None);
+    }
+    if reply_decision
+        .map(|decision| decision.action.eq_ignore_ascii_case("no_reply"))
+        .unwrap_or(false)
+    {
         return Ok(None);
     }
     if activation_sources.len() >= 2 {
-        return Err(
-            "本轮由多个远程IM来源共同激活，系统不会自动发送；如需外发，请显式调用 remote_im_send 指定目标。"
-                .to_string(),
-        );
+        return Ok(None);
     }
     if assistant_text.trim().is_empty() {
-        return Err(
-            "本轮由唯一远程IM来源激活，但未产生可自动发送的回复内容，也未调用 remote_im_send。"
-                .to_string(),
-        );
+        return Ok(None);
     }
     Ok(activation_sources.first().cloned())
 }
@@ -361,9 +368,12 @@ fn remote_im_find_contact_by_conversation<'a>(
     })
 }
 
-fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: &str) -> Vec<Value> {
-    let args_value = serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string());
-    let tool_call_id = format!("remote_im_send_auto_{}", Uuid::new_v4());
+fn remote_im_contact_tool_history_events(
+    tool_name: &str,
+    args_value: Value,
+    tool_result: &str,
+) -> Vec<Value> {
+    let tool_call_id = format!("{}_auto_{}", tool_name, Uuid::new_v4());
     vec![
         serde_json::json!({
             "role": "assistant",
@@ -372,7 +382,7 @@ fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: 
                 "id": tool_call_id,
                 "type": "function",
                 "function": {
-                    "name": "remote_im_send",
+                    "name": tool_name,
                     "arguments": args_value
                 }
             }]
@@ -380,7 +390,7 @@ fn remote_im_send_tool_history_events(args: &RemoteImSendToolArgs, tool_result: 
         serde_json::json!({
             "role": "tool",
             "tool_call_id": tool_call_id,
-            "content": sanitize_tool_result_for_history("remote_im_send", tool_result)
+            "content": sanitize_tool_result_for_history(tool_name, tool_result)
         }),
     ]
 }
@@ -518,14 +528,6 @@ async fn remote_im_auto_send_assistant_reply_to_source(
     if trimmed_text.is_empty() && persisted_segments.is_none() {
         return Ok(None);
     }
-    let args = RemoteImSendToolArgs {
-        action: "send".to_string(),
-        channel_id: Some(source.channel_id.clone()),
-        contact_id: Some(source.remote_contact_id.clone()),
-        text: Some(trimmed_text.to_string()),
-        status: "done".to_string(),
-        file_paths: None,
-    };
     let config = state_read_config_cached(state)?;
     let channel = remote_im_channel_by_id(&config, &source.channel_id)
         .ok_or_else(|| format!("远程IM渠道不存在: {}", source.channel_id))?
@@ -568,12 +570,15 @@ async fn remote_im_auto_send_assistant_reply_to_source(
         .await?
     };
     let send_result =
-        remote_im_send_content_payload(&channel, &contact, content, &args.status).await?;
+        remote_im_send_content_payload(&channel, &contact, content, false, "reply_async").await?;
     let tool_result = serde_json::to_string(&send_result)
-        .map_err(|err| format!("serialize auto remote_im_send result failed: {err}"))?;
+        .map_err(|err| format!("序列化自动 contact_reply 结果失败: {err}"))?;
+    let args_value = serde_json::json!({
+        "text": trimmed_text
+    });
     Ok(Some((
-        "send".to_string(),
-        remote_im_send_tool_history_events(&args, &tool_result),
+        "reply_async".to_string(),
+        remote_im_contact_tool_history_events("contact_reply", args_value, &tool_result),
     )))
 }
 
@@ -2570,7 +2575,7 @@ async fn send_chat_message_inner(
     let pending_remote_im_auto_send_target = resolve_remote_im_auto_send_target(
         &assistant_text,
         &remote_im_activation_sources,
-        remote_im_reply_decision.is_some(),
+        remote_im_reply_decision.as_ref(),
     )?;
     if let Some(target) = pending_remote_im_auto_send_target.as_ref() {
         if remote_im_reply_decision.is_none() {

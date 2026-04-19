@@ -101,6 +101,12 @@ fn tool_enabled(
     current_department: Option<&DepartmentConfig>,
     id: &str,
 ) -> bool {
+    if builtin_tool_is_fixed_system(id) {
+        return selected_api.enable_tools;
+    }
+    if builtin_tool_is_local_conversation_fixed(id) || builtin_tool_is_contact_only_hidden(id) {
+        return false;
+    }
     if id == "screenshot" && !selected_api.enable_image {
         return false;
     }
@@ -179,12 +185,12 @@ mod core_provider_utils_tests {
 
     #[test]
     fn tool_failure_result_json_marks_failure_explicitly() {
-        let raw = tool_failure_result_json("remote_im_send", "远程IM渠道未开启文件发送");
+        let raw = tool_failure_result_json("contact_send_files", "远程IM渠道未开启文件发送");
         let value: Value = serde_json::from_str(&raw).expect("tool failure json");
         assert_eq!(value.get("ok").and_then(Value::as_bool), Some(false));
         assert_eq!(
             value.get("tool").and_then(Value::as_str),
-            Some("remote_im_send")
+            Some("contact_send_files")
         );
         assert_eq!(
             value.get("error").and_then(Value::as_str),
@@ -195,7 +201,7 @@ mod core_provider_utils_tests {
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
-                .contains("工具 `remote_im_send` 调用失败")
+                .contains("工具 `contact_send_files` 调用失败")
         );
     }
 
@@ -213,11 +219,12 @@ mod core_provider_utils_tests {
         if let Some(tool) = agent.tools.iter_mut().find(|tool| tool.id == "fetch") {
             tool.enabled = false;
         }
-        if let Some(tool) = agent.tools.iter_mut().find(|tool| tool.id == "remote_im_send") {
+        if let Some(tool) = agent.tools.iter_mut().find(|tool| tool.id == "plan") {
             tool.enabled = true;
         }
 
         assert!(tool_enabled(&api, &agent, None, "fetch"));
-        assert!(!tool_enabled(&api, &agent, None, "remote_im_send"));
+        assert!(!tool_enabled(&api, &agent, None, "plan"));
+        assert!(!tool_enabled(&api, &agent, None, "contact_reply"));
     }
 }

@@ -212,142 +212,149 @@ impl RuntimeJsonTool for BuiltinRecallTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinCommandTool {
+struct BuiltinReloadTool {
+    app_state: AppState,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinOrganizeContextTool {
     app_state: AppState,
     api_config_id: String,
     agent_id: String,
 }
 
-fn command_help_text() -> String {
-    [
-        "command 可用子命令：",
-        "- help：查看命令详细说明",
-        "- reload：重载工作区 MCP 与技能",
-        "- organize_context：整理当前活跃对话上下文",
-        "- wait <ms>：等待毫秒（1~120000）",
-    ]
-    .join("\n")
-}
+#[derive(Debug, Clone)]
+struct BuiltinWaitTool;
 
-impl RuntimeJsonTool for BuiltinCommandTool {
-    const NAME: &'static str = "command";
-    type Args = CommandToolArgs;
+impl RuntimeJsonTool for BuiltinReloadTool {
+    const NAME: &'static str = "reload";
+    type Args = EmptyToolArgs;
     type Error = ToolInvokeError;
 
-    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+    fn call_typed(&self, _args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
         Box::pin(async move {
-        let raw = args.command.trim();
-        if raw.is_empty() {
-            return Err(ToolInvokeError::from(
-                "command.command 不能为空，可先执行 `help`。".to_string(),
-            ));
-        }
-        runtime_log_debug(format!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=command command={}",
-            debug_text_snippet(raw, 220)
-        ));
-        let mut parts = raw.split_whitespace();
-        let op = parts
-            .next()
-            .map(|item| item.to_ascii_lowercase())
-            .unwrap_or_default();
-        let result = match op.as_str() {
-            "help" => Ok(serde_json::json!({
-                "ok": true,
-                "command": "help",
-                "message": command_help_text(),
-            })),
-            "reload" => {
-                if parts.next().is_some() {
-                    Err(ToolInvokeError::from(
-                        "reload 不接受参数。".to_string(),
-                    ))
-                } else {
-                    let value = builtin_reload(&self.app_state)
-                        .await
-                        .map_err(ToolInvokeError::from)?;
-                    Ok(serde_json::json!({
-                        "ok": true,
-                        "command": "reload",
-                        "result": value
-                    }))
-                }
+            runtime_log_debug("[TOOL-DEBUG] execute_builtin_tool.start name=reload".to_string());
+            let result = builtin_reload(&self.app_state)
+                .await
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=reload result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=reload err={err}"
+                )),
             }
-            "organize_context" => {
-                if parts.next().is_some() {
-                    Err(ToolInvokeError::from(
-                        "organize_context 不接受参数。".to_string(),
-                    ))
-                } else {
-                    let value = builtin_organize_context(
-                        &self.app_state,
-                        &self.api_config_id,
-                        &self.agent_id,
-                    )
-                    .await
-                    .map_err(ToolInvokeError::from)?;
-                    Ok(serde_json::json!({
-                        "ok": true,
-                        "command": "organize_context",
-                        "result": value
-                    }))
-                }
-            }
-            "wait" => {
-                let ms_text = parts.next().ok_or_else(|| {
-                    ToolInvokeError::from("wait 需要毫秒参数，例如 `wait 800`。".to_string())
-                })?;
-                if parts.next().is_some() {
-                    return Err(ToolInvokeError::from(
-                        "wait 仅支持一个毫秒参数。".to_string(),
-                    ));
-                }
-                let ms = ms_text.parse::<u64>().map_err(|_| {
-                    ToolInvokeError::from(format!(
-                        "wait 毫秒参数必须是正整数，当前收到：{ms_text}"
-                    ))
-                })?;
-                if !(1..=120_000).contains(&ms) {
-                    return Err(ToolInvokeError::from(format!(
-                        "wait 毫秒参数超出范围，要求 1~120000，当前收到：{ms}"
-                    )));
-                }
-                let value = builtin_desktop_wait(ms)
-                    .await
-                    .map_err(ToolInvokeError::from)?;
-                Ok(serde_json::json!({
-                    "ok": true,
-                    "command": format!("wait {ms}"),
-                    "result": value
-                }))
-            }
-            _ => Err(ToolInvokeError::from(format!(
-                "未知命令：`{raw}`。可执行 `help` 查看支持命令。"
-            ))),
-        };
-        match &result {
-            Ok(v) => runtime_log_debug(format!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=command result={}",
-                debug_value_snippet(v, 240)
-            )),
-            Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=command err={err}")),
-        }
-        result
+            result
         })
     }
 }
 
-impl RuntimeToolMetadata for BuiltinCommandTool {
+impl RuntimeToolMetadata for BuiltinReloadTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
-            "command",
-            "统一命令工具。通过 command 文本调用系统能力（help/reload/organize_context/wait）。",
+            "reload",
+            "重载工作区 MCP 与技能。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinOrganizeContextTool {
+    const NAME: &'static str = "organize_context";
+    type Args = EmptyToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, _args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=organize_context".to_string(),
+            );
+            let result = builtin_organize_context(
+                &self.app_state,
+                &self.api_config_id,
+                &self.agent_id,
+            )
+            .await
+            .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=organize_context result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=organize_context err={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinOrganizeContextTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "organize_context",
+            "整理当前活跃对话上下文。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinWaitTool {
+    const NAME: &'static str = "wait";
+    type Args = WaitToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=wait args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            if !(1..=120_000).contains(&args.ms) {
+                return Err(ToolInvokeError::from(format!(
+                    "wait.ms 超出范围，要求 1~120000，当前收到：{}",
+                    args.ms
+                )));
+            }
+            let result = builtin_desktop_wait(args.ms)
+                .await
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=wait result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=wait err={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinWaitTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "wait",
+            "等待指定毫秒数（1~120000）。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "command": { "type": "string", "description": "命令文本" }
+                "ms": { "type": "integer", "minimum": 1, "maximum": 120000, "description": "等待毫秒数" }
               },
-              "required": ["command"],
+              "required": ["ms"],
               "additionalProperties": false
             }),
         )

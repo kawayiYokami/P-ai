@@ -1,57 +1,147 @@
 #[derive(Debug, Clone)]
-struct BuiltinRemoteImSendTool {
+struct BuiltinContactReplyTool {
     app_state: AppState,
+    session_id: String,
 }
 
-const REMOTE_IM_NO_REPLY_COOLDOWN_SECS: u64 = 7;
+#[derive(Debug, Clone)]
+struct BuiltinContactSendFilesTool {
+    app_state: AppState,
+    session_id: String,
+}
 
-impl RuntimeToolMetadata for BuiltinRemoteImSendTool {
+#[derive(Debug, Clone)]
+struct BuiltinContactNoReplyTool;
+
+impl RuntimeToolMetadata for BuiltinContactReplyTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
-            "remote_im_send",
-            REMOTE_IM_SEND_TOOL_DESCRIPTION,
+            "contact_reply",
+            CONTACT_REPLY_TOOL_DESCRIPTION,
             serde_json::json!({
               "type": "object",
               "properties": {
-                "action": { "type": "string", "enum": ["list", "send", "no_reply"], "description": REMOTE_IM_SEND_TOOL_ACTION_DESCRIPTION, "default": "send" },
-                "channel_id": { "type": "string", "description": REMOTE_IM_SEND_TOOL_CHANNEL_ID_DESCRIPTION },
-                "contact_id": { "type": "string", "description": REMOTE_IM_SEND_TOOL_CONTACT_ID_DESCRIPTION },
-                "text": { "type": "string", "description": REMOTE_IM_SEND_TOOL_TEXT_DESCRIPTION },
-                "status": { "type": "string", "enum": ["continue", "done"], "description": REMOTE_IM_SEND_TOOL_STATUS_DESCRIPTION, "default": "done" },
-                "file_paths": {
-                  "type": "array",
-                  "items": { "type": "string" },
-                  "description": REMOTE_IM_SEND_TOOL_FILE_PATHS_DESCRIPTION
-                }
+                "text": { "type": "string", "description": CONTACT_REPLY_TOOL_TEXT_DESCRIPTION }
               },
-              "required": ["action"]
+              "required": ["text"]
             }),
         )
     }
 }
 
-impl RuntimeJsonTool for BuiltinRemoteImSendTool {
-    const NAME: &'static str = "remote_im_send";
-    type Args = RemoteImSendToolArgs;
+impl RuntimeToolMetadata for BuiltinContactSendFilesTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "contact_send_files",
+            CONTACT_SEND_FILES_TOOL_DESCRIPTION,
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "file_paths": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": CONTACT_SEND_FILES_TOOL_FILE_PATHS_DESCRIPTION
+                }
+              },
+              "required": ["file_paths"]
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinContactNoReplyTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "contact_no_reply",
+            CONTACT_NO_REPLY_TOOL_DESCRIPTION,
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "reason": { "type": "string", "description": CONTACT_NO_REPLY_TOOL_REASON_DESCRIPTION }
+              }
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinContactReplyTool {
+    const NAME: &'static str = "contact_reply";
+    type Args = ContactReplyToolArgs;
     type Error = ToolInvokeError;
 
     fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
         Box::pin(async move {
-        runtime_log_debug(format!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=remote_im_send args={}",
-            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
-        ));
-        let result = builtin_remote_im_send(&self.app_state, args)
-            .await
-            .map_err(ToolInvokeError::from);
-        match &result {
-            Ok(v) => runtime_log_debug(format!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=remote_im_send result={}",
-                debug_value_snippet(v, 240)
-            )),
-            Err(err) => runtime_log_debug(format!("[TOOL-DEBUG] execute_builtin_tool.err name=remote_im_send err={err}")),
-        }
-        result
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=contact_reply args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_contact_reply(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=contact_reply result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=contact_reply err={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeJsonTool for BuiltinContactSendFilesTool {
+    const NAME: &'static str = "contact_send_files";
+    type Args = ContactSendFilesToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=contact_send_files args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_contact_send_files(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=contact_send_files result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=contact_send_files err={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeJsonTool for BuiltinContactNoReplyTool {
+    const NAME: &'static str = "contact_no_reply";
+    type Args = ContactNoReplyToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=contact_no_reply args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_contact_no_reply(args).map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=contact_no_reply result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.err name=contact_no_reply err={err}"
+                )),
+            }
+            result
         })
     }
 }
@@ -160,10 +250,11 @@ async fn remote_im_send_content_payload(
     channel: &RemoteImChannelConfig,
     contact: &RemoteImContact,
     content: Vec<Value>,
-    status: &str,
+    stop_tool_loop: bool,
+    action: &str,
 ) -> Result<Value, String> {
     if content.is_empty() {
-        return Err("action=send 时 text 与 file_paths 不能同时为空".to_string());
+        return Err("发送内容不能为空".to_string());
     }
     let payload = serde_json::json!({
         "channel_id": contact.channel_id,
@@ -173,23 +264,10 @@ async fn remote_im_send_content_payload(
         "contact_id": contact.remote_contact_id,
         "content": content,
     });
-
-    let normalized_status = status.trim().to_ascii_lowercase();
-    let stop_tool_loop = match normalized_status.as_str() {
-        "done" => true,
-        "continue" => false,
-        other => {
-            return Err(format!(
-                "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
-            ))
-        }
-    };
-
     let platform_message_id = remote_im_send_via_sdk(channel, contact, &payload).await?;
     Ok(serde_json::json!({
         "ok": true,
-        "action": "send",
-        "status": normalized_status,
+        "action": action.trim(),
         "done": stop_tool_loop,
         "continue": !stop_tool_loop,
         "stop_tool_loop": stop_tool_loop,
@@ -201,169 +279,108 @@ async fn remote_im_send_content_payload(
     }))
 }
 
-async fn builtin_remote_im_send(
-    state: &AppState,
-    args: RemoteImSendToolArgs,
-) -> Result<Value, String> {
-    let action = args.action.trim().to_ascii_lowercase();
-    match action.as_str() {
-        "list" => {
-            let channel_filter = args
-                .channel_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(ToOwned::to_owned);
-            let config = state_read_config_cached(state)?;
-            let data = state_read_app_data_cached(state)?;
-            let mut contacts = Vec::<Value>::new();
-            for contact in &data.remote_im_contacts {
-                if let Some(filter) = channel_filter.as_deref() {
-                    if contact.channel_id != filter {
-                        continue;
-                    }
-                }
-                let Some(channel) = config
-                    .remote_im_channels
-                    .iter()
-                    .find(|item| item.id == contact.channel_id)
-                else {
-                    continue;
-                };
-                if !channel.enabled {
-                    continue;
-                }
-                contacts.push(serde_json::json!({
-                    "channel_id": contact.channel_id,
-                    "channel_name": channel.name,
-                    "platform": contact.platform,
-                    "contact_id": contact.remote_contact_id,
-                    "contact_record_id": contact.id,
-                    "contact_name": contact.remote_contact_name,
-                    "remark_name": contact.remark_name,
-                    "contact_type": contact.remote_contact_type,
-                    "allow_send": contact.allow_send,
-                    "allow_receive": contact.allow_receive,
-                    "activation_mode": contact.activation_mode,
-                }));
-            }
-            return Ok(serde_json::json!({
-                "ok": true,
-                "action": "list",
-                "count": contacts.len(),
-                "contacts": contacts
-            }));
-        }
-        "send" => {}
-        "no_reply" => {
-            let status = args.status.trim().to_ascii_lowercase();
-            let stop_tool_loop = match status.as_str() {
-                "done" => true,
-                "continue" => false,
-                other => {
-                    return Err(format!(
-                        "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
-                    ))
-                }
-            };
-            runtime_log_info(format!(
-                "[远程联系人回复决策] no_reply 开始: action=no_reply, cooldown_seconds={}",
-                REMOTE_IM_NO_REPLY_COOLDOWN_SECS
-            ));
-            tokio::time::sleep(std::time::Duration::from_secs(
-                REMOTE_IM_NO_REPLY_COOLDOWN_SECS,
-            ))
-            .await;
-            runtime_log_info(format!(
-                "[远程联系人回复决策] no_reply 完成: action=no_reply, cooldown_seconds={}",
-                REMOTE_IM_NO_REPLY_COOLDOWN_SECS
-            ));
-            return Ok(serde_json::json!({
-                "ok": true,
-                "action": "no_reply",
-                "status": status,
-                "done": stop_tool_loop,
-                "continue": !stop_tool_loop,
-                "stop_tool_loop": stop_tool_loop,
-                "no_reply": true
-            }));
-        }
-        other => {
-            return Err(format!(
-                "remote_im_send.action 非法：`{other}`。请返回正确动作：list、send 或 no_reply"
-            ));
-        }
-    }
+fn contact_tool_target_conversation_id(session_id: &str) -> Result<String, String> {
+    let (_, _, conversation_id) = delegate_parse_session_parts(session_id);
+    conversation_id.ok_or_else(|| "联系人专用工具缺少 conversation_id，无法定位当前联系人".to_string())
+}
 
-    let channel_id = args
-        .channel_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "action=send 时 channel_id 不能为空".to_string())?
-        .to_string();
-    let contact_id_input = args
-        .contact_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "action=send 时 contact_id 不能为空".to_string())?
-        .to_string();
-    let text = args
-        .text
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or("")
-        .to_string();
+fn remote_im_current_contact_context_from_session(
+    state: &AppState,
+    session_id: &str,
+) -> Result<(Conversation, RemoteImChannelConfig, RemoteImContact), String> {
+    let conversation_id = contact_tool_target_conversation_id(session_id)?;
+    let config = state_read_config_cached(state)?;
+    let data = state_read_app_data_cached(state)?;
+    let conversation = data
+        .conversations
+        .iter()
+        .find(|item| item.id == conversation_id && item.summary.trim().is_empty())
+        .cloned()
+        .ok_or_else(|| format!("当前会话不存在: conversation_id={conversation_id}"))?;
+    if !conversation_is_remote_im_contact(&conversation) {
+        return Err("联系人专用工具仅可用于联系人会话".to_string());
+    }
+    let contact = remote_im_find_contact_by_conversation(&data, &conversation_id)
+        .cloned()
+        .ok_or_else(|| format!("未找到当前会话绑定的联系人: conversation_id={conversation_id}"))?;
+    let channel = remote_im_channel_by_id(&config, &contact.channel_id)
+        .cloned()
+        .ok_or_else(|| format!("远程 IM 渠道不存在: {}", contact.channel_id))?;
+    if !channel.enabled {
+        return Err(format!("远程 IM 渠道未启用: {}", contact.channel_id));
+    }
+    Ok((conversation, channel, contact))
+}
+
+async fn builtin_contact_reply(
+    state: &AppState,
+    session_id: &str,
+    args: ContactReplyToolArgs,
+) -> Result<Value, String> {
+    let text = args.text.trim().to_string();
+    if text.is_empty() {
+        return Err("contact_reply.text 不能为空".to_string());
+    }
+    let (_conversation, channel, contact) =
+        remote_im_current_contact_context_from_session(state, session_id)?;
+    if !contact.allow_send {
+        return Err("当前联系人不允许发送消息".to_string());
+    }
+    let seed_source = format!(
+        "contact_reply::{}::{}::{}",
+        contact.channel_id, contact.remote_contact_id, text
+    );
+    let content = remote_im_build_text_content_items(state, &text, &seed_source).await?;
+    remote_im_send_content_payload(&channel, &contact, content, false, "reply").await
+}
+
+async fn builtin_contact_send_files(
+    state: &AppState,
+    session_id: &str,
+    args: ContactSendFilesToolArgs,
+) -> Result<Value, String> {
     let file_paths = args
         .file_paths
-        .clone()
-        .unwrap_or_default()
         .into_iter()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
-
-    let config = state_read_config_cached(state)?;
-    let channel = remote_im_channel_by_id(&config, &channel_id)
-        .ok_or_else(|| format!("远程IM渠道不存在: {channel_id}"))?
-        .clone();
-    if !channel.enabled {
-        return Err(format!("远程IM渠道未启用: {channel_id}"));
+    if file_paths.is_empty() {
+        return Err("contact_send_files.file_paths 不能为空".to_string());
     }
-    let data = state_read_app_data_cached(state)?;
-    let contact = data
-        .remote_im_contacts
-        .iter()
-        .find(|c| c.channel_id == channel_id && c.remote_contact_id == contact_id_input)
-        .ok_or_else(|| format!("未找到匹配的远程联系人: channel_id={channel_id}, contact_id={contact_id_input}。请先 action=list，并使用返回的 contact_id"))?
-        .clone();
-
+    let (_conversation, channel, contact) =
+        remote_im_current_contact_context_from_session(state, session_id)?;
     if !contact.allow_send {
-        return Err(format!(
-            "当前联系人不允许发信: channel_id={}, contact_id={}。你仍可继续处理任务；任务执行完毕之后，请立刻使用 remote_im_send(action=no_reply, status=done) 明确结束本轮。",
-            channel_id, contact_id_input
-        ));
+        return Err("当前联系人不允许发送消息".to_string());
     }
     if !contact.allow_send_files
         && remote_im_outbound_contains_non_image_file(state, &file_paths).await?
     {
-        return Err(format!(
-            "用户已禁止向该联系人发送非图片文件: channel_id={}, contact_id={}",
-            channel_id, contact_id_input
-        ));
+        return Err("当前联系人已禁止接收非图片文件".to_string());
     }
+    let content = remote_im_build_file_content_items(state, &file_paths).await?;
+    let mut result =
+        remote_im_send_content_payload(&channel, &contact, content, false, "send_files").await?;
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("file_count".to_string(), serde_json::json!(file_paths.len()));
+    }
+    Ok(result)
+}
 
-    let seed_source = format!(
-        "remote_im_send::{}::{}::{}",
-        channel_id,
-        contact_id_input,
-        text
-    );
-    let mut content = remote_im_build_text_content_items(state, &text, &seed_source).await?;
-    if !file_paths.is_empty() {
-        let mut file_items = remote_im_build_file_content_items(state, &file_paths).await?;
-        content.append(&mut file_items);
-    }
-    remote_im_send_content_payload(&channel, &contact, content, &args.status).await
+fn builtin_contact_no_reply(args: ContactNoReplyToolArgs) -> Result<Value, String> {
+    let reason = args
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    Ok(serde_json::json!({
+        "ok": true,
+        "action": "no_reply",
+        "no_reply": true,
+        "done": true,
+        "continue": false,
+        "stop_tool_loop": true,
+        "reason": reason.unwrap_or_default()
+    }))
 }

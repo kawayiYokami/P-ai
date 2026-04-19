@@ -1,5 +1,13 @@
 # 变更日志
 
+## 更新：工具类型重做与系统工具目录收口
+
+- 重构（tool-type-rework-and-contact-tools）：重做系统工具类型边界；固定系统工具收口为 `todo / remember / recall`，本地会话固定工具收口为 `plan`，联系人专用工具重做为 `contact_reply / contact_send_files / contact_no_reply`，仅在联系人会话中挂载且不再受部门权限控制
+- 重构（remote-im-contact-tools-and-auto-send）：废除旧的 `remote_im_send` 联系人决策协议，联系人会话改为“中途回应 / 发附件 / 明确不回复”三工具模型；若未调用 `contact_no_reply`，系统会在轮次结束时自动向当前联系人发送最终 assistant 回复
+- 重构（command-tool-split）：删除旧 `command` 与 `help`，将其拆分为三个独立内置工具：`reload`、`organize_context`、`wait`；默认工具目录、前端工具定义、旧配置归一化与运行时装配同步收口到新协议
+- 修复（system-tool-catalog-show-all-tools）：工具页的系统工具目录改为真正展示全量系统工具，不再显示“当前部门 / 当前人格 / 运行模型”等运行态信息；联系人专用工具现在也会出现在目录中，方便统一查看说明、参数与示例
+- 修复（department-skill-permission-requires-exec-ui）：部门权限页中，技能权限现在依赖终端 `exec`；当白名单未允许 `exec` 或黑名单禁用了 `exec` 时，所有 skill 选项会自动灰掉并清空已有勾选，避免出现“没有终端却还能选 skill”的前端状态
+
 ## 更新：系统提示词管理与部门缓存收口
 
 - 重构（system-prompt-manager-and-cache）：新增 `PromptManager`，将 `system prompt` 与 `conversation prompt` 解耦；系统提示词按“固定系统准则 / 部门提示词 / 内部工具规则 / 特殊运行环境 / IM 规则”分层装配，并分别引入部门提示词缓存、会话环境提示词缓存与最终系统提示词缓存，避免高频轮次重复重建

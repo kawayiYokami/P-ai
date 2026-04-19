@@ -1692,7 +1692,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              为什么：当前前端只把“盘符开头的绝对本地路径”识别为本地文件链接；`file:///E:/...` 这类 RFC 形式在当前渲染链路里容易被当成普通网页链接或被错误解析。\n\
              错误示例：`[文件](file:///E:/github/project/file.ts)`、`[文件](file://E:/github/project/file.ts)`、只输出裸路径不加链接、把文件名误写成 URL 主机名、把 `https://...` 网络链接写成磁盘路径格式。\n\
              与 apply_patch 的区别：apply_patch 是编辑文件时给工具看的路径；文件引用是回复用户时给界面点击打开的路径。两者都优先使用绝对路径，但文件引用必须放在 Markdown 链接里，且不要加 `file:///` 前缀。\n\
-             远程联系人例外：如果当前对象是远程联系人，不要把本地文件路径当成消息正文发出去；需要发送文件时，必须使用 `remote_im_send` 的文件发送能力，由工具实际上传或投递文件，而不是仅在文本里粘贴本地路径。",
+             远程联系人例外：如果当前对象是远程联系人，不要把本地文件路径当成消息正文发出去；需要发送文件时，必须使用 `contact_send_files` 发送附件，由工具实际上传或投递文件，而不是仅在文本里粘贴本地路径。",
         ),
         _ => return None,
     };
@@ -1703,6 +1703,9 @@ fn department_builtin_tool_enabled(
     current_department: Option<&DepartmentConfig>,
     id: &str,
 ) -> bool {
+    if !builtin_tool_is_department_controlled(id) {
+        return false;
+    }
     if tool_restricted_by_department(current_department, id).is_some() {
         return false;
     }
@@ -1730,7 +1733,7 @@ fn build_system_tools_rule_blocks(
     let current_department = department_for_agent_id(&department_config, &agent.id);
     let mut blocks = Vec::<String>::new();
     let mut any_builtin_enabled = false;
-    for tool_id in ["todo", "delegate", "task", "exec", "apply_patch"] {
+    for tool_id in ["delegate", "task", "exec", "apply_patch"] {
         if department_builtin_tool_enabled(current_department, tool_id) {
             any_builtin_enabled = true;
             if let Some(block) = build_builtin_tool_rule_block(tool_id) {
@@ -1738,7 +1741,7 @@ fn build_system_tools_rule_blocks(
             }
         }
     }
-    if ["exec", "read_file", "apply_patch", "command"]
+    if ["exec", "read_file", "apply_patch"]
         .into_iter()
         .any(|tool_id| department_builtin_tool_enabled(current_department, tool_id))
     {

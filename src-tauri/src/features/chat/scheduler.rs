@@ -714,17 +714,6 @@ pub(crate) fn get_conversation_plan_mode_enabled(
         .unwrap_or(false))
 }
 
-pub(crate) fn get_conversation_remote_im_activation_sources(
-    state: &AppState,
-    conversation_id: &str,
-) -> Result<Vec<RemoteImActivationSource>, String> {
-    let slots = lock_conversation_runtime_slots(state)?;
-    Ok(slots
-        .get(conversation_id.trim())
-        .map(|slot| slot.active_remote_im_activation_sources.clone())
-        .unwrap_or_default())
-}
-
 fn collect_activated_remote_im_sources(
     events: &[ChatPendingEvent],
     event_activate_flags: &[bool],

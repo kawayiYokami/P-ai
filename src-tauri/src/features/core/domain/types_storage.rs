@@ -295,6 +295,33 @@ enum DepartmentPermissionCategory {
     McpTool,
 }
 
+fn builtin_tool_is_fixed_system(tool_id: &str) -> bool {
+    matches!(tool_id.trim(), "todo" | "remember" | "recall")
+}
+
+fn builtin_tool_is_local_conversation_fixed(tool_id: &str) -> bool {
+    tool_id.trim() == "plan"
+}
+
+fn builtin_tool_is_contact_only_hidden(tool_id: &str) -> bool {
+    matches!(
+        tool_id.trim(),
+        "contact_reply" | "contact_send_files" | "contact_no_reply"
+    )
+}
+
+fn builtin_tool_is_department_controlled(tool_id: &str) -> bool {
+    let trimmed = tool_id.trim();
+    !trimmed.is_empty()
+        && !builtin_tool_is_fixed_system(trimmed)
+        && !builtin_tool_is_local_conversation_fixed(trimmed)
+        && !builtin_tool_is_contact_only_hidden(trimmed)
+}
+
+fn builtin_tool_visible_in_department_permissions(tool_id: &str) -> bool {
+    builtin_tool_is_department_controlled(tool_id)
+}
+
 fn normalize_department_permission_mode(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "whitelist" => "whitelist".to_string(),
@@ -401,15 +428,15 @@ fn tool_restricted_by_department(
     department: Option<&DepartmentConfig>,
     tool_id: &str,
 ) -> Option<String> {
-    let department = department?;
-    let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
-    if department.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID && tool_id == "remote_im_send" {
+    if !builtin_tool_is_department_controlled(tool_id) {
         return None;
     }
+    let department = department?;
+    let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
     if !is_assistant
         && matches!(
             tool_id,
-            "command" | "screenshot" | "operate" | "task" | "delegate" | "remote_im_send"
+            "reload" | "organize_context" | "wait" | "screenshot" | "operate" | "task" | "delegate"
         )
     {
         let department_name = department.name.trim();
@@ -433,10 +460,9 @@ fn tool_forced_by_department(
     department: Option<&DepartmentConfig>,
     tool_id: &str,
 ) -> bool {
-    let Some(department) = department else {
-        return false;
-    };
-    department.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID && tool_id == "remote_im_send"
+    let _ = department;
+    let _ = tool_id;
+    false
 }
 
 fn user_persona_name(data: &AppData) -> String {

@@ -112,7 +112,9 @@ fn check_tools_status(
                 "旧 screenshot 工具已并入 operate，请改用 operate 脚本中的 screenshot 动作。".to_string(),
             ),
             "operate" => ("loaded".to_string(), "桌面输入工具可用（鼠标/键盘/文本）".to_string()),
-            "command" => ("loaded".to_string(), "统一命令工具可用".to_string()),
+            "reload" => ("loaded".to_string(), "刷新工作区 MCP 与技能工具可用".to_string()),
+            "organize_context" => ("loaded".to_string(), "整理当前活跃对话上下文工具可用".to_string()),
+            "wait" => ("loaded".to_string(), "等待毫秒工具可用".to_string()),
             "plan" => ("loaded".to_string(), "计划协议工具可用".to_string()),
             "task" => ("loaded".to_string(), "任务工具可用".to_string()),
             "todo" => ("loaded".to_string(), "会话内 Todo 步骤追踪工具可用".to_string()),
@@ -120,14 +122,6 @@ fn check_tools_status(
             "meme" => (
                 "loaded".to_string(),
                 "表情偷图工具可用".to_string(),
-            ),
-            "remote_im_send" => (
-                "loaded".to_string(),
-                if forced_by_department {
-                    "远程客服部门已强制启用远程联系人回复决策工具（支持 list/send/no_reply）".to_string()
-                } else {
-                    "远程联系人通讯工具可用（支持 list/send/no_reply）".to_string()
-                },
             ),
             "read_file" => (
                 "loaded".to_string(),

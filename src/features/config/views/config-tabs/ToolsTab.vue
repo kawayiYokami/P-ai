@@ -57,21 +57,8 @@
       <div class="px-4 py-3 border-b border-base-300 flex items-center justify-between gap-3">
         <div>
           <div class="font-medium">{{ t("config.tools.systemCatalogTitle") }}</div>
-          <div class="text-[11px] opacity-60">
-            <span v-if="assistantDepartment">{{ t("config.tools.currentDepartmentLabel") }}{{ assistantDepartment.name }}</span>
-            <template v-if="assistantAgentName">
-              · {{ t("config.tools.currentPersonaLabel") }}{{ assistantAgentName }}
-            </template>
-            <template v-if="toolApiConfig">
-              · {{ t("config.tools.currentModelLabel") }}{{ toolApiConfig.name }}
-            </template>
-          </div>
+          <div class="text-[11px] opacity-60">{{ t("config.tools.systemCatalogReadonly") }}</div>
         </div>
-        <div class="text-[11px] opacity-50">{{ t("config.tools.systemCatalogReadonly") }}</div>
-      </div>
-
-      <div v-if="toolApiConfig && !toolApiConfig.enableTools" class="px-4 py-3 text-sm opacity-70 border-b border-base-300">
-        {{ t("config.tools.disabledHint") }}
       </div>
 
       <div v-if="toolDefinitions.length" class="divide-y divide-base-300/60">
@@ -80,30 +67,24 @@
           :key="item.function.name"
           class="px-4 py-3"
         >
-          <div class="flex items-start gap-3">
-            <div class="w-2.5 h-2.5 rounded-full mt-1 shrink-0" :class="statusDotClass(item.function.name)"></div>
-            <div class="min-w-0 flex-1">
-              <div class="font-medium">{{ item.function.name }}</div>
-              <div class="text-[11px] opacity-60 whitespace-pre-wrap">{{ item.function.description || t("config.mcpToolList.noDescription") }}</div>
-              <div v-if="toolParameterSummary(item.function.name).length" class="mt-1 flex flex-wrap gap-1">
-                <span
-                  v-for="paramText in toolParameterSummary(item.function.name)"
-                  :key="`${item.function.name}-param-${paramText}`"
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-base-200 border border-base-300/70 opacity-80"
-                >
-                  {{ paramText }}
-                </span>
-              </div>
-              <div v-if="toolParameterExamples(item.function.name).length" class="mt-1 grid gap-1">
-                <pre
-                  v-for="example in toolParameterExamples(item.function.name)"
-                  :key="`${item.function.name}-example-${example}`"
-                  class="text-[10px] leading-4 px-2 py-1 rounded bg-base-200 border border-base-300/70 opacity-90 whitespace-pre-wrap overflow-x-auto"
-                >{{ example }}</pre>
-              </div>
-              <div v-if="statusDetail(item.function.name)" class="text-[11px] mt-1 rounded px-2 py-1" :class="statusMessageClass(item.function.name)">
-                {{ statusDetail(item.function.name) }}
-              </div>
+          <div class="min-w-0">
+            <div class="font-medium">{{ item.function.name }}</div>
+            <div class="text-[11px] opacity-60 whitespace-pre-wrap">{{ item.function.description || t("config.mcpToolList.noDescription") }}</div>
+            <div v-if="toolParameterSummary(item.function.name).length" class="mt-1 flex flex-wrap gap-1">
+              <span
+                v-for="paramText in toolParameterSummary(item.function.name)"
+                :key="`${item.function.name}-param-${paramText}`"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-base-200 border border-base-300/70 opacity-80"
+              >
+                {{ paramText }}
+              </span>
+            </div>
+            <div v-if="toolParameterExamples(item.function.name).length" class="mt-1 grid gap-1">
+              <pre
+                v-for="example in toolParameterExamples(item.function.name)"
+                :key="`${item.function.name}-example-${example}`"
+                class="text-[10px] leading-4 px-2 py-1 rounded bg-base-200 border border-base-300/70 opacity-90 whitespace-pre-wrap overflow-x-auto"
+              >{{ example }}</pre>
             </div>
           </div>
         </div>
@@ -135,10 +116,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type {
-  ApiConfigItem,
   AppConfig,
   FrontendToolDefinition,
-  PersonaProfile,
   ToolLoadStatus,
 } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
@@ -161,8 +140,6 @@ type TerminalShellCandidatesResult = {
 
 const props = defineProps<{
   config: AppConfig;
-  personas: PersonaProfile[];
-  toolApiConfig: ApiConfigItem | null;
   toolStatuses: ToolLoadStatus[];
   savingConfig: boolean;
 }>();
@@ -184,15 +161,6 @@ const terminalShellOptions = ref<TerminalShellCandidate[]>([]);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
 const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 const terminalShellKindValue = computed(() => String(props.config.terminalShellKind || "auto"));
-const assistantDepartment = computed(
-  () => props.config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant) ?? null,
-);
-const assistantAgentName = computed(() => {
-  const agentId = String(assistantDepartment.value?.agentIds?.[0] || "").trim();
-  if (!agentId) return "";
-  return String(props.personas.find((item) => item.id === agentId)?.name || "").trim();
-});
-
 function setShellWorkspaceStatus(text: string, isError = false) {
   shellWorkspaceStatus.value = text;
   shellWorkspaceStatusError.value = isError;
@@ -356,26 +324,6 @@ function toolStatusById(id: string): ToolLoadStatus | undefined {
 const showGitInstallHintInWorkspace = computed(
   () => isWindowsHost && toolStatusById("exec")?.status === "unavailable",
 );
-
-function statusDetail(id: string): string {
-  return String(toolStatusById(id)?.detail || "").trim();
-}
-
-function statusMessageClass(id: string): string {
-  const status = toolStatusById(id)?.status;
-  if (status === "failed") return "text-error bg-error/10";
-  if (status === "unavailable") return "text-base-content bg-warning/10";
-  return "opacity-70";
-}
-
-function statusDotClass(id: string): string {
-  const status = toolStatusById(id)?.status;
-  if (status === "loaded") return "bg-success";
-  if (status === "failed" || status === "timeout") return "bg-error";
-  if (status === "unavailable") return "bg-warning";
-  if (status === "disabled") return "bg-base-content/30";
-  return "bg-base-content/20";
-}
 
 function definitionById(id: string): FrontendToolDefinition | undefined {
   return toolDefinitions.value.find((item) => item.function?.name === id);

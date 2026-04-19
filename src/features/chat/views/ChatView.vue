@@ -438,9 +438,8 @@ const props = defineProps<{
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 function isOrganizeContextToolCall(call: { name: string; argsText: string; status?: "doing" | "done" }): boolean {
   const name = String(call.name || "").trim().toLowerCase();
-  const argsText = String(call.argsText || "").trim().toLowerCase();
   if (name === "organize_context" || name === "archive") return true;
-  return name === "command" && argsText.includes("organize_context");
+  return false;
 }
 
 const visibleStreamToolCalls = computed(() =>

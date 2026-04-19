@@ -293,6 +293,9 @@
 
                   <div class="grid min-w-0 gap-2 overflow-hidden">
                     <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionSkills") }}</div>
+                    <div v-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
+                      {{ t("config.department.permissionSkillsRequireExec") }}
+                    </div>
                     <fieldset class="grid min-w-0 gap-2 overflow-hidden">
                       <button
                         v-for="item in permissionCatalog.skills"
@@ -303,14 +306,14 @@
                           permissionNameChecked('skillNames', item.name)
                             ? permissionCardTone.card
                             : 'border-base-content/10 bg-base-200 text-base-content',
-                          permissionListDisabled
+                          skillPermissionListDisabled
                             ? 'cursor-not-allowed opacity-60'
                             : 'cursor-pointer hover:border-base-content/20',
                         ]"
                         :aria-checked="permissionNameChecked('skillNames', item.name)"
                         role="checkbox"
-                        :disabled="permissionListDisabled"
-                        @click="togglePermissionName('skillNames', item.name, !permissionNameChecked('skillNames', item.name))"
+                        :disabled="skillPermissionListDisabled"
+                        @click="handleSkillPermissionToggle(item.name)"
                       >
                         <span
                           class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition"
@@ -572,6 +575,18 @@ const permissionCardTone = computed(() =>
 const permissionListDisabled = computed(() =>
   selectedDepartmentIsPrivateWorkspace.value || !permissionControlEnabled.value,
 );
+const permissionExecAllowed = computed(() => {
+  const control = selectedDepartmentPermissionControl.value;
+  if (!control?.enabled) return false;
+  const execSelected = (control.builtinToolNames || []).includes("exec");
+  return control.mode === "whitelist" ? execSelected : !execSelected;
+});
+const skillPermissionRequiresExec = computed(() =>
+  permissionControlEnabled.value && !selectedDepartmentIsPrivateWorkspace.value && !permissionExecAllowed.value,
+);
+const skillPermissionListDisabled = computed(() =>
+  permissionListDisabled.value || skillPermissionRequiresExec.value,
+);
 
 function ensureDepartmentPermissionControl(target: DepartmentConfig | null | undefined) {
   if (!target) return null;
@@ -624,6 +639,23 @@ watch(
   () => {
     if (departmentDirty.value) return;
     syncDepartmentDraftsFromSource();
+  },
+);
+
+watch(
+  () => ({
+    departmentId: selectedDepartment.value?.id || "",
+    enabled: permissionControlEnabled.value,
+    mode: selectedDepartmentPermissionControl.value?.mode || "blacklist",
+    builtinToolNames: (selectedDepartmentPermissionControl.value?.builtinToolNames || []).join("|"),
+    blocked: skillPermissionRequiresExec.value,
+  }),
+  () => {
+    const control = selectedDepartmentPermissionControl.value;
+    if (!control || !skillPermissionRequiresExec.value || control.skillNames.length <= 0) {
+      return;
+    }
+    updateDepartmentPermissionControl({ skillNames: [] });
   },
 );
 
@@ -728,6 +760,11 @@ function togglePermissionName(
     next.delete(trimmed);
   }
   updateDepartmentPermissionControl({ [category]: Array.from(next) } as Partial<NonNullable<DepartmentConfig["permissionControl"]>>);
+}
+
+function handleSkillPermissionToggle(name: string) {
+  if (skillPermissionListDisabled.value) return;
+  togglePermissionName("skillNames", name, !permissionNameChecked("skillNames", name));
 }
 
 function permissionNameChecked(category: DepartmentPermissionNameCategory, name: string) {

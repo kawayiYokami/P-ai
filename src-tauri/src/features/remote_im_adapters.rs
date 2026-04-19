@@ -240,7 +240,7 @@ impl DingtalkSdk {
             "dingtalk.access_token",
             serde_json::json!({
                 "task_name": "dingtalk.access_token",
-                "trigger": "remote_im_send",
+                "trigger": "remote_im_outbound",
                 "channel_id": channel.id,
                 "status": "开始"
             }),
@@ -254,7 +254,7 @@ impl DingtalkSdk {
                 "dingtalk.access_token",
                 serde_json::json!({
                     "task_name": "dingtalk.access_token",
-                    "trigger": "remote_im_send",
+                    "trigger": "remote_im_outbound",
                     "channel_id": channel.id,
                     "status": "失败",
                     "error": err,
@@ -273,7 +273,7 @@ impl DingtalkSdk {
                     "dingtalk.access_token",
                     serde_json::json!({
                         "task_name": "dingtalk.access_token",
-                        "trigger": "remote_im_send",
+                        "trigger": "remote_im_outbound",
                         "channel_id": channel.id,
                         "status": "失败",
                         "error": msg,
@@ -297,7 +297,7 @@ impl DingtalkSdk {
                     "dingtalk.access_token",
                     serde_json::json!({
                         "task_name": "dingtalk.access_token",
-                        "trigger": "remote_im_send",
+                        "trigger": "remote_im_outbound",
                         "channel_id": channel.id,
                         "status": "失败",
                         "error": msg,
@@ -316,7 +316,7 @@ impl DingtalkSdk {
                     "dingtalk.access_token",
                     serde_json::json!({
                         "task_name": "dingtalk.access_token",
-                        "trigger": "remote_im_send",
+                        "trigger": "remote_im_outbound",
                         "channel_id": channel.id,
                         "status": "失败",
                         "error": msg,
@@ -342,7 +342,7 @@ impl DingtalkSdk {
                 "dingtalk.access_token",
                 serde_json::json!({
                     "task_name": "dingtalk.access_token",
-                    "trigger": "remote_im_send",
+                    "trigger": "remote_im_outbound",
                     "channel_id": channel.id,
                     "status": "失败",
                     "token_present": false,
@@ -357,7 +357,7 @@ impl DingtalkSdk {
             "dingtalk.access_token",
             serde_json::json!({
                 "task_name": "dingtalk.access_token",
-                "trigger": "remote_im_send",
+                "trigger": "remote_im_outbound",
                 "channel_id": channel.id,
                 "status": "完成",
                 "token_present": true,
@@ -603,7 +603,7 @@ impl DingtalkSdk {
     ) {
         let mut fields = serde_json::json!({
             "task_name": "dingtalk.send_outbound",
-            "trigger": "remote_im_send",
+            "trigger": "remote_im_outbound",
             "channel_id": channel.id,
             "contact_id": contact.id,
             "remote_contact_id": contact.remote_contact_id,
@@ -691,7 +691,7 @@ impl RemoteImSdk for DingtalkSdk {
                 "dingtalk.send_outbound_payload",
                 serde_json::json!({
                     "task_name": "dingtalk.send_outbound_payload",
-                    "trigger": "remote_im_send",
+                    "trigger": "remote_im_outbound",
                     "channel_id": channel.id,
                     "contact_id": contact.id,
                     "remote_contact_id": contact.remote_contact_id,
@@ -1111,7 +1111,7 @@ impl RemoteImSdk for WeixinOcSdk {
                 "weixin_oc.send_outbound",
                 serde_json::json!({
                     "task_name": "weixin_oc.send_outbound",
-                    "trigger": "remote_im_send",
+                    "trigger": "remote_im_outbound",
                     "channel_id": channel.id,
                     "remote_contact_id": contact.remote_contact_id,
                     "status": "开始",
@@ -1147,7 +1147,7 @@ impl RemoteImSdk for WeixinOcSdk {
                                     "weixin_oc.send_outbound.segment",
                                     serde_json::json!({
                                         "task_name": "weixin_oc.send_outbound.segment",
-                                        "trigger": "remote_im_send",
+                                        "trigger": "remote_im_outbound",
                                         "channel_id": channel.id,
                                         "remote_contact_id": contact.remote_contact_id,
                                         "status": "开始",
@@ -1183,7 +1183,7 @@ impl RemoteImSdk for WeixinOcSdk {
                                 "weixin_oc.send_outbound.segment",
                                 serde_json::json!({
                                     "task_name": "weixin_oc.send_outbound.segment",
-                                    "trigger": "remote_im_send",
+                                    "trigger": "remote_im_outbound",
                                     "channel_id": channel.id,
                                     "remote_contact_id": contact.remote_contact_id,
                                     "status": "开始",
@@ -1218,7 +1218,7 @@ impl RemoteImSdk for WeixinOcSdk {
                                     "weixin_oc.send_outbound.segment",
                                     serde_json::json!({
                                         "task_name": "weixin_oc.send_outbound.segment",
-                                        "trigger": "remote_im_send",
+                                        "trigger": "remote_im_outbound",
                                         "channel_id": channel.id,
                                         "remote_contact_id": contact.remote_contact_id,
                                         "status": "开始",
@@ -1242,7 +1242,7 @@ impl RemoteImSdk for WeixinOcSdk {
                                 "weixin_oc.send_outbound.segment",
                                 serde_json::json!({
                                     "task_name": "weixin_oc.send_outbound.segment",
-                                    "trigger": "remote_im_send",
+                                    "trigger": "remote_im_outbound",
                                     "channel_id": channel.id,
                                     "remote_contact_id": contact.remote_contact_id,
                                     "status": "开始",
@@ -1279,7 +1279,7 @@ impl RemoteImSdk for WeixinOcSdk {
                         "weixin_oc.send_outbound.segment",
                         serde_json::json!({
                             "task_name": "weixin_oc.send_outbound.segment",
-                            "trigger": "remote_im_send",
+                            "trigger": "remote_im_outbound",
                             "channel_id": channel.id,
                             "remote_contact_id": contact.remote_contact_id,
                             "status": "开始",
@@ -1314,7 +1314,7 @@ impl RemoteImSdk for WeixinOcSdk {
                         "weixin_oc.send_outbound",
                         serde_json::json!({
                             "task_name": "weixin_oc.send_outbound",
-                            "trigger": "remote_im_send",
+                            "trigger": "remote_im_outbound",
                             "channel_id": channel.id,
                             "remote_contact_id": contact.remote_contact_id,
                             "status": "完成",
@@ -1331,7 +1331,7 @@ impl RemoteImSdk for WeixinOcSdk {
                         "weixin_oc.send_outbound",
                         serde_json::json!({
                             "task_name": "weixin_oc.send_outbound",
-                            "trigger": "remote_im_send",
+                            "trigger": "remote_im_outbound",
                             "channel_id": channel.id,
                             "remote_contact_id": contact.remote_contact_id,
                             "status": "失败",

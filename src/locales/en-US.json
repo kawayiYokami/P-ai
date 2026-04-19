@@ -470,6 +470,7 @@
       "permissionCatalogLoadFailed": "Failed to load permission catalog: {err}",
       "permissionBuiltinTools": "Builtin Tools",
       "permissionSkills": "Skills",
+      "permissionSkillsRequireExec": "Skills require the terminal tool (exec) to be allowed first.",
       "permissionMcpTools": "MCP Tools",
       "assignee": "Assignee",
       "assigneePlaceholder": "Not assigned",

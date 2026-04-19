@@ -168,13 +168,20 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinCommandTool {
+            BuiltinReloadTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinOrganizeContextTool {
                 app_state: state.clone(),
                 api_config_id: preview_api_id.clone(),
                 agent_id: preview_agent_id,
             }
             .provider_tool_definition(),
         ),
+        frontend_tool_definition(BuiltinWaitTool.provider_tool_definition()),
         frontend_tool_definition(
             BuiltinPlanTool.provider_tool_definition(),
         ),
@@ -214,13 +221,22 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinMemeTool {
+            BuiltinContactReplyTool {
                 app_state: state.clone(),
+                session_id: "__frontend_tool_preview__".to_string(),
             }
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinRemoteImSendTool {
+            BuiltinContactSendFilesTool {
+                app_state: state.clone(),
+                session_id: "__frontend_tool_preview__".to_string(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(BuiltinContactNoReplyTool.provider_tool_definition()),
+        frontend_tool_definition(
+            BuiltinMemeTool {
                 app_state: state.clone(),
             }
             .provider_tool_definition(),
@@ -269,6 +285,9 @@ async fn list_department_permission_catalog(
             .await
             .into_iter()
             .filter_map(|item| {
+                if !builtin_tool_visible_in_department_permissions(&item.function.name) {
+                    return None;
+                }
                 department_permission_catalog_item(
                     &item.function.name,
                     &item.function.description,

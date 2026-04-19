@@ -395,8 +395,8 @@ mod message_semantics_tests {
                     "call_id": "call_1",
                     "type": "function",
                     "function": {
-                        "name": "remote_im_send",
-                        "arguments": "{\"action\":\"send\"}"
+                        "name": "contact_reply",
+                        "arguments": "{\"text\":\"我查好了\"}"
                     }
                 }]
             }),

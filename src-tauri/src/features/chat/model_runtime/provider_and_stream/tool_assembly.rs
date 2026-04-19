@@ -36,7 +36,7 @@ fn delegate_tool_runtime_disabled_reason(
     }
 }
 
-fn remote_im_contact_conversation_forces_send_tool(
+fn tool_session_is_remote_im_contact_conversation(
     app_state: Option<&AppState>,
     tool_session_id: &str,
 ) -> bool {
@@ -60,25 +60,6 @@ fn remote_im_contact_conversation_forces_send_tool(
     })
 }
 
-fn remote_im_activation_runtime_forces_send_tool(
-    app_state: Option<&AppState>,
-    tool_session_id: &str,
-) -> bool {
-    let Some(state) = app_state else {
-        return false;
-    };
-    let Some((_, conversation_id)) = tool_session_id.split_once("::") else {
-        return false;
-    };
-    let conversation_id = conversation_id.trim();
-    if conversation_id.is_empty() {
-        return false;
-    }
-    get_conversation_remote_im_activation_sources(state, conversation_id)
-        .map(|sources| !sources.is_empty())
-        .unwrap_or(false)
-}
-
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -91,31 +72,36 @@ async fn assemble_runtime_tools(
     // 避免再引入跨进程状态同步与双写问题。
     let current_department = department_for_agent_id(app_config, &agent.id);
     let department_reason = |tool_id: &str| tool_restricted_by_department(current_department, tool_id);
+    let is_remote_im_contact_conversation =
+        tool_session_is_remote_im_contact_conversation(app_state, tool_session_id);
+    let is_local_conversation = !is_remote_im_contact_conversation;
+    let tools_globally_enabled = selected_api.enable_tools;
     let has_fetch = tool_enabled(selected_api, agent, current_department, "fetch");
     let has_websearch = tool_enabled(selected_api, agent, current_department, "websearch");
-    let has_remember = tool_enabled(selected_api, agent, current_department, "remember");
-    let has_recall = tool_enabled(selected_api, agent, current_department, "recall");
+    let has_remember = tools_globally_enabled;
+    let has_recall = tools_globally_enabled;
     let has_operate = tool_enabled(selected_api, agent, current_department, "operate");
-    let has_command = tool_enabled(selected_api, agent, current_department, "command");
+    let has_reload = tool_enabled(selected_api, agent, current_department, "reload");
+    let has_organize_context =
+        tool_enabled(selected_api, agent, current_department, "organize_context");
+    let has_wait = tool_enabled(selected_api, agent, current_department, "wait");
     let has_exec = tool_enabled(selected_api, agent, current_department, "exec");
     let has_read_file = tool_enabled(selected_api, agent, current_department, "read_file");
     let has_apply_patch = tool_enabled(selected_api, agent, current_department, "apply_patch");
-    let has_plan = tool_enabled(selected_api, agent, current_department, "plan");
+    let has_plan = tools_globally_enabled && is_local_conversation;
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
-    let has_todo = tool_enabled(selected_api, agent, current_department, "todo");
+    let has_todo = tools_globally_enabled;
     let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
     let has_meme = tool_enabled(selected_api, agent, current_department, "meme");
+    let has_contact_reply = tools_globally_enabled && is_remote_im_contact_conversation;
+    let has_contact_send_files = tools_globally_enabled && is_remote_im_contact_conversation;
+    let has_contact_no_reply = tools_globally_enabled && is_remote_im_contact_conversation;
     let delegate_runtime_reason = if has_delegate_base {
         delegate_tool_runtime_disabled_reason(app_state, tool_session_id)
     } else {
         None
     };
     let has_delegate = has_delegate_base && delegate_runtime_reason.is_none();
-    let force_remote_im_send =
-        remote_im_contact_conversation_forces_send_tool(app_state, tool_session_id)
-        || remote_im_activation_runtime_forces_send_tool(app_state, tool_session_id);
-    let has_remote_im_send =
-        force_remote_im_send || tool_enabled(selected_api, agent, current_department, "remote_im_send");
     let mut tools: Vec<Box<dyn RuntimeToolDyn>> = Vec::new();
     let mut tool_manifest = Vec::<Value>::new();
     let mut unavailable_tool_notices = Vec::<String>::new();
@@ -165,13 +151,7 @@ async fn assemble_runtime_tools(
         tools.push(Box::new(BuiltinRememberTool { app_state: state }));
         tool_manifest.push(tool_manifest_item("builtin", "remember", true, true, None));
     } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "remember",
-            false,
-            false,
-            department_reason("remember").or_else(|| Some("当前人格未启用该工具".to_string())),
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "remember", false, false, Some("当前模型未启用工具调用。".to_string())));
     }
 
     if has_recall {
@@ -181,13 +161,7 @@ async fn assemble_runtime_tools(
         tools.push(Box::new(BuiltinRecallTool { app_state: state }));
         tool_manifest.push(tool_manifest_item("builtin", "recall", true, true, None));
     } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "recall",
-            false,
-            false,
-            department_reason("recall").or_else(|| Some("当前人格未启用该工具".to_string())),
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "recall", false, false, Some("当前模型未启用工具调用。".to_string())));
     }
 
     if has_operate {
@@ -250,18 +224,14 @@ async fn assemble_runtime_tools(
         }
     }
 
-    if has_command {
+    if has_reload {
         let state = app_state
-            .ok_or_else(|| "command requires app state".to_string())?
+            .ok_or_else(|| "reload requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinCommandTool {
-            app_state: state,
-            api_config_id: selected_api.id.clone(),
-            agent_id: agent.id.clone(),
-        }));
+        tools.push(Box::new(BuiltinReloadTool { app_state: state }));
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "command",
+            "reload",
             true,
             true,
             None,
@@ -269,10 +239,57 @@ async fn assemble_runtime_tools(
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "command",
+            "reload",
             false,
             false,
-            department_reason("command")
+            department_reason("reload")
+                .or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_organize_context {
+        let state = app_state
+            .ok_or_else(|| "organize_context requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinOrganizeContextTool {
+            app_state: state,
+            api_config_id: selected_api.id.clone(),
+            agent_id: agent.id.clone(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "organize_context",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "organize_context",
+            false,
+            false,
+            department_reason("organize_context")
+                .or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_wait {
+        tools.push(Box::new(BuiltinWaitTool));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "wait",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "wait",
+            false,
+            false,
+            department_reason("wait")
                 .or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
@@ -367,7 +384,11 @@ async fn assemble_runtime_tools(
             "plan",
             false,
             false,
-            department_reason("plan").or_else(|| Some("当前人格未启用该工具".to_string())),
+            if !tools_globally_enabled {
+                Some("当前模型未启用工具调用。".to_string())
+            } else {
+                Some("plan 仅在本地会话中可用。".to_string())
+            },
         ));
     }
 
@@ -381,13 +402,7 @@ async fn assemble_runtime_tools(
         }));
         tool_manifest.push(tool_manifest_item("builtin", "todo", true, true, None));
     } else {
-        tool_manifest.push(tool_manifest_item(
-            "builtin",
-            "todo",
-            false,
-            false,
-            department_reason("todo").or_else(|| Some("当前人格未启用该工具".to_string())),
-        ));
+        tool_manifest.push(tool_manifest_item("builtin", "todo", false, false, Some("当前模型未启用工具调用。".to_string())));
     }
 
     if has_task {
@@ -446,23 +461,77 @@ async fn assemble_runtime_tools(
         ));
     }
 
-    if has_remote_im_send {
+    if has_contact_reply {
         let state = app_state
-            .ok_or_else(|| "remote_im_send requires app state".to_string())?
+            .ok_or_else(|| "contact_reply requires app state".to_string())?
             .clone();
-        tools.push(Box::new(BuiltinRemoteImSendTool { app_state: state }));
-        tool_manifest.push(tool_manifest_item("builtin", "remote_im_send", true, true, None));
+        tools.push(Box::new(BuiltinContactReplyTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item("builtin", "contact_reply", true, true, None));
     } else {
         tool_manifest.push(tool_manifest_item(
             "builtin",
-            "remote_im_send",
-            force_remote_im_send,
+            "contact_reply",
             false,
-            if force_remote_im_send {
-                Some("联系人隐藏线程已强制启用该工具".to_string())
+            false,
+            if !tools_globally_enabled {
+                Some("当前模型未启用工具调用。".to_string())
             } else {
-                department_reason("remote_im_send")
-                    .or_else(|| Some("当前人格未启用该工具".to_string()))
+                Some("contact_reply 仅在联系人会话中可用。".to_string())
+            },
+        ));
+    }
+
+    if has_contact_send_files {
+        let state = app_state
+            .ok_or_else(|| "contact_send_files requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinContactSendFilesTool {
+            app_state: state,
+            session_id: tool_session_id.to_string(),
+        }));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "contact_send_files",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "contact_send_files",
+            false,
+            false,
+            if !tools_globally_enabled {
+                Some("当前模型未启用工具调用。".to_string())
+            } else {
+                Some("contact_send_files 仅在联系人会话中可用。".to_string())
+            },
+        ));
+    }
+
+    if has_contact_no_reply {
+        tools.push(Box::new(BuiltinContactNoReplyTool));
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "contact_no_reply",
+            true,
+            true,
+            None,
+        ));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "contact_no_reply",
+            false,
+            false,
+            if !tools_globally_enabled {
+                Some("当前模型未启用工具调用。".to_string())
+            } else {
+                Some("contact_no_reply 仅在联系人会话中可用。".to_string())
             },
         ));
     }

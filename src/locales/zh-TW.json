@@ -470,6 +470,7 @@
       "permissionCatalogLoadFailed": "權限目錄載入失敗：{err}",
       "permissionBuiltinTools": "內建工具",
       "permissionSkills": "技能",
+      "permissionSkillsRequireExec": "需要先允許終端（exec）工具，技能才可選。",
       "permissionMcpTools": "MCP 工具",
       "assignee": "任命",
       "assigneePlaceholder": "暫不指定",

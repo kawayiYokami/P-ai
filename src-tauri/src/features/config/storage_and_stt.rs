@@ -326,8 +326,11 @@ fn normalize_tools_list(
             "desktop-screenshot" | "screenshot" => {
                 tool.id = "__merged_into_operate__".to_string();
             }
-            "desktop-wait" | "wait" | "reload" | "organize_context" => {
-                tool.id = "__merged_into_command__".to_string();
+            "desktop-wait" => {
+                tool.id = "wait".to_string();
+            }
+            "command" => {
+                tool.id = "__legacy_command__".to_string();
             }
             "shell-exec" => {
                 tool.id = "exec".to_string();
@@ -342,8 +345,7 @@ fn normalize_tools_list(
     tools.retain(|tool| {
         !matches!(
             tool.id.as_str(),
-            "__merged_into_command__"
-                | "__removed_shell_switch_workspace__"
+            "__legacy_command__" | "__removed_shell_switch_workspace__"
                 | "__merged_into_operate__"
         )
     });
@@ -361,8 +363,12 @@ fn normalize_tools_list(
             }
         }
     }
-    if let Some(command_tool) = tools.iter_mut().find(|tool| tool.id == "command") {
-        command_tool.enabled = command_tool.enabled || legacy_command_enabled;
+    if legacy_command_enabled {
+        for tool_id in ["reload", "organize_context", "wait"] {
+            if let Some(tool) = tools.iter_mut().find(|tool| tool.id == tool_id) {
+                tool.enabled = true;
+            }
+        }
     }
 }
 
@@ -420,12 +426,10 @@ fn normalize_api_tools(config: &mut AppConfig) {
             provider.base_url = DEFAULT_CODEX_BASE_URL.to_string();
             provider.api_keys.clear();
         }
-        let legacy_command_enabled = provider.tools.iter().any(|tool| {
-            matches!(
-                tool.id.as_str(),
-                "command" | "desktop-wait" | "wait" | "reload" | "organize_context"
-            ) && tool.enabled
-        });
+        let legacy_command_enabled = provider
+            .tools
+            .iter()
+            .any(|tool| tool.id == "command" && tool.enabled);
         normalize_tools_list(
             &mut provider.tools,
             provider.enable_tools,
@@ -463,12 +467,10 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.custom_max_output_tokens_enabled =
             api.request_format.is_anthropic() || api.custom_max_output_tokens_enabled;
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
-        let legacy_command_enabled = api.tools.iter().any(|tool| {
-            matches!(
-                tool.id.as_str(),
-                "command" | "desktop-wait" | "wait" | "reload" | "organize_context"
-            ) && tool.enabled
-        });
+        let legacy_command_enabled = api
+            .tools
+            .iter()
+            .any(|tool| tool.id == "command" && tool.enabled);
         normalize_tools_list(&mut api.tools, api.enable_tools, legacy_command_enabled);
     }
 }
