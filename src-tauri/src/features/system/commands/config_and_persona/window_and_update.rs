@@ -228,11 +228,38 @@ fn save_config(
 
     let mut data = state_read_app_data_cached(&state)?;
     let base_config = state_read_config_cached(&state)?;
+    let departments_changed = {
+        let old_by_id = base_config
+            .departments
+            .iter()
+            .map(|item| (item.id.clone(), item.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let new_by_id = config
+            .departments
+            .iter()
+            .map(|item| (item.id.clone(), item.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        old_by_id
+            .keys()
+            .chain(new_by_id.keys())
+            .cloned()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .filter(|id| old_by_id.get(id) != new_by_id.get(id))
+            .collect::<Vec<_>>()
+    };
+    let shell_workspaces_changed = base_config.shell_workspaces != config.shell_workspaces;
     let (_private_agent_ids, private_department_ids) =
         runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
     config.departments.retain(|item| !private_department_ids.contains(&item.id));
     validate_department_names_unique(&config)?;
     state_write_config_cached(&state, &config)?;
+    if !departments_changed.is_empty() {
+        mark_prompt_cache_rebuild_for_departments(&state, &departments_changed);
+    }
+    if shell_workspaces_changed {
+        mark_prompt_cache_rebuild_for_all_environments(&state);
+    }
     if let Some(agent_id) = assistant_department_agent_id(&config) {
         if data.assistant_department_agent_id != agent_id {
             data.assistant_department_agent_id = agent_id;

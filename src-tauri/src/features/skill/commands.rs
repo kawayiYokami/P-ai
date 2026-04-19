@@ -26,6 +26,7 @@ pub(crate) async fn mcp_refresh_mcp_and_skills(
             });
         }
     }
+    mark_prompt_cache_rebuild_for_all_final(&state);
     Ok(out)
 }
 

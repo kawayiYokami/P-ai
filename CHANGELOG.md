@@ -3,6 +3,7 @@
 ## 更新：系统提示词管理与部门缓存收口
 
 - 重构（system-prompt-manager-and-cache）：新增 `PromptManager`，将 `system prompt` 与 `conversation prompt` 解耦；系统提示词按“固定系统准则 / 部门提示词 / 内部工具规则 / 特殊运行环境 / IM 规则”分层装配，并分别引入部门提示词缓存、会话环境提示词缓存与最终系统提示词缓存，避免高频轮次重复重建
+- 修复（system-prompt-cache-invalidation-whitelist）：系统提示词缓存失效机制改为显性入口白名单；移除发送链路和底层配置写入中的自动标脏，只保留“人格保存、部门保存、工具/skill 手动刷新或 reload、用户保存 AI 可访问目录”四类入口触发重建标记，非用户操作不再误伤 system prompt 成品缓存
 - 修复（system-prompt-order-and-tag-alignment）：系统提示词组件顺序改为显式 stage 输出，不再混用“先拼一坨再追加”；同时统一核心 XML 标签为英文，如 `<system rules>`、`<persona settings>`、`<admin user settings>`、`<role constraints>`、`<conversation style>`、`<language settings>`，并去掉块间多余空行
 - 修复（department-tool-rules-only-follow-department）：系统提示词中的工具规则不再受已废止的 API 工具开关影响；当前内置工具说明仅按部门权限判断是否注入，`plan` 规则从固定系统准则移入工具规则层，普通会话也不再误注入远程联系人 IM 规则
 - 优化（skill-and-terminal-prompt-cache）：隐藏技能快照改为启动预热和显式刷新时更新，发送主链路只读内存缓存；终端运行环境块改为复用缓存配置并缓存工作区规范化结果，不再每轮重复读配置和 `canonicalize()` 多个工作目录

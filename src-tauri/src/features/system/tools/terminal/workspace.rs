@@ -446,6 +446,15 @@ fn terminal_config_allowed_workspaces_cache_scope_key(state: &AppState) -> Strin
     normalize_terminal_path_for_compare(&state.config_path)
 }
 
+fn clear_terminal_config_allowed_workspaces_cache_for_state(state: &AppState) {
+    let scope_key = terminal_config_allowed_workspaces_cache_scope_key(state);
+    let mut cache = terminal_workspace_cache_lock_recover(
+        "terminal_config_allowed_workspaces",
+        terminal_config_allowed_workspaces_cache(),
+    );
+    cache.remove(&scope_key);
+}
+
 fn terminal_shell_workspaces_cache_signature(
     state: &AppState,
     shell_workspaces: &[ShellWorkspaceConfig],

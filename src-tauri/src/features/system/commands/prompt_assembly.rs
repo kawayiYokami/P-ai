@@ -43,9 +43,51 @@ fn build_prepared_prompt_for_mode(
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: Option<bool>,
 ) -> PreparedPrompt {
+    build_prepared_prompt_for_mode_with_stage_logger(
+        mode,
+        conversation,
+        agent,
+        agents,
+        departments,
+        user_name,
+        user_intro,
+        response_style_id,
+        ui_language,
+        data_path,
+        _last_archive_summary,
+        terminal_block,
+        chat_overrides,
+        state,
+        None,
+        selected_api,
+        resolved_api,
+        enable_pdf_images,
+    )
+}
+
+fn build_prepared_prompt_for_mode_with_stage_logger(
+    mode: PromptBuildMode,
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
+    user_name: &str,
+    user_intro: &str,
+    response_style_id: &str,
+    ui_language: &str,
+    data_path: Option<&PathBuf>,
+    _last_archive_summary: Option<&str>,
+    terminal_block: Option<String>,
+    chat_overrides: Option<ChatPromptOverrides>,
+    state: Option<&AppState>,
+    stage_logger: Option<&dyn Fn(&str)>,
+    selected_api: Option<&ApiConfig>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: Option<bool>,
+) -> PreparedPrompt {
     match mode {
         PromptBuildMode::Chat => {
-            let mut prepared = build_prompt(
+            let mut prepared = build_prompt_with_stage_logger(
                 conversation,
                 agent,
                 agents,
@@ -56,6 +98,7 @@ fn build_prepared_prompt_for_mode(
                 ui_language,
                 data_path,
                 state,
+                stage_logger,
                 resolved_api,
                 enable_pdf_images.unwrap_or(false),
             );
@@ -74,7 +117,11 @@ fn build_prepared_prompt_for_mode(
                 None,
                 terminal_block.as_deref(),
                 &overrides.system_preamble_blocks,
+                stage_logger,
             );
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.prompt_system_finalize_ready");
+            }
             let latest_user_text = overrides
                 .latest_user_text
                 .unwrap_or_else(|| prepared.latest_user_text.clone());
@@ -92,7 +139,7 @@ fn build_prepared_prompt_for_mode(
             prepared
         }
         PromptBuildMode::Delegate => {
-            let mut prepared = build_delegate_prompt(
+            let mut prepared = build_delegate_prompt_with_stage_logger(
                 conversation,
                 agent,
                 agents,
@@ -101,6 +148,7 @@ fn build_prepared_prompt_for_mode(
                 ui_language,
                 data_path,
                 state,
+                stage_logger,
                 resolved_api,
                 enable_pdf_images.unwrap_or(false),
             );
@@ -119,7 +167,11 @@ fn build_prepared_prompt_for_mode(
                 None,
                 terminal_block.as_deref(),
                 &overrides.system_preamble_blocks,
+                stage_logger,
             );
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.prompt_system_finalize_ready");
+            }
             let latest_user_text = overrides
                 .latest_user_text
                 .unwrap_or_else(|| prepared.latest_user_text.clone());
@@ -137,7 +189,7 @@ fn build_prepared_prompt_for_mode(
             prepared
         }
         PromptBuildMode::SummaryContext => {
-            let prepared = build_prompt(
+            let prepared = build_prompt_with_stage_logger(
                 conversation,
                 agent,
                 agents,
@@ -148,6 +200,7 @@ fn build_prepared_prompt_for_mode(
                 ui_language,
                 data_path,
                 state,
+                stage_logger,
                 resolved_api,
                 enable_pdf_images.unwrap_or(false),
             );
@@ -173,7 +226,11 @@ fn build_prepared_prompt_for_mode(
                 None,
                 terminal_block.as_deref(),
                 &overrides.system_preamble_blocks,
+                stage_logger,
             );
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.prompt_system_finalize_ready");
+            }
             let latest_user_text = overrides
                 .latest_user_text
                 .unwrap_or_else(|| prepared.latest_user_text.clone());
@@ -636,7 +693,7 @@ mod prompt_assembly_tests {
     }
 
     #[test]
-    fn finalize_system_prompt_with_manager_should_hit_cache_for_same_signature() {
+    fn finalize_system_prompt_with_manager_should_reuse_cached_department_blocks() {
         let llm_workspace_path = std::env::temp_dir().join(format!(
             "easy-call-ai-prompt-manager-test-{}",
             uuid::Uuid::new_v4()
@@ -647,22 +704,16 @@ mod prompt_assembly_tests {
         let departments = default_departments("api-1");
         let conversation = build_test_conversation(Vec::new());
         let system_blocks = vec!["<runtime block>\n测试块\n</runtime block>".to_string()];
-        let ordered_blocks = build_system_prompt_ordered_blocks(
+        let cache_key = build_department_system_prompt_cache_key(
             Some(&state),
-            &conversation,
             &agent,
-            &departments,
             "zh-CN",
-            Some(&ApiConfig::default()),
-            "核心 system prompt",
-            None,
-            Some("<terminal env>\n当前 shell: PowerShell\n</terminal env>"),
-            &system_blocks,
         );
-
-        let cache_key = build_system_prompt_cache_key(Some(&state), "chat", &agent, &ordered_blocks);
         {
-            let mut cache = cache_lock_recover("system_prompt_cache", system_prompt_cache());
+            let mut cache = cache_lock_recover(
+                "department_system_prompt_cache",
+                department_system_prompt_cache(),
+            );
             cache.remove(&cache_key);
         }
 
@@ -680,6 +731,7 @@ mod prompt_assembly_tests {
             None,
             Some("<terminal env>\n当前 shell: PowerShell\n</terminal env>"),
             &system_blocks,
+            None,
         );
         let second = finalize_system_prompt_with_manager(
             Some(&state),
@@ -695,12 +747,16 @@ mod prompt_assembly_tests {
             None,
             Some("<terminal env>\n当前 shell: PowerShell\n</terminal env>"),
             &system_blocks,
+            None,
         );
 
         assert_eq!(first, second);
         assert!(first.contains("核心 system prompt"));
         assert!(first.contains("当前 shell: PowerShell"));
-        let cache = cache_lock_recover("system_prompt_cache", system_prompt_cache());
+        let cache = cache_lock_recover(
+            "department_system_prompt_cache",
+            department_system_prompt_cache(),
+        );
         assert!(cache.contains_key(&cache_key));
     }
 
@@ -720,10 +776,7 @@ mod prompt_assembly_tests {
         let cache_key = build_conversation_environment_prompt_cache_key(
             Some(&state),
             &conversation,
-            "zh-CN",
-            Some(terminal_block),
-            &runtime_blocks,
-            &im_blocks,
+            "chat",
         );
         {
             let mut cache = cache_lock_recover(
@@ -736,7 +789,7 @@ mod prompt_assembly_tests {
         let first = get_or_build_conversation_environment_prompt_snapshot(
             Some(&state),
             &conversation,
-            "zh-CN",
+            "chat",
             Some(terminal_block),
             &runtime_blocks,
             &im_blocks,
@@ -744,13 +797,14 @@ mod prompt_assembly_tests {
         let second = get_or_build_conversation_environment_prompt_snapshot(
             Some(&state),
             &conversation,
-            "zh-CN",
+            "chat",
             Some(terminal_block),
             &runtime_blocks,
             &im_blocks,
         );
 
-        assert_eq!(first.system_prompt_text, second.system_prompt_text);
+        assert_eq!(first.runtime_blocks, second.runtime_blocks);
+        assert_eq!(first.im_rule_blocks, second.im_rule_blocks);
         let cache = cache_lock_recover(
             "conversation_environment_prompt_cache",
             conversation_environment_prompt_cache(),
@@ -759,7 +813,7 @@ mod prompt_assembly_tests {
     }
 
     #[test]
-    fn conversation_environment_prompt_snapshot_should_rebuild_when_environment_changes() {
+    fn conversation_environment_prompt_snapshot_should_rebuild_after_environment_invalidation() {
         let llm_workspace_path = std::env::temp_dir().join(format!(
             "easy-call-ai-environment-rebuild-test-{}",
             uuid::Uuid::new_v4()
@@ -770,27 +824,40 @@ mod prompt_assembly_tests {
         let mut remote_im_conversation = conversation.clone();
         remote_im_conversation.conversation_kind = CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string();
         let terminal_block = "<shell workspace>\n运行环境块\n</shell workspace>";
+        let flatten_snapshot = |snapshot: &ConversationEnvironmentPromptSnapshot| {
+            snapshot
+                .runtime_blocks
+                .iter()
+                .chain(snapshot.im_rule_blocks.iter())
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
 
         let normal = get_or_build_conversation_environment_prompt_snapshot(
             Some(&state),
             &conversation,
-            "zh-CN",
+            "chat",
             Some(terminal_block),
             &[],
             &[],
         );
+        mark_prompt_cache_rebuild_for_conversation_environment(&state, &conversation.id);
         let remote = get_or_build_conversation_environment_prompt_snapshot(
             Some(&state),
             &remote_im_conversation,
-            "zh-CN",
+            "chat",
             Some(terminal_block),
             &[],
             &[],
         );
 
-        assert_ne!(normal.system_prompt_text, remote.system_prompt_text);
-        assert!(!normal.system_prompt_text.contains("联系人是特殊用户"));
-        assert!(remote.system_prompt_text.contains("联系人是特殊用户"));
+        let normal_text = flatten_snapshot(&normal);
+        let remote_text = flatten_snapshot(&remote);
+        assert_ne!(normal_text, remote_text);
+        assert!(!normal_text.contains("联系人是特殊用户"));
+        assert!(remote_text.contains("联系人是特殊用户"));
     }
 
     #[test]
@@ -826,6 +893,7 @@ mod prompt_assembly_tests {
             None,
             Some("<shell workspace>\n运行环境块\n</shell workspace>"),
             &system_blocks,
+            None,
         );
 
         let fixed_index = prompt.find("固定系统块").expect("fixed block");
@@ -877,6 +945,7 @@ mod prompt_assembly_tests {
             None,
             Some("<shell workspace>\n运行环境块\n</shell workspace>"),
             &system_blocks,
+            None,
         );
 
         assert!(!prompt.contains("联系人是特殊用户"));
@@ -967,6 +1036,7 @@ mod prompt_assembly_tests {
             None,
             None,
             &[],
+            None,
         );
 
         assert!(prompt.contains("<todo tool rule>"));
@@ -1006,6 +1076,7 @@ mod prompt_assembly_tests {
             None,
             None,
             &[],
+            None,
         );
         let prompt_disabled = finalize_system_prompt_with_manager(
             Some(&state),
@@ -1021,6 +1092,7 @@ mod prompt_assembly_tests {
             None,
             None,
             &[],
+            None,
         );
 
         assert_eq!(prompt_enabled, prompt_disabled);

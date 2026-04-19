@@ -475,6 +475,7 @@ fn apply_conversation_chat_workspace_changes(
             {
                 return Ok(());
             }
+            mark_prompt_cache_rebuild_for_conversation_environment(state, conversation_id);
             Ok(())
         })?;
         return delegate_runtime_thread_conversation_get_any(state, conversation_id)?
@@ -509,6 +510,7 @@ fn apply_conversation_chat_workspace_changes(
     }
     let updated = conversation.clone();
     state_write_conversation_with_chat_index_cached(state, &updated)?;
+    mark_prompt_cache_rebuild_for_conversation_environment(state, conversation_id);
     Ok(updated)
 }
 

@@ -108,7 +108,7 @@ fn default_department_permission_mode() -> String {
     "blacklist".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DepartmentPermissionControl {
     #[serde(default)]
@@ -135,7 +135,7 @@ impl Default for DepartmentPermissionControl {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DepartmentConfig {
     id: String,

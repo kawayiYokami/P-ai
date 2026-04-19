@@ -117,6 +117,7 @@ fn state_write_config_cached(state: &AppState, config: &AppConfig) -> Result<(),
         .cached_config_mtime
         .lock()
         .map_err(|_| "Failed to lock cached config mtime".to_string())? = disk_mtime;
+    clear_terminal_config_allowed_workspaces_cache_for_state(state);
     Ok(())
 }
 

@@ -1487,6 +1487,7 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
     }
 }
 
+#[allow(dead_code)]
 fn prompt_department_context_from_provider_meta(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1540,7 +1541,7 @@ fn prompt_department_context_from_provider_meta(
 }
 
 fn build_departments_prompt_block(
-    conversation: &Conversation,
+    _conversation: &Conversation,
     agent: &AgentProfile,
     departments: &[DepartmentConfig],
     ui_language: &str,
@@ -1551,28 +1552,20 @@ fn build_departments_prompt_block(
     let labels = department_prompt_labels(ui_language);
     let config = departments_only_config(departments);
     let current_department = department_for_agent_id(&config, &agent.id);
-    let prompt_context = prompt_department_context_from_provider_meta(
-        conversation,
-        agent,
-        departments,
-        labels.empty_summary,
-    )
-    .or_else(|| {
-            current_department.map(|department| PromptDepartmentContext {
-                current: prompt_department_card_from_config(department, labels.empty_summary),
-                available: departments
+    let prompt_context = current_department.map(|department| PromptDepartmentContext {
+        current: prompt_department_card_from_config(department, labels.empty_summary),
+        available: departments
+            .iter()
+            .filter(|item| item.id != department.id)
+            .filter(|item| {
+                item.agent_ids
                     .iter()
-                    .filter(|item| item.id != department.id)
-                    .filter(|item| {
-                        item.agent_ids
-                            .iter()
-                            .find(|id| !id.trim().is_empty())
-                            .map(|id| id.trim() != agent.id.trim())
-                            .unwrap_or(true)
-                    })
-                    .map(|item| prompt_department_card_from_config(item, labels.empty_summary))
-                    .collect::<Vec<_>>(),
+                    .find(|id| !id.trim().is_empty())
+                    .map(|id| id.trim() != agent.id.trim())
+                    .unwrap_or(true)
             })
+            .map(|item| prompt_department_card_from_config(item, labels.empty_summary))
+            .collect::<Vec<_>>(),
     });
     let Some(prompt_context) = prompt_context else {
         return String::new();
@@ -1783,6 +1776,7 @@ fn build_question_and_planning_rule_block() -> String {
     )
 }
 
+#[allow(dead_code)]
 fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1797,6 +1791,38 @@ fn build_prompt(
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
 ) -> PreparedPrompt {
+    build_prompt_with_stage_logger(
+        conversation,
+        agent,
+        agents,
+        departments,
+        user_name,
+        user_intro,
+        response_style_id,
+        ui_language,
+        data_path,
+        state,
+        None,
+        resolved_api,
+        enable_pdf_images,
+    )
+}
+
+fn build_prompt_with_stage_logger(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
+    user_name: &str,
+    user_intro: &str,
+    response_style_id: &str,
+    ui_language: &str,
+    data_path: Option<&PathBuf>,
+    state: Option<&AppState>,
+    stage_logger: Option<&dyn Fn(&str)>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: bool,
+) -> PreparedPrompt {
     build_prompt_with_mode(
         conversation,
         agent,
@@ -1807,11 +1833,13 @@ fn build_prompt(
         ui_language,
         data_path,
         state,
+        stage_logger,
         resolved_api,
         enable_pdf_images,
     )
 }
 
+#[allow(dead_code)]
 fn build_delegate_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -1821,6 +1849,34 @@ fn build_delegate_prompt(
     ui_language: &str,
     data_path: Option<&PathBuf>,
     state: Option<&AppState>,
+    resolved_api: Option<&ResolvedApiConfig>,
+    enable_pdf_images: bool,
+) -> PreparedPrompt {
+    build_delegate_prompt_with_stage_logger(
+        conversation,
+        agent,
+        agents,
+        departments,
+        response_style_id,
+        ui_language,
+        data_path,
+        state,
+        None,
+        resolved_api,
+        enable_pdf_images,
+    )
+}
+
+fn build_delegate_prompt_with_stage_logger(
+    conversation: &Conversation,
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
+    departments: &[DepartmentConfig],
+    response_style_id: &str,
+    ui_language: &str,
+    data_path: Option<&PathBuf>,
+    state: Option<&AppState>,
+    stage_logger: Option<&dyn Fn(&str)>,
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
 ) -> PreparedPrompt {
@@ -1834,6 +1890,7 @@ fn build_delegate_prompt(
         ui_language,
         data_path,
         state,
+        stage_logger,
         resolved_api,
         enable_pdf_images,
     )
@@ -2108,6 +2165,7 @@ fn build_prompt_with_mode(
     ui_language: &str,
     data_path: Option<&PathBuf>,
     state: Option<&AppState>,
+    stage_logger: Option<&dyn Fn(&str)>,
     _resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
 ) -> PreparedPrompt {
@@ -2295,6 +2353,9 @@ fn build_prompt_with_mode(
         ui_language,
         state,
     );
+    if let Some(log_stage) = stage_logger {
+        log_stage("prepare_context.prompt_fixed_system_ready");
+    }
     let conversation_payload = build_conversation_prompt_payload(
         &enriched_conversation,
         conversation,
@@ -2307,6 +2368,9 @@ fn build_prompt_with_mode(
         ui_language,
         latest_user_index,
     );
+    if let Some(log_stage) = stage_logger {
+        log_stage("prepare_context.prompt_conversation_payload_ready");
+    }
 
     PreparedPrompt {
         preamble,

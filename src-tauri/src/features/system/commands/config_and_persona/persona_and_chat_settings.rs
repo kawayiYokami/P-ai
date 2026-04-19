@@ -165,7 +165,18 @@ fn save_agents(
         );
     }
 
+    let affected_agent_ids = previous_agents
+        .iter()
+        .chain(data.agents.iter())
+        .filter(|a| !a.is_built_in_user && !a.is_built_in_system && a.id != USER_PERSONA_ID && a.id != SYSTEM_PERSONA_ID)
+        .map(|a| a.id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     state_write_agents_cached(&state, &data.agents)?;
+    if !affected_agent_ids.is_empty() {
+        mark_prompt_cache_rebuild_for_agents(&state, &affected_agent_ids);
+    }
     let mut config = state_read_config_cached(&state)?;
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     let valid_agent_ids = runtime_agents
@@ -189,8 +200,31 @@ fn save_agents(
         }
     }
     if config_changed {
+        let changed_departments = {
+            let old_by_id = base_config
+                .departments
+                .iter()
+                .map(|item| (item.id.clone(), item.clone()))
+                .collect::<std::collections::HashMap<_, _>>();
+            let new_by_id = config
+                .departments
+                .iter()
+                .map(|item| (item.id.clone(), item.clone()))
+                .collect::<std::collections::HashMap<_, _>>();
+            old_by_id
+                .keys()
+                .chain(new_by_id.keys())
+                .cloned()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .filter(|id| old_by_id.get(id) != new_by_id.get(id))
+                .collect::<Vec<_>>()
+        };
         normalize_app_config(&mut config);
         state_write_config_cached(&state, &config)?;
+        if !changed_departments.is_empty() {
+            mark_prompt_cache_rebuild_for_departments(&state, &changed_departments);
+        }
     }
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     drop(guard);
@@ -1152,4 +1186,3 @@ fn set_department_primary_api_config(
 
     Ok(runtime_config)
 }
-

@@ -12,43 +12,57 @@ struct PreparedConversationPromptPayload {
 struct DepartmentSystemPromptSnapshot {
     department_prompt_block: String,
     department_tool_rule_blocks: Vec<String>,
-    system_prompt_text: String,
-    rebuilt_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct DepartmentSystemPromptCacheEntry {
+    agent_id: String,
+    department_id: String,
+    snapshot: DepartmentSystemPromptSnapshot,
+    dirty: bool,
 }
 
 #[derive(Debug, Clone)]
 struct ConversationEnvironmentPromptSnapshot {
     runtime_blocks: Vec<String>,
     im_rule_blocks: Vec<String>,
-    system_prompt_text: String,
-    rebuilt_at: String,
 }
 
 #[derive(Debug, Clone)]
-struct SystemPromptCacheEntry {
-    prompt_text: String,
-    rebuilt_at: String,
+struct ConversationEnvironmentPromptCacheEntry {
+    conversation_id: String,
+    snapshot: ConversationEnvironmentPromptSnapshot,
+    dirty: bool,
 }
 
-fn department_system_prompt_cache(
-) -> &'static Mutex<std::collections::HashMap<String, DepartmentSystemPromptSnapshot>> {
-    static CACHE: OnceLock<
-        Mutex<std::collections::HashMap<String, DepartmentSystemPromptSnapshot>>,
-    > = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+#[derive(Debug, Clone)]
+struct FinalSystemPromptCacheEntry {
+    conversation_id: String,
+    agent_id: String,
+    department_id: String,
+    text: String,
+    dirty: bool,
 }
 
-fn system_prompt_cache() -> &'static Mutex<std::collections::HashMap<String, SystemPromptCacheEntry>>
-{
-    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, SystemPromptCacheEntry>>> =
+fn system_prompt_text_cache(
+) -> &'static Mutex<std::collections::HashMap<String, FinalSystemPromptCacheEntry>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, FinalSystemPromptCacheEntry>>> =
         OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-fn conversation_environment_prompt_cache(
-) -> &'static Mutex<std::collections::HashMap<String, ConversationEnvironmentPromptSnapshot>> {
+fn department_system_prompt_cache(
+) -> &'static Mutex<std::collections::HashMap<String, DepartmentSystemPromptCacheEntry>> {
     static CACHE: OnceLock<
-        Mutex<std::collections::HashMap<String, ConversationEnvironmentPromptSnapshot>>,
+        Mutex<std::collections::HashMap<String, DepartmentSystemPromptCacheEntry>>,
+    > = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn conversation_environment_prompt_cache(
+) -> &'static Mutex<std::collections::HashMap<String, ConversationEnvironmentPromptCacheEntry>> {
+    static CACHE: OnceLock<
+        Mutex<std::collections::HashMap<String, ConversationEnvironmentPromptCacheEntry>>,
     > = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
@@ -75,127 +89,22 @@ fn prompt_cache_scope_key(state: Option<&AppState>) -> String {
         .unwrap_or_else(|| "<global>".to_string())
 }
 
-fn department_permission_control_signature(control: &DepartmentPermissionControl) -> String {
-    format!(
-        "enabled={}|mode={}|builtin={}|skill={}|mcp={}",
-        control.enabled,
-        control.mode.trim(),
-        control
-            .builtin_tool_names
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-        control
-            .skill_names
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-        control
-            .mcp_tool_names
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-    )
-}
-
-fn department_runtime_signature(department: &DepartmentConfig) -> String {
-    format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}",
-        department.id.trim(),
-        department.updated_at.trim(),
-        department.name.trim(),
-        department.summary.trim(),
-        department.guide.trim(),
-        department
-            .agent_ids
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-        department.order_index,
-        department_permission_control_signature(&department.permission_control),
-    )
-}
-
-fn departments_runtime_signature(departments: &[DepartmentConfig]) -> String {
-    departments
-        .iter()
-        .map(department_runtime_signature)
-        .collect::<Vec<_>>()
-        .join("||")
-}
-
-fn conversation_department_context_signature(
-    conversation: &Conversation,
-    current_department: Option<&DepartmentConfig>,
-) -> String {
-    let Some(current_department) = current_department else {
-        return "department_context=none".to_string();
-    };
-    let latest_user = conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| prompt_role_for_message(message, &conversation.agent_id).as_deref() == Some("user"));
-    let Some(meta) = latest_user
-        .and_then(|message| message.provider_meta.as_ref())
-        .and_then(Value::as_object)
-    else {
-        return format!(
-            "department_context=default|target={}|call_stack=",
-            current_department.id.trim()
-        );
-    };
-    let target_department_id = meta
-        .get("targetDepartmentId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
-    let mut call_stack = meta
-        .get("callStack")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    call_stack.sort();
-    format!(
-        "department_context=provider_meta|target={}|current={}|call_stack={}",
-        target_department_id,
-        current_department.id.trim(),
-        call_stack.join(","),
-    )
+fn department_id_for_agent(departments: &[DepartmentConfig], agent_id: &str) -> String {
+    department_for_agent_id(&departments_only_config(departments), agent_id)
+        .map(|item| item.id.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn build_department_system_prompt_cache_key(
     state: Option<&AppState>,
-    conversation: &Conversation,
     agent: &AgentProfile,
-    departments: &[DepartmentConfig],
     ui_language: &str,
 ) -> String {
-    let config = departments_only_config(departments);
-    let current_department = department_for_agent_id(&config, &agent.id);
     format!(
-        "scope={}|agent={}|ui={}|departments={}|context={}",
+        "scope={}|agent={}|ui={}",
         prompt_cache_scope_key(state),
         agent.id.trim(),
         ui_language.trim(),
-        departments_runtime_signature(departments),
-        conversation_department_context_signature(conversation, current_department),
     )
 }
 
@@ -209,22 +118,9 @@ fn build_department_system_prompt_snapshot_uncached(
     let department_prompt_block =
         build_departments_prompt_block(conversation, agent, departments, ui_language);
     let department_tool_rule_blocks = build_system_tools_rule_blocks(agent, departments);
-    let mut sections = Vec::<String>::new();
-    if !department_prompt_block.trim().is_empty() {
-        sections.push(department_prompt_block.trim().to_string());
-    }
-    for block in &department_tool_rule_blocks {
-        let trimmed = block.trim();
-        if !trimmed.is_empty() {
-            sections.push(trimmed.to_string());
-        }
-    }
-    let system_prompt_text = sections.join("\n");
     DepartmentSystemPromptSnapshot {
         department_prompt_block,
         department_tool_rule_blocks,
-        system_prompt_text,
-        rebuilt_at: now_iso(),
     }
 }
 
@@ -235,26 +131,24 @@ fn get_or_build_department_system_prompt_snapshot(
     departments: &[DepartmentConfig],
     ui_language: &str,
 ) -> DepartmentSystemPromptSnapshot {
-    let cache_key =
-        build_department_system_prompt_cache_key(state, conversation, agent, departments, ui_language);
+    let cache_key = build_department_system_prompt_cache_key(state, agent, ui_language);
+    let mut rebuild_reason = "cache_miss";
     {
-        let cache = cache_lock_recover("department_system_prompt_cache", department_system_prompt_cache());
+        let cache = cache_lock_recover(
+            "department_system_prompt_cache",
+            department_system_prompt_cache(),
+        );
         if let Some(entry) = cache.get(&cache_key) {
-            runtime_log_info(format!(
-                "[部门提示词] 命中缓存 department_id={} rebuilt_at={}",
-                department_for_agent_id(&departments_only_config(departments), &agent.id)
-                    .map(|item| item.id.trim().to_string())
-                    .unwrap_or_default(),
-                entry.rebuilt_at
-            ));
-            return entry.clone();
+            if !entry.dirty {
+                return entry.snapshot.clone();
+            }
+            rebuild_reason = "dirty";
         }
     }
     runtime_log_info(format!(
-        "[部门提示词] 开始重建 department_id={} reason=cache_miss",
-        department_for_agent_id(&departments_only_config(departments), &agent.id)
-            .map(|item| item.id.trim().to_string())
-            .unwrap_or_default()
+        "[部门提示词] 开始重建 department_id={} reason={}",
+        department_id_for_agent(departments, &agent.id),
+        rebuild_reason
     ));
     let snapshot = build_department_system_prompt_snapshot_uncached(
         state,
@@ -263,56 +157,20 @@ fn get_or_build_department_system_prompt_snapshot(
         departments,
         ui_language,
     );
-    runtime_log_info(format!(
-        "[部门提示词] 重建完成 department_id={} chars={}",
-        department_for_agent_id(&departments_only_config(departments), &agent.id)
-            .map(|item| item.id.trim().to_string())
-            .unwrap_or_default(),
-        snapshot.system_prompt_text.chars().count()
-    ));
-    let mut cache = cache_lock_recover("department_system_prompt_cache", department_system_prompt_cache());
-    cache.insert(cache_key, snapshot.clone());
+    let mut cache = cache_lock_recover(
+        "department_system_prompt_cache",
+        department_system_prompt_cache(),
+    );
+    cache.insert(
+        cache_key,
+        DepartmentSystemPromptCacheEntry {
+            agent_id: agent.id.trim().to_string(),
+            department_id: department_id_for_agent(departments, &agent.id),
+            snapshot: snapshot.clone(),
+            dirty: false,
+        },
+    );
     snapshot
-}
-
-fn conversation_shell_runtime_signature(state: Option<&AppState>) -> String {
-    let Some(state) = state else {
-        return "shell=no_state".to_string();
-    };
-    let shell = terminal_shell_for_state(state);
-    format!("shell={}|path={}", shell.kind.trim(), shell.path.trim())
-}
-
-fn conversation_workspace_runtime_signature(conversation: &Conversation) -> String {
-    let root = conversation
-        .shell_workspace_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("");
-    let workspaces = conversation
-        .shell_workspaces
-        .iter()
-        .map(|workspace| {
-            format!(
-                "{}:{}:{}:{}:{}:{}",
-                workspace.id.trim(),
-                workspace.path.trim(),
-                workspace.level.trim(),
-                workspace.access.trim(),
-                workspace.name.trim(),
-                workspace.built_in
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("|");
-    format!(
-        "conversation_id={}|kind={}|root={}|workspaces={}",
-        conversation.id.trim(),
-        conversation.conversation_kind.trim(),
-        root,
-        workspaces
-    )
 }
 
 fn split_system_preamble_blocks(
@@ -338,31 +196,13 @@ fn split_system_preamble_blocks(
 fn build_conversation_environment_prompt_cache_key(
     state: Option<&AppState>,
     conversation: &Conversation,
-    ui_language: &str,
-    terminal_block: Option<&str>,
-    runtime_extra_blocks: &[String],
-    im_extra_blocks: &[String],
+    mode_label: &str,
 ) -> String {
     format!(
-        "scope={}|ui={}|{}|{}|terminal={}|runtime_extra={}|im_extra={}|remote_contact={}",
+        "scope={}|conversation_id={}|mode={}",
         prompt_cache_scope_key(state),
-        ui_language.trim(),
-        conversation_shell_runtime_signature(state),
-        conversation_workspace_runtime_signature(conversation),
-        terminal_block.map(str::trim).unwrap_or(""),
-        runtime_extra_blocks
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n<runtime>\n"),
-        im_extra_blocks
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n<im>\n"),
-        conversation_is_remote_im_contact(conversation)
+        conversation.id.trim(),
+        mode_label.trim(),
     )
 }
 
@@ -400,22 +240,16 @@ fn build_conversation_environment_prompt_snapshot_uncached(
             .filter(|value| !value.is_empty()),
     );
 
-    let mut sections = Vec::<String>::new();
-    sections.extend(runtime_blocks.iter().cloned());
-    sections.extend(im_rule_blocks.iter().cloned());
-    let system_prompt_text = sections.join("\n");
     ConversationEnvironmentPromptSnapshot {
         runtime_blocks,
         im_rule_blocks,
-        system_prompt_text,
-        rebuilt_at: now_iso(),
     }
 }
 
 fn get_or_build_conversation_environment_prompt_snapshot(
     state: Option<&AppState>,
     conversation: &Conversation,
-    ui_language: &str,
+    mode_label: &str,
     terminal_block: Option<&str>,
     runtime_extra_blocks: &[String],
     im_extra_blocks: &[String],
@@ -423,28 +257,25 @@ fn get_or_build_conversation_environment_prompt_snapshot(
     let cache_key = build_conversation_environment_prompt_cache_key(
         state,
         conversation,
-        ui_language,
-        terminal_block,
-        runtime_extra_blocks,
-        im_extra_blocks,
+        mode_label,
     );
+    let mut rebuild_reason = "cache_miss";
     {
         let cache = cache_lock_recover(
             "conversation_environment_prompt_cache",
             conversation_environment_prompt_cache(),
         );
         if let Some(entry) = cache.get(&cache_key) {
-            runtime_log_info(format!(
-                "[会话环境提示词] 命中缓存 conversation_id={} rebuilt_at={}",
-                conversation.id.trim(),
-                entry.rebuilt_at
-            ));
-            return entry.clone();
+            if !entry.dirty {
+                return entry.snapshot.clone();
+            }
+            rebuild_reason = "dirty";
         }
     }
     runtime_log_info(format!(
-        "[会话环境提示词] 开始重建 conversation_id={} reason=cache_miss",
-        conversation.id.trim()
+        "[会话环境提示词] 开始重建 conversation_id={} reason={}",
+        conversation.id.trim(),
+        rebuild_reason
     ));
     let snapshot = build_conversation_environment_prompt_snapshot_uncached(
         conversation,
@@ -452,16 +283,18 @@ fn get_or_build_conversation_environment_prompt_snapshot(
         runtime_extra_blocks,
         im_extra_blocks,
     );
-    runtime_log_info(format!(
-        "[会话环境提示词] 重建完成 conversation_id={} chars={}",
-        conversation.id.trim(),
-        snapshot.system_prompt_text.chars().count()
-    ));
     let mut cache = cache_lock_recover(
         "conversation_environment_prompt_cache",
         conversation_environment_prompt_cache(),
     );
-    cache.insert(cache_key, snapshot.clone());
+    cache.insert(
+        cache_key,
+        ConversationEnvironmentPromptCacheEntry {
+            conversation_id: conversation.id.trim().to_string(),
+            snapshot: snapshot.clone(),
+            dirty: false,
+        },
+    );
     snapshot
 }
 
@@ -601,28 +434,9 @@ fn build_core_system_prompt_text(
     }
 }
 
-fn build_system_prompt_cache_key(
-    state: Option<&AppState>,
-    mode_label: &str,
-    agent: &AgentProfile,
-    ordered_blocks: &[String],
-) -> String {
-    format!(
-        "scope={}|mode={}|agent={}|ordered_blocks={}",
-        prompt_cache_scope_key(state),
-        mode_label.trim(),
-        agent.id.trim(),
-        ordered_blocks
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n<block-sep>\n"),
-    )
-}
-
 fn build_system_prompt_ordered_blocks(
     state: Option<&AppState>,
+    mode_label: &str,
     conversation: &Conversation,
     agent: &AgentProfile,
     departments: &[DepartmentConfig],
@@ -666,7 +480,7 @@ fn build_system_prompt_ordered_blocks(
     let environment_snapshot = get_or_build_conversation_environment_prompt_snapshot(
         state,
         conversation,
-        ui_language,
+        mode_label,
         terminal_block,
         &runtime_extra_blocks,
         &im_extra_blocks,
@@ -730,9 +544,39 @@ fn finalize_system_prompt_with_manager(
     user_profile_memory_block: Option<&str>,
     terminal_block: Option<&str>,
     system_preamble_blocks: &[String],
+    stage_logger: Option<&dyn Fn(&str)>,
 ) -> String {
+    let final_cache_key = format!(
+        "scope={}|conversation_id={}|mode={}|agent={}",
+        prompt_cache_scope_key(state),
+        conversation.id.trim(),
+        mode_label.trim(),
+        agent.id.trim(),
+    );
+    let mut rebuild_reason = "cache_miss";
+    {
+        let cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
+        if let Some(entry) = cache.get(&final_cache_key) {
+            if !entry.dirty {
+                if let Some(log_stage) = stage_logger {
+                    log_stage("prepare_context.prompt_system_cache_hit");
+                }
+                return entry.text.clone();
+            }
+            rebuild_reason = "dirty";
+        }
+    }
+    let department_id = department_id_for_agent(departments, &agent.id);
+    runtime_log_info(format!(
+        "[系统提示词] 开始重建 conversation_id={} agent_id={} department_id={} reason={}",
+        conversation.id.trim(),
+        agent.id.trim(),
+        department_id,
+        rebuild_reason
+    ));
     let ordered_blocks = build_system_prompt_ordered_blocks(
         state,
+        mode_label,
         conversation,
         agent,
         departments,
@@ -743,42 +587,146 @@ fn finalize_system_prompt_with_manager(
         terminal_block,
         system_preamble_blocks,
     );
-    let cache_key = build_system_prompt_cache_key(state, mode_label, agent, &ordered_blocks);
-    {
-        let cache = cache_lock_recover("system_prompt_cache", system_prompt_cache());
-        if let Some(entry) = cache.get(&cache_key) {
-            runtime_log_info(format!(
-                "[系统提示词] 命中缓存 department_id={} rebuilt_at={}",
-                department_for_agent_id(&departments_only_config(departments), &agent.id)
-                    .map(|item| item.id.trim().to_string())
-                    .unwrap_or_default(),
-                entry.rebuilt_at
-            ));
-            return entry.prompt_text.clone();
+    let prompt_text = build_system_prompt_text_uncached(&ordered_blocks);
+    let mut cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
+    cache.insert(
+        final_cache_key,
+        FinalSystemPromptCacheEntry {
+            conversation_id: conversation.id.trim().to_string(),
+            agent_id: agent.id.trim().to_string(),
+            department_id,
+            text: prompt_text.clone(),
+            dirty: false,
+        },
+    );
+    if let Some(log_stage) = stage_logger {
+        log_stage("prepare_context.prompt_system_cache_rebuilt");
+    }
+    prompt_text
+}
+
+fn mark_prompt_cache_rebuild_internal(
+    state: &AppState,
+    department_ids: &[String],
+    agent_ids: &[String],
+    conversation_ids: &[String],
+    mark_department: bool,
+    mark_environment: bool,
+    mark_final: bool,
+) {
+    let scope_prefix = format!("scope={}|", prompt_cache_scope_key(Some(state)));
+    let department_ids = department_ids
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let agent_ids = agent_ids
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let conversation_ids = conversation_ids
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let mark_all = department_ids.is_empty() && agent_ids.is_empty() && conversation_ids.is_empty();
+
+    let mut department_marked = 0usize;
+    if mark_department {
+        let mut cache = cache_lock_recover(
+            "department_system_prompt_cache",
+            department_system_prompt_cache(),
+        );
+        for (key, entry) in cache.iter_mut() {
+            if !key.starts_with(&scope_prefix) {
+                continue;
+            }
+            let matched = mark_all
+                || agent_ids.contains(entry.agent_id.trim())
+                || department_ids.contains(entry.department_id.trim());
+            if matched && !entry.dirty {
+                entry.dirty = true;
+                department_marked += 1;
+            }
         }
     }
-    runtime_log_info(format!(
-        "[系统提示词] 开始构建 department_id={} mode={} conversation_id={}",
-        department_for_agent_id(&departments_only_config(departments), &agent.id)
-            .map(|item| item.id.trim().to_string())
-            .unwrap_or_default(),
-        mode_label.trim(),
-        conversation.id.trim()
+
+    let mut environment_marked = 0usize;
+    if mark_environment {
+        let mut cache = cache_lock_recover(
+            "conversation_environment_prompt_cache",
+            conversation_environment_prompt_cache(),
+        );
+        for (key, entry) in cache.iter_mut() {
+            if !key.starts_with(&scope_prefix) {
+                continue;
+            }
+            let matched = mark_all
+                || conversation_ids.contains(entry.conversation_id.trim());
+            if matched && !entry.dirty {
+                entry.dirty = true;
+                environment_marked += 1;
+            }
+        }
+    }
+
+    let mut final_marked = 0usize;
+    if mark_final {
+        let mut cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
+        for (key, entry) in cache.iter_mut() {
+            if !key.starts_with(&scope_prefix) {
+                continue;
+            }
+            let matched = mark_all
+                || conversation_ids.contains(entry.conversation_id.trim())
+                || agent_ids.contains(entry.agent_id.trim())
+                || department_ids.contains(entry.department_id.trim());
+            if matched && !entry.dirty {
+                entry.dirty = true;
+                final_marked += 1;
+            }
+        }
+    }
+
+    runtime_log_debug(format!(
+        "[系统提示词] 标记重建 完成 department_ids={:?} agent_ids={:?} conversation_ids={:?} department_marked={} environment_marked={} final_marked={}",
+        department_ids,
+        agent_ids,
+        conversation_ids,
+        department_marked,
+        environment_marked,
+        final_marked
     ));
-    let prompt_text = build_system_prompt_text_uncached(&ordered_blocks);
-    runtime_log_info(format!(
-        "[系统提示词] 完成构建 department_id={} mode={} chars={}",
-        department_for_agent_id(&departments_only_config(departments), &agent.id)
-            .map(|item| item.id.trim().to_string())
-            .unwrap_or_default(),
-        mode_label.trim(),
-        prompt_text.chars().count()
-    ));
-    let entry = SystemPromptCacheEntry {
-        prompt_text: prompt_text.clone(),
-        rebuilt_at: now_iso(),
-    };
-    let mut cache = cache_lock_recover("system_prompt_cache", system_prompt_cache());
-    cache.insert(cache_key, entry);
-    prompt_text
+}
+
+fn mark_prompt_cache_rebuild_for_departments(state: &AppState, department_ids: &[String]) {
+    mark_prompt_cache_rebuild_internal(state, department_ids, &[], &[], true, false, true);
+}
+
+fn mark_prompt_cache_rebuild_for_agents(state: &AppState, agent_ids: &[String]) {
+    mark_prompt_cache_rebuild_internal(state, &[], agent_ids, &[], false, false, true);
+}
+
+fn mark_prompt_cache_rebuild_for_conversation_environment(
+    state: &AppState,
+    conversation_id: &str,
+) {
+    mark_prompt_cache_rebuild_internal(
+        state,
+        &[],
+        &[],
+        &[conversation_id.trim().to_string()],
+        false,
+        true,
+        true,
+    );
+}
+
+fn mark_prompt_cache_rebuild_for_all_environments(state: &AppState) {
+    mark_prompt_cache_rebuild_internal(state, &[], &[], &[], false, true, true);
+}
+
+fn mark_prompt_cache_rebuild_for_all_final(state: &AppState) {
+    mark_prompt_cache_rebuild_internal(state, &[], &[], &[], false, false, true);
 }

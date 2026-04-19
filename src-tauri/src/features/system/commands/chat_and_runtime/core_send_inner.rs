@@ -949,9 +949,14 @@ async fn send_chat_message_inner(
                 | "prepare_context.todo_board_ready"
                 | "prepare_context.attachment_hints_ready"
                 | "prepare_context.overrides_built"
-                | "prepare_context.terminal_block_ready"
-                | "prepare_context.prompt_build_begin"
-                | "prepare_context.prompt_built"
+                  | "prepare_context.terminal_block_ready"
+                  | "prepare_context.prompt_build_begin"
+                  | "prepare_context.prompt_fixed_system_ready"
+                  | "prepare_context.prompt_conversation_payload_ready"
+                  | "prepare_context.prompt_system_cache_hit"
+                  | "prepare_context.prompt_system_cache_rebuilt"
+                  | "prepare_context.prompt_system_finalize_ready"
+                  | "prepare_context.prompt_built"
                 | "prepare_context.prompt_tokens_estimated"
                 | "prepare_context.done"
                 | "pre_send_archive_checked"
@@ -995,6 +1000,16 @@ async fn send_chat_message_inner(
             "终端环境块准备完成".to_string()
         } else if stage == "prepare_context.prompt_build_begin" {
             "开始生成提示词主结构".to_string()
+        } else if stage == "prepare_context.prompt_fixed_system_ready" {
+            "主结构前置整理完成".to_string()
+        } else if stage == "prepare_context.prompt_conversation_payload_ready" {
+            "对话侧提示词生成完成".to_string()
+        } else if stage == "prepare_context.prompt_system_cache_hit" {
+            "系统提示词缓存命中".to_string()
+        } else if stage == "prepare_context.prompt_system_cache_rebuilt" {
+            "系统提示词缓存重建完成".to_string()
+        } else if stage == "prepare_context.prompt_system_finalize_ready" {
+            "系统提示词收口完成".to_string()
         } else if stage == "prepare_context.prompt_built" {
             "提示词主结构生成完成".to_string()
         } else if stage == "prepare_context.prompt_tokens_estimated" {
@@ -2097,7 +2112,7 @@ async fn send_chat_message_inner(
         let terminal_block = terminal_prompt_trusted_roots_block(&state, &selected_api, Some(&conversation));
         log_run_stage("prepare_context.terminal_block_ready");
         log_run_stage("prepare_context.prompt_build_begin");
-        let mut prepared_prompt = build_prepared_prompt_for_mode(
+        let mut prepared_prompt = build_prepared_prompt_for_mode_with_stage_logger(
             prompt_mode,
             &conversation,
             &snapshot.current_agent,
@@ -2112,6 +2127,7 @@ async fn send_chat_message_inner(
             terminal_block.clone(),
             chat_overrides.clone(),
             Some(&state),
+            Some(&log_run_stage),
             Some(&selected_api),
             Some(&resolved_api),
             Some(snapshot.enable_pdf_images),
