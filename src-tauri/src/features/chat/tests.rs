@@ -131,10 +131,10 @@
                 .user_time_text
                 .as_deref()
                 .unwrap_or_default()
-                .contains("凯瑟琳")
+                .contains("pai system")
         );
         assert_eq!(prepared.history_messages[1].role, "assistant");
-        assert!(prepared.latest_user_meta_text.contains("凯瑟琳"));
+        assert!(prepared.latest_user_meta_text.contains("pai system"));
         assert!(prepared.latest_user_text.contains("现在补发第二次提醒"));
     }
 

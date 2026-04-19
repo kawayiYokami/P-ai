@@ -7,6 +7,7 @@
 - 重构（command-tool-split）：删除旧 `command` 与 `help`，将其拆分为三个独立内置工具：`reload`、`organize_context`、`wait`；默认工具目录、前端工具定义、旧配置归一化与运行时装配同步收口到新协议
 - 修复（system-tool-catalog-show-all-tools）：工具页的系统工具目录改为真正展示全量系统工具，不再显示“当前部门 / 当前人格 / 运行模型”等运行态信息；联系人专用工具现在也会出现在目录中，方便统一查看说明、参数与示例
 - 修复（department-skill-permission-requires-exec-ui）：部门权限页中，技能权限现在依赖终端 `exec`；当白名单未允许 `exec` 或黑名单禁用了 `exec` 时，所有 skill 选项会自动灰掉并清空已有勾选，避免出现“没有终端却还能选 skill”的前端状态
+- 修复（system-persona-default-name）：内置系统人格默认名从 `凯瑟琳` 调整为 `pai system`，同步对齐依赖默认名称的测试断言
 
 ## 更新：系统提示词管理与部门缓存收口
 

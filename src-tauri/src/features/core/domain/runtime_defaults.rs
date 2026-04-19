@@ -48,7 +48,7 @@ fn default_system_persona() -> AgentProfile {
     let now = now_iso();
     AgentProfile {
         id: SYSTEM_PERSONA_ID.to_string(),
-        name: "凯瑟琳".to_string(),
+        name: "pai system".to_string(),
         system_prompt: "我是系统人格，负责代表任务中心与系统调度向当前助手传达信息。".to_string(),
         tools: default_agent_tools(),
         created_at: now.clone(),
