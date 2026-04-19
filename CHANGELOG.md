@@ -1,5 +1,9 @@
 # 变更日志
 
+## 发布：v0.9.16
+
+- 发布（release-0.9.16）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.16`，纳入本轮已完成的“工具类型重做、系统工具目录全量展示、部门 skill 依赖 exec 前端限制、系统人格默认名调整”等收口
+
 ## 更新：工具类型重做与系统工具目录收口
 
 - 重构（tool-type-rework-and-contact-tools）：重做系统工具类型边界；固定系统工具收口为 `todo / remember / recall`，本地会话固定工具收口为 `plan`，联系人专用工具重做为 `contact_reply / contact_send_files / contact_no_reply`，仅在联系人会话中挂载且不再受部门权限控制
