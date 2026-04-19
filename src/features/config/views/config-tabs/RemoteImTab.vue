@@ -1633,7 +1633,6 @@ onMounted(() => {
   void refreshAllChannelStatuses();
   channelStatusTimer = setInterval(() => {
     void refreshAllChannelStatuses();
-    void refreshContacts();
     if (channelLogsModalOpen.value) {
       void refreshChannelLogs();
     }
