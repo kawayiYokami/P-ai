@@ -126,7 +126,25 @@
             <div class="badge badge-primary badge-sm">{{ speakerLabel(m) }}</div>
             <div class="opacity-60 text-sm">{{ formatDate(m.createdAt) }}</div>
           </div>
-          <div v-if="messageText(m)" class="whitespace-pre-wrap wrap-break-word">{{ messageText(m) }}</div>
+          <div
+            v-if="messageMemeSegments(m).length > 0"
+            class="archive-meme-segment-flow"
+          >
+            <template v-for="(segment, index) in messageMemeSegments(m)" :key="`${m.id}-meme-${index}`">
+              <span
+                v-if="segment.type === 'text' && archiveMemeText(segment)"
+                class="archive-meme-segment-text"
+              >{{ archiveMemeText(segment) }}</span>
+              <img
+                v-else-if="segment.type === 'meme'"
+                :src="archiveMemeSegmentDataUrl(segment)"
+                :alt="archiveMemeName(segment)"
+                :title="`:${archiveMemeName(segment)}:`"
+                class="archive-inline-meme"
+              />
+            </template>
+          </div>
+          <div v-else-if="messageText(m)" class="whitespace-pre-wrap wrap-break-word">{{ messageText(m) }}</div>
           <div
             v-if="messageAttachments(m).length > 0"
             class="mt-2 flex flex-wrap gap-2"
@@ -192,6 +210,7 @@ import type {
   DelegateConversationSummary,
   RemoteImContactConversationSummary,
   MessagePart,
+  MemeMessageSegment,
   UnarchivedConversationSummary,
 } from "../../../types/app";
 
@@ -409,6 +428,53 @@ function messageText(msg: ChatMessage): string {
     .trim();
 }
 
+function messageMemeSegments(msg: ChatMessage): MemeMessageSegment[] {
+  const raw = Array.isArray(msg.providerMeta?.memeSegments) ? msg.providerMeta.memeSegments : [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return undefined;
+      const segment = item as Record<string, unknown>;
+      const type = String(segment.type || "").trim().toLowerCase();
+      if (type === "text") {
+        return {
+          type: "text",
+          text: String(segment.text || ""),
+        } satisfies MemeMessageSegment;
+      }
+      if (type === "meme") {
+        const name = String(segment.name || "").trim();
+        const category = String(segment.category || "").trim();
+        const mime = String(segment.mime || "").trim();
+        const relativePath = String(segment.relativePath || "").trim();
+        const bytesBase64 = String(segment.bytesBase64 || "").trim();
+        if (!name || !category || !mime || !relativePath || !bytesBase64) return undefined;
+        return {
+          type: "meme",
+          name,
+          category,
+          mime,
+          relativePath,
+          bytesBase64,
+        } satisfies MemeMessageSegment;
+      }
+      return undefined;
+    })
+    .filter((item): item is MemeMessageSegment => !!item);
+}
+
+function archiveMemeSegmentDataUrl(segment: MemeMessageSegment): string {
+  if (segment.type !== "meme") return "";
+  return `data:${segment.mime};base64,${segment.bytesBase64}`;
+}
+
+function archiveMemeText(segment: MemeMessageSegment): string {
+  return segment.type === "text" ? segment.text : "";
+}
+
+function archiveMemeName(segment: MemeMessageSegment): string {
+  return segment.type === "meme" ? segment.category : "";
+}
+
 function speakerLabel(msg: ChatMessage): string {
   const speakerId = String(msg.speakerAgentId || "").trim();
   if (speakerId) {
@@ -544,3 +610,27 @@ function resolvedArchiveImageSrc(
   return String(archiveResolvedImageMap.value[archiveImageKey(messageId, index)] || "").trim();
 }
 </script>
+
+<style scoped>
+.archive-meme-segment-flow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.35rem 0.5rem;
+  max-width: 100%;
+}
+
+.archive-meme-segment-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.archive-inline-meme {
+  display: inline-block;
+  max-width: min(14rem, 100%);
+  max-height: 8rem;
+  border-radius: 0.75rem;
+  object-fit: contain;
+  vertical-align: bottom;
+}
+</style>

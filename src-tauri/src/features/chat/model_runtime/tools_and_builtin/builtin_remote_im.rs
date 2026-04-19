@@ -114,6 +114,75 @@ async fn remote_im_build_file_content_items(
     Ok(out)
 }
 
+fn remote_im_text_content_items_from_segments(segments: &[PersistedMemeSegment]) -> Vec<Value> {
+    meme_segments_to_remote_im_content_items(segments)
+}
+
+async fn remote_im_build_text_content_items(
+    state: &AppState,
+    text: &str,
+    seed_source: &str,
+) -> Result<Vec<Value>, String> {
+    if let Some(segments) = meme_segments_from_remote_im_text(state, text, seed_source)? {
+        let items = remote_im_text_content_items_from_segments(&segments);
+        if !items.is_empty() {
+            return Ok(items);
+        }
+    }
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(vec![serde_json::json!({
+        "type": "text",
+        "text": text,
+    })])
+}
+
+async fn remote_im_send_content_payload(
+    channel: &RemoteImChannelConfig,
+    contact: &RemoteImContact,
+    content: Vec<Value>,
+    status: &str,
+) -> Result<Value, String> {
+    if content.is_empty() {
+        return Err("action=send 时 text 与 file_paths 不能同时为空".to_string());
+    }
+    let payload = serde_json::json!({
+        "channel_id": contact.channel_id,
+        "contact_record_id": contact.id,
+        "platform": channel.platform,
+        "contact_type": contact.remote_contact_type,
+        "contact_id": contact.remote_contact_id,
+        "content": content,
+    });
+
+    let normalized_status = status.trim().to_ascii_lowercase();
+    let stop_tool_loop = match normalized_status.as_str() {
+        "done" => true,
+        "continue" => false,
+        other => {
+            return Err(format!(
+                "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
+            ))
+        }
+    };
+
+    let platform_message_id = remote_im_send_via_sdk(channel, contact, &payload).await?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "action": "send",
+        "status": normalized_status,
+        "done": stop_tool_loop,
+        "continue": !stop_tool_loop,
+        "stop_tool_loop": stop_tool_loop,
+        "channel_id": contact.channel_id,
+        "contact_id": contact.remote_contact_id,
+        "contact_name": contact.remote_contact_name,
+        "contact_type": contact.remote_contact_type,
+        "platform_message_id": platform_message_id
+    }))
+}
+
 async fn builtin_remote_im_send(
     state: &AppState,
     args: RemoteImSendToolArgs,
@@ -253,54 +322,16 @@ async fn builtin_remote_im_send(
         ));
     }
 
-    let mut content = Vec::<Value>::new();
-    if !text.trim().is_empty() {
-        content.push(serde_json::json!({
-            "type": "text",
-            "text": text
-        }));
-    }
+    let seed_source = format!(
+        "remote_im_send::{}::{}::{}",
+        channel_id,
+        contact_id_input,
+        text
+    );
+    let mut content = remote_im_build_text_content_items(state, &text, &seed_source).await?;
     if !file_paths.is_empty() {
         let mut file_items = remote_im_build_file_content_items(state, &file_paths).await?;
         content.append(&mut file_items);
     }
-    if content.is_empty() {
-        return Err("action=send 时 text 与 file_paths 不能同时为空".to_string());
-    }
-
-    let payload = serde_json::json!({
-        "channel_id": contact.channel_id,
-        "contact_record_id": contact.id,
-        "platform": channel.platform,
-        "contact_type": contact.remote_contact_type,
-        "contact_id": contact.remote_contact_id,
-        "content": content,
-    });
-
-    let status = args.status.trim().to_ascii_lowercase();
-    let stop_tool_loop = match status.as_str() {
-        "done" => true,
-        "continue" => false,
-        other => {
-            return Err(format!(
-                "remote_im_send.status 非法：`{other}`。请返回正确状态：continue 或 done"
-            ))
-        }
-    };
-
-    let platform_message_id = remote_im_send_via_sdk(&channel, &contact, &payload).await?;
-
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "send",
-        "status": status,
-        "done": stop_tool_loop,
-        "continue": !stop_tool_loop,
-        "stop_tool_loop": stop_tool_loop,
-        "channel_id": channel_id,
-        "contact_id": contact_id_input,
-        "contact_name": contact.remote_contact_name,
-        "contact_type": contact.remote_contact_type,
-        "platform_message_id": platform_message_id
-    }))
+    remote_im_send_content_payload(&channel, &contact, content, &args.status).await
 }

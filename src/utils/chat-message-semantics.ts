@@ -1,4 +1,10 @@
-import type { ChatMentionTarget, ChatMessage, PlanMessageCard, TaskTriggerMessageCard } from "../types/app";
+import type {
+  ChatMentionTarget,
+  ChatMessage,
+  MemeMessageSegment,
+  PlanMessageCard,
+  TaskTriggerMessageCard,
+} from "../types/app";
 import {
   extractMessageAttachmentFiles,
   extractMessageAudios,
@@ -34,6 +40,7 @@ export type ChatMessageDisplayProjection = {
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
+  memeSegments?: MemeMessageSegment[];
   taskTrigger?: TaskTriggerMessageCard;
   planCard?: PlanMessageCard;
   remoteImOrigin?: {
@@ -206,6 +213,41 @@ function resolvePlanCard(message: ChatMessage): PlanMessageCard | undefined {
   };
 }
 
+function resolveMemeSegments(message: ChatMessage): MemeMessageSegment[] | undefined {
+  const meta = (message.providerMeta || {}) as Record<string, unknown>;
+  const raw = Array.isArray(meta.memeSegments) ? meta.memeSegments : [];
+  const segments: MemeMessageSegment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const segment = item as Record<string, unknown>;
+    const type = String(segment.type || "").trim().toLowerCase();
+    if (type === "text") {
+      segments.push({
+        type: "text",
+        text: String(segment.text || ""),
+      });
+      continue;
+    }
+    if (type === "meme") {
+      const name = String(segment.name || "").trim();
+      const category = String(segment.category || "").trim();
+      const mime = String(segment.mime || "").trim();
+      const relativePath = String(segment.relativePath || "").trim();
+      const bytesBase64 = String(segment.bytesBase64 || "").trim();
+      if (!name || !category || !mime || !relativePath || !bytesBase64) continue;
+      segments.push({
+        type: "meme",
+        name,
+        category,
+        mime,
+        relativePath,
+        bytesBase64,
+      });
+    }
+  }
+  return segments.length > 0 ? segments : undefined;
+}
+
 function resolveSpeakerAgentId(message: ChatMessage): string {
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const origin = meta.origin as Record<string, unknown> | undefined;
@@ -263,6 +305,7 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
   const toolSummary = summarizeToolActivityForDisplay(message);
   const taskTrigger = resolveTaskTrigger(message);
   const planCard = resolvePlanCard(message);
+  const memeSegments = resolveMemeSegments(message);
   const origin = meta.origin as Record<string, unknown> | undefined;
   const senderName = String(origin?.sender_name || "").trim();
   const remoteContactName = String(origin?.contact_name || "").trim();
@@ -282,6 +325,7 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
     images: extractMessageImages(message),
     audios: extractMessageAudios(message),
     attachmentFiles: extractMessageAttachmentFiles(message),
+    memeSegments,
     taskTrigger,
     planCard,
     remoteImOrigin:

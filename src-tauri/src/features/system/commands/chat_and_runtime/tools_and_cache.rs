@@ -116,6 +116,10 @@ fn check_tools_status(
             "task" => ("loaded".to_string(), "任务工具可用".to_string()),
             "todo" => ("loaded".to_string(), "会话内 Todo 步骤追踪工具可用".to_string()),
             "delegate" => ("loaded".to_string(), "委托工具可用".to_string()),
+            "meme" => (
+                "loaded".to_string(),
+                "表情偷图工具可用".to_string(),
+            ),
             "remote_im_send" => (
                 "loaded".to_string(),
                 "远程联系人通讯工具可用（支持 list/send）".to_string(),

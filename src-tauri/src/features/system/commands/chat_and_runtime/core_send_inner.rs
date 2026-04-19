@@ -510,9 +510,12 @@ async fn remote_im_auto_send_assistant_reply_to_source(
     state: &AppState,
     source: &RemoteImActivationSource,
     assistant_text: &str,
+    assistant_message: Option<&ChatMessage>,
 ) -> Result<Option<(String, Vec<Value>)>, String> {
     let trimmed_text = assistant_text.trim();
-    if trimmed_text.is_empty() {
+    let persisted_segments = assistant_message
+        .and_then(|message| provider_meta_meme_segments(message.provider_meta.as_ref()));
+    if trimmed_text.is_empty() && persisted_segments.is_none() {
         return Ok(None);
     }
     let args = RemoteImSendToolArgs {
@@ -523,10 +526,51 @@ async fn remote_im_auto_send_assistant_reply_to_source(
         status: "done".to_string(),
         file_paths: None,
     };
-    let tool_result = serde_json::to_string(
-        &builtin_remote_im_send(state, args.clone()).await?
-    )
-    .map_err(|err| format!("serialize auto remote_im_send result failed: {err}"))?;
+    let config = state_read_config_cached(state)?;
+    let channel = remote_im_channel_by_id(&config, &source.channel_id)
+        .ok_or_else(|| format!("远程IM渠道不存在: {}", source.channel_id))?
+        .clone();
+    if !channel.enabled {
+        return Err(format!("远程IM渠道未启用: {}", source.channel_id));
+    }
+    let data = state_read_app_data_cached(state)?;
+    let contact = data
+        .remote_im_contacts
+        .iter()
+        .find(|item| {
+            item.channel_id == source.channel_id
+                && item.remote_contact_id == source.remote_contact_id
+        })
+        .ok_or_else(|| {
+            format!(
+                "未找到自动发送目标联系人: channel_id={}, contact_id={}",
+                source.channel_id, source.remote_contact_id
+            )
+        })?
+        .clone();
+    if !contact.allow_send {
+        return Err(format!(
+            "用户已禁止向该联系人发送消息: channel_id={}, contact_id={}",
+            source.channel_id, source.remote_contact_id
+        ));
+    }
+    let content = if let Some(segments) = persisted_segments.as_ref() {
+        remote_im_text_content_items_from_segments(segments)
+    } else {
+        remote_im_build_text_content_items(
+            state,
+            trimmed_text,
+            &format!(
+                "remote_im_auto_send::{}::{}::{}",
+                source.channel_id, source.remote_contact_id, trimmed_text
+            ),
+        )
+        .await?
+    };
+    let send_result =
+        remote_im_send_content_payload(&channel, &contact, content, &args.status).await?;
+    let tool_result = serde_json::to_string(&send_result)
+        .map_err(|err| format!("serialize auto remote_im_send result failed: {err}"))?;
     Ok(Some((
         "send".to_string(),
         remote_im_send_tool_history_events(&args, &tool_result),
@@ -544,9 +588,17 @@ async fn remote_im_auto_send_and_record_decision(
     activation_source: &RemoteImActivationSource,
     conversation_id: &str,
     assistant_text: &str,
+    assistant_message: Option<&ChatMessage>,
     assistant_message_id: Option<&str>,
 ) -> Result<RemoteImAutoSendExecutionOutcome, String> {
-    match remote_im_auto_send_assistant_reply_to_source(state, activation_source, assistant_text).await {
+    match remote_im_auto_send_assistant_reply_to_source(
+        state,
+        activation_source,
+        assistant_text,
+        assistant_message,
+    )
+    .await
+    {
         Ok(Some((action, _))) => {
             update_remote_im_reply_decision_for_message(
                 state,
@@ -581,6 +633,7 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
     activation_source: RemoteImActivationSource,
     conversation_id: String,
     assistant_text: String,
+    assistant_message: Option<ChatMessage>,
     assistant_message_id: Option<String>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -597,6 +650,7 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
             &activation_source,
             &conversation_id,
             &assistant_text,
+            assistant_message.as_ref(),
             assistant_message_id.as_deref(),
         )
         .await
@@ -2553,6 +2607,13 @@ async fn send_chat_message_inner(
         }
         provider_meta = Some(merged);
     }
+    let assistant_message_id = Uuid::new_v4().to_string();
+    let persisted_meme_segments =
+        resolve_text_to_persisted_meme_segments(&state, &assistant_text_for_storage, &assistant_message_id)?;
+    persist_meme_segments_into_provider_meta(
+        &mut provider_meta,
+        persisted_meme_segments.as_deref(),
+    );
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;
@@ -2568,7 +2629,7 @@ async fn send_chat_message_inner(
                 let now = now_iso();
                 if !suppress_assistant_message {
                     let assistant_message = ChatMessage {
-                        id: Uuid::new_v4().to_string(),
+                        id: assistant_message_id.clone(),
                         role: "assistant".to_string(),
                         created_at: now.clone(),
                         speaker_agent_id: Some(effective_agent_id.clone()),
@@ -2600,8 +2661,8 @@ async fn send_chat_message_inner(
                 {
                     let now = now_iso();
                     if !suppress_assistant_message {
-                        let assistant_message = ChatMessage {
-                            id: Uuid::new_v4().to_string(),
+                    let assistant_message = ChatMessage {
+                            id: assistant_message_id.clone(),
                             role: "assistant".to_string(),
                             created_at: now.clone(),
                             speaker_agent_id: Some(effective_agent_id.clone()),
@@ -2637,6 +2698,7 @@ async fn send_chat_message_inner(
             activation_source,
             conversation_id.clone(),
             assistant_text.clone(),
+            persisted_assistant_message.clone(),
             persisted_assistant_message.as_ref().map(|message| message.id.clone()),
         );
     }

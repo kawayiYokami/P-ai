@@ -14,6 +14,7 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
   { id: "todo", command: "builtin", args: ["todo"], enabled: true, values: {} },
   { id: "delegate", command: "builtin", args: ["delegate"], enabled: true, values: {} },
+  { id: "meme", command: "builtin", args: ["meme"], enabled: true, values: {} },
   { id: "remote_im_send", command: "builtin", args: ["remote_im_send"], enabled: false, values: {} },
 ];
 

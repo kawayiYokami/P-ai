@@ -2191,6 +2191,7 @@ fn build_prompt_with_mode(
         "remote im contact rules",
         "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n如果需要回复远程联系人，必须调用 `remote_im_send`。",
     );
+    let meme_sticker_rule_block = meme_prompt_rule_block(state);
     let departments_block = build_departments_prompt_block(conversation, agent, departments, ui_language);
     let memory_rag_rule_block = build_memory_rag_rule_block();
     let system_tools_rule_block = build_system_tools_rule_block(
@@ -2293,6 +2294,16 @@ fn build_prompt_with_mode(
         preamble.push('\n');
         preamble.push_str(&remote_im_rules_block);
         preamble.push('\n');
+    }
+    if let Some(meme_block) = meme_sticker_rule_block.as_deref() {
+        if !meme_block.trim().is_empty() {
+            if !preamble.ends_with('\n') {
+                preamble.push('\n');
+            }
+            preamble.push('\n');
+            preamble.push_str(meme_block);
+            preamble.push('\n');
+        }
     }
 
     let latest_user = latest_user_index

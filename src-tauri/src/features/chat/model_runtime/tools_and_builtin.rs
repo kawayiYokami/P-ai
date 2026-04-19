@@ -10,6 +10,7 @@ include!("tools_and_builtin/builtin_memory.rs");
 include!("tools_and_builtin/builtin_runtime_context.rs");
 include!("tools_and_builtin/builtin_plan.rs");
 include!("tools_and_builtin/tool_arg_types.rs");
+include!("tools_and_builtin/builtin_meme.rs");
 include!("tools_and_builtin/builtin_task_delegate.rs");
 include!("tools_and_builtin/tool_impls.rs");
 include!("tools_and_builtin/builtin_remote_im.rs");

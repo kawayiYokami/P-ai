@@ -214,6 +214,12 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinMemeTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinRemoteImSendTool {
                 app_state: state.clone(),
             }

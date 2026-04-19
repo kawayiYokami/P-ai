@@ -1285,6 +1285,19 @@
             seed_remote_im_auto_send_test_state(serde_json::json!({
                 "mockSend": true
             }));
+        let assistant_message = state_read_app_data_cached(&state)
+            .expect("read app data")
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+            .and_then(|conversation| {
+                conversation
+                    .messages
+                    .iter()
+                    .find(|message| message.id == assistant_message_id)
+            })
+            .cloned()
+            .expect("assistant message");
 
         let outcome = test_runtime()
             .block_on(remote_im_auto_send_and_record_decision(
@@ -1292,6 +1305,7 @@
                 &activation_source,
                 &conversation_id,
                 &assistant_text,
+                Some(&assistant_message),
                 Some(&assistant_message_id),
             ))
             .expect("auto send should succeed");
@@ -1327,6 +1341,19 @@
             seed_remote_im_auto_send_test_state(serde_json::json!({
                 "mockSendError": "mock remote send failed"
             }));
+        let assistant_message = state_read_app_data_cached(&state)
+            .expect("read app data")
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+            .and_then(|conversation| {
+                conversation
+                    .messages
+                    .iter()
+                    .find(|message| message.id == assistant_message_id)
+            })
+            .cloned()
+            .expect("assistant message");
 
         let err = test_runtime()
             .block_on(remote_im_auto_send_and_record_decision(
@@ -1334,6 +1361,7 @@
                 &activation_source,
                 &conversation_id,
                 &assistant_text,
+                Some(&assistant_message),
                 Some(&assistant_message_id),
             ))
             .expect_err("auto send should fail");

@@ -215,7 +215,43 @@
           </div>
         </details>
       </div>
-      <div v-if="block.text" :class="block.taskTrigger ? 'mt-3' : ''">
+      <div v-if="hasRenderableMemeSegments(block)" :class="block.taskTrigger ? 'mt-3' : ''">
+        <div ref="markdownContainerRef" class="ecall-meme-segment-flow">
+          <template v-for="(segment, index) in block.memeSegments || []" :key="`${block.id}-meme-${index}`">
+            <div
+              v-if="segment.type === 'text' && segment.text"
+              class="ecall-meme-text-segment"
+            >
+              <MarkdownRender
+                class="ecall-markdown-content ecall-inline-meme-markdown max-w-none"
+                custom-id="chat-markstream"
+                :nodes="markdownNodesForText(block, segment.text, true, `meme:${index}`)"
+                :is-dark="markdownIsDark"
+                :final="true"
+                :max-live-nodes="0"
+                :batch-rendering="false"
+                :initial-render-batch-size="0"
+                :render-batch-size="0"
+                :render-batch-delay="0"
+                :render-batch-budget-ms="0"
+                :code-block-props="markdownCodeBlockProps"
+                :mermaid-props="markdownMermaidProps"
+                :typewriter="false"
+                @click="emit('assistantLinkClick', $event)"
+              />
+            </div>
+            <img
+              v-else-if="segment.type === 'meme'"
+              :src="memeSegmentDataUrl(segment)"
+              :alt="`:${segment.category}:`"
+              class="ecall-inline-meme"
+              loading="lazy"
+              decoding="async"
+            />
+          </template>
+        </div>
+      </div>
+      <div v-else-if="block.text" :class="block.taskTrigger ? 'mt-3' : ''">
         <div
           v-if="isOwnMessage(block)"
           class="whitespace-pre-wrap break-all"
@@ -441,7 +477,7 @@ import { useI18n } from "vue-i18n";
 import { CircleCheckBig, Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessageBlock } from "../../../types/app";
+import type { ChatMessageBlock, MemeMessageSegment } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
 import { registerChatMarkstreamComponents } from "../markdown/register-chat-markstream";
 import { normalizeLocalLinkHref } from "../utils/local-link";
@@ -563,6 +599,15 @@ function ownMessageDisplayText(block: ChatMessageBlock): string {
   if (!mentionPrefix) return body;
   if (!body.trim()) return mentionPrefix;
   return `${mentionPrefix} ${body}`;
+}
+
+function hasRenderableMemeSegments(block: ChatMessageBlock): boolean {
+  return !isOwnMessage(block) && Array.isArray(block.memeSegments) && block.memeSegments.length > 0;
+}
+
+function memeSegmentDataUrl(segment: MemeMessageSegment): string {
+  if (segment.type !== "meme") return "";
+  return `data:${segment.mime};base64,${segment.bytesBase64}`;
 }
 
 function showStreamingUi(block: ChatMessageBlock): boolean {
@@ -886,6 +931,42 @@ function openResolvedImagePreview(
 .ecall-message-content-wide {
   width: 100%;
   max-width: none;
+}
+
+.ecall-meme-segment-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+}
+
+.ecall-meme-text-segment {
+  min-width: 0;
+}
+
+.ecall-inline-meme {
+  display: inline-block;
+  max-height: 4.5rem;
+  max-width: min(8rem, 40vw);
+  border-radius: 0.85rem;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+.ecall-inline-meme-markdown:deep(.markdown-renderer),
+.ecall-inline-meme-markdown:deep(.node-slot),
+.ecall-inline-meme-markdown:deep(.node-content) {
+  display: inline;
+}
+
+.ecall-inline-meme-markdown:deep(.paragraph-node),
+.ecall-inline-meme-markdown:deep(.text-node),
+.ecall-inline-meme-markdown:deep(.strong-node),
+.ecall-inline-meme-markdown:deep(.emphasis-node),
+.ecall-inline-meme-markdown:deep(.link-node),
+.ecall-inline-meme-markdown:deep(.inline-code-node) {
+  display: inline;
+  margin: 0;
 }
 
 .ecall-time-loading {

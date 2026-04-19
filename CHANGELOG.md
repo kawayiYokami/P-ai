@@ -1,5 +1,11 @@
 # 变更日志
 
+## 更新：表情贴纸系统
+
+- 功能（meme-sticker-system）：新增基于 `.meme` 工作目录的贴纸系统；模型可在回复正文中直接使用 `:happy:` 这类分类语法，后端会在助理消息写入历史时按分类随机选定具体图片并落入 `providerMeta.memeSegments`，本地聊天与归档视图统一按已持久化结果渲染贴纸，远程联系人发送时则按同一份 `memeSegments` 拆成“文本 -> 图片 -> 文本”顺序发送，保证本地显示与远程实际发送一致
+- 功能（meme-yoink-inventory）：新增内置 `meme` 贴纸入库工具，按 `name / category / path` 把当前可见图片收进系统工作目录 `.meme/<category>/`；提示词不再依赖列表工具查询，而是直接注入当前可用分类，要求模型在需要贴纸时直接输出 `:分类名:`
+- 修复（meme-dhash-dedup-and-format-fix）：贴纸入库新增 `dHash` 去重与 `.meme/image_dhash_index.json` 索引；每次更新索引时会同步清理已不存在文件的陈旧项，并在新图入库前检测近似重复图后直接跳过保存；同时补齐“按文件头识别真实图片格式”的自动修正逻辑，解决文件扩展名与真实格式不一致（如文件名是 `.jpg` 但文件头实际是 `GIF89a`）时偷图失败的问题，保存时会自动改用真实扩展名
+
 ## 更新：前台切会话轻量快照
 
 - 优化（foreground-conversation-light-snapshot）：前台切会话主路径新增轻量快照接口 `get_foreground_conversation_light_snapshot`，只返回当前会话最近消息、`hasMoreHistory` 与当前 `todo/todos`，不再在首屏热路径中同步构建整份 `unarchivedConversations`

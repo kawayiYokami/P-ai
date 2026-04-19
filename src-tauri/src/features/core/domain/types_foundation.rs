@@ -344,6 +344,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "meme".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["meme".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "remote_im_send".to_string(),
             command: "builtin".to_string(),
             args: vec!["remote_im_send".to_string()],

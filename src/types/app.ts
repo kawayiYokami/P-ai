@@ -368,6 +368,17 @@ export type PlanMessageCard = {
   context: string;
 };
 
+export type MemeMessageSegment =
+  | { type: "text"; text: string }
+  | {
+    type: "meme";
+    name: string;
+    category: string;
+    mime: string;
+    relativePath: string;
+    bytesBase64: string;
+  };
+
 export type ChatTodoItem = {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -388,6 +399,7 @@ export type ChatMessage = {
     attachments?: Array<{ fileName: string; relativePath: string; mime?: string }>;
     taskTrigger?: TaskTriggerMessageCard;
     planCard?: PlanMessageCard;
+    memeSegments?: MemeMessageSegment[];
     [key: string]: unknown;
   };
   toolCall?: ToolCallMessage[];
@@ -417,6 +429,7 @@ export type ChatMessageBlock = {
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
+  memeSegments?: MemeMessageSegment[];
   taskTrigger?: TaskTriggerMessageCard;
   planCard?: PlanMessageCard;
   remoteImOrigin?: {

@@ -104,6 +104,7 @@ async fn assemble_runtime_tools(
     let has_task = tool_enabled(selected_api, agent, current_department, "task");
     let has_todo = tool_enabled(selected_api, agent, current_department, "todo");
     let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
+    let has_meme = tool_enabled(selected_api, agent, current_department, "meme");
     let delegate_runtime_reason = if has_delegate_base {
         delegate_tool_runtime_disabled_reason(app_state, tool_session_id)
     } else {
@@ -426,6 +427,22 @@ async fn assemble_runtime_tools(
             delegate_runtime_reason
                 .or_else(|| department_reason("delegate"))
                 .or_else(|| Some("当前人格未启用该工具".to_string())),
+        ));
+    }
+
+    if has_meme {
+        let state = app_state
+            .ok_or_else(|| "meme requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemeTool { app_state: state }));
+        tool_manifest.push(tool_manifest_item("builtin", "meme", true, true, None));
+    } else {
+        tool_manifest.push(tool_manifest_item(
+            "builtin",
+            "meme",
+            false,
+            false,
+            department_reason("meme").or_else(|| Some("当前人格未启用该工具".to_string())),
         ));
     }
 
