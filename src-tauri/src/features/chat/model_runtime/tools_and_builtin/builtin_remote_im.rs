@@ -116,6 +116,22 @@ async fn remote_im_build_file_content_items(
     Ok(out)
 }
 
+async fn remote_im_outbound_contains_non_image_file(
+    state: &AppState,
+    file_paths: &[String],
+) -> Result<bool, String> {
+    for raw in file_paths {
+        let path = remote_im_resolve_file_path(state, raw).await?;
+        let mime = media_mime_from_path(path.as_path())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        if !mime.starts_with("image/") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn remote_im_text_content_items_from_segments(segments: &[PersistedMemeSegment]) -> Vec<Value> {
     meme_segments_to_remote_im_content_items(segments)
 }
@@ -325,13 +341,15 @@ async fn builtin_remote_im_send(
 
     if !contact.allow_send {
         return Err(format!(
-            "用户已禁止向该联系人发送消息: channel_id={}, contact_id={}",
+            "当前联系人不允许发信: channel_id={}, contact_id={}。你仍可继续处理任务；任务执行完毕之后，请立刻使用 remote_im_send(action=no_reply, status=done) 明确结束本轮。",
             channel_id, contact_id_input
         ));
     }
-    if !file_paths.is_empty() && !contact.allow_send_files {
+    if !contact.allow_send_files
+        && remote_im_outbound_contains_non_image_file(state, &file_paths).await?
+    {
         return Err(format!(
-            "用户已禁止向该联系人发送文件: channel_id={}, contact_id={}",
+            "用户已禁止向该联系人发送非图片文件: channel_id={}, contact_id={}",
             channel_id, contact_id_input
         ));
     }
