@@ -1,5 +1,9 @@
 # 变更日志
 
+## 发布：v0.9.15
+
+- 发布（release-0.9.15）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.15`，纳入本轮已验证通过的“部门权限白黑名单与工具页去人格化”相关实现与交互收口
+
 ## 更新：部门权限白黑名单与工具页去人格化
 
 - 功能（department-permission-control-and-tools-page-readonly）：部门配置新增 `permissionControl` 草稿字段，支持白名单 / 黑名单两种机制，并分别按名称存储 `builtinToolNames / skillNames / mcpToolNames`；运行时装配阶段会统一按部门权限过滤内置工具、Skill 快照与 MCP 工具，名称即使与当前目录不匹配也允许保留存储，只在“实际可发现项”上做白名单保留或黑名单排除
