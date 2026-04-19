@@ -716,7 +716,7 @@ function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: item.activationKeywords.join(", "),
-    patienceSeconds: Math.max(0, Number(item.patienceSeconds || 420)),
+    patienceSeconds: Math.max(0, Number(item.patienceSeconds || 60)),
     allowReceive: !!item.allowReceive,
     allowSend: !!item.allowSend,
     allowSendFiles: !!item.allowSendFiles,
@@ -1142,7 +1142,7 @@ async function saveContactDraft() {
     const nextActivationMode = normalizeActivationMode(draft.activationMode);
     const modeChanged = nextActivationMode !== normalizeActivationMode(item.activationMode || "never");
     const nextPatience = Math.max(0, Math.floor(Number(draft.patienceSeconds) || 0));
-    const patienceChanged = nextPatience !== Math.max(0, Math.floor(Number(item.patienceSeconds || 420)));
+    const patienceChanged = nextPatience !== Math.max(0, Math.floor(Number(item.patienceSeconds || 60)));
     if (modeChanged || keywordsChanged || patienceChanged) {
       await saveContactActivation(item, {
         activationMode: nextActivationMode,

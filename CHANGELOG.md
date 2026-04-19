@@ -1,5 +1,9 @@
 # 变更日志
 
+## 更新：远程联系人耐心离场
+
+- 修复（remote-im-patience-leave-on-inbound）：远程联系人在 `keyword` 激活模式下，若当前处于在场且空闲状态，新入站消息又未命中激活关键字，并且“当前时间 - 上次成功回复时间”已超过 `patience_seconds`，现在会在入站判定当下直接切换为离场且不再激活助理，不必再等 LLM 先跑出 `no_reply`；同时将 `patience_seconds` 的默认值从 `420` 秒下调为 `60` 秒，并同步前后端联系人配置默认口径
+
 ## 更新：个人微信媒体发送链路
 
 - 修复（weixin-oc-media-send-and-response-parse）：个人微信渠道补齐 `getuploadurl -> AES-ECB 加密上传 CDN -> sendmessage 引用媒体` 发送链路，`remote_im_send` 现在会按内容项顺序拆成“文本 -> 图片/文件 -> 文本”分别发送，贴纸与其他媒体不再只能卡死在纯文本路径

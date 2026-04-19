@@ -218,7 +218,7 @@ fn default_remote_im_contact_activation_mode() -> String {
 }
 
 fn default_remote_im_contact_patience_seconds() -> u64 {
-    420
+    60
 }
 
 fn default_remote_im_contact_route_mode() -> String {

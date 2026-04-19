@@ -368,6 +368,28 @@ fn remote_im_text_contains_keyword(text: &str, keyword: &str) -> bool {
         .contains(&keyword.to_ascii_lowercase())
 }
 
+fn remote_im_keyword_matched(contact: &RemoteImContact, message_text: &str) -> bool {
+    contact
+        .activation_keywords
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .any(|keyword| remote_im_text_contains_keyword(message_text, keyword))
+}
+
+fn remote_im_patience_exhausted(
+    contact: &RemoteImContact,
+    runtime: &RemoteImContactRuntimeState,
+) -> bool {
+    let Some(last_success_at) = runtime.last_success_reply_at.as_deref() else {
+        return false;
+    };
+    let elapsed_seconds = parse_iso(last_success_at)
+        .map(|last| (now_utc() - last).whole_seconds().max(0) as u64)
+        .unwrap_or_default();
+    elapsed_seconds > contact.patience_seconds
+}
+
 fn remote_im_should_activate_while_away(
     contact: &RemoteImContact,
     message_text: &str,
@@ -375,12 +397,7 @@ fn remote_im_should_activate_while_away(
     match contact.activation_mode.trim().to_ascii_lowercase().as_str() {
         "always" => (true, "away 命中 always，切换为在场".to_string()),
         "keyword" => {
-            let matched = contact
-                .activation_keywords
-                .iter()
-                .map(|item| item.trim())
-                .filter(|item| !item.is_empty())
-                .any(|keyword| remote_im_text_contains_keyword(message_text, keyword));
+            let matched = remote_im_keyword_matched(contact, message_text);
             if matched {
                 (true, "away 命中 keyword，切换为在场".to_string())
             } else {
@@ -408,7 +425,20 @@ fn remote_im_prepare_enqueue_runtime_state(
             (activate, reason)
         }
         RemoteImPresenceState::Present => {
-            if runtime.work_state == RemoteImWorkState::Busy {
+            let keyword_mode = contact.activation_mode.trim().eq_ignore_ascii_case("keyword");
+            let keyword_matched = !keyword_mode || remote_im_keyword_matched(contact, message_text);
+            if runtime.work_state == RemoteImWorkState::Idle
+                && keyword_mode
+                && !keyword_matched
+                && remote_im_patience_exhausted(contact, runtime)
+            {
+                runtime.presence_state = RemoteImPresenceState::Away;
+                runtime.has_pending = false;
+                (
+                    false,
+                    "present + idle 未命中 keyword 且耐心耗尽，切换为离场".to_string(),
+                )
+            } else if runtime.work_state == RemoteImWorkState::Busy {
                 runtime.has_pending = true;
                 (true, "present + busy，新消息标记待办".to_string())
             } else {
