@@ -473,6 +473,7 @@ fn main() {
             set_chat_window_active,
             check_github_update,
             start_github_update,
+            apply_prepared_github_update,
             get_app_version,
             get_project_repository_url,
             load_config,

@@ -6,7 +6,7 @@ import RuntimeLogsDialog from "./RuntimeLogsDialog.vue";
 import TerminalApprovalDialog from "./TerminalApprovalDialog.vue";
 
 type UpdateDialogKind = "error" | "info" | "warning";
-type UpdateDialogPrimaryAction = "force" | "update" | null | undefined;
+type UpdateDialogPrimaryAction = "force" | "download" | "restart" | null | undefined;
 type ConfigSaveErrorDialogKind = "warning" | "error";
 type ArchiveImportPreview = {
   fileName: string;
@@ -123,7 +123,13 @@ function handleConfirmDeleteConversationFromArchiveDialog() {
           class="btn btn-sm btn-primary"
           @click="emit('confirmUpdateDialogPrimary')"
         >
-          {{ updateDialogPrimaryAction === 'force' ? '强制更新' : '立即更新' }}
+          {{
+            updateDialogPrimaryAction === 'force'
+              ? '强制下载更新'
+              : updateDialogPrimaryAction === 'restart'
+                ? '更新并重启'
+                : '下载更新'
+          }}
         </button>
         <button
           v-if="updateDialogReleaseUrl"

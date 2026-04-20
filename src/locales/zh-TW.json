@@ -1140,8 +1140,10 @@
     "repository": "Git 倉庫",
     "updateToLatest": "更新到最新版本",
     "updateNow": "立即更新",
+    "updateAndRestart": "更新並重新啟動",
     "updating": "正在更新",
     "updateAvailableBadge": "發現新版本",
-    "updateAvailableAction": "發現新版本 {version}，點擊開始更新"
+    "updateAvailableAction": "發現新版本 {version}，點擊開始更新",
+    "updateReadyAction": "更新 {version} 已下載完成，點擊更新並重新啟動"
   }
 }

@@ -1140,8 +1140,10 @@
     "repository": "Git Repository",
     "updateToLatest": "Update to Latest",
     "updateNow": "Update Now",
+    "updateAndRestart": "Update and Restart",
     "updating": "Updating",
     "updateAvailableBadge": "Update available",
-    "updateAvailableAction": "New version {version} is available. Click to update"
+    "updateAvailableAction": "New version {version} is available. Click to update",
+    "updateReadyAction": "Update {version} has finished downloading. Click to update and restart"
   }
 }

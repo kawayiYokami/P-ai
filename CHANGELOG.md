@@ -1,5 +1,10 @@
 # 变更日志
 
+## 更新：检查更新代理与后台预下载
+
+- 优化（updater-proxy-fallback-and-ready-to-restart）：检查更新、manifest 下载与更新包下载统一接入 `gh-proxy -> edgeone.gh-proxy -> hk.gh-proxy` 三段降级链路，每个地址最多重试 3 次，总计最多 9 次尝试；同时 release workflow 生成的 updater manifest 资产 URL 也切到代理地址，避免远端构建产物仍回落直连 GitHub
+- 重构（updater-background-prepare-and-apply）：更新流程拆成“下载并准备更新”和“应用已准备更新”两阶段；自动检查更新时改为后台静默预下载，下载完成后左上角动作切换为“更新并重启”；手动检查更新时保持前台进度展示，不再静默下载
+
 ## 更新：归档窗口 UI 收口与预览标题修正
 
 - 优化（archives-window-ui-polish）：重排归档窗口布局为“顶部控制栏 + 左侧列表栏 + 右侧内容栏”，顶部模式切换改为 `tabs-border`，移除右侧冗余标题栏，列表时间字号收小，联系人列表收成双行显示，整体间距与结构更接近真正的侧边栏内容窗口

@@ -213,7 +213,7 @@ jobs:
             -Notes "Installer update package for $tagName" `
             -Target $installerTarget `
             -Signature $installerSignature `
-            -Url "https://github.com/${{ github.repository }}/releases/download/$tagName/$($installerExe.Name)"
+            -Url "https://gh-proxy.org/https://github.com/${{ github.repository }}/releases/download/$tagName/$($installerExe.Name)"
           Set-Content -LiteralPath $installerManifestPath -Value $installerManifest -Encoding utf8
 
           $portableName = "p-ai-windows-$tagName-x64-portable.zip"
@@ -249,7 +249,7 @@ jobs:
             -Notes "Portable update package for $tagName" `
             -Target $portableTarget `
             -Signature $signature `
-            -Url "https://github.com/${{ github.repository }}/releases/download/$tagName/$portableName"
+            -Url "https://gh-proxy.org/https://github.com/${{ github.repository }}/releases/download/$tagName/$portableName"
           Set-Content -LiteralPath $portableManifestPath -Value $manifest -Encoding utf8
 
       - name: List packaged artifacts

@@ -615,6 +615,7 @@ const { perfNow, perfLog, setStatus, setStatusError, localeOptions, applyUiLangu
 const {
   checkingUpdate,
   hasAvailableUpdate,
+  updateReadyToRestart,
   latestCheckResult,
   updateDialogOpen,
   updateDialogTitle,
@@ -635,10 +636,17 @@ const {
 });
 const showUpdateToLatestButton = computed(() => hasAvailableUpdate.value);
 const updateToLatestLabel = computed(() =>
-  checkingUpdate.value ? t("about.updating") : t("about.updateNow"),
+  updateReadyToRestart.value
+    ? t("about.updateAndRestart")
+    : checkingUpdate.value
+      ? t("about.updating")
+      : t("about.updateNow"),
 );
 const updateToLatestTitle = computed(() => {
   const latestVersion = String(latestCheckResult.value?.latestVersion || "").trim();
+  if (updateReadyToRestart.value && latestVersion) {
+    return t("about.updateReadyAction", { version: latestVersion });
+  }
   if (latestVersion) {
     return t("about.updateAvailableAction", { version: latestVersion });
   }
