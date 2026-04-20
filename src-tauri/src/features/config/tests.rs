@@ -869,6 +869,19 @@ maxOutputTokens = 8192
     }
 
     #[test]
+    fn remove_chat_index_conversation_should_drop_matching_item_only() {
+        let conversation_a = build_test_conversation("conv-a", "Conversation A");
+        let conversation_b = build_test_conversation("conv-b", "Conversation B");
+        let mut index = build_chat_index_file(&[conversation_a, conversation_b]);
+
+        remove_chat_index_conversation(&mut index, "conv-a");
+
+        assert_eq!(index.conversations.len(), 1);
+        assert!(index.conversations.iter().all(|item| item.id != "conv-a"));
+        assert!(index.conversations.iter().any(|item| item.id == "conv-b"));
+    }
+
+    #[test]
     fn runtime_state_shard_should_preserve_pdf_caches() {
         let root = std::env::temp_dir().join(format!("eca-runtime-pdf-cache-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");

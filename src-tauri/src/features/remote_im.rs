@@ -1322,7 +1322,6 @@ fn remote_im_update_contact_allow_send(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1330,7 +1329,7 @@ fn remote_im_update_contact_allow_send(
         .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
     contact.allow_send = input.allow_send;
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_allow_send")?;
     drop(guard);
     Ok(output)
 }
@@ -1345,7 +1344,6 @@ fn remote_im_update_contact_allow_send_files(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1353,7 +1351,7 @@ fn remote_im_update_contact_allow_send_files(
         .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
     contact.allow_send_files = input.allow_send_files;
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_allow_send_files")?;
     drop(guard);
     Ok(output)
 }
@@ -1368,7 +1366,6 @@ fn remote_im_update_contact_allow_receive(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1376,7 +1373,7 @@ fn remote_im_update_contact_allow_receive(
         .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
     contact.allow_receive = input.allow_receive;
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_allow_receive")?;
     drop(guard);
     Ok(output)
 }
@@ -1391,7 +1388,6 @@ fn remote_im_update_contact_activation(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1402,7 +1398,7 @@ fn remote_im_update_contact_activation(
     contact.patience_seconds = input.patience_seconds;
     contact.activation_cooldown_seconds = input.activation_cooldown_seconds;
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_activation")?;
     drop(guard);
     Ok(output)
 }
@@ -1417,7 +1413,6 @@ fn remote_im_update_contact_remark(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1425,7 +1420,7 @@ fn remote_im_update_contact_remark(
         .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
     contact.remark_name = input.remark_name.trim().to_string();
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_remark")?;
     drop(guard);
     Ok(output)
 }
@@ -1441,7 +1436,6 @@ fn remote_im_update_contact_route_mode(
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1461,7 +1455,7 @@ fn remote_im_update_contact_route_mode(
     }
     contact.route_mode = final_mode;
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_route_mode")?;
     drop(guard);
     Ok(output)
 }
@@ -1477,7 +1471,6 @@ fn remote_im_update_contact_department_binding(
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1500,7 +1493,7 @@ fn remote_im_update_contact_department_binding(
     contact.bound_department_id = next_department_id;
     contact.route_mode = remote_im_resolve_effective_route_mode(&config, contact);
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_department_binding")?;
     drop(guard);
     Ok(output)
 }
@@ -1515,7 +1508,6 @@ fn remote_im_update_contact_processing_mode(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let contact = data
         .remote_im_contacts
         .iter_mut()
@@ -1523,7 +1515,7 @@ fn remote_im_update_contact_processing_mode(
         .ok_or_else(|| format!("未找到远程联系人：{}", input.contact_id))?;
     contact.processing_mode = normalize_contact_processing_mode(&input.processing_mode);
     let output = contact.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_runtime_state_only(&state, &data, "remote_im_update_contact_processing_mode")?;
     drop(guard);
     Ok(output)
 }
@@ -1651,13 +1643,12 @@ fn remote_im_delete_contact(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let before_contacts = data.remote_im_contacts.len();
     data.remote_im_contacts
         .retain(|item| item.id != contact_id);
     let removed = data.remote_im_contacts.len() != before_contacts;
     if removed {
-        persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+        persist_runtime_state_only(&state, &data, "remote_im_delete_contact")?;
     }
     drop(guard);
     Ok(removed)
@@ -1682,7 +1673,6 @@ fn remote_im_clear_contact_conversation(
         .lock()
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let Some(contact_idx) = data.remote_im_contacts.iter().position(|item| item.id == contact_id) else {
         return Err(format!("未找到远程联系人：{contact_id}"));
     };
@@ -1716,7 +1706,7 @@ fn remote_im_clear_contact_conversation(
     conversation.status = "inactive".to_string();
     conversation.updated_at = now_iso();
 
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+    persist_single_conversation_runtime_fast(&state, &data, &conversation_id)?;
     drop(guard);
     eprintln!(
         "[远程IM][联系人会话][清空] 完成: contact_id={}, elapsed_ms={}",
@@ -1745,7 +1735,6 @@ pub(crate) fn remote_im_enqueue_message_internal(
         .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
     let config = state_read_config_cached(state)?;
     let mut data = state_read_app_data_cached(state)?;
-    let data_before = data.clone();
     let validated = validate_enqueue_input(&input, &config)?;
     let channel = validated.channel;
     let text = validated.text;
@@ -1787,7 +1776,7 @@ pub(crate) fn remote_im_enqueue_message_internal(
         }
     }
     if !allow_receive {
-        persist_app_data_conversation_runtime_delta(state, &data_before, &data)?;
+        persist_runtime_state_only(state, &data, "remote_im_enqueue_message.allow_receive_blocked")?;
         drop(guard);
         return Err(format!("联系人未开启收信，跳过: contact_id={contact_id}"));
     }
@@ -1844,7 +1833,12 @@ pub(crate) fn remote_im_enqueue_message_internal(
                 conversation_id,
                 platform_message_id
             );
-            persist_app_data_conversation_runtime_delta(state, &data_before, &data)?;
+            persist_selected_conversations_and_runtime(
+                state,
+                &data,
+                std::slice::from_ref(&conversation_id),
+                "remote_im_enqueue_message.duplicate",
+            )?;
             drop(guard);
             return Ok(RemoteImEnqueueResult {
                 event_id: String::new(),
@@ -1899,7 +1893,12 @@ pub(crate) fn remote_im_enqueue_message_internal(
         },
     );
     let ingress = ingress_chat_event(state, event)?;
-    persist_app_data_conversation_runtime_delta(state, &data_before, &data)?;
+    persist_selected_conversations_and_runtime(
+        state,
+        &data,
+        std::slice::from_ref(&conversation_id),
+        "remote_im_enqueue_message",
+    )?;
     drop(guard);
     trigger_chat_event_after_ingress(state, ingress);
     Ok(RemoteImEnqueueResult {

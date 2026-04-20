@@ -85,7 +85,6 @@ fn delegate_enqueue_result_message(
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let config = read_config(&app_state.config_path)?;
         let mut data = state_read_app_data_cached(app_state)?;
-        let data_before = data.clone();
         let before_len = data.conversations.len();
         let before_main_id = data.main_conversation_id.clone();
         let assistant_agent_id = assistant_department_agent_id(&config)
@@ -115,7 +114,12 @@ fn delegate_enqueue_result_message(
             conversation_id
         };
         if data.conversations.len() != before_len || data.main_conversation_id != before_main_id {
-            persist_app_data_conversation_runtime_delta(app_state, &data_before, &data)?;
+            persist_selected_conversations_and_runtime(
+                app_state,
+                &data,
+                std::slice::from_ref(&target_conversation_id),
+                "delegate_runtime.resolve_target_conversation",
+            )?;
         }
         drop(guard);
         (department_id, assistant_agent_id, target_conversation_id)

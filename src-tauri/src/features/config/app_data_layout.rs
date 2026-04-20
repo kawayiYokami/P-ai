@@ -315,6 +315,14 @@ fn upsert_chat_index_conversation(index: &mut ChatIndexFile, conversation: &Conv
     }
 }
 
+fn remove_chat_index_conversation(index: &mut ChatIndexFile, conversation_id: &str) {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return;
+    }
+    index.conversations.retain(|item| item.id != conversation_id);
+}
+
 fn apply_runtime_state_to_app_data(data: &mut AppData, runtime: &RuntimeStateFile) {
     data.version = runtime.version;
     data.assistant_department_agent_id = runtime.assistant_department_agent_id.clone();

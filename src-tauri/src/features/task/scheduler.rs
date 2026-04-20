@@ -117,9 +117,9 @@ fn task_resolve_dispatch_session(
     let selected_api = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config configured for task dispatch.".to_string())?;
     let mut data = state_read_app_data_cached(state)?;
-    let data_before = data.clone();
     let mut changed = false;
     let before_conversation_count = data.conversations.len();
+    let before_main_conversation_id = data.main_conversation_id.clone();
     let agent_id = if data
         .agents
         .iter()
@@ -145,12 +145,26 @@ fn task_resolve_dispatch_session(
         requested_conversation_id,
         &task.target_scope,
     )?;
-    changed = changed || data.conversations.len() != before_conversation_count;
+    changed = changed
+        || data.conversations.len() != before_conversation_count
+        || data.main_conversation_id != before_main_conversation_id;
     let department_id = department_for_agent_id(&app_config, &agent_id)
         .map(|item| item.id.clone())
         .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
     if changed {
-        persist_app_data_conversation_runtime_delta(state, &data_before, &data)?;
+        match resolved.as_ref() {
+            Some(resolved_session) => {
+                persist_selected_conversations_and_runtime(
+                    state,
+                    &data,
+                    std::slice::from_ref(&resolved_session.conversation_id),
+                    "task_resolve_dispatch_session",
+                )?;
+            }
+            None => {
+                persist_runtime_state_only(state, &data, "task_resolve_dispatch_session")?;
+            }
+        }
     }
     drop(guard);
     let Some(resolved) = resolved else {

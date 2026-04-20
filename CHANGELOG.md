@@ -1,5 +1,10 @@
 # 变更日志
 
+## 更新：会话持久化改为定向写入与索引增量更新
+
+- 优化（conversation-persistence-targeted-write-paths）：除全量归档导入外，移除各类读接口、联系人配置更新、任务分发、委托回退、归档整理与未归档会话操作中对 `persist_app_data_conversation_runtime_delta(...)` 的误用；这些路径现在分别改为单会话写入、定向会话写入或仅运行态写入，不再为局部变更触发整份会话列表序列化比较
+- 优化（chat-index-incremental-update）：单会话与定向删改路径的 `chat_index` 改为按会话条目增量 `upsert / remove`，不再每次基于全部 `conversations` 重建整个索引文件；纯运行态变更继续只写 `runtime_state`，避免无意义触碰会话文件与聊天索引
+
 ## 更新：切换对话模型不再自动刷新当前会话历史
 
 - 修复（chat-model-switch-should-not-auto-reload-history）：移除聊天窗口中基于 `activeChatApiConfigId` 的自动消息刷新 watch；切换前景部门模型时不再自动重读当前会话历史，避免违反“由显性保存动作驱动刷新”的约定，也避免无意义触发后端 `get_active_conversation_messages` 重路径与会话锁耗时

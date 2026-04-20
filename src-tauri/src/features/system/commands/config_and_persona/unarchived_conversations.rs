@@ -16,7 +16,6 @@ fn switch_active_conversation_snapshot(
 
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let normalized_changed = normalize_single_active_main_conversation(&mut data);
     let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let target_idx = resolve_foreground_snapshot_target_index(&input, &app_config, &mut data)?;
@@ -47,7 +46,13 @@ fn switch_active_conversation_snapshot(
         collect_unarchived_conversation_summaries(state.inner(), &app_config, &data);
 
     if changed {
-        persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
+        let target_ids = foreground_conversation_ids(&data);
+        persist_selected_conversations_and_runtime(
+            &state,
+            &data,
+            &target_ids,
+            "switch_active_conversation_snapshot",
+        )?;
     }
     drop(guard);
 
@@ -495,7 +500,6 @@ fn create_unarchived_conversation(
 
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let before_conversations = data.conversations.clone();
     let requested_department_id = input
         .department_id
         .as_deref()
@@ -583,21 +587,12 @@ fn create_unarchived_conversation(
     }
     let overview_payload =
         build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
-    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
-    let chat_index_before = state_read_chat_index_cached(state.inner())?;
-    let chat_index = build_chat_index_file(&data.conversations);
-    if chat_index_before != chat_index {
-        state_write_chat_index_cached(state.inner(), &chat_index)?;
-    }
-    if data.main_conversation_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
-        != state_read_runtime_state_cached(&state)?
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    {
-        state_write_runtime_state_cached(&state, &build_runtime_state_file(&data))?;
-    }
+    persist_selected_conversations_and_runtime(
+        state.inner(),
+        &data,
+        std::slice::from_ref(&conversation_id),
+        "create_unarchived_conversation",
+    )?;
     drop(guard);
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
 
@@ -680,7 +675,6 @@ async fn derive_unarchived_conversation_from_selection(
         .lock()
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let mut data = state_read_app_data_cached(&state)?;
-    let before_conversations = data.conversations.clone();
     if !data.conversations.iter().any(|conversation| {
         conversation.id == source_conversation.id
             && conversation.summary.trim().is_empty()
@@ -711,21 +705,12 @@ async fn derive_unarchived_conversation_from_selection(
     }
     let overview_payload =
         build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
-    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
-    let chat_index_before = state_read_chat_index_cached(state.inner())?;
-    let chat_index = build_chat_index_file(&data.conversations);
-    if chat_index_before != chat_index {
-        state_write_chat_index_cached(state.inner(), &chat_index)?;
-    }
-    if data.main_conversation_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
-        != state_read_runtime_state_cached(&state)?
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    {
-        state_write_runtime_state_cached(&state, &build_runtime_state_file(&data))?;
-    }
+    persist_selected_conversations_and_runtime(
+        state.inner(),
+        &data,
+        std::slice::from_ref(&conversation_id),
+        "derive_unarchived_conversation_from_selection",
+    )?;
     drop(guard);
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
     runtime_log_info(format!(
@@ -791,7 +776,6 @@ fn deliver_unarchived_conversation_selection(
     }
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let before_conversations = data.conversations.clone();
 
     let source_conversation = data
         .conversations
@@ -845,12 +829,7 @@ fn deliver_unarchived_conversation_selection(
 
     let overview_payload =
         build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
-    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
-    let chat_index_before = state_read_chat_index_cached(state.inner())?;
-    let chat_index = build_chat_index_file(&data.conversations);
-    if chat_index_before != chat_index {
-        state_write_chat_index_cached(state.inner(), &chat_index)?;
-    }
+    persist_single_conversation_runtime_fast(state.inner(), &data, target_conversation_id)?;
     drop(guard);
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
     runtime_log_info(format!(
@@ -1094,8 +1073,6 @@ fn delete_unarchived_conversation(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let before_conversations = data.conversations.clone();
-    let before_runtime = state_read_runtime_state_cached(&state)?;
     let deleted_is_main = data
         .main_conversation_id
         .as_deref()
@@ -1158,15 +1135,17 @@ fn delete_unarchived_conversation(
         .unwrap_or_default();
     let overview_payload =
         build_unarchived_conversation_overview_payload(state.inner(), &app_config, &data);
-    persist_conversation_set_delta(state.inner(), &before_conversations, &data.conversations)?;
-    let chat_index_before = state_read_chat_index_cached(state.inner())?;
-    let chat_index = build_chat_index_file(&data.conversations);
-    if chat_index_before != chat_index {
-        state_write_chat_index_cached(state.inner(), &chat_index)?;
+    let mut target_conversation_ids = Vec::<String>::new();
+    if !active_conversation_id.trim().is_empty() {
+        target_conversation_ids.push(active_conversation_id.clone());
     }
-    if before_runtime.main_conversation_id != data.main_conversation_id {
-        state_write_runtime_state_cached(state.inner(), &build_runtime_state_file(&data))?;
-    }
+    persist_removed_and_selected_conversations_and_runtime(
+        state.inner(),
+        &data,
+        std::slice::from_ref(&conversation_id.to_string()),
+        &target_conversation_ids,
+        "delete_unarchived_conversation",
+    )?;
     runtime_log_info(format!(
         "[会话] 完成，任务=delete_unarchived_conversation，action=delete_unarchived_convo，convo_id={}，duration_ms={}",
         conversation_id,
@@ -1194,7 +1173,6 @@ fn get_active_conversation_messages(
     let mut app_config = state_read_config_cached(&state)?;
 
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let _normalized_changed = normalize_single_active_main_conversation(&mut data);
     let _department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let mut runtime_data = data.clone();
@@ -1238,7 +1216,6 @@ fn get_active_conversation_messages(
 
     let mut messages = data.conversations[idx].messages.clone();
 
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
     drop(guard);
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
@@ -1451,7 +1428,6 @@ fn get_active_conversation_messages_before(
 
     let mut app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let _normalized_changed = normalize_single_active_main_conversation(&mut data);
     let _department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let mut runtime_data = data.clone();
@@ -1495,7 +1471,6 @@ fn get_active_conversation_messages_before(
     )?;
 
     let messages = data.conversations[idx].messages.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
     drop(guard);
 
     let before_idx = messages
@@ -1531,7 +1506,6 @@ fn get_active_conversation_messages_after(
 
     let mut app_config = state_read_config_cached(&state)?;
     let mut data = state_read_app_data_cached(&state)?;
-    let data_before = data.clone();
     let _normalized_changed = normalize_single_active_main_conversation(&mut data);
     let _department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
     let mut runtime_data = data.clone();
@@ -1575,7 +1549,6 @@ fn get_active_conversation_messages_after(
     )?;
 
     let messages = data.conversations[idx].messages.clone();
-    persist_app_data_conversation_runtime_delta(&state, &data_before, &data)?;
     drop(guard);
 
     let after_idx = messages
