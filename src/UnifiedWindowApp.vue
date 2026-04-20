@@ -3596,8 +3596,6 @@ useAppWatchers({
   personaEditorId,
   selectedApiConfig,
   toolApiConfig,
-  activeChatApiConfigId: currentForegroundApiConfigId,
-  suppressChatReloadWatch,
   modelRefreshError,
   toolStatuses,
   defaultApiTools,
@@ -3607,7 +3605,5 @@ useAppWatchers({
   syncTrayIcon,
   refreshToolsStatus,
   refreshImageCacheStats,
-  refreshConversationHistory,
-  resetVisibleTurnCount: () => {},
 });
 </script>

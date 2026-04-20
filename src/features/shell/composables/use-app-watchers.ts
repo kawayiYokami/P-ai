@@ -14,8 +14,6 @@ type UseAppWatchersOptions = {
   personaEditorId: Ref<string>;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
-  activeChatApiConfigId: ComputedRef<string>;
-  suppressChatReloadWatch: Ref<boolean>;
   modelRefreshError: Ref<string>;
   toolStatuses: Ref<ToolLoadStatus[]>;
   defaultApiTools: () => ApiConfigItem["tools"];
@@ -25,8 +23,6 @@ type UseAppWatchersOptions = {
   syncTrayIcon: (id?: string) => Promise<void>;
   refreshToolsStatus: () => Promise<void>;
   refreshImageCacheStats: () => Promise<void>;
-  refreshConversationHistory: () => Promise<void>;
-  resetVisibleTurnCount: () => void;
 };
 
 export function useAppWatchers(options: UseAppWatchersOptions) {
@@ -131,20 +127,6 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
         await options.refreshImageCacheStats();
       } catch (error) {
         console.error("[WATCH] refreshImageCacheStats failed:", error);
-      }
-    },
-  );
-
-  watch(
-    () => options.activeChatApiConfigId.value,
-    async () => {
-      if (options.suppressChatReloadWatch.value) return;
-      if (options.viewMode.value !== "chat") return;
-      try {
-        await options.refreshConversationHistory();
-        options.resetVisibleTurnCount();
-      } catch (error) {
-        console.error("[WATCH] refreshConversationHistory failed:", error);
       }
     },
   );

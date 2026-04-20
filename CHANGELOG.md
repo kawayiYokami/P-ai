@@ -1,5 +1,9 @@
 # 变更日志
 
+## 更新：切换对话模型不再自动刷新当前会话历史
+
+- 修复（chat-model-switch-should-not-auto-reload-history）：移除聊天窗口中基于 `activeChatApiConfigId` 的自动消息刷新 watch；切换前景部门模型时不再自动重读当前会话历史，避免违反“由显性保存动作驱动刷新”的约定，也避免无意义触发后端 `get_active_conversation_messages` 重路径与会话锁耗时
+
 ## 发布：v0.9.18
 
 - 发布（release-0.9.18）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.18`，纳入本轮已完成的“Shell 工作区提示词修正、助理私人目录命名统一、聊天气泡入场动画收口、撤回 Todo 恢复”等稳定性修复
