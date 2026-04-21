@@ -138,17 +138,19 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     const assistantReplyPresent = hasAssistantReply(messages);
     const isEmpty = messages.length === 0;
     const contextUsagePercent = latestBackendContextUsagePercent(messages);
+    const conversationLongEnough = messageCount >= SHORT_CONVERSATION_COMPACTION_THRESHOLD;
+    const contextUsageHighEnough = contextUsagePercent >= 10;
     const compactionDisabledReason = summary?.runtimeState === "organizing_context"
       ? "当前会话正在整理上下文或归档处理中，请稍候。"
       : isEmpty
         ? "当前会话为空，无需整理。"
         : !assistantReplyPresent
           ? "当前会话还没有助理回复，暂不建议压缩。"
-          : messageCount < SHORT_CONVERSATION_COMPACTION_THRESHOLD
-            ? `当前会话较短（仅 ${messageCount} 条用户/助理消息），暂不建议压缩。`
-            : contextUsagePercent < 10
-              ? `当前上下文占用仅 ${contextUsagePercent}%，暂不建议手动压缩。`
-              : null;
+          : !conversationLongEnough && !contextUsageHighEnough
+            ? contextUsagePercent > 0
+              ? `当前会话较短（仅 ${messageCount} 条用户/助理消息），且上下文占用仅 ${contextUsagePercent}%，暂不建议压缩。`
+              : `当前会话较短（仅 ${messageCount} 条用户/助理消息），暂不建议压缩。`
+            : null;
     return {
       conversationId,
       canCompact: !compactionDisabledReason,

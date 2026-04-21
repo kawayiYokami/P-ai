@@ -606,16 +606,6 @@ fn build_force_compaction_preview_result(
             Some("当前会话为空，无需整理。".to_string())
         } else if !has_assistant_reply {
             Some("当前会话还没有助理回复，暂不建议压缩。".to_string())
-        } else if message_count < 10 {
-            Some(format!(
-                "当前会话较短（仅 {} 条用户/助理消息），暂不建议压缩。",
-                message_count
-            ))
-        } else if usage_ratio < 0.10 {
-            Some(format!(
-                "当前上下文占用仅 {}%，暂不建议手动压缩。",
-                context_usage_percent
-            ))
         } else {
             None
         };
@@ -661,14 +651,16 @@ async fn summarize_archived_conversation_with_model_v2(
     memories: &[MemoryEntry],
     _recall_table: &[String],
 ) -> Result<MemoryCurationDraft, String> {
+    let app_config = state_read_config_cached(state)?;
+    let app_data = state_read_app_data_cached(state)?;
     let current_user_profile = build_user_profile_memory_board(&state.data_path, agent)?
         .unwrap_or_else(|| "（无）".to_string());
     let mut prepared = build_prepared_prompt_for_mode(
         PromptBuildMode::SummaryContext,
         source_conversation,
         agent,
-        &[],
-        &[],
+        &app_data.agents,
+        &app_config.departments,
         user_alias,
         "",
         "concise",
@@ -756,6 +748,7 @@ fn build_summary_context_requirement_block(scene: SummaryContextScene) -> String
         SummaryContextScene::Compaction => {
             "你正在执行一次“上下文检查点压缩（Context Checkpoint Compaction）”。\n\
              请为另一个将继续当前任务的语言模型生成一份交接摘要。\n\
+             你的工具都已经被禁用，你只能生成 JSON 完成任务。\n\
              请包含以下内容：\n\
              - 当前进展，以及已经做出的关键决策\n\
              - 重要上下文、约束条件、或用户偏好\n\
@@ -766,6 +759,7 @@ fn build_summary_context_requirement_block(scene: SummaryContextScene) -> String
         }
         SummaryContextScene::Archive => {
             "你现在正在执行一次正式归档。\n\
+             你的工具都已经被禁用，你只能生成 JSON 完成任务。\n\
              请不要复述完整过程，而是输出一份面向后续回看的结论汇报，核心回答：我们最终得出了什么结论。\n\
              summary 必须包含：\n\
              - 本轮最终结论与明确产出\n\

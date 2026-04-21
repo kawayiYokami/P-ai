@@ -232,7 +232,9 @@
             class="relative flex items-center justify-center rounded-box px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
             :class="chatStatusBanner.tone === 'error'
               ? 'bg-error/12 text-error'
-              : 'bg-base-200/75 text-base-content'"
+              : chatStatusBanner.text === t('chat.statusCompactingContext')
+                ? 'bg-info/12 text-info'
+                : 'bg-base-200/75 text-base-content'"
           >
             <span
               class="relative z-1"

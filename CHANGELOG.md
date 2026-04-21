@@ -1,5 +1,16 @@
 # 变更日志
 
+## 更新：压缩上下文构造与压缩入口收口
+
+- 修复（summary-context-preserve-full-history-and-department-context）：`SummaryContext` 在归档与上下文压缩场景下，继续完整复用正常聊天消息组建，不再篡改历史工具调用记录；同时恢复传入当前可用 `agents/departments`，避免压缩模型丢失当前会话部门上下文
+- 优化（summary-context-json-only-tool-disabled）：正式归档与上下文压缩两种 SummaryContext 提示词现在都会明确声明“你的工具都已经被禁用，你只能生成 JSON 完成任务”，限制当前摘要模型的能力边界，但不修改原始消息历史
+- 修复（compaction-ui-only-soft-threshold）：压缩“会话较短 / 占用较低”的建议性门槛统一收回到前端 UI，仅作为提示展示；后端压缩入口只保留真正的硬条件拦截，避免手动压缩时再被二次报错挡住
+- 优化（compaction-banner-info-tone）：聊天窗口中“正在压缩上下文”状态条改为 `info` 语义色，和普通状态、错误状态更容易区分
+
+## 更新：归档与压缩摘要提示词明确禁用工具
+
+- 修复（archive-summary-json-only-tool-disabled）：正式归档与上下文压缩两种 SummaryContext 提示词现在都会明确声明“你的工具都已经被禁用，你只能生成 JSON 完成任务”，避免摘要模型在归档/压缩阶段继续尝试走工具链
+
 ## 更新：流式正文在多次工具调用之间保留分段
 
 - 修复（chat-streaming-text-paragraph-break-between-tool-rounds）：聊天窗口中的流式助理草稿在一次调度内跨多次工具调用继续发言时，不再把后续发言直接黏成同一段；当工具开始新一轮执行后，下一段流式正文首包会自动补上段落分隔，保持流式观感与最终落库消息更接近
