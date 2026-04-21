@@ -627,7 +627,9 @@ async function exportSelectionAsHtml() {
     const entries = await prepareShareEntries({
       blocks: payload.blocks,
       userAlias: props.userAlias,
+      userAvatarUrl: props.userAvatarUrl,
       personaNameMap: props.chatPersonaNameMap,
+      personaAvatarUrlMap: props.chatPersonaAvatarUrlMap,
       trigger: "selection_share_html",
     });
     const html = buildShareHtmlDocument({
@@ -663,7 +665,9 @@ async function exportSelectionAsImage() {
     const entries = await prepareShareEntries({
       blocks: payload.blocks,
       userAlias: props.userAlias,
+      userAvatarUrl: props.userAvatarUrl,
       personaNameMap: props.chatPersonaNameMap,
+      personaAvatarUrlMap: props.chatPersonaAvatarUrlMap,
       trigger: "selection_share_image",
     });
     const dataUrl = await renderShareDocumentToPngDataUrl({

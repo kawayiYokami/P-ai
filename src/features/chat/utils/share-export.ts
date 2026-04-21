@@ -5,6 +5,7 @@ export type ShareRenderableEntry = {
   id: string;
   align: "left" | "right";
   displayName: string;
+  avatarSrc: string;
   createdAtText: string;
   text: string;
   reasoningText: string;
@@ -18,7 +19,9 @@ export type ShareRenderableEntry = {
 type PrepareShareEntriesOptions = {
   blocks: ChatMessageBlock[];
   userAlias: string;
+  userAvatarUrl: string;
   personaNameMap: Record<string, string>;
+  personaAvatarUrlMap: Record<string, string>;
   trigger?: string;
 };
 
@@ -28,7 +31,22 @@ type BuildShareDocumentOptions = {
   entries: ShareRenderableEntry[];
 };
 
-const SHARE_EXPORT_WIDTH = 900;
+type ShareThemeSnapshot = {
+  pageBackground: string;
+  fontFamily: string;
+  base100: string;
+  base200: string;
+  base300: string;
+  baseContent: string;
+  primary: string;
+  primaryContent: string;
+  neutral: string;
+  neutralContent: string;
+  success: string;
+  successContent: string;
+};
+
+const SHARE_EXPORT_WIDTH = 760;
 
 export async function prepareShareEntries(
   options: PrepareShareEntriesOptions,
@@ -39,6 +57,7 @@ export async function prepareShareEntries(
       id: String(block.id || block.sourceMessageId || `share-${index}`).trim() || `share-${index}`,
       align: isOwnShareBlock(block) ? "right" : "left",
       displayName: shareDisplayName(block, options.userAlias, options.personaNameMap),
+      avatarSrc: shareAvatarSrc(block, options.userAvatarUrl, options.personaAvatarUrlMap),
       createdAtText: formatShareTime(block.createdAt),
       text: String(block.text || "").trim(),
       reasoningText: normalizeReasoningText(block),
@@ -94,13 +113,14 @@ export async function prepareShareEntries(
 }
 
 export function buildShareHtmlDocument(options: BuildShareDocumentOptions): string {
+  const theme = readShareThemeSnapshot();
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(options.title)}</title>
-    <style>${shareDocumentCss()}</style>
+    <style>${shareDocumentCss(theme)}</style>
   </head>
   <body>
     ${buildShareBodyHtml(options)}
@@ -111,12 +131,13 @@ export function buildShareHtmlDocument(options: BuildShareDocumentOptions): stri
 export async function renderShareDocumentToPngDataUrl(
   options: BuildShareDocumentOptions,
 ): Promise<string> {
+  const theme = readShareThemeSnapshot();
   const host = document.createElement("div");
   host.setAttribute(
     "style",
-    `position:fixed;left:-100000px;top:0;width:${SHARE_EXPORT_WIDTH}px;opacity:0;pointer-events:none;z-index:-1;`,
+    `position:fixed;left:-100000px;top:0;width:${SHARE_EXPORT_WIDTH}px;pointer-events:none;z-index:-1;`,
   );
-  host.innerHTML = `<style>${shareDocumentCss()}</style>${buildShareBodyHtml(options)}`;
+  host.innerHTML = `<style>${shareDocumentCss(theme)}</style>${buildShareBodyHtml(options)}`;
   document.body.appendChild(host);
 
   try {
@@ -137,7 +158,7 @@ export async function renderShareDocumentToPngDataUrl(
         width,
         height,
         bodyHtml: buildShareBodyHtml(options),
-        cssText: shareDocumentCss(),
+        cssText: shareDocumentCss(theme),
       });
       const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
       svgUrl = URL.createObjectURL(svgBlob);
@@ -151,7 +172,7 @@ export async function renderShareDocumentToPngDataUrl(
         throw new Error("创建分享画布失败：无法获取 2D 绘图上下文");
       }
       context.scale(pixelRatio, pixelRatio);
-      context.fillStyle = "#f7f4ef";
+      context.fillStyle = theme.pageBackground;
       context.fillRect(0, 0, width, height);
       context.drawImage(image, 0, 0, width, height);
       return canvas.toDataURL("image/png");
@@ -194,21 +215,23 @@ function buildShareBodyHtml(options: BuildShareDocumentOptions): string {
       <div class="pai-share-title">${escapeHtml(options.title)}</div>
       ${subtitle ? `<div class="pai-share-subtitle">${escapeHtml(subtitle)}</div>` : ""}
     </header>
-    <section class="pai-share-list">
+    <section class="card bg-base-100 card-sm overflow-hidden pai-share-shell">
+      <div class="card-body pai-share-list">
       ${options.entries.map(renderShareEntryHtml).join("")}
+      </div>
     </section>
   </main>`;
 }
 
 function renderShareEntryHtml(entry: ShareRenderableEntry): string {
-  const textHtml = entry.text
-    ? `<div class="pai-share-text">${renderTextHtml(entry.text)}</div>`
-    : "";
   const reasoningHtml = entry.reasoningText
-    ? `<div class="pai-share-extra pai-share-reasoning"><div class="pai-share-extra-label">思考</div><div class="pai-share-extra-body">${renderTextHtml(entry.reasoningText)}</div></div>`
+    ? `<div class="pai-share-extra pai-share-reasoning"><div class="pai-share-extra-label">思维链</div><div class="pai-share-extra-body">${renderTextHtml(entry.reasoningText)}</div></div>`
     : "";
   const toolsHtml = entry.toolCalls.length > 0
-    ? `<div class="pai-share-extra pai-share-tools"><div class="pai-share-extra-label">工具</div><ul class="pai-share-tool-list">${entry.toolCalls.map((toolCall) => `<li class="pai-share-tool-item"><div class="pai-share-tool-name">${escapeHtml(toolCall.name || "tool")}${toolCall.status ? `<span class="pai-share-tool-status">${escapeHtml(toolCall.status)}</span>` : ""}</div>${toolCall.argsText ? `<pre class="pai-share-tool-args">${escapeHtml(toolCall.argsText)}</pre>` : ""}</li>`).join("")}</ul></div>`
+    ? `<div class="pai-share-extra pai-share-tools"><div class="pai-share-extra-label">工具</div><div class="pai-share-tool-summary">${escapeHtml(summarizeShareToolCalls(entry.toolCalls))}</div></div>`
+    : "";
+  const textHtml = entry.text
+    ? `<div class="pai-share-text">${renderTextHtml(entry.text)}</div>`
     : "";
   const imageHtml = entry.images.length > 0
     ? `<div class="pai-share-images">${entry.images.map((image) => `<img class="pai-share-image" src="${escapeHtmlAttribute(image.src)}" alt="${escapeHtmlAttribute(image.alt)}" />`).join("")}</div>`
@@ -216,115 +239,181 @@ function renderShareEntryHtml(entry: ShareRenderableEntry): string {
   const filesHtml = entry.attachmentNames.length > 0 || entry.audioCount > 0
     ? `<div class="pai-share-meta-row">${entry.attachmentNames.map((name) => `<span class="pai-share-chip">附件 · ${escapeHtml(name)}</span>`).join("")}${entry.audioCount > 0 ? `<span class="pai-share-chip">语音 × ${entry.audioCount}</span>` : ""}</div>`
     : "";
-  const remoteHtml = entry.remoteContactLabel
-    ? `<div class="pai-share-remote-label">${escapeHtml(entry.remoteContactLabel)}</div>`
+  const remoteLabel = entry.remoteContactLabel
+    ? escapeHtml(entry.remoteContactLabel)
     : "";
-  return `<article class="pai-share-entry pai-share-entry-${entry.align}">
-    <div class="pai-share-entry-header">
-      <div class="pai-share-display-name">${escapeHtml(entry.displayName)}</div>
-      <div class="pai-share-time">${escapeHtml(entry.createdAtText)}</div>
+  const avatarInnerHtml = entry.avatarSrc
+    ? `<img class="pai-share-avatar-image" src="${escapeHtmlAttribute(entry.avatarSrc)}" alt="${escapeHtmlAttribute(entry.displayName)}" />`
+    : escapeHtml(shareAvatarText(entry.displayName));
+  const avatarHtml = `<div class="chat-image avatar pai-share-avatar-col">
+      <div class="w-8 rounded-full pai-share-avatar">${avatarInnerHtml}</div>
     </div>
-    ${remoteHtml}
-    <div class="pai-share-bubble pai-share-bubble-${entry.align}">
-      ${textHtml}
+  `;
+  const mainHtml = `<div class="pai-share-main">
+    <div class="chat-header pai-share-entry-header">
+      <span class="pai-share-display-name">${escapeHtml(entry.displayName)}</span>
+      <time class="pai-share-time">${escapeHtml(entry.createdAtText)}</time>
+    </div>
+    ${remoteLabel ? `<div class="chat-footer pai-share-remote-label">${remoteLabel}</div>` : ""}
+    <div class="chat-bubble pai-share-bubble pai-share-bubble-${entry.align}">
       ${reasoningHtml}
       ${toolsHtml}
+      ${textHtml}
       ${imageHtml}
       ${filesHtml}
     </div>
+    </div>
+  `;
+  return `<article class="chat pai-share-chat chat-${entry.align === "right" ? "end" : "start"}">
+    ${avatarHtml}${mainHtml}
   </article>`;
 }
 
-function shareDocumentCss(): string {
+function shareDocumentCss(theme: ShareThemeSnapshot): string {
   return `
+    :root {
+      --color-base-100: ${theme.base100};
+      --color-base-200: ${theme.base200};
+      --color-base-300: ${theme.base300};
+      --color-base-content: ${theme.baseContent};
+      --color-primary: ${theme.primary};
+      --color-primary-content: ${theme.primaryContent};
+      --color-neutral: ${theme.neutral};
+      --color-neutral-content: ${theme.neutralContent};
+      --color-success: ${theme.success};
+      --color-success-content: ${theme.successContent};
+    }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
-      background: #f7f4ef;
-      color: #1f2937;
-      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: ${theme.pageBackground};
+      color: var(--color-base-content);
+      font-family: ${theme.fontFamily};
     }
     .pai-share-page {
       width: ${SHARE_EXPORT_WIDTH}px;
       margin: 0 auto;
-      padding: 28px 24px 32px;
-      background: linear-gradient(180deg, #fff8f1 0%, #f7f4ef 100%);
+      padding: 18px 14px 24px;
+      background: ${theme.pageBackground};
     }
     .pai-share-header {
-      margin-bottom: 18px;
-      padding: 18px 20px;
-      border-radius: 18px;
-      background: #ffffff;
-      border: 1px solid rgba(31, 41, 55, 0.08);
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      margin-bottom: 10px;
+      padding: 0 6px;
     }
     .pai-share-title {
-      font-size: 22px;
+      font-size: 14px;
       font-weight: 700;
-      line-height: 1.4;
+      line-height: 1.5;
+      opacity: 0.9;
     }
     .pai-share-subtitle {
-      margin-top: 6px;
-      color: rgba(31, 41, 55, 0.7);
-      font-size: 13px;
-      line-height: 1.6;
+      margin-top: 2px;
+      font-size: 11px;
+      line-height: 1.5;
+      opacity: 0.6;
+    }
+    .pai-share-shell {
+      background: var(--color-base-100);
+      border-radius: 16px;
+      overflow: hidden;
     }
     .pai-share-list {
       display: flex;
       flex-direction: column;
       gap: 14px;
+      padding: 14px;
     }
-    .pai-share-entry {
+    .pai-share-chat {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .chat-start {
+      flex-direction: row;
+    }
+    .chat-end {
+      flex-direction: row-reverse;
+    }
+    .chat-image,
+    .pai-share-avatar-col {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      flex: 0 0 2rem;
+    }
+    .avatar > div {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 9999px;
+    }
+    .pai-share-avatar {
+      background: var(--color-base-200);
+      color: var(--color-base-content);
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--color-base-300);
+      overflow: hidden;
+    }
+    .pai-share-avatar-image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .pai-share-main {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
+      min-width: 0;
+      flex: 1 1 auto;
     }
-    .pai-share-entry-right {
+    .chat-end .pai-share-main {
       align-items: flex-end;
     }
-    .pai-share-entry-left {
+    .chat-start .pai-share-main {
       align-items: flex-start;
     }
     .pai-share-entry-header {
-      width: 100%;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 0 6px;
+      align-items: baseline;
+      gap: 8px;
       font-size: 12px;
-      color: rgba(31, 41, 55, 0.65);
+      line-height: 1.4;
+      padding: 0 2px;
     }
     .pai-share-display-name {
       font-weight: 600;
-      color: #111827;
+      opacity: 0.8;
     }
     .pai-share-time {
       white-space: nowrap;
+      opacity: 0.55;
     }
     .pai-share-remote-label {
-      padding: 0 6px;
       font-size: 11px;
-      color: rgba(31, 41, 55, 0.55);
+      opacity: 0.55;
     }
     .pai-share-bubble {
-      max-width: 86%;
-      padding: 14px 16px;
-      border-radius: 20px;
-      border: 1px solid rgba(31, 41, 55, 0.08);
-      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+      max-width: 88%;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--color-base-300);
       white-space: normal;
+      background: var(--color-base-100);
     }
     .pai-share-bubble-left {
-      background: #ffffff;
+      background: var(--color-base-100);
     }
     .pai-share-bubble-right {
-      background: #ffe9ef;
+      background: var(--color-base-200);
     }
     .pai-share-text,
     .pai-share-extra-body,
-    .pai-share-tool-args {
+    .pai-share-tool-summary {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -332,49 +421,20 @@ function shareDocumentCss(): string {
       font-size: 14px;
     }
     .pai-share-extra {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px dashed rgba(31, 41, 55, 0.14);
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: var(--color-base-200);
+      border: 1px solid var(--color-base-300);
     }
     .pai-share-extra-label {
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       font-size: 11px;
       font-weight: 700;
-      color: rgba(31, 41, 55, 0.58);
-      letter-spacing: 0.04em;
-    }
-    .pai-share-tool-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .pai-share-tool-name {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #111827;
-    }
-    .pai-share-tool-status {
-      font-size: 10px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      background: rgba(59, 130, 246, 0.12);
-      color: #1d4ed8;
-    }
-    .pai-share-tool-args {
-      margin: 4px 0 0;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(31, 41, 55, 0.05);
-      color: rgba(17, 24, 39, 0.86);
+      opacity: 0.6;
     }
     .pai-share-images {
-      margin-top: 12px;
+      margin-top: 10px;
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -384,14 +444,15 @@ function shareDocumentCss(): string {
       max-height: 220px;
       border-radius: 14px;
       display: block;
-      background: rgba(31, 41, 55, 0.05);
+      background: var(--color-base-200);
       object-fit: contain;
+      border: 1px solid var(--color-base-300);
     }
     .pai-share-meta-row {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin-top: 12px;
+      margin-top: 10px;
     }
     .pai-share-chip {
       display: inline-flex;
@@ -399,9 +460,10 @@ function shareDocumentCss(): string {
       gap: 4px;
       border-radius: 999px;
       padding: 4px 10px;
-      background: rgba(31, 41, 55, 0.07);
+      background: var(--color-base-200);
+      border: 1px solid var(--color-base-300);
       font-size: 11px;
-      color: rgba(31, 41, 55, 0.76);
+      opacity: 0.76;
     }
   `;
 }
@@ -503,6 +565,58 @@ function formatShareTime(input?: string): string {
 
 function renderTextHtml(text: string): string {
   return escapeHtml(text).replace(/\n/g, "<br/>");
+}
+
+function summarizeShareToolCalls(toolCalls: ShareRenderableEntry["toolCalls"]): string {
+  const names = toolCalls
+    .map((toolCall) => String(toolCall.name || "").trim())
+    .filter(Boolean);
+  if (names.length === 0) return "";
+  const first = names[0];
+  const extra = names.length - 1;
+  return extra > 0 ? `调用了 ${first}（+${extra}）` : `调用了 ${first}`;
+}
+
+function shareAvatarText(displayName: string): string {
+  const text = String(displayName || "").trim();
+  if (!text) return "?";
+  return Array.from(text)[0] || "?";
+}
+
+function shareAvatarSrc(
+  block: ChatMessageBlock,
+  userAvatarUrl: string,
+  personaAvatarUrlMap: Record<string, string>,
+): string {
+  if (block.remoteImOrigin) return "";
+  const speakerAgentId = String(block.speakerAgentId || "").trim();
+  if (!speakerAgentId || speakerAgentId === "user-persona" || block.role === "user") {
+    return String(userAvatarUrl || "").trim();
+  }
+  return String(personaAvatarUrlMap[speakerAgentId] || "").trim();
+}
+
+function readShareThemeSnapshot(): ShareThemeSnapshot {
+  const rootStyle = getComputedStyle(document.documentElement);
+  const bodyStyle = getComputedStyle(document.body);
+  const readVar = (name: string, fallback: string) => {
+    const value = rootStyle.getPropertyValue(name).trim();
+    return value || fallback;
+  };
+  return {
+    pageBackground: bodyStyle.backgroundColor.trim() || "#f3f4f6",
+    fontFamily: bodyStyle.fontFamily.trim() || "\"Segoe UI\", \"Microsoft YaHei\", sans-serif",
+    base100: readVar("--color-base-100", "#ffffff"),
+    base200: readVar("--color-base-200", "#f3f4f6"),
+    base300: readVar("--color-base-300", "#d1d5db"),
+    baseContent: readVar("--color-base-content", "#111827"),
+    primary: readVar("--color-primary", "#2563eb"),
+    primaryContent: readVar("--color-primary-content", "#ffffff"),
+    neutral: readVar("--color-neutral", "#374151"),
+    neutralContent: readVar("--color-neutral-content", "#ffffff"),
+    success: readVar("--color-success", "#16a34a"),
+    successContent: readVar("--color-success-content", "#ffffff"),
+  };
 }
 
 function escapeHtml(value: string): string {

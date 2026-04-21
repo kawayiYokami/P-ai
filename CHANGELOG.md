@@ -1,5 +1,10 @@
 # 变更日志
 
+## 更新：分享导出头像与聊天布局修正
+
+- 修复（share-export-avatar-side-and-data-url）：分享 HTML 与图片导出的聊天布局改为真正使用左右两侧头像列；修正 `chat-end` 时用户头像错误出现在左侧的问题，并复用前端现成的用户头像与人格头像 data URL，导出页优先显示真实头像，仅在缺失时退回首字占位
+- 优化（share-export-shell-and-chat-layout）：移除分享导出页最外层多余边框，继续收口为更接近 DaisyUI 聊天组件的简洁结构，保持“思维链 -> 工具 -> 正文”的固定聚合顺序，同时图片导出继续基于这份简化 HTML 渲染，不再依赖原对话窗复杂结构
+
 ## 更新：流式首包重绑与工具消息聚合顺序修正
 
 - 修复（chat-stream-start-rebind-without-touching-main-dispatch）：首个可见流式包现在只会额外触发一次 `stream_start` 重绑事件，不再额外复制首包 delta，也不再中断原本的正常调度链，避免 `todo` 等工具调用后的首包分发被重复投递或提前截断
