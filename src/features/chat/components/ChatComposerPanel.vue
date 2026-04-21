@@ -14,12 +14,6 @@
       <span>{{ linkOpenErrorText }}</span>
     </div>
     <div
-      v-if="chatErrorText"
-      class="alert alert-error mb-2 py-2 px-3 text-sm whitespace-pre-wrap break-all max-h-28 overflow-auto"
-    >
-      <span>{{ chatErrorText }}</span>
-    </div>
-    <div
       v-if="selectionModeEnabled"
       class="rounded-box border border-base-300 bg-base-100 px-3 py-3"
     >
@@ -300,11 +294,11 @@
           </button>
           <button
             class="btn btn-sm btn-circle btn-primary shrink-0"
-            :disabled="frozen"
-            :title="chatting ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
-            @click="chatting ? emit('stopChat') : handleSendChat()"
+            :disabled="frozen || busy"
+            :title="showStopAction ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
+            @click="showStopAction ? emit('stopChat') : handleSendChat()"
           >
-            <Square v-if="chatting" class="h-3.5 w-3.5 fill-current" />
+            <Square v-if="showStopAction" class="h-3.5 w-3.5 fill-current" />
             <Send v-else class="h-3.5 w-3.5" />
           </button>
         </div>
@@ -351,6 +345,8 @@ const props = defineProps<{
   chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean;
   chatting: boolean;
+  frontendRoundPhase?: "idle" | "queued" | "waiting" | "streaming";
+  busy: boolean;
   frozen: boolean;
   showSideConversationList: boolean;
   activeConversationId: string;
@@ -432,6 +428,10 @@ const normalizedChatModelOptions = computed(() =>
       name: String(item?.name || "").trim(),
     }))
     .filter((item) => !!item.id && !!item.name),
+);
+
+const showStopAction = computed(() =>
+  props.chatting || ["queued", "waiting", "streaming"].includes(String(props.frontendRoundPhase || "idle")),
 );
 const selectedMentions = computed(() =>
   (Array.isArray(props.selectedMentions) ? props.selectedMentions : [])
@@ -856,7 +856,7 @@ function handleChatInputKeydown(event: KeyboardEvent) {
     }
   }
   if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
-    if (props.frozen) return;
+    if (props.frozen || props.busy) return;
     event.preventDefault();
     handleSendChat();
     return;

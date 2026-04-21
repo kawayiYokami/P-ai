@@ -838,6 +838,15 @@
     "shareImageGenerationFailed": "分享图片生成失败",
     "shareExportFailed": "导出分享失败: {err}",
     "copyFailed": "复制失败，请检查剪贴板权限后重试",
+    "statusPreparingMessage": "正在消息准备中",
+    "statusWaitingReply": "正在等待回应中",
+    "statusThinking": "正在思考中",
+    "statusRetryingWithModel": "重试中（当前模型：{model}）（{current}/{total}）",
+    "statusExecutingTool": "正在执行{tool}中",
+    "executingToolFallback": "工具",
+    "statusSpeaking": "正在发言中",
+    "statusCompactingContext": "正在压缩上下文",
+    "statusArchivingConversation": "正在归档会话",
     "imageCount": "[图片 {count}]",
     "audioCount": "[语音 {count}]",
     "attachmentList": "[附件 {names}]",
@@ -956,6 +965,27 @@
     "queue": {
       "recallToInput": "退回输入框",
       "remove": "移除"
+    }
+    ,
+    "toolNames": {
+      "fetch": "抓取网页",
+      "websearch": "联网搜索",
+      "operate": "桌面操作",
+      "exec": "终端",
+      "read_file": "读取文件",
+      "apply_patch": "应用文件补丁",
+      "reload": "重新加载智能体配置",
+      "organize_context": "整理上下文",
+      "wait": "等待",
+      "todo": "更新待办",
+      "remember": "记住",
+      "recall": "回忆",
+      "task": "任务",
+      "delegate": "委托",
+      "meme": "偷表情",
+      "contact_reply": "联系人回复",
+      "contact_send_files": "联系人发送文件",
+      "contact_no_reply": "联系人不回复"
     }
   },
   "memory": {

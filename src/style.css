@@ -1,4 +1,43 @@
 @import "tailwindcss";
+
+.ecall-shimmer-text {
+  position: relative;
+  display: inline-block;
+  color: currentColor;
+}
+
+.ecall-reasoning-shimmer::after {
+  content: attr(data-shimmer-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 44%,
+    rgb(255 255 255 / 0.92) 50%,
+    transparent 56%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  will-change: background-position;
+  transform: translateZ(0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ecall-reasoning-shimmer 2s linear infinite;
+}
+
+@keyframes ecall-reasoning-shimmer {
+  from {
+    background-position: 150% center;
+  }
+  to {
+    background-position: -50% center;
+  }
+}
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
   themes:

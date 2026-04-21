@@ -449,14 +449,36 @@ fn emit_assistant_delta_app_event(
     let _ = app_handle.emit(CHAT_ASSISTANT_DELTA_EVENT, payload);
 }
 
+fn should_emit_assistant_delta_via_app_event_only(event: &AssistantDeltaEvent) -> bool {
+    matches!(
+        event.kind.as_deref(),
+        Some("tool_status") | Some("stream_rebind_required")
+    )
+}
+
+fn is_visible_stream_progress_event(event: &AssistantDeltaEvent) -> bool {
+    if !event.delta.trim().is_empty() {
+        return true;
+    }
+    matches!(
+        event.kind.as_deref(),
+        Some("reasoning_standard") | Some("reasoning_inline")
+    )
+}
+
 fn dispatch_assistant_delta_to_active_view(
     state: &AppState,
     conversation_id: &str,
     event: &AssistantDeltaEvent,
 ) {
+    emit_assistant_delta_app_event(state, conversation_id, event);
+
+    if should_emit_assistant_delta_via_app_event_only(event) {
+        return;
+    }
+
     let targets = collect_active_chat_view_delta_channels(state, conversation_id).unwrap_or_default();
     if targets.is_empty() {
-        emit_assistant_delta_app_event(state, conversation_id, event);
         return;
     }
 
@@ -473,9 +495,7 @@ fn dispatch_assistant_delta_to_active_view(
         }
     }
     prune_failed_active_chat_view_bindings(state, &failed_labels);
-    if !delivered {
-        emit_assistant_delta_app_event(state, conversation_id, event);
-    }
+    let _ = delivered;
 }
 
 fn emit_stream_rebind_required_event(
@@ -498,7 +518,34 @@ fn emit_stream_rebind_required_event(
         "phaseId": phase_id.map(str::trim).filter(|value| !value.is_empty()),
         "reason": reason.trim(),
     });
-    let _ = app_handle.emit(CHAT_STREAM_REBIND_REQUIRED_EVENT, payload);
+    runtime_log_info(format!(
+        "[聊天流式重绑] 发送普通事件 conversation_id={} request_id={} phase_id={} reason={}",
+        conversation_id.trim(),
+        request_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+        phase_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+        reason.trim(),
+    ));
+    match app_handle.emit(CHAT_STREAM_REBIND_REQUIRED_EVENT, payload) {
+        Ok(_) => {
+            runtime_log_info(format!(
+                "[聊天流式重绑] 普通事件发送成功 conversation_id={} request_id={} phase_id={} reason={}",
+                conversation_id.trim(),
+                request_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+                phase_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+                reason.trim(),
+            ));
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[聊天流式重绑] 普通事件发送失败 conversation_id={} request_id={} phase_id={} reason={} error={}",
+                conversation_id.trim(),
+                request_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+                phase_id.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+                reason.trim(),
+                err
+            ));
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -1417,6 +1464,9 @@ async fn activate_main_assistant(
     // 使用 emit 作为远程激活轮次的流式主通道，避免前端窗口重绑定造成 channel 失联。
     let state_for_delta = state.clone();
     let conversation_id_for_emit = conversation_id.to_string();
+    let stream_start_rebind_emitted =
+        std::sync::Arc::new(std::sync::Mutex::new(false));
+    let stream_start_rebind_emitted_for_channel = stream_start_rebind_emitted.clone();
     let active_channel: tauri::ipc::Channel<AssistantDeltaEvent> =
         tauri::ipc::Channel::new(move |body| {
             let parsed_event = match body {
@@ -1428,14 +1478,60 @@ async fn activate_main_assistant(
                 }
             };
             if let Some(event) = parsed_event {
+                let mut stream_start_rebind_guard =
+                    stream_start_rebind_emitted_for_channel.lock().ok();
                 if event.kind.as_deref() == Some("stream_rebind_required") {
+                    if let Some(flag) = stream_start_rebind_guard.as_mut() {
+                        **flag = false;
+                    }
+                } else if stream_start_rebind_guard.as_ref().map(|flag| !**flag).unwrap_or(true)
+                    && is_visible_stream_progress_event(&event)
+                {
+                    runtime_log_info(format!(
+                        "[聊天流式重绑] 检测到首个可见流式包 conversation_id={} kind={} delta_len={}",
+                        conversation_id_for_emit.trim(),
+                        event.kind.as_deref().unwrap_or("delta"),
+                        event.delta.chars().count(),
+                    ));
                     emit_stream_rebind_required_event(
                         &state_for_delta,
                         &conversation_id_for_emit,
                         event.request_id.as_deref(),
                         event.phase_id.as_deref(),
-                        event.reason.as_deref().unwrap_or("tool_start"),
+                        "stream_start",
                     );
+                    runtime_log_info(format!(
+                        "[聊天流式重绑] 首个可见流式包改走普通事件 conversation_id={} kind={} delta_len={}",
+                        conversation_id_for_emit.trim(),
+                        event.kind.as_deref().unwrap_or("delta"),
+                        event.delta.chars().count(),
+                    ));
+                    emit_assistant_delta_app_event(
+                        &state_for_delta,
+                        &conversation_id_for_emit,
+                        &event,
+                    );
+                    if let Some(flag) = stream_start_rebind_guard.as_mut() {
+                        **flag = true;
+                    }
+                    return Ok(());
+                }
+                if should_emit_assistant_delta_via_app_event_only(&event) {
+                    if event.kind.as_deref() == Some("stream_rebind_required") {
+                        emit_stream_rebind_required_event(
+                            &state_for_delta,
+                            &conversation_id_for_emit,
+                            event.request_id.as_deref(),
+                            event.phase_id.as_deref(),
+                            event.reason.as_deref().unwrap_or("tool_start"),
+                        );
+                    } else {
+                        emit_assistant_delta_app_event(
+                            &state_for_delta,
+                            &conversation_id_for_emit,
+                            &event,
+                        );
+                    }
                 } else {
                     dispatch_assistant_delta_to_active_view(
                         &state_for_delta,

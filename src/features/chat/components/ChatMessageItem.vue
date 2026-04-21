@@ -66,20 +66,28 @@
             blockNeedsWideBubble(block) ? 'ecall-message-content-wide' : '',
           ]"
         >
-          <div class="chat-header mb-1 flex items-center gap-2">
-            <span class="text-xs text-base-content">{{ displayName }}</span>
-            <span class="inline-flex h-4 items-center text-[10px] leading-none">
-              <span v-if="block.isStreaming" class="ecall-time-loading opacity-70">
-                <span class="loading loading-infinity loading-sm"></span>
+          <div class="chat-header mb-1 flex items-baseline gap-2">
+            <template v-if="streamingHeaderStatus">
+              <span
+                class="text-xs font-semibold text-base-content opacity-80 ecall-shimmer-text ecall-reasoning-shimmer"
+                :data-shimmer-text="streamingHeaderStatus"
+              >{{ streamingHeaderStatus }}</span>
+            </template>
+            <template v-else>
+              <span class="text-xs text-base-content opacity-80">{{ displayName }}</span>
+              <span class="text-xs leading-none">
+                <time v-if="formattedCreatedAt && !block.isStreaming" class="text-base-content/40 leading-none">{{ formattedCreatedAt }}</time>
               </span>
-              <time v-else-if="formattedCreatedAt" class="opacity-50 leading-none">{{ formattedCreatedAt }}</time>
-            </span>
+            </template>
           </div>
-          <div :class="[
-            'chat-bubble',
-            'self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
-            blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
-          ]">
+          <div
+            v-if="!showAssistantPreStreamingDots(block)"
+            :class="[
+              'chat-bubble',
+              'self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
+              blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
+            ]"
+          >
             <div v-if="block.planCard" class="space-y-3">
               <div class="flex items-center gap-2">
                 <span class="badge badge-sm badge-ghost">
@@ -91,7 +99,7 @@
                 <button
                   type="button"
                   class="ecall-plan-confirm-action btn btn-sm btn-primary"
-                  :disabled="chatting || frozen || !canConfirmPlan"
+                  :disabled="chatting || busy || frozen || !canConfirmPlan"
                   @click="emit('confirmPlan', { messageId: block.sourceMessageId || block.id })"
                 >
                   {{ t("chat.plan.confirmAction") }}
@@ -143,8 +151,7 @@
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
             <span class="inline-block shrink-0 text-[10px] leading-none text-success">▲</span>
             <span
-              :class="['block min-w-0 flex-1 truncate ecall-shimmer-text font-medium', reasoningSummaryClass(block)]"
-              :data-shimmer-text="block.isStreaming ? '正在思考中' : ''"
+              class="block min-w-0 flex-1 truncate font-medium"
             >
               {{ reasoningSummaryLabel(block) }}
             </span>
@@ -159,8 +166,7 @@
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 cursor-pointer hover:bg-base-200">
             <span class="inline-block shrink-0 text-[10px] leading-none text-success">▲</span>
             <span
-              :class="['block min-w-0 flex-1 truncate ecall-shimmer-text font-medium', reasoningSummaryClass(block)]"
-              :data-shimmer-text="block.isStreaming ? '正在思考中' : ''"
+              class="block min-w-0 flex-1 truncate font-medium"
             >
               {{ reasoningSummaryLabel(block) }}
             </span>
@@ -175,8 +181,7 @@
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
             <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
             <span
-              :class="['ecall-shimmer-text font-medium', toolSummaryClass(block)]"
-              :data-shimmer-text="showStreamingUi(block) ? '工具执行中' : ''"
+              class="font-medium"
             >{{ toolStatusLabel(block) }}</span>
             <span v-if="toolNamesLabel(block)" class="truncate">{{ ` · ${toolNamesLabel(block)}` }}</span>
           </summary>
@@ -216,7 +221,7 @@
           </div>
         </details>
       </div>
-      <div v-if="hasRenderableMemeSegments(block)" :class="block.taskTrigger ? 'mt-3' : ''">
+      <div v-else-if="hasRenderableMemeSegments(block)" :class="block.taskTrigger ? 'mt-3' : ''">
         <div ref="markdownContainerRef" class="ecall-meme-segment-flow">
           <template v-for="(segment, index) in block.memeSegments || []" :key="`${block.id}-meme-${index}`">
             <div
@@ -366,7 +371,7 @@
               class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
               :title="t('chat.regenerate')"
               :class="!selectionModeEnabled && !block.isStreaming && canRegenerate ? '' : 'opacity-0 pointer-events-none'"
-              :disabled="selectionModeEnabled || block.isStreaming || !canRegenerate"
+              :disabled="selectionModeEnabled || block.isStreaming || !canRegenerate || busy"
               @click="emit('regenerateTurn', { turnId: block.sourceMessageId || block.id })"
             >
               <RotateCcw class="h-3.5 w-3.5" />
@@ -376,7 +381,7 @@
       </div>
     </template>
     <template v-else>
-      <div class="chat-header mb-1 flex items-center gap-2">
+      <div class="chat-header mb-1 flex items-baseline gap-2">
         <button
           v-if="isOwnMessage(block)"
           type="button"
@@ -385,23 +390,17 @@
             !selectionModeEnabled ? 'group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto' : '',
           ]"
           :title="t('chat.recall')"
-          :disabled="selectionModeEnabled"
+          :disabled="selectionModeEnabled || busy"
           @click="emit('recallTurn', { turnId: block.sourceMessageId || block.id })"
         >
           <Undo2 class="h-3 w-3" />
         </button>
-        <span v-if="isOwnMessage(block)" class="inline-flex h-4 items-center text-[10px] leading-none">
-          <span v-if="block.isStreaming" class="ecall-time-loading opacity-70">
-            <span class="loading loading-infinity loading-sm"></span>
-          </span>
-          <time v-else-if="formattedCreatedAt" class="opacity-50 leading-none">{{ formattedCreatedAt }}</time>
+        <span v-if="isOwnMessage(block)" class="text-xs leading-none">
+          <time v-if="formattedCreatedAt && !block.isStreaming" class="text-base-content/40 leading-none">{{ formattedCreatedAt }}</time>
         </span>
-        <span class="text-xs text-base-content">{{ displayName }}</span>
-        <span v-if="!isOwnMessage(block)" class="inline-flex h-4 items-center text-[10px] leading-none">
-          <span v-if="block.isStreaming" class="ecall-time-loading opacity-70">
-            <span class="loading loading-infinity loading-sm"></span>
-          </span>
-          <time v-else-if="formattedCreatedAt" class="opacity-50 leading-none">{{ formattedCreatedAt }}</time>
+        <span class="text-xs text-base-content opacity-80">{{ displayName }}</span>
+        <span v-if="!isOwnMessage(block)" class="text-xs leading-none">
+          <time v-if="formattedCreatedAt && !block.isStreaming" class="text-base-content/40 leading-none">{{ formattedCreatedAt }}</time>
         </span>
       </div>
       <div :class="[
@@ -526,6 +525,7 @@ const props = defineProps<{
   selectionModeEnabled: boolean;
   selected: boolean;
   chatting: boolean;
+  busy: boolean;
   frozen: boolean;
   userAlias: string;
   userAvatarUrl: string;
@@ -559,6 +559,7 @@ let disposed = false;
 const displayName = computed(() => messageName(props.block));
 const avatarUrl = computed(() => messageAvatarUrl(props.block));
 const formattedCreatedAt = computed(() => formattedBlockTime(props.block.createdAt));
+const streamingHeaderStatus = computed(() => assistantStreamingHeaderStatus(props.block));
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();
@@ -615,8 +616,47 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);
 }
 
+function assistantStreamingHeaderStatus(block: ChatMessageBlock): string {
+  if (!showStreamingUi(block)) return "";
+  const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
+  const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
+  if (preStreamingStatusText) return preStreamingStatusText;
+  const toolCalls = toolCallsForBlock(block);
+  const doingTool = toolCalls.find((call) => call.status === "doing") || toolCalls[toolCalls.length - 1];
+  if (doingTool?.name) return `正在执行 ${doingTool.name} 中`;
+  if (hasStreamingSpeechContent(block)) {
+    return t("chat.statusSpeaking");
+  }
+  if (String(block.reasoningStandard || resolvedInlineReasoning(block) || "").trim()) {
+    return t("chat.statusThinking");
+  }
+  return t("chat.statusWaitingReply");
+}
+
+function showAssistantPreStreamingDots(block: ChatMessageBlock): boolean {
+  if (!showStreamingUi(block)) return false;
+  const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
+  const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
+  if (!preStreamingStatusText) return false;
+  return !hasStreamingSpeechContent(block)
+    && !String(block.reasoningStandard || "").trim()
+    && !String(resolvedInlineReasoning(block) || "").trim()
+    && toolCallsForBlock(block).length === 0
+    && block.images.length === 0
+    && block.audios.length === 0
+    && block.attachmentFiles.length === 0;
+}
+
+function hasStreamingSpeechContent(block: ChatMessageBlock): boolean {
+  if (String(block.text || "").trim()) return true;
+  if (Array.isArray(block.streamSegments) && block.streamSegments.some((item) => String(item || "").trim())) return true;
+  if (String(block.streamTail || "").trim()) return true;
+  if (String(block.streamAnimatedDelta || "").trim()) return true;
+  return false;
+}
+
 function shouldAnimateEnter(block: ChatMessageBlock): boolean {
-  if (block.isStreaming) return true;
+  if (!isOwnMessage(block)) return false;
   const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
   return !!providerMeta._optimistic;
 }
@@ -786,14 +826,6 @@ function reasoningSummaryLabel(block: ChatMessageBlock): string {
   return `思考了${elapsedSeconds}秒`;
 }
 
-function reasoningSummaryClass(block: ChatMessageBlock): string {
-  return block.isStreaming ? "ecall-reasoning-shimmer" : "";
-}
-
-function toolSummaryClass(block: ChatMessageBlock): string {
-  return showStreamingUi(block) ? "ecall-reasoning-shimmer" : "";
-}
-
 function isImageMime(mime: string): boolean {
   return (mime || "").trim().toLowerCase().startsWith("image/");
 }
@@ -960,6 +992,7 @@ function openResolvedImagePreview(
   vertical-align: middle;
 }
 
+
 .ecall-inline-meme-markdown:deep(.markdown-renderer),
 .ecall-inline-meme-markdown:deep(.node-slot),
 .ecall-inline-meme-markdown:deep(.node-content) {
@@ -976,46 +1009,8 @@ function openResolvedImagePreview(
   margin: 0;
 }
 
-.ecall-time-loading {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  transform: scale(0.82);
-  transform-origin: right center;
-}
-
 .ecall-message-enter {
   animation: ecall-message-enter 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.ecall-shimmer-text {
-  position: relative;
-  display: inline-block;
-  color: currentColor;
-}
-
-.ecall-reasoning-shimmer::after {
-  content: attr(data-shimmer-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 44%,
-    rgb(255 255 255 / 0.92) 50%,
-    transparent 56%,
-    transparent 100%
-  );
-  background-size: 280px 100%;
-  background-position: 280px 0;
-  will-change: background-position;
-  transform: translateZ(0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: ecall-reasoning-shimmer 2.5s linear infinite;
 }
 
 @keyframes ecall-message-enter {
@@ -1026,15 +1021,6 @@ function openResolvedImagePreview(
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes ecall-reasoning-shimmer {
-  from {
-    background-position: 280px 0;
-  }
-  to {
-    background-position: -280px 0;
   }
 }
 

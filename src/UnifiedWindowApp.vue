@@ -104,6 +104,7 @@
       :latest-assistant-text="latestAssistantText"
       :latest-reasoning-standard-text="latestReasoningStandardText"
       :latest-reasoning-inline-text="latestReasoningInlineText"
+      :frontend-round-phase="chatFlow.frontendRoundPhase.value"
       :tool-status-text="toolStatusText"
       :tool-status-state="toolStatusState"
       :stream-tool-calls="streamToolCalls"
@@ -126,6 +127,7 @@
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
+      :compacting-conversation="compactingConversation"
       :deriving-conversation="derivingConversation"
       :delivering-conversation-selection="deliveringConversationSelection"
       :visible-message-blocks="displayMessageBlocks"
@@ -586,6 +588,8 @@ const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
 const forcingArchive = ref(false);
+const compactingConversation = ref(false);
+const conversationBusy = computed(() => forcingArchive.value || compactingConversation.value);
 const derivingConversation = ref(false);
 const deliveringConversationSelection = ref(false);
 const hasMoreBackendHistory = ref(false);
@@ -1229,6 +1233,7 @@ type SwitchConversationSnapshot = {
   conversationId: string;
   messages: ChatMessage[];
   hasMoreHistory: boolean;
+  runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
   currentTodo?: string;
   currentTodos?: ChatTodoItem[];
   unarchivedConversations?: UnarchivedConversationSummary[];
@@ -1879,6 +1884,7 @@ const chatRuntime = useChatRuntime({
   currentConversationId: currentChatConversationId,
   chatting,
   forcingArchive,
+  compactingConversation,
   allMessages,
   refreshUnarchivedConversations: refreshChatUnarchivedConversations,
   perfNow,
@@ -2042,6 +2048,13 @@ function hasActiveForegroundConversation(conversationId?: string | null): boolea
   return !targetConversationId || targetConversationId === currentConversationId;
 }
 
+function matchesForegroundConversation(conversationId?: string | null): boolean {
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (!currentConversationId) return false;
+  const targetConversationId = String(conversationId || "").trim();
+  return !targetConversationId || targetConversationId === currentConversationId;
+}
+
 function formalizeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter((item) => !String(item?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
 }
@@ -2061,6 +2074,47 @@ function freezeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
       providerMeta,
     };
   });
+}
+
+function isAssistantDraftMessage(message?: ChatMessage | null): boolean {
+  return String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX);
+}
+
+function insertMessagesBeforeAssistantDraft(
+  messages: ChatMessage[],
+  incoming: ChatMessage[],
+): ChatMessage[] {
+  if (!Array.isArray(incoming) || incoming.length <= 0) return messages;
+  const draftIdx = messages.findIndex((message) => isAssistantDraftMessage(message));
+  if (draftIdx < 0) {
+    return [...messages, ...incoming];
+  }
+  return [
+    ...messages.slice(0, draftIdx),
+    ...incoming,
+    ...messages.slice(draftIdx),
+  ];
+}
+
+function currentConversationRuntimeState(conversationId?: string | null) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return "";
+  return String(
+    unarchivedConversations.value.find((item) => String(item.conversationId || "").trim() === cid)?.runtimeState || "",
+  ).trim();
+}
+
+function maybeResumeForegroundStreamingDraft(conversationId?: string | null, reason = "unknown") {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  if (cid !== String(currentChatConversationId.value || "").trim()) return;
+  if (currentConversationRuntimeState(cid) !== "assistant_streaming") return;
+  console.info("[聊天追踪][草稿恢复] 尝试恢复", {
+    conversationId: cid,
+    reason,
+    currentMessageCount: allMessages.value.length,
+  });
+  chatFlow.resumeForegroundStreamingRound();
 }
 
 function areMessagesEquivalent(left: ChatMessage[], right: ChatMessage[]): boolean {
@@ -2306,7 +2360,16 @@ function applyConversationMessageAppended(payload?: ConversationMessageAppendedP
 
 function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   const nextConversationId = String(snapshot.conversationId || "").trim();
+  const previousMessages = Array.isArray(allMessages.value) ? allMessages.value : [];
   const rawNextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
+  const nextRuntimeState = String(snapshot.runtimeState || "").trim();
+  const hasAssistantDraftInSnapshot = rawNextMessages.some((message) => isAssistantDraftMessage(message));
+  if (!hasAssistantDraftInSnapshot && nextRuntimeState === "assistant_streaming") {
+    const preservedDraft = [...previousMessages].reverse().find((message) => isAssistantDraftMessage(message));
+    if (preservedDraft) {
+      rawNextMessages.push(preservedDraft);
+    }
+  }
   const nextMessages = reuseStableMessageReferences(rawNextMessages, allMessages.value);
   currentChatConversationId.value = nextConversationId;
   currentChatTodos.value = Array.isArray(snapshot.currentTodos)
@@ -2323,6 +2386,9 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   clearConversationBadge(nextConversationId);
   if (Array.isArray(snapshot.unarchivedConversations)) {
     unarchivedConversations.value = snapshot.unarchivedConversations;
+  }
+  if (nextRuntimeState === "assistant_streaming") {
+    maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
   }
   scheduleConversationScrollToBottomFallback(nextConversationId);
 }
@@ -2528,6 +2594,7 @@ async function switchUnarchivedConversation(conversationId: string) {
     const cachedDisplay = freezeConversationMessages(conversationMessageCache.value[cid] || []);
     allMessages.value = cachedDisplay;
     hasMoreBackendHistory.value = inferHasMoreHistoryFromSnapshot(cachedDisplay);
+    maybeResumeForegroundStreamingDraft(cid, "switch_cached_display");
     clearConversationBadge(cid);
     const trace = beginForegroundPaintTrace(cid);
     await nextTick();
@@ -2944,7 +3011,7 @@ onMounted(() => {
         payloadConversationId,
         currentConversationId,
       });
-      if (hasActiveForegroundConversation(payloadConversationId)) {
+      if (matchesForegroundConversation(payloadConversationId)) {
         void chatFlow.handleExternalHistoryFlushed(event.payload);
       }
     })
@@ -2966,9 +3033,10 @@ onMounted(() => {
       const assistantMessage = (payloadObject?.assistantMessage || null) as ChatMessage | null;
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "completed");
+        void chatFlow.handleExternalRoundCompleted(event.payload);
         return;
       }
-      if (!hasActiveForegroundConversation(payloadConversationId)) return;
+      if (!matchesForegroundConversation(payloadConversationId)) return;
       clearConversationBadge(payloadConversationId);
       toolReviewRefreshTick.value += 1;
       updateForegroundConversationOverviewFromMessages(payloadConversationId || currentConversationId, assistantMessage);
@@ -2985,9 +3053,10 @@ onMounted(() => {
       const currentConversationId = String(currentChatConversationId.value || "").trim();
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
         setConversationBadge(payloadConversationId, "failed");
+        void chatFlow.handleExternalRoundFailed(event.payload);
         return;
       }
-      if (!hasActiveForegroundConversation(payloadConversationId)) return;
+      if (!matchesForegroundConversation(payloadConversationId)) return;
       clearConversationBadge(payloadConversationId);
       void chatFlow.handleExternalRoundFailed(event.payload);
     })
@@ -3008,9 +3077,11 @@ onMounted(() => {
       });
     void listen<unknown>("easy-call:assistant-delta", (event) => {
       const conversationId = readConversationIdFromPayload(event.payload);
-      if (hasActiveForegroundConversation(conversationId)) {
-        void chatFlow.handleExternalAssistantDelta(event.payload);
-      }
+      console.info("[聊天流式重绑][前端] 收到助手增量普通事件", {
+        conversationId,
+        currentConversationId: String(currentChatConversationId.value || "").trim(),
+      });
+      void chatFlow.handleExternalAssistantDelta(event.payload);
     })
       .then((unlisten) => {
         chatAssistantDeltaUnlisten = unlisten;
@@ -3020,14 +3091,17 @@ onMounted(() => {
       });
     void listen<unknown>("easy-call:stream-rebind-required", (event) => {
       const conversationId = readConversationIdFromPayload(event.payload);
-      if (hasActiveForegroundConversation(conversationId)) {
-        void chatFlow.handleExternalStreamRebindRequired(event.payload).catch((error) => {
-          console.error("[聊天追踪][流重绑] 处理失败", {
-            conversationId,
-            error,
-          });
+      console.info("[聊天流式重绑][前端] 收到重绑普通事件", {
+        conversationId,
+        currentConversationId: String(currentChatConversationId.value || "").trim(),
+        payload: event.payload,
+      });
+      void chatFlow.handleExternalStreamRebindRequired(event.payload).catch((error) => {
+        console.error("[聊天追踪][流重绑] 处理失败", {
+          conversationId,
+          error,
         });
-      }
+      });
     })
       .then((unlisten) => {
         chatStreamRebindRequiredUnlisten = unlisten;
@@ -3337,8 +3411,13 @@ const chatFlow = useChatFlow({
     // 激活助理的批次也只做去重合并，避免清空重建打断滚动与分页状态。
     const queueMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     if (queueMessages.length > 0) {
-      const existing = allMessages.value.filter((message) => !isOptimisticOwnUserDraft(message));
-      const dedup = new Set(existing.map((m) => String(m.id || "").trim()).filter((id) => !!id));
+      const currentMessages = [...allMessages.value];
+      const dedup = new Set(
+        currentMessages
+          .filter((message) => !isOptimisticOwnUserDraft(message))
+          .map((message) => String(message.id || "").trim())
+          .filter((id) => !!id),
+      );
       const beforeDedupCount = queueMessages.length;
       const uniqueIncoming = queueMessages.filter((m) => {
         const id = String(m.id || "").trim();
@@ -3357,10 +3436,34 @@ const chatFlow = useChatFlow({
         const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
         return String(messageMeta.kind || "").trim() !== "summary_context_seed";
       });
-      const nextMessages = reuseStableMessageReferences(
-        [...prepended, ...existing, ...appended],
-        allMessages.value,
-      );
+      const appendedOwnUser = appended.filter((message) => isLocalOwnUserMessage(message));
+      const appendedOthers = appended.filter((message) => !isLocalOwnUserMessage(message));
+
+      let nextMessages = [...currentMessages];
+      if (prepended.length > 0) {
+        nextMessages = [...prepended, ...nextMessages];
+      }
+
+      if (appendedOwnUser.length > 0) {
+        let replacedOwnDraft = false;
+        const remainingOwnIncoming = [...appendedOwnUser];
+        nextMessages = nextMessages.flatMap((message) => {
+          if (!replacedOwnDraft && isOptimisticOwnUserDraft(message)) {
+            replacedOwnDraft = true;
+            return [remainingOwnIncoming.shift()!];
+          }
+          return [message];
+        });
+        if (remainingOwnIncoming.length > 0) {
+          nextMessages = insertMessagesBeforeAssistantDraft(nextMessages, remainingOwnIncoming);
+        }
+      }
+
+      if (appendedOthers.length > 0) {
+        nextMessages = insertMessagesBeforeAssistantDraft(nextMessages, appendedOthers);
+      }
+
+      nextMessages = reuseStableMessageReferences(nextMessages, allMessages.value);
       allMessages.value = nextMessages;
       const appendedSummary = uniqueIncoming.map((message) => {
         const meta = (message.providerMeta || {}) as Record<string, unknown>;
@@ -3401,7 +3504,7 @@ const chatFlow = useChatFlow({
         prependedCount: prepended.length,
         appendedCount: appended.length,
         droppedAsDuplicate: beforeDedupCount - uniqueIncoming.length,
-        previousMessageCount: existing.length,
+        previousMessageCount: currentMessages.length,
         finalMessageCount: allMessages.value.length,
         firstPrependedId: String(prepended[0]?.id || ""),
         firstAppendedId: String(appended[0]?.id || ""),
@@ -3430,6 +3533,7 @@ const { handleConfirmPlan } = useConfirmPlan({
   currentConversationId: currentChatConversationId,
   chatting,
   forcingArchive,
+  compactingConversation,
   setConversationPlanMode,
   forceCompactNow,
   sendChat: chatFlow.sendChat,
@@ -3461,12 +3565,17 @@ watch(
       windowLabel: tauriWindowLabel.value,
       conversationId,
     });
-    void chatFlow.bindActiveConversationStream(conversationId).catch((error) => {
-      console.warn("[聊天推送] 绑定前台流失败", {
-        conversationId,
-        error,
-      });
-    });
+    void (async () => {
+      try {
+        await chatFlow.bindActiveConversationStream(conversationId);
+        maybeResumeForegroundStreamingDraft(conversationId, "bind_active_stream");
+      } catch (error) {
+        console.warn("[聊天推送] 绑定前台流失败", {
+          conversationId,
+          error,
+        });
+      }
+    })();
   },
   { immediate: true },
 );
@@ -3530,6 +3639,7 @@ const {
   allMessages,
   chatting,
   forcingArchive,
+  compactingConversation,
   chatInput,
   selectedMentions: selectedChatMentions,
   clipboardImages,

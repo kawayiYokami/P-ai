@@ -25,6 +25,7 @@ type UseChatRuntimeOptions = {
   currentConversationId?: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
+  compactingConversation: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
   refreshUnarchivedConversations?: () => Promise<void>;
   perfNow: () => number;
@@ -39,6 +40,7 @@ type ConversationMaintenanceAction = {
   doneKey: string;
   failedKey: string;
   isDone: (result: ForceArchiveResult) => boolean;
+  lockForeground: boolean;
 };
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
@@ -61,7 +63,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       options.setChatError(text);
       return;
     }
-    if (options.forcingArchive.value) {
+    if (options.forcingArchive.value || options.compactingConversation.value) {
       const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
@@ -76,7 +78,11 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
 
     options.setStatus("");
     options.setChatError("");
-    options.forcingArchive.value = true;
+    if (action.lockForeground) {
+      options.forcingArchive.value = true;
+    } else {
+      options.compactingConversation.value = true;
+    }
     try {
       const normalizedTargetConversationId = String(targetConversationId || "").trim();
       const result = await invokeTauri<ForceArchiveResult>(action.command, {
@@ -136,7 +142,11 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setChatError(options.t(action.failedKey, { err: String(e) }));
       }
     } finally {
-      options.forcingArchive.value = false;
+      if (action.lockForeground) {
+        options.forcingArchive.value = false;
+      } else {
+        options.compactingConversation.value = false;
+      }
     }
   }
 
@@ -148,6 +158,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       doneKey: "status.forceArchiveDone",
       failedKey: "status.forceArchiveFailed",
       isDone: (result) => result.archived,
+      lockForeground: true,
     }, targetConversationId);
   }
 
@@ -159,6 +170,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       doneKey: "status.forceCompactDone",
       failedKey: "status.forceCompactFailed",
       isDone: (result) => !result.reasonCode,
+      lockForeground: false,
     });
   }
 

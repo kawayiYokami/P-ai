@@ -113,6 +113,7 @@
         :latest-assistant-text="latestAssistantText"
         :latest-reasoning-standard-text="latestReasoningStandardText"
         :latest-reasoning-inline-text="latestReasoningInlineText"
+        :frontend-round-phase="frontendRoundPhase"
         :tool-status-text="toolStatusText"
         :tool-status-state="toolStatusState"
         :stream-tool-calls="streamToolCalls"
@@ -135,7 +136,10 @@
         :force-archive-tip="forceArchiveTip"
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
-        :frozen="forcingArchive || derivingConversation || deliveringConversationSelection"
+        :forcing-archive="forcingArchive"
+        :compacting-conversation="compactingConversation"
+        :conversation-busy="forcingArchive || compactingConversation"
+        :frozen="derivingConversation || deliveringConversationSelection"
         :message-blocks="visibleMessageBlocks"
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
         :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
@@ -400,6 +404,7 @@ const props = defineProps<{
   latestAssistantText: string;
   latestReasoningStandardText: string;
   latestReasoningInlineText: string;
+  frontendRoundPhase: "idle" | "queued" | "waiting" | "streaming";
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
   streamToolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
@@ -421,6 +426,7 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
+  compactingConversation: boolean;
   derivingConversation: boolean;
   deliveringConversationSelection: boolean;
   visibleMessageBlocks: ChatMessageBlock[];
@@ -580,12 +586,6 @@ const selectionShareDialogLoading = ref(false);
 const selectionSharePayload = ref<SelectionSharePayload | null>(null);
 
 const chatBusyOverlay = computed(() => {
-  if (props.forcingArchive) {
-    return {
-      title: props.t("chat.archiving"),
-      detail: props.t("chat.archivingLock"),
-    };
-  }
   if (props.derivingConversation) {
     return {
       title: props.t("chat.derivingConversation"),

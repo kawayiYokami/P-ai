@@ -19,7 +19,7 @@
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div
-        v-if="mediaDragActive && !chatting && !frozen"
+        v-if="mediaDragActive && !chatting && !frozen && !conversationBusy"
         class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"
       >
         <div class="rounded-box border border-primary/40 bg-base-100 px-4 py-2 text-sm font-medium text-primary">
@@ -30,7 +30,7 @@
       <div
         ref="scrollContainer"
         class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
-        :data-chat-interaction-locked="chatting || frozen ? 'true' : undefined"
+        :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
         @scroll="onScroll"
       >
         <div v-if="hasActiveOrPendingTodo" class="sticky top-0 z-20 flex justify-center pt-1">
@@ -108,6 +108,7 @@
               :selection-mode-enabled="messageSelectionModeEnabled"
               :selected="selectedMessageRenderIdSet.has(item.renderId)"
               :chatting="chatting"
+              :busy="conversationBusy"
               :frozen="frozen"
               :user-alias="userAlias"
               :user-avatar-url="userAvatarUrl"
@@ -147,6 +148,7 @@
                   :selection-mode-enabled="messageSelectionModeEnabled"
                   :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
                   :chatting="chatting"
+                  :busy="conversationBusy"
                   :frozen="frozen"
                   :user-alias="userAlias"
                   :user-avatar-url="userAvatarUrl"
@@ -220,17 +222,26 @@
         </button>
       </div>
 
-      <div
-        v-if="organizingContextBannerText"
-        class="shrink-0 border-t border-base-300 bg-base-100 px-3 py-2"
-      >
-        <div class="flex items-center gap-2 px-1 py-1 text-[12px] text-base-content/65">
-          <span class="loading loading-spinner loading-xs text-base-content/50"></span>
-          <span>{{ organizingContextBannerText }}</span>
+      <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 p-2">
+        <div
+          v-if="chatStatusBanner"
+          class="pointer-events-none absolute inset-x-0 top-0 z-10 -translate-y-full"
+        >
+          <div
+            class="relative flex items-center justify-center rounded-box px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
+            :class="chatStatusBanner.tone === 'error'
+              ? 'bg-error/12 text-error'
+              : 'bg-base-200/75 text-base-content'"
+          >
+            <span
+              class="relative z-1"
+              :class="chatStatusBanner.tone === 'error'
+                ? ''
+                : 'text-base-content/80 ecall-shimmer-text ecall-reasoning-shimmer'"
+              :data-shimmer-text="chatStatusBanner.tone === 'error' ? '' : chatStatusBanner.text"
+            >{{ chatStatusBanner.text }}</span>
+          </div>
         </div>
-      </div>
-
-      <div ref="composerContainer" class="shrink-0 border-t border-base-300 bg-base-100 p-2">
         <ChatComposerPanel
           ref="composerPanelRef"
           :selection-mode-enabled="messageSelectionModeEnabled"
@@ -252,9 +263,11 @@
           :selected-chat-model-id="selectedChatModelId"
           :chat-model-options="chatModelOptions"
           :plan-mode-enabled="planModeEnabled"
+          :frontend-round-phase="frontendRoundPhase"
           :chat-usage-percent="chatUsagePercent"
           :force-archive-tip="forceArchiveTip"
           :chatting="chatting"
+          :busy="conversationBusy"
           :frozen="frozen"
           :show-side-conversation-list="showSideConversationList"
           :active-conversation-id="activeConversationId"
@@ -381,6 +394,7 @@ const props = defineProps<{
   latestAssistantText: string;
   latestReasoningStandardText: string;
   latestReasoningInlineText: string;
+  frontendRoundPhase: "idle" | "queued" | "waiting" | "streaming";
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
   streamToolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;
@@ -403,6 +417,9 @@ const props = defineProps<{
   forceArchiveTip: string;
   mediaDragActive: boolean;
   chatting: boolean;
+  forcingArchive: boolean;
+  compactingConversation: boolean;
+  conversationBusy: boolean;
   frozen: boolean;
   messageBlocks: ChatMessageBlock[];
   latestOwnMessageAlignRequest: number;
@@ -489,16 +506,50 @@ function todoIndexClass(status: ChatTodoItem["status"]): string {
   return "bg-base-200 text-base-content/70";
 }
 
-const organizingContextBannerText = computed(() => {
-  if (props.toolStatusState !== "running") return "";
+const activeRunningToolCall = computed(() => {
+  if (props.toolStatusState !== "running") return null;
+  const calls = Array.isArray(props.streamToolCalls) ? props.streamToolCalls : [];
+  for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
+    const call = calls[idx];
+    if (String(call?.status || "").trim() === "done") continue;
+    const name = String(call?.name || "").trim();
+    if (!name) continue;
+    return call;
+  }
+  return null;
+});
+
+const isOrganizingContextBusy = computed(() => {
+  if (props.compactingConversation) return true;
+  const runningTool = activeRunningToolCall.value;
+  if (runningTool && isOrganizeContextToolCall(runningTool)) return true;
   const statusText = String(props.toolStatusText || "").trim();
-  if (statusText.includes("整理上下文") || statusText.includes("自动整理")) {
-    return statusText;
+  return props.toolStatusState === "running" && (
+    statusText.includes("整理上下文") || statusText.includes("自动整理")
+  );
+});
+
+const chatStatusBanner = computed<null | { text: string; tone: "default" | "error" }>(() => {
+  const errorText = String(props.chatErrorText || "").trim();
+  if (errorText) {
+    return {
+      text: errorText,
+      tone: "error",
+    };
   }
-  if (props.streamToolCalls.some((call) => isOrganizeContextToolCall(call))) {
-    return "正在整理上下文...";
+  if (props.forcingArchive) {
+    return {
+      text: t("chat.statusArchivingConversation"),
+      tone: "default",
+    };
   }
-  return "";
+  if (isOrganizingContextBusy.value) {
+    return {
+      text: t("chat.statusCompactingContext"),
+      tone: "default",
+    };
+  }
+  return null;
 });
 
 const chatRenderItems = computed<ChatRenderItem[]>(() => {
@@ -520,10 +571,11 @@ const chatRenderItems = computed<ChatRenderItem[]>(() => {
     }
     if (isRightAlignedMessage(block)) {
       flushGroup();
+      const groupId = blockGroupRenderId(block, blockIndex);
       currentGroup = {
         kind: "group",
-        id: `group-${renderId}`,
-        groupId: renderId,
+        id: `group-${groupId}`,
+        groupId,
         items: [{ renderId, block, blockIndex }],
       };
       return;
@@ -545,7 +597,14 @@ const activeTurnGroupId = computed(() => {
   }
   return "";
 });
-const activeTurnUserId = computed(() => activeTurnGroupId.value);
+const activeTurnUserId = computed(() => {
+  for (let idx = chatRenderItems.value.length - 1; idx >= 0; idx -= 1) {
+    const item = chatRenderItems.value[idx];
+    if (item.kind !== "group") continue;
+    return String(item.items[0]?.renderId || "").trim();
+  }
+  return "";
+});
 const mentionableAgentIds = computed(() =>
   props.mentionOptions
     .map((item) => String(item?.agentId || "").trim())
@@ -629,6 +688,7 @@ const {
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
   chatting: toRef(props, "chatting"),
+  busy: toRef(props, "conversationBusy"),
   frozen: toRef(props, "frozen"),
   messageBlockCount: computed(() => props.messageBlocks.length),
   lastMessageIsOwn: computed(() => {
@@ -753,6 +813,15 @@ function blockRenderId(block: ChatMessageBlock, blockIndex: number): string {
   return rawId || `block-${blockIndex}`;
 }
 
+function blockGroupRenderId(block: ChatMessageBlock, blockIndex: number): string {
+  const createdAt = String(block.createdAt || "").trim();
+  const textPreview = String(block.text || "").trim().slice(0, 48);
+  if (createdAt || textPreview) {
+    return `${createdAt || "no-time"}:${textPreview || "no-text"}`;
+  }
+  return `slot-${blockIndex}`;
+}
+
 function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: number) {
   const selected = selectedMessageRenderIdSet.value.has(renderId);
   const activeTurnUser = renderId === activeTurnUserId.value;
@@ -767,12 +836,14 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
     props.userAvatarUrl,
     props.personaNameMap,
     props.personaAvatarUrlMap,
+    props.conversationBusy,
     messageSelectionModeEnabled.value,
     selected,
     activeTurnUser,
     canRegenerate,
     canConfirm,
     requiresInteractionState ? props.chatting : false,
+    requiresInteractionState ? props.conversationBusy : false,
     requiresInteractionState ? props.frozen : false,
   ];
 }
@@ -1062,36 +1133,6 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
-.ecall-shimmer-text {
-  position: relative;
-  display: inline-block;
-  color: currentColor;
-}
-
-.ecall-reasoning-shimmer::after {
-  content: attr(data-shimmer-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 44%,
-    rgb(255 255 255 / 0.92) 50%,
-    transparent 56%,
-    transparent 100%
-  );
-  background-size: 280px 100%;
-  background-position: 280px 0;
-  will-change: background-position;
-  transform: translateZ(0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: ecall-reasoning-shimmer 2.5s linear infinite;
-}
-
 @keyframes ecall-stream-fade-in {
   from {
     opacity: 0;
@@ -1109,15 +1150,6 @@ onBeforeUnmount(() => {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes ecall-reasoning-shimmer {
-  from {
-    background-position: 280px 0;
-  }
-  to {
-    background-position: -280px 0;
   }
 }
 

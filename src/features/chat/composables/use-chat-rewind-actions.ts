@@ -17,6 +17,7 @@ type UseChatRewindActionsOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
+  compactingConversation: Ref<boolean>;
   chatInput: Ref<string>;
   selectedMentions: Ref<ChatMentionTarget[]>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
@@ -213,8 +214,16 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       turnId: payload?.turnId,
       chatting: options.chatting.value,
       forcingArchive: options.forcingArchive.value,
+      compactingConversation: options.compactingConversation.value,
     });
-    if (options.forcingArchive.value) return;
+    if (options.forcingArchive.value || options.compactingConversation.value) {
+      console.info("[会话撤回] 跳过：当前会话处于忙碌状态", {
+        turnId: payload?.turnId,
+        forcingArchive: options.forcingArchive.value,
+        compactingConversation: options.compactingConversation.value,
+      });
+      return;
+    }
     const mode = await options.requestRecallMode({ turnId: payload.turnId });
     console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
     if (mode === "cancel") return;
@@ -242,7 +251,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
   }
 
   async function handleRegenerateTurn(payload: { turnId: string }) {
-    if (options.forcingArchive.value) return;
+    if (options.forcingArchive.value || options.compactingConversation.value) return;
     await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
     if (!recalledUserMessage) return;

@@ -20,6 +20,7 @@ type UseConfirmPlanOptions = {
   currentConversationId: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
+  compactingConversation: Ref<boolean>;
   setConversationPlanMode: (conversationId: string, value: boolean) => Promise<boolean>;
   forceCompactNow: () => Promise<void>;
   sendChat: (input: {
@@ -51,7 +52,13 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
 
   async function handleConfirmPlan(payload: { messageId: string }) {
     const session = currentConfirmPlanSessionContext(String(payload?.messageId || ""));
-    if (!session.messageId || !session.conversationId || options.chatting.value || options.forcingArchive.value) return;
+    if (
+      !session.messageId
+      || !session.conversationId
+      || options.chatting.value
+      || options.forcingArchive.value
+      || options.compactingConversation.value
+    ) return;
     const planModeDisabled = await options.setConversationPlanMode(session.conversationId, false);
     if (!planModeDisabled) return;
     if (!isConfirmPlanSessionStillCurrent(session)) return;

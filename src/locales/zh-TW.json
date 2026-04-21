@@ -836,6 +836,15 @@
     "shareImageGenerationFailed": "分享圖片生成失敗",
     "shareExportFailed": "匯出分享失敗: {err}",
     "copyFailed": "複製失敗，請檢查剪貼簿權限後重試",
+    "statusPreparingMessage": "正在準備訊息",
+    "statusWaitingReply": "正在等待回應",
+    "statusThinking": "正在思考中",
+    "statusRetryingWithModel": "重試中（目前模型：{model}）({current}/{total})",
+    "statusExecutingTool": "正在執行{tool}中",
+    "executingToolFallback": "工具",
+    "statusSpeaking": "正在發言中",
+    "statusCompactingContext": "正在壓縮上下文",
+    "statusArchivingConversation": "正在歸檔會話",
     "imageCount": "[圖片 {count}]",
     "audioCount": "[語音 {count}]",
     "attachmentList": "[附件 {names}]",
@@ -951,6 +960,27 @@
       "toolResult": "工具結果",
       "reviewUnavailable": "尚未生成工具審查意見。",
       "loadFailed": "工具審查載入失敗：{err}"
+    }
+    ,
+    "toolNames": {
+      "fetch": "抓取網頁",
+      "websearch": "連網搜尋",
+      "operate": "桌面操作",
+      "exec": "終端",
+      "read_file": "讀取檔案",
+      "apply_patch": "套用檔案補丁",
+      "reload": "重新載入智慧體設定",
+      "organize_context": "整理上下文",
+      "wait": "等待",
+      "todo": "更新待辦",
+      "remember": "記住",
+      "recall": "回憶",
+      "task": "任務",
+      "delegate": "委託",
+      "meme": "偷表情",
+      "contact_reply": "聯絡人回覆",
+      "contact_send_files": "聯絡人發送檔案",
+      "contact_no_reply": "聯絡人不回覆"
     }
   },
   "memory": {

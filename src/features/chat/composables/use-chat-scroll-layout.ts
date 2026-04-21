@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref, watch } 
 type UseChatScrollLayoutOptions = {
   activeConversationId: Ref<string>;
   chatting: Ref<boolean>;
+  busy: Ref<boolean>;
   frozen: Ref<boolean>;
   messageBlockCount: Ref<number>;
   lastMessageIsOwn: Ref<boolean>;
@@ -40,7 +41,10 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   function scrollToBottom(behavior: ScrollBehavior = "smooth") {
     const el = scrollContainer.value;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    const distance = Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop);
+    const finalBehavior: ScrollBehavior =
+      behavior === "smooth" && distance > el.clientHeight * 3 ? "auto" : behavior;
+    el.scrollTo({ top: el.scrollHeight, behavior: finalBehavior });
   }
 
   function jumpToBottom() {
@@ -96,10 +100,15 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   function alignActiveTurnUserToTop(behavior: ScrollBehavior = "auto"): boolean {
     const activeTurnUser = activeTurnUserElement();
-    if (!activeTurnUser) return false;
+    const scrollEl = scrollContainer.value;
+    if (!activeTurnUser || !scrollEl) return false;
+    const targetTop = Math.max(0, activeTurnUser.offsetTop - scrollEl.offsetTop);
+    const distance = Math.abs(scrollEl.scrollTop - targetTop);
+    const finalBehavior: ScrollBehavior =
+      behavior === "smooth" && distance > scrollEl.clientHeight * 3 ? "auto" : behavior;
     activeTurnUser.scrollIntoView({
       block: "start",
-      behavior,
+      behavior: finalBehavior,
     });
     return true;
   }
@@ -191,7 +200,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   watch(
     options.chatting,
     (isChatting, wasChatting) => {
-      if (wasChatting && !isChatting && !options.frozen.value) {
+      if (wasChatting && !isChatting && !options.frozen.value && !options.busy.value) {
         nextTick(() => options.focusComposerInput({ preventScroll: true }));
       }
     },

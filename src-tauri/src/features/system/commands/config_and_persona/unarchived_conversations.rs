@@ -38,6 +38,7 @@ fn switch_active_conversation_snapshot(
     }
 
     let mut snapshot = build_foreground_conversation_snapshot_core(
+        state.inner(),
         &data,
         target_idx,
         SWITCH_SNAPSHOT_RECENT_LIMIT,
@@ -70,6 +71,7 @@ fn switch_active_conversation_snapshot(
         conversation_id: snapshot.conversation_id,
         messages: snapshot.messages,
         has_more_history: snapshot.has_more_history,
+        runtime_state: snapshot.runtime_state,
         current_todo: snapshot.current_todo,
         current_todos: snapshot.current_todos,
         unarchived_conversations,
@@ -102,6 +104,7 @@ fn resolve_foreground_snapshot_target_index(
 }
 
 fn build_foreground_conversation_snapshot_core(
+    state: &AppState,
     data: &AppData,
     target_idx: usize,
     recent_limit: usize,
@@ -117,6 +120,7 @@ fn build_foreground_conversation_snapshot_core(
         conversation_id: conversation.id.clone(),
         messages,
         has_more_history: start > 0,
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
         current_todo: conversation_current_todo_text(conversation),
         current_todos: conversation.current_todos.clone(),
     })
@@ -151,6 +155,7 @@ fn get_foreground_conversation_light_snapshot(
     ensure_unarchived_conversation_not_organizing(state.inner(), &target_conversation_id)?;
 
     let mut snapshot = build_foreground_conversation_snapshot_core(
+        state.inner(),
         &data,
         target_idx,
         SWITCH_SNAPSHOT_RECENT_LIMIT,
@@ -170,6 +175,7 @@ fn get_foreground_conversation_light_snapshot(
         conversation_id: snapshot.conversation_id,
         messages: snapshot.messages,
         has_more_history: snapshot.has_more_history,
+        runtime_state: snapshot.runtime_state,
         current_todo: snapshot.current_todo,
         current_todos: snapshot.current_todos,
     })

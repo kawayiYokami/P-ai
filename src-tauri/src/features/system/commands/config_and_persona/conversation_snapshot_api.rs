@@ -658,6 +658,8 @@ struct SwitchActiveConversationSnapshotOutput {
     messages: Vec<ChatMessage>,
     has_more_history: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_state: Option<MainSessionState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     current_todo: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     current_todos: Vec<ConversationTodoItem>,
@@ -671,6 +673,8 @@ struct ForegroundConversationLightSnapshotOutput {
     messages: Vec<ChatMessage>,
     has_more_history: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_state: Option<MainSessionState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     current_todo: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     current_todos: Vec<ConversationTodoItem>,
@@ -681,6 +685,7 @@ struct ForegroundConversationSnapshotCore {
     conversation_id: String,
     messages: Vec<ChatMessage>,
     has_more_history: bool,
+    runtime_state: Option<MainSessionState>,
     current_todo: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
 }

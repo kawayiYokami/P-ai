@@ -872,6 +872,15 @@
     "shareImageGenerationFailed": "Failed to generate share image",
     "shareExportFailed": "Failed to export share: {err}",
     "copyFailed": "Copy failed. Please check clipboard permissions and try again.",
+    "statusPreparingMessage": "Preparing message",
+    "statusWaitingReply": "Waiting for reply",
+    "statusThinking": "Thinking",
+    "statusRetryingWithModel": "Retrying (current model: {model}) ({current}/{total})",
+    "statusExecutingTool": "Executing {tool}",
+    "executingToolFallback": "tool",
+    "statusSpeaking": "Speaking",
+    "statusCompactingContext": "Compacting context",
+    "statusArchivingConversation": "Archiving conversation",
     "imageCount": "[Image {count}]",
     "audioCount": "[Audio {count}]",
     "attachmentList": "[Attachment {names}]",
@@ -951,6 +960,27 @@
       "toolResult": "Tool result",
       "reviewUnavailable": "No tool review opinion has been generated yet.",
       "loadFailed": "Failed to load tool review: {err}"
+    }
+    ,
+    "toolNames": {
+      "fetch": "web fetch",
+      "websearch": "web search",
+      "operate": "desktop action",
+      "exec": "terminal",
+      "read_file": "read file",
+      "apply_patch": "apply file patch",
+      "reload": "reload agent config",
+      "organize_context": "organize context",
+      "wait": "wait",
+      "todo": "update todo",
+      "remember": "remember",
+      "recall": "recall",
+      "task": "task",
+      "delegate": "delegate",
+      "meme": "steal stickers",
+      "contact_reply": "contact reply",
+      "contact_send_files": "send files",
+      "contact_no_reply": "no reply"
     }
   },
   "memory": {
