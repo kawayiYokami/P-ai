@@ -320,6 +320,9 @@ export type LlmRoundLogEntry = {
   error?: string;
   elapsedMs: number;
   timeline?: LlmRoundLogStage[];
+  roundCount?: number;
+  toolCallCount?: number;
+  rounds?: LlmRoundLogEntry[];
   success: boolean;
 };
 

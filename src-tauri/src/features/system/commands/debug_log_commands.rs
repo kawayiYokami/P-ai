@@ -36,7 +36,18 @@ struct LlmRoundLogEntry {
     elapsed_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     timeline: Option<Vec<LlmRoundLogStage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    round_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rounds: Option<Vec<LlmRoundLogEntry>>,
     success: bool,
+}
+
+#[derive(Debug, Default)]
+struct PendingChatRoundBuffer {
+    rounds_by_chat_session: std::collections::HashMap<String, Vec<LlmRoundLogEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +69,11 @@ struct RuntimeLogBuffer {
 fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
     static RUNTIME_LOGS: OnceLock<Mutex<RuntimeLogBuffer>> = OnceLock::new();
     RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
+}
+
+fn pending_chat_round_buffer() -> &'static Mutex<PendingChatRoundBuffer> {
+    static PENDING_CHAT_ROUNDS: OnceLock<Mutex<PendingChatRoundBuffer>> = OnceLock::new();
+    PENDING_CHAT_ROUNDS.get_or_init(|| Mutex::new(PendingChatRoundBuffer::default()))
 }
 
 fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
@@ -441,6 +457,99 @@ fn model_reply_to_log_value(reply: &ModelReply) -> Value {
     })
 }
 
+fn build_llm_round_log_entry(
+    trace_id: Option<String>,
+    scene: &str,
+    request_format: RequestFormat,
+    provider_name: &str,
+    model_name: &str,
+    base_url: &str,
+    headers: Vec<LlmRoundLogHeader>,
+    tools: Option<Value>,
+    request: Value,
+    response: Option<Value>,
+    error: Option<String>,
+    elapsed_ms: u64,
+    timeline: Option<Vec<LlmRoundLogStage>>,
+) -> LlmRoundLogEntry {
+    let success = error.as_ref().map(|value| value.trim().is_empty()).unwrap_or(true);
+    LlmRoundLogEntry {
+        id: Uuid::new_v4().to_string(),
+        created_at: now_iso(),
+        trace_id,
+        scene: scene.to_string(),
+        request_format: request_format.as_str().to_string(),
+        provider: provider_name.to_string(),
+        model: model_name.to_string(),
+        base_url: base_url.to_string(),
+        headers,
+        tools,
+        request,
+        response,
+        error: error.filter(|v| !v.trim().is_empty()),
+        elapsed_ms,
+        timeline,
+        round_count: None,
+        tool_call_count: None,
+        rounds: None,
+        success,
+    }
+}
+
+fn llm_round_log_group_key(scene: &str, trace_id: Option<&str>, request: &Value) -> Option<String> {
+    match scene {
+        "chat" => trace_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.strip_prefix("round-").unwrap_or(value).to_string()),
+        "chat_pipeline" => request
+            .get("chatSessionKey")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                trace_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            }),
+        _ => None,
+    }
+}
+
+fn log_entry_tool_call_count(entry: &LlmRoundLogEntry) -> usize {
+    let Some(response) = entry.response.as_ref() else {
+        return 0;
+    };
+    let Some(events) = response
+        .get("toolHistoryEvents")
+        .and_then(Value::as_array)
+    else {
+        return 0;
+    };
+    events
+        .iter()
+        .filter_map(|event| event.get("tool_calls").and_then(Value::as_array))
+        .map(|calls| calls.len())
+        .sum()
+}
+
+fn push_display_llm_log(logs: &mut std::collections::VecDeque<LlmRoundLogEntry>, entry: LlmRoundLogEntry) {
+    logs.push_back(entry);
+    while logs
+        .iter()
+        .filter(|item| item.scene == "chat_pipeline")
+        .count()
+        > LLM_ROUND_LOG_CAPACITY
+    {
+        let Some(idx) = logs.iter().position(|item| item.scene == "chat_pipeline") else {
+            break;
+        };
+        let _ = logs.remove(idx);
+    }
+}
+
 fn push_llm_round_log(
     state: Option<&AppState>,
     trace_id: Option<String>,
@@ -460,31 +569,62 @@ fn push_llm_round_log(
     let Some(app_state) = state else {
         return;
     };
-    let success = error.is_none();
-    let Ok(mut logs) = app_state.llm_round_logs.lock() else {
-        return;
-    };
-    logs.push_back(LlmRoundLogEntry {
-        id: Uuid::new_v4().to_string(),
-        created_at: now_iso(),
-        trace_id,
-        scene: scene.to_string(),
-        request_format: request_format.as_str().to_string(),
-        provider: provider_name.to_string(),
-        model: model_name.to_string(),
-        base_url: base_url.to_string(),
+    let entry = build_llm_round_log_entry(
+        trace_id.clone(),
+        scene,
+        request_format,
+        provider_name,
+        model_name,
+        base_url,
         headers,
         tools,
         request,
         response,
-        error: error.filter(|v| !v.trim().is_empty()),
+        error,
         elapsed_ms,
         timeline,
-        success,
-    });
-    while logs.len() > LLM_ROUND_LOG_CAPACITY {
-        let _ = logs.pop_front();
+    );
+    if scene == "chat" {
+        let Some(group_key) = llm_round_log_group_key(scene, trace_id.as_deref(), &entry.request) else {
+            return;
+        };
+        let Ok(mut pending) = pending_chat_round_buffer().lock() else {
+            return;
+        };
+        pending
+            .rounds_by_chat_session
+            .entry(group_key)
+            .or_default()
+            .push(entry);
+        return;
     }
+    if scene == "chat_pipeline" {
+        let rounds = llm_round_log_group_key(scene, trace_id.as_deref(), &entry.request)
+            .and_then(|group_key| {
+                pending_chat_round_buffer()
+                    .lock()
+                    .ok()
+                    .and_then(|mut pending| pending.rounds_by_chat_session.remove(&group_key))
+            })
+            .unwrap_or_default();
+        let round_count = rounds.len();
+        let tool_call_count = rounds.iter().map(log_entry_tool_call_count).sum();
+        let mut pipeline_entry = entry;
+        pipeline_entry.round_count = Some(round_count);
+        pipeline_entry.tool_call_count = Some(tool_call_count);
+        if !rounds.is_empty() {
+            pipeline_entry.rounds = Some(rounds);
+        }
+        let Ok(mut logs) = app_state.llm_round_logs.lock() else {
+            return;
+        };
+        push_display_llm_log(&mut logs, pipeline_entry);
+        return;
+    }
+    let Ok(mut logs) = app_state.llm_round_logs.lock() else {
+        return;
+    };
+    push_display_llm_log(&mut logs, entry);
 }
 
 fn latest_chat_round_headers_and_tools(
@@ -525,6 +665,11 @@ fn clear_recent_llm_round_logs(state: State<'_, AppState>) -> Result<bool, Strin
         .lock()
         .map_err(|_| "Failed to lock llm round logs".to_string())?;
     logs.clear();
+    pending_chat_round_buffer()
+        .lock()
+        .map_err(|_| "Failed to lock pending chat round logs".to_string())?
+        .rounds_by_chat_session
+        .clear();
     Ok(true)
 }
 

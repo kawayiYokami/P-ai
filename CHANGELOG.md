@@ -3,6 +3,7 @@
 ## 发布：v0.9.21
 
 - 发布（release-0.9.21）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.21`，纳入本轮已完成的“配置窗口内联更新日志卡片、远程 changelog 代理读取修正、多语言补齐与流式跨工具分段相关脏逻辑清理”等更新
+- 优化（request-log-pipeline-aggregation-and-ui）：设置页“调用日志”改为以调度 `chat_pipeline` 为主语展示，单次调度内的多轮 `chat` 会先在内存中暂存并在 pipeline 收口时聚合进同一条主日志；主列表仅按最近 10 次调度裁剪，同时日志页改成“调度主卡 + 轮次摘要列表 + 轮次详情弹层”，不再把多次工具轮转平铺成多张同级卡片
 - 修复（chat-stream-text-boundary-delta-after-tool-turn）：后端工具循环在进入后续正文轮次时，会在该轮正文首个流式文本包前额外补发一个 `\n` delta，让聊天窗口流式阶段也能对齐正式消息的文本边界；避免工具后的下一段正文继续黏在上一段末尾，同时不引入前端猜边界或额外渲染分支
 - 修复（terminal-readonly-powershell-rg-whitelist）：终端只读白名单现在允许 PowerShell 场景下的 `Set-Location/cd` 作为纯切目录辅助动作，并将 `rg` / `findstr` 识别为可放行的只读搜索命令；修复只读工作区内 `Set-Location ...; rg -n ...` 这类纯读命令被误判为非白名单而拦截的问题
 
