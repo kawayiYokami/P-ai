@@ -40,7 +40,7 @@ async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
             });
         }
     }
-    mark_prompt_cache_rebuild_for_all_final(app_state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(app_state);
     serde_json::to_value(result).map_err(|err| format!("序列化刷新结果失败：{err}"))
 }
 

@@ -255,10 +255,13 @@ fn save_config(
     validate_department_names_unique(&config)?;
     state_write_config_cached(&state, &config)?;
     if !departments_changed.is_empty() {
-        mark_prompt_cache_rebuild_for_departments(&state, &departments_changed);
+        mark_prompt_cache_rebuild_for_system_sources_by_departments(
+            &state,
+            &departments_changed,
+        );
     }
     if shell_workspaces_changed {
-        mark_prompt_cache_rebuild_for_all_environments(&state);
+        mark_prompt_cache_rebuild_for_all_system_environments(&state);
     }
     if let Some(agent_id) = assistant_department_agent_id(&config) {
         if data.assistant_department_agent_id != agent_id {

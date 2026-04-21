@@ -175,7 +175,7 @@ fn save_agents(
         .collect::<Vec<_>>();
     state_write_agents_cached(&state, &data.agents)?;
     if !affected_agent_ids.is_empty() {
-        mark_prompt_cache_rebuild_for_agents(&state, &affected_agent_ids);
+        mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
     }
     let mut config = state_read_config_cached(&state)?;
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
@@ -223,7 +223,10 @@ fn save_agents(
         normalize_app_config(&mut config);
         state_write_config_cached(&state, &config)?;
         if !changed_departments.is_empty() {
-            mark_prompt_cache_rebuild_for_departments(&state, &changed_departments);
+            mark_prompt_cache_rebuild_for_system_sources_by_departments(
+                &state,
+                &changed_departments,
+            );
         }
     }
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;

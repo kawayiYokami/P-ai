@@ -19,7 +19,7 @@ struct DepartmentSystemPromptCacheEntry {
     agent_id: String,
     department_id: String,
     snapshot: DepartmentSystemPromptSnapshot,
-    dirty: bool,
+    dirty_reason: Option<PromptCacheDirtyKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ struct ConversationEnvironmentPromptSnapshot {
 struct ConversationEnvironmentPromptCacheEntry {
     conversation_id: String,
     snapshot: ConversationEnvironmentPromptSnapshot,
-    dirty: bool,
+    dirty_reason: Option<PromptCacheDirtyKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,52 @@ struct FinalSystemPromptCacheEntry {
     agent_id: String,
     department_id: String,
     text: String,
-    dirty: bool,
+    dirty_state: FinalSystemPromptDirtyState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptCacheDirtyKind {
+    SystemSource,
+    SystemEnvironment,
+}
+
+impl PromptCacheDirtyKind {
+    fn as_log_reason(self) -> &'static str {
+        match self {
+            Self::SystemSource => "dirty_system_source",
+            Self::SystemEnvironment => "dirty_system_environment",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct FinalSystemPromptDirtyState {
+    system_source: bool,
+    system_environment: bool,
+}
+
+impl FinalSystemPromptDirtyState {
+    fn is_clean(self) -> bool {
+        !self.system_source && !self.system_environment
+    }
+
+    fn mark(self, kind: PromptCacheDirtyKind) -> Self {
+        let mut next = self;
+        match kind {
+            PromptCacheDirtyKind::SystemSource => next.system_source = true,
+            PromptCacheDirtyKind::SystemEnvironment => next.system_environment = true,
+        }
+        next
+    }
+
+    fn rebuild_reason(self) -> &'static str {
+        match (self.system_source, self.system_environment) {
+            (true, true) => "dirty_system_source_and_environment",
+            (true, false) => "dirty_system_source",
+            (false, true) => "dirty_system_environment",
+            (false, false) => "cache_miss",
+        }
+    }
 }
 
 fn system_prompt_text_cache(
@@ -139,10 +184,13 @@ fn get_or_build_department_system_prompt_snapshot(
             department_system_prompt_cache(),
         );
         if let Some(entry) = cache.get(&cache_key) {
-            if !entry.dirty {
+            if entry.dirty_reason.is_none() {
                 return entry.snapshot.clone();
             }
-            rebuild_reason = "dirty";
+            rebuild_reason = entry
+                .dirty_reason
+                .map(PromptCacheDirtyKind::as_log_reason)
+                .unwrap_or("cache_miss");
         }
     }
     runtime_log_info(format!(
@@ -167,7 +215,7 @@ fn get_or_build_department_system_prompt_snapshot(
             agent_id: agent.id.trim().to_string(),
             department_id: department_id_for_agent(departments, &agent.id),
             snapshot: snapshot.clone(),
-            dirty: false,
+            dirty_reason: None,
         },
     );
     snapshot
@@ -196,13 +244,12 @@ fn split_system_preamble_blocks(
 fn build_conversation_environment_prompt_cache_key(
     state: Option<&AppState>,
     conversation: &Conversation,
-    mode_label: &str,
+    _mode_label: &str,
 ) -> String {
     format!(
-        "scope={}|conversation_id={}|mode={}",
+        "scope={}|conversation_id={}",
         prompt_cache_scope_key(state),
         conversation.id.trim(),
-        mode_label.trim(),
     )
 }
 
@@ -266,10 +313,13 @@ fn get_or_build_conversation_environment_prompt_snapshot(
             conversation_environment_prompt_cache(),
         );
         if let Some(entry) = cache.get(&cache_key) {
-            if !entry.dirty {
+            if entry.dirty_reason.is_none() {
                 return entry.snapshot.clone();
             }
-            rebuild_reason = "dirty";
+            rebuild_reason = entry
+                .dirty_reason
+                .map(PromptCacheDirtyKind::as_log_reason)
+                .unwrap_or("cache_miss");
         }
     }
     runtime_log_info(format!(
@@ -292,7 +342,7 @@ fn get_or_build_conversation_environment_prompt_snapshot(
         ConversationEnvironmentPromptCacheEntry {
             conversation_id: conversation.id.trim().to_string(),
             snapshot: snapshot.clone(),
-            dirty: false,
+            dirty_reason: None,
         },
     );
     snapshot
@@ -563,23 +613,22 @@ fn finalize_system_prompt_with_manager(
     stage_logger: Option<&dyn Fn(&str)>,
 ) -> String {
     let final_cache_key = format!(
-        "scope={}|conversation_id={}|mode={}|agent={}",
+        "scope={}|conversation_id={}|agent={}",
         prompt_cache_scope_key(state),
         conversation.id.trim(),
-        mode_label.trim(),
         agent.id.trim(),
     );
     let mut rebuild_reason = "cache_miss";
     {
         let cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
         if let Some(entry) = cache.get(&final_cache_key) {
-            if !entry.dirty {
+            if entry.dirty_state.is_clean() {
                 if let Some(log_stage) = stage_logger {
                     log_stage("prepare_context.prompt_system_cache_hit");
                 }
                 return entry.text.clone();
             }
-            rebuild_reason = "dirty";
+            rebuild_reason = entry.dirty_state.rebuild_reason();
         }
     }
     let department_id = department_id_for_agent(departments, &agent.id);
@@ -612,7 +661,7 @@ fn finalize_system_prompt_with_manager(
             agent_id: agent.id.trim().to_string(),
             department_id,
             text: prompt_text.clone(),
-            dirty: false,
+            dirty_state: FinalSystemPromptDirtyState::default(),
         },
     );
     if let Some(log_stage) = stage_logger {
@@ -629,6 +678,7 @@ fn mark_prompt_cache_rebuild_internal(
     mark_department: bool,
     mark_environment: bool,
     mark_final: bool,
+    dirty_kind: PromptCacheDirtyKind,
 ) {
     let scope_prefix = format!("scope={}|", prompt_cache_scope_key(Some(state)));
     let department_ids = department_ids
@@ -661,8 +711,8 @@ fn mark_prompt_cache_rebuild_internal(
             let matched = mark_all
                 || agent_ids.contains(entry.agent_id.trim())
                 || department_ids.contains(entry.department_id.trim());
-            if matched && !entry.dirty {
-                entry.dirty = true;
+            if matched && entry.dirty_reason.is_none() {
+                entry.dirty_reason = Some(dirty_kind);
                 department_marked += 1;
             }
         }
@@ -680,8 +730,8 @@ fn mark_prompt_cache_rebuild_internal(
             }
             let matched = mark_all
                 || conversation_ids.contains(entry.conversation_id.trim());
-            if matched && !entry.dirty {
-                entry.dirty = true;
+            if matched && entry.dirty_reason.is_none() {
+                entry.dirty_reason = Some(dirty_kind);
                 environment_marked += 1;
             }
         }
@@ -698,15 +748,17 @@ fn mark_prompt_cache_rebuild_internal(
                 || conversation_ids.contains(entry.conversation_id.trim())
                 || agent_ids.contains(entry.agent_id.trim())
                 || department_ids.contains(entry.department_id.trim());
-            if matched && !entry.dirty {
-                entry.dirty = true;
+            let next_state = entry.dirty_state.mark(dirty_kind);
+            if matched && next_state != entry.dirty_state {
+                entry.dirty_state = next_state;
                 final_marked += 1;
             }
         }
     }
 
     runtime_log_debug(format!(
-        "[系统提示词] 标记重建 完成 department_ids={:?} agent_ids={:?} conversation_ids={:?} department_marked={} environment_marked={} final_marked={}",
+        "[系统提示词] 标记重建 完成 reason={} department_ids={:?} agent_ids={:?} conversation_ids={:?} department_marked={} environment_marked={} final_marked={}",
+        dirty_kind.as_log_reason(),
         department_ids,
         agent_ids,
         conversation_ids,
@@ -716,15 +768,39 @@ fn mark_prompt_cache_rebuild_internal(
     ));
 }
 
-fn mark_prompt_cache_rebuild_for_departments(state: &AppState, department_ids: &[String]) {
-    mark_prompt_cache_rebuild_internal(state, department_ids, &[], &[], true, false, true);
+fn mark_prompt_cache_rebuild_for_system_sources_by_departments(
+    state: &AppState,
+    department_ids: &[String],
+) {
+    mark_prompt_cache_rebuild_internal(
+        state,
+        department_ids,
+        &[],
+        &[],
+        true,
+        false,
+        true,
+        PromptCacheDirtyKind::SystemSource,
+    );
 }
 
-fn mark_prompt_cache_rebuild_for_agents(state: &AppState, agent_ids: &[String]) {
-    mark_prompt_cache_rebuild_internal(state, &[], agent_ids, &[], false, false, true);
+fn mark_prompt_cache_rebuild_for_system_sources_by_agents(
+    state: &AppState,
+    agent_ids: &[String],
+) {
+    mark_prompt_cache_rebuild_internal(
+        state,
+        &[],
+        agent_ids,
+        &[],
+        false,
+        false,
+        true,
+        PromptCacheDirtyKind::SystemSource,
+    );
 }
 
-fn mark_prompt_cache_rebuild_for_conversation_environment(
+fn mark_prompt_cache_rebuild_for_system_environment_by_conversation(
     state: &AppState,
     conversation_id: &str,
 ) {
@@ -736,13 +812,32 @@ fn mark_prompt_cache_rebuild_for_conversation_environment(
         false,
         true,
         true,
+        PromptCacheDirtyKind::SystemEnvironment,
     );
 }
 
-fn mark_prompt_cache_rebuild_for_all_environments(state: &AppState) {
-    mark_prompt_cache_rebuild_internal(state, &[], &[], &[], false, true, true);
+fn mark_prompt_cache_rebuild_for_all_system_environments(state: &AppState) {
+    mark_prompt_cache_rebuild_internal(
+        state,
+        &[],
+        &[],
+        &[],
+        false,
+        true,
+        true,
+        PromptCacheDirtyKind::SystemEnvironment,
+    );
 }
 
-fn mark_prompt_cache_rebuild_for_all_final(state: &AppState) {
-    mark_prompt_cache_rebuild_internal(state, &[], &[], &[], false, false, true);
+fn mark_prompt_cache_rebuild_for_all_final_system_sources(state: &AppState) {
+    mark_prompt_cache_rebuild_internal(
+        state,
+        &[],
+        &[],
+        &[],
+        false,
+        false,
+        true,
+        PromptCacheDirtyKind::SystemSource,
+    );
 }

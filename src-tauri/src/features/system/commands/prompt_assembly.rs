@@ -813,6 +813,122 @@ mod prompt_assembly_tests {
     }
 
     #[test]
+    fn conversation_environment_prompt_snapshot_should_reuse_cache_across_modes() {
+        let llm_workspace_path = std::env::temp_dir().join(format!(
+            "easy-call-ai-environment-cross-mode-cache-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        let state = build_test_state(llm_workspace_path);
+        let conversation = build_test_conversation(Vec::new());
+        let terminal_block = "<shell workspace>\n运行环境块\n</shell workspace>";
+        let runtime_blocks = vec!["<workspace agents>\n项目约束块\n</workspace agents>".to_string()];
+        let im_blocks = vec!["<remote im runtime activation>\nIM 激活块\n</remote im runtime activation>".to_string()];
+
+        let cache_key = build_conversation_environment_prompt_cache_key(
+            Some(&state),
+            &conversation,
+            "chat",
+        );
+        {
+            let mut cache = cache_lock_recover(
+                "conversation_environment_prompt_cache",
+                conversation_environment_prompt_cache(),
+            );
+            cache.clear();
+        }
+
+        let first = get_or_build_conversation_environment_prompt_snapshot(
+            Some(&state),
+            &conversation,
+            "chat",
+            Some(terminal_block),
+            &runtime_blocks,
+            &im_blocks,
+        );
+        let second = get_or_build_conversation_environment_prompt_snapshot(
+            Some(&state),
+            &conversation,
+            "summary_context",
+            Some(terminal_block),
+            &runtime_blocks,
+            &im_blocks,
+        );
+
+        assert_eq!(first.runtime_blocks, second.runtime_blocks);
+        assert_eq!(first.im_rule_blocks, second.im_rule_blocks);
+        let cache = cache_lock_recover(
+            "conversation_environment_prompt_cache",
+            conversation_environment_prompt_cache(),
+        );
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key(&cache_key));
+    }
+
+    #[test]
+    fn finalize_system_prompt_with_manager_should_reuse_cache_across_modes() {
+        let llm_workspace_path = std::env::temp_dir().join(format!(
+            "easy-call-ai-final-system-cross-mode-cache-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        let state = build_test_state(llm_workspace_path);
+        let agent = default_agent();
+        let departments = default_departments("api-1");
+        let conversation = build_test_conversation(Vec::new());
+        let terminal_block = Some("<terminal env>\n当前 shell: PowerShell\n</terminal env>");
+        let system_blocks = vec!["<workspace agents>\n项目约束块\n</workspace agents>".to_string()];
+        let cache_key = format!(
+            "scope={}|conversation_id={}|agent={}",
+            prompt_cache_scope_key(Some(&state)),
+            conversation.id.trim(),
+            agent.id.trim(),
+        );
+        {
+            let mut cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
+            cache.clear();
+        }
+
+        let first = finalize_system_prompt_with_manager(
+            Some(&state),
+            "chat",
+            &conversation,
+            &agent,
+            &departments,
+            Some(&ApiConfig::default()),
+            Some(("测试用户", "")),
+            "default",
+            "zh-CN",
+            "核心 system prompt",
+            None,
+            terminal_block,
+            &system_blocks,
+            None,
+        );
+        let second = finalize_system_prompt_with_manager(
+            Some(&state),
+            "summary_context",
+            &conversation,
+            &agent,
+            &departments,
+            Some(&ApiConfig::default()),
+            Some(("测试用户", "")),
+            "default",
+            "zh-CN",
+            "核心 system prompt",
+            None,
+            terminal_block,
+            &system_blocks,
+            None,
+        );
+
+        assert_eq!(first, second);
+        let cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key(&cache_key));
+    }
+
+    #[test]
     fn conversation_environment_prompt_snapshot_should_rebuild_after_environment_invalidation() {
         let llm_workspace_path = std::env::temp_dir().join(format!(
             "easy-call-ai-environment-rebuild-test-{}",
@@ -843,7 +959,10 @@ mod prompt_assembly_tests {
             &[],
             &[],
         );
-        mark_prompt_cache_rebuild_for_conversation_environment(&state, &conversation.id);
+        mark_prompt_cache_rebuild_for_system_environment_by_conversation(
+            &state,
+            &conversation.id,
+        );
         let remote = get_or_build_conversation_environment_prompt_snapshot(
             Some(&state),
             &remote_im_conversation,
@@ -858,6 +977,86 @@ mod prompt_assembly_tests {
         assert_ne!(normal_text, remote_text);
         assert!(!normal_text.contains("联系人是特殊用户"));
         assert!(remote_text.contains("联系人是特殊用户"));
+    }
+
+    #[test]
+    fn system_source_invalidation_should_not_dirty_conversation_environment_cache() {
+        let llm_workspace_path = std::env::temp_dir().join(format!(
+            "easy-call-ai-system-source-dirty-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        let state = build_test_state(llm_workspace_path);
+        let agent = default_agent();
+        let conversation = build_test_conversation(Vec::new());
+        let cache_key = build_conversation_environment_prompt_cache_key(
+            Some(&state),
+            &conversation,
+            "chat",
+        );
+        let _ = get_or_build_conversation_environment_prompt_snapshot(
+            Some(&state),
+            &conversation,
+            "chat",
+            Some("<shell workspace>\n运行环境块\n</shell workspace>"),
+            &[],
+            &[],
+        );
+
+        mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &[agent.id.clone()]);
+
+        let cache = cache_lock_recover(
+            "conversation_environment_prompt_cache",
+            conversation_environment_prompt_cache(),
+        );
+        let entry = cache.get(&cache_key).expect("environment cache entry");
+        assert!(entry.dirty_reason.is_none());
+    }
+
+    #[test]
+    fn system_environment_invalidation_should_not_dirty_department_cache() {
+        let llm_workspace_path = std::env::temp_dir().join(format!(
+            "easy-call-ai-system-environment-dirty-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        let state = build_test_state(llm_workspace_path);
+        let agent = default_agent();
+        let departments = default_departments("api-1");
+        let conversation = build_test_conversation(Vec::new());
+        let cache_key = build_department_system_prompt_cache_key(
+            Some(&state),
+            &agent,
+            "zh-CN",
+        );
+        let _ = finalize_system_prompt_with_manager(
+            Some(&state),
+            "chat",
+            &conversation,
+            &agent,
+            &departments,
+            Some(&ApiConfig::default()),
+            Some(("测试用户", "")),
+            "default",
+            "zh-CN",
+            "核心 system prompt",
+            None,
+            Some("<terminal env>\n当前 shell: PowerShell\n</terminal env>"),
+            &[],
+            None,
+        );
+
+        mark_prompt_cache_rebuild_for_system_environment_by_conversation(
+            &state,
+            &conversation.id,
+        );
+
+        let cache = cache_lock_recover(
+            "department_system_prompt_cache",
+            department_system_prompt_cache(),
+        );
+        let entry = cache.get(&cache_key).expect("department cache entry");
+        assert!(entry.dirty_reason.is_none());
     }
 
     #[test]
