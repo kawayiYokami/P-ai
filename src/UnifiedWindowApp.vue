@@ -39,6 +39,7 @@
       @update-to-latest="triggerUpdateToLatest"
       @switch-conversation="switchUnarchivedConversation"
       @rename-conversation="renameCurrentConversation"
+      @toggle-pin-conversation="toggleConversationPin"
       @create-conversation="createUnarchivedConversation"
       @force-archive="openForceArchiveActionDialog"
       @close-window="closeWindowAndClearForeground"
@@ -236,6 +237,7 @@
       :on-lock-chat-workspace="openChatWorkspacePicker"
       :on-switch-conversation="switchUnarchivedConversation"
       :on-rename-conversation="renameCurrentConversation"
+      :on-toggle-conversation-pin="toggleConversationPin"
       :on-create-conversation="createUnarchivedConversation"
       :on-derive-conversation-from-selection="deriveConversationFromSelection"
       :on-deliver-conversation-from-selection="deliverConversationFromSelection"
@@ -487,6 +489,7 @@ let chatStreamRebindRequiredUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
 let chatConversationMessageAppendedUnlisten: UnlistenFn | null = null;
 let chatConversationTodosUpdatedUnlisten: UnlistenFn | null = null;
+let chatConversationPinUpdatedUnlisten: UnlistenFn | null = null;
 let foregroundPaintTraceSeq = 0;
 let chatWindowActiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let chatMicPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1250,6 +1253,12 @@ type ConversationTodosUpdatedPayload = {
   currentTodos?: ChatTodoItem[];
 };
 
+type ConversationPinUpdatedPayload = {
+  conversationId?: string;
+  isPinned?: boolean;
+  pinIndex?: number | null;
+};
+
 function clearPendingConversationScrollToBottomFallback() {
   if (pendingConversationScrollToBottomTimer) {
     window.clearTimeout(pendingConversationScrollToBottomTimer);
@@ -1298,10 +1307,13 @@ const chatUnarchivedConversationItems = computed(() => {
       workspaceLabel: String(item.workspaceLabel || "").trim() || "默认工作空间",
       isActive: !!item.isActive,
       isMainConversation: !!item.isMainConversation,
+      isPinned: !!item.isPinned,
+      pinIndex: Number.isFinite(Number(item.pinIndex)) ? Number(item.pinIndex) : undefined,
       runtimeState: item.runtimeState,
       currentTodo: String(item.currentTodo || "").trim(),
       currentTodos: Array.isArray(item.currentTodos) ? item.currentTodos : [],
       updatedAt: item.lastMessageAt || item.updatedAt || "",
+      lastMessageAt: item.lastMessageAt || item.updatedAt || "",
       previewMessages: Array.isArray(item.previewMessages) ? item.previewMessages : [],
       backgroundStatus:
         backgroundConversationBadgeMap.value[String(item.conversationId || "").trim()] || undefined,
@@ -2424,6 +2436,27 @@ function applyConversationTodosUpdated(payload?: ConversationTodosUpdatedPayload
   );
 }
 
+function applyConversationPinUpdated(payload?: ConversationPinUpdatedPayload | null) {
+  const conversationId = String(payload?.conversationId || "").trim();
+  if (!conversationId) return;
+  const isPinned = !!payload?.isPinned;
+  const pinIndex = Number.isFinite(Number(payload?.pinIndex)) ? Number(payload?.pinIndex) : undefined;
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== conversationId) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      isPinned,
+      pinIndex,
+    };
+  });
+  if (!changed) return;
+  unarchivedConversations.value = sortUnarchivedConversationOverviewItems(nextItems);
+}
+
 function isOverviewDraftMessage(message?: ChatMessage): boolean {
   const messageId = String(message?.id || "").trim();
   return messageId.startsWith(DRAFT_ASSISTANT_ID_PREFIX) || messageId.startsWith("__draft_user__:");
@@ -2456,6 +2489,31 @@ function previewMessageFromChatMessage(message: ChatMessage): ConversationPrevie
   };
 }
 
+function unarchivedConversationActivityAt(item: UnarchivedConversationSummary): string {
+  return String(item.lastMessageAt || item.updatedAt || "").trim();
+}
+
+function sortUnarchivedConversationOverviewItems(
+  items: UnarchivedConversationSummary[],
+): UnarchivedConversationSummary[] {
+  return [...items].sort((a, b) => {
+    if (!!a.isMainConversation !== !!b.isMainConversation) {
+      return Number(!!b.isMainConversation) - Number(!!a.isMainConversation);
+    }
+    if (!!a.isPinned !== !!b.isPinned) {
+      return Number(!!b.isPinned) - Number(!!a.isPinned);
+    }
+    if (a.isPinned && b.isPinned) {
+      const aIndex = Number.isFinite(Number(a.pinIndex)) ? Number(a.pinIndex) : Number.MAX_SAFE_INTEGER;
+      const bIndex = Number.isFinite(Number(b.pinIndex)) ? Number(b.pinIndex) : Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex || String(a.conversationId || "").localeCompare(String(b.conversationId || ""));
+    }
+    const aActivity = unarchivedConversationActivityAt(a);
+    const bActivity = unarchivedConversationActivityAt(b);
+    return bActivity.localeCompare(aActivity) || String(a.conversationId || "").localeCompare(String(b.conversationId || ""));
+  });
+}
+
 function updateForegroundConversationOverviewFromMessages(
   conversationId: string,
   assistantMessage?: ChatMessage | null,
@@ -2479,15 +2537,9 @@ function updateForegroundConversationOverviewFromMessages(
   const lastMessage = nextMessages[nextMessages.length - 1];
   const lastMessageAt = String(lastMessage?.createdAt || "").trim();
   let changed = false;
-  const reordered = [
-    ...unarchivedConversations.value.filter((item) => String(item.conversationId || "").trim() === cid),
-    ...unarchivedConversations.value.filter((item) => String(item.conversationId || "").trim() !== cid),
-  ].map((item, index) => {
+  const nextItems = unarchivedConversations.value.map((item) => {
     if (String(item.conversationId || "").trim() !== cid) {
-      return {
-        ...item,
-        isMainConversation: index === 0,
-      };
+      return item;
     }
     changed = true;
     return {
@@ -2496,11 +2548,10 @@ function updateForegroundConversationOverviewFromMessages(
       updatedAt: lastMessageAt || item.updatedAt,
       lastMessageAt: lastMessageAt || item.lastMessageAt,
       previewMessages,
-      isMainConversation: index === 0,
     };
   });
   if (changed) {
-    unarchivedConversations.value = reordered;
+    unarchivedConversations.value = sortUnarchivedConversationOverviewItems(nextItems);
   }
 }
 
@@ -2761,6 +2812,25 @@ async function renameCurrentConversation(payload: { conversationId: string; titl
     setStatus(t("status.conversationRenamed"));
   } catch (error) {
     setStatusError("status.renameConversationFailed", error);
+  }
+}
+
+async function toggleConversationPin(conversationId: string) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  try {
+    const result = await invokeTauri<{ conversationId: string; isPinned: boolean; pinIndex?: number | null }>("toggle_unarchived_conversation_pin", {
+      input: {
+        conversationId: cid,
+      },
+    });
+    applyConversationPinUpdated({
+      conversationId: String(result?.conversationId || cid).trim(),
+      isPinned: !!result?.isPinned,
+      pinIndex: Number.isFinite(Number(result?.pinIndex)) ? Number(result?.pinIndex) : undefined,
+    });
+  } catch (error) {
+    setStatusError("status.requestFailed", error);
   }
 }
 
@@ -3131,6 +3201,15 @@ onMounted(() => {
       .catch((error) => {
         console.error("[Todo] 监听器注册失败", error);
       });
+    void listen<ConversationPinUpdatedPayload>("easy-call:conversation-pin-updated", (event) => {
+      applyConversationPinUpdated(event.payload);
+    })
+      .then((unlisten) => {
+        chatConversationPinUpdatedUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.error("[会话置顶] 监听器注册失败", error);
+      });
     void listen<unknown>("easy-call:assistant-delta", (event) => {
       const conversationId = readConversationIdFromPayload(event.payload);
       console.info("[聊天流式重绑][前端] 收到助手增量普通事件", {
@@ -3229,6 +3308,10 @@ onBeforeUnmount(() => {
   if (chatConversationTodosUpdatedUnlisten) {
     chatConversationTodosUpdatedUnlisten();
     chatConversationTodosUpdatedUnlisten = null;
+  }
+  if (chatConversationPinUpdatedUnlisten) {
+    chatConversationPinUpdatedUnlisten();
+    chatConversationPinUpdatedUnlisten = null;
   }
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);

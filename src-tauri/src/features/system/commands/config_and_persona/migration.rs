@@ -761,6 +761,7 @@ fn build_imported_runtime(
     final_data.background_voice_screenshot_mode =
         imported.background_voice_screenshot_mode.clone();
     final_data.instruction_presets = imported.instruction_presets.clone();
+    final_data.pinned_conversation_ids = imported.pinned_conversation_ids.clone();
     final_data
 }
 

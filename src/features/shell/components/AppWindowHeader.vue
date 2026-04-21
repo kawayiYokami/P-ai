@@ -25,6 +25,7 @@
             :user-avatar-url="userAvatarUrl"
             @select-conversation="handleConversationListSelect"
             @rename-conversation="handleConversationRename"
+            @toggle-pin-conversation="handleConversationPinToggle"
           />
         </div>
       </div>
@@ -322,6 +323,7 @@ const emit = defineEmits<{
   (e: "toggle-maximize-window"): void;
   (e: "switch-conversation", conversationId: string): void;
   (e: "rename-conversation", payload: { conversationId: string; title: string }): void;
+  (e: "toggle-pin-conversation", conversationId: string): void;
   (e: "create-conversation", input?: CreateConversationInput): void;
   (e: "force-archive"): void;
   (e: "close-window"): void;
@@ -437,6 +439,10 @@ function handleConversationRename(payload: { conversationId: string; title: stri
     conversationId: String(payload?.conversationId || "").trim(),
     title: String(payload?.title || "").trim(),
   });
+}
+
+function handleConversationPinToggle(conversationId: string) {
+  emit("toggle-pin-conversation", String(conversationId || "").trim());
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {

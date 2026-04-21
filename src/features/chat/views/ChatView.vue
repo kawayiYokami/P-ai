@@ -14,6 +14,7 @@
       :persona-avatar-url-map="personaAvatarUrlMap"
       @select="handleConversationListSelect"
       @rename="handleConversationRename"
+      @toggle-pin-conversation="handleConversationPinToggle"
     />
 
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -657,6 +658,7 @@ const emit = defineEmits<{
   (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "switchConversation", conversationId: string): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
+  (e: "togglePinConversation", conversationId: string): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string }): void;
   (e: "openConversationSummary", conversationId: string): void;
   (e: "reachedBottom"): void;
@@ -708,6 +710,10 @@ watch(
   },
   { immediate: true },
 );
+
+function handleConversationPinToggle(conversationId: string) {
+  emit("togglePinConversation", String(conversationId || "").trim());
+}
 watch(
   () => String(props.activeConversationId || "").trim(),
   () => {

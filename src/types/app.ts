@@ -508,6 +508,8 @@ export type UnarchivedConversationSummary = {
   workspaceLabel?: string;
   isActive?: boolean;
   isMainConversation?: boolean;
+  isPinned?: boolean;
+  pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
   currentTodo?: string;
   planModeEnabled?: boolean;
@@ -538,9 +540,12 @@ export type ChatConversationOverviewItem = {
   parentConversationId?: string;
   forkMessageCursor?: string;
   updatedAt?: string;
+  lastMessageAt?: string;
   workspaceLabel?: string;
   isActive?: boolean;
   isMainConversation?: boolean;
+  isPinned?: boolean;
+  pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
   currentTodo?: string;
   currentTodos?: ChatTodoItem[];

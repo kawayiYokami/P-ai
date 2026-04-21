@@ -279,6 +279,19 @@ struct RenameUnarchivedConversationOutput {
     title: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToggleUnarchivedConversationPinInput {
+    conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToggleUnarchivedConversationPinOutput {
+    conversation_id: String,
+    is_pinned: bool,
+}
+
 fn trimmed_option(raw: Option<&str>) -> Option<String> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -915,6 +928,81 @@ fn rename_unarchived_conversation(
     Ok(RenameUnarchivedConversationOutput {
         conversation_id: conversation_id.to_string(),
         title: next_title,
+    })
+}
+
+#[tauri::command]
+fn toggle_unarchived_conversation_pin(
+    input: ToggleUnarchivedConversationPinInput,
+    state: State<'_, AppState>,
+) -> Result<ToggleUnarchivedConversationPinOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+
+    let mut data = state_read_app_data_cached(&state)?;
+    let main_conversation_id = data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    if conversation_id == main_conversation_id {
+        drop(guard);
+        return Err("主会话始终置顶".to_string());
+    }
+
+    let Some(conversation) = data.conversations.iter().find(|item| item.id.trim() == conversation_id) else {
+        drop(guard);
+        return Err("未找到可置顶的会话".to_string());
+    };
+    if !conversation.summary.trim().is_empty() || !conversation_visible_in_foreground_lists(conversation) {
+        drop(guard);
+        return Err("未找到可置顶的会话".to_string());
+    }
+
+    let previous_pinned = normalized_pinned_conversation_ids(&data);
+    let mut next_pinned = previous_pinned.clone();
+    if let Some(index) = next_pinned.iter().position(|item| item.trim() == conversation_id) {
+        next_pinned.remove(index);
+    } else {
+        next_pinned.insert(0, conversation_id.to_string());
+    }
+    data.pinned_conversation_ids = next_pinned.clone();
+
+    persist_runtime_state_only(
+        state.inner(),
+        &data,
+        "toggle_unarchived_conversation_pin",
+    )?;
+    drop(guard);
+
+    let is_pinned = next_pinned.iter().any(|item| item.trim() == conversation_id);
+    let pin_index = next_pinned
+        .iter()
+        .position(|item| item.trim() == conversation_id);
+    runtime_log_info(format!(
+        "[会话] 完成，任务=切换会话置顶，conversation_id={}，is_pinned={}",
+        conversation_id, is_pinned
+    ));
+    emit_conversation_pin_updated_payload(
+        state.inner(),
+        &ConversationPinUpdatedPayload {
+            conversation_id: conversation_id.to_string(),
+            is_pinned,
+            pin_index,
+        },
+    );
+
+    Ok(ToggleUnarchivedConversationPinOutput {
+        conversation_id: conversation_id.to_string(),
+        is_pinned,
     })
 }
 

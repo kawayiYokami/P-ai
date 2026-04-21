@@ -508,6 +508,7 @@ fn main() {
             derive_unarchived_conversation_from_selection,
             deliver_unarchived_conversation_selection,
             rename_unarchived_conversation,
+            toggle_unarchived_conversation_pin,
             mark_conversation_read,
             get_unarchived_conversation_messages,
             get_unarchived_conversation_recent_messages,

@@ -1,108 +1,129 @@
 <template>
   <div class="flex h-[80vh] w-[80vw] max-h-[calc(100vh-1rem)] max-w-[calc(100vw-1rem)] flex-col rounded-box border border-base-300 bg-base-100 shadow-xl">
-    <div class="flex-1 min-h-0 space-y-2 overflow-y-auto p-2">
-      <component
-        v-for="item in props.items"
-        :key="item.conversationId"
-        :is="isCurrentConversation(item) ? 'div' : 'button'"
-        :type="isCurrentConversation(item) ? undefined : 'button'"
-        class="w-full rounded-box text-left transition-colors"
-        :class="[
-          item.conversationId === props.activeConversationId ? 'bg-base-300' : 'bg-base-100 hover:bg-base-200',
-          isConversationItemDisabled(item) ? 'cursor-not-allowed opacity-60' : '',
-        ]"
-        :disabled="!isCurrentConversation(item) && isConversationItemDisabled(item)"
-        :title="conversationItemTitle(item)"
-        @click="handleConversationCardClick(item)"
+    <div class="flex-1 min-h-0 overflow-y-auto p-2">
+      <section
+        v-for="section in conversationSections"
+        :key="section.key"
+        class="mb-3 last:mb-0"
       >
-        <!-- 红色区域：最后一个发言人头像 -->
-        <div class="flex items-center gap-3 p-3">
-          <div class="shrink-0">
-            <div class="avatar">
-              <div class="w-10 h-10 rounded-full bg-error text-error-content">
-                <img
-                  v-if="lastSpeakerAvatarUrl(item)"
-                  :src="lastSpeakerAvatarUrl(item)"
-                  :alt="lastSpeakerLabel(item)"
-                  class="w-10 h-10 rounded-full object-cover"
-                />
-                <span v-else class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold">
-                  {{ lastSpeakerInitial(item) }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex-1 min-w-0">
-            <!-- 标题 + 会话类型标签 -->
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex min-w-0 items-center gap-2">
-                <input
-                  v-if="isEditingTitle(item)"
-                  :ref="setRenameInputRef"
-                  v-model="editingTitleDraft"
-                  type="text"
-                  class="input input-bordered input-sm h-8 min-h-0 w-full max-w-full text-sm font-medium"
-                  @click.stop
-                  @mousedown.stop
-                  @keydown.enter.prevent="commitConversationTitleEdit(item)"
-                  @keydown.esc.prevent="cancelConversationTitleEdit()"
-                  @blur="handleConversationTitleBlur(item)"
-                />
-                <button
-                  v-else-if="canRenameConversation(item)"
-                  type="button"
-                  class="truncate text-left text-sm font-medium hover:underline"
-                  @click.stop="startConversationTitleEdit(item)"
-                  @mousedown.stop
-                >
-                  {{ conversationDisplayTitle(item) }}
-                </button>
-                <div v-else class="truncate text-sm font-medium">
-                  {{ conversationDisplayTitle(item) }}
+        <div class="divider my-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/45 before:bg-base-300 after:bg-base-300">
+          {{ section.title }}
+        </div>
+        <div class="space-y-2">
+          <component
+            v-for="item in section.items"
+            :key="item.conversationId"
+            :is="isCurrentConversation(item) ? 'div' : 'button'"
+            :type="isCurrentConversation(item) ? undefined : 'button'"
+            class="w-full rounded-box text-left transition-colors"
+            :class="[
+              item.conversationId === props.activeConversationId ? 'bg-base-300' : 'bg-base-100 hover:bg-base-200',
+              isConversationItemDisabled(item) ? 'cursor-not-allowed opacity-60' : '',
+            ]"
+            :disabled="!isCurrentConversation(item) && isConversationItemDisabled(item)"
+            :title="conversationItemTitle(item)"
+            @click="handleConversationCardClick(item)"
+          >
+            <div class="flex items-center gap-3 p-3">
+              <div class="shrink-0">
+                <div class="avatar">
+                  <div class="w-10 h-10 rounded-full bg-error text-error-content">
+                    <img
+                      v-if="lastSpeakerAvatarUrl(item)"
+                      :src="lastSpeakerAvatarUrl(item)"
+                      :alt="lastSpeakerLabel(item)"
+                      class="w-10 h-10 rounded-full object-cover"
+                    />
+                    <span v-else class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold">
+                      {{ lastSpeakerInitial(item) }}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <span class="shrink-0 text-[11px] text-base-content/60">
-                {{ formatConversationTime(item.updatedAt) }}
-              </span>
-            </div>
 
-            <div class="mt-1 flex items-center justify-between gap-2 text-xs">
-              <span class="min-w-0 truncate font-medium">
-                {{ workspaceDepartmentLabel(item) }}
-              </span>
-              <div class="flex shrink-0 items-center gap-2">
-                <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">
-                  {{ runtimeStateText(item.runtimeState) }}
-                </span>
-                <span
-                  v-if="unreadCountBadge(item)"
-                  class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-300 px-1.5 text-[11px] font-medium text-base-content/80"
-                >
-                  {{ unreadCountBadge(item) }}
-                </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex min-w-0 items-center gap-2">
+                    <input
+                      v-if="isEditingTitle(item)"
+                      :ref="setRenameInputRef"
+                      v-model="editingTitleDraft"
+                      type="text"
+                      class="input input-bordered input-sm h-8 min-h-0 w-full max-w-full text-sm font-medium"
+                      @click.stop
+                      @mousedown.stop
+                      @keydown.enter.prevent="commitConversationTitleEdit(item)"
+                      @keydown.esc.prevent="cancelConversationTitleEdit()"
+                      @blur="handleConversationTitleBlur(item)"
+                    />
+                    <button
+                      v-else-if="canRenameConversation(item)"
+                      type="button"
+                      class="truncate text-left text-sm font-medium hover:underline"
+                      @click.stop="startConversationTitleEdit(item)"
+                      @mousedown.stop
+                    >
+                      {{ conversationDisplayTitle(item) }}
+                    </button>
+                    <div v-else class="truncate text-sm font-medium">
+                      {{ conversationDisplayTitle(item) }}
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-1">
+                    <span class="text-[11px] text-base-content/60">
+                      {{ formatConversationTime(item.updatedAt) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs h-6 min-h-6 w-6 min-w-6 p-0"
+                      :class="item.isPinned || item.isMainConversation ? 'text-primary' : 'text-base-content/45 hover:text-base-content'"
+                      :title="pinConversationTitle(item)"
+                      :disabled="!canToggleConversationPin(item)"
+                      @click.stop="toggleConversationPin(item)"
+                      @mousedown.stop
+                    >
+                      <Pin class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div class="mt-1 flex items-center justify-between gap-2 text-xs">
+                  <span class="min-w-0 truncate font-medium">
+                    {{ workspaceDepartmentLabel(item) }}
+                  </span>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">
+                      {{ runtimeStateText(item.runtimeState) }}
+                    </span>
+                    <span
+                      v-if="unreadCountBadge(item)"
+                      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-300 px-1.5 text-[11px] font-medium text-base-content/80"
+                    >
+                      {{ unreadCountBadge(item) }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- 消息摘要（最多两条） -->
-        <div class="px-3 pb-3 space-y-1">
-          <div
-            v-for="preview in normalizedPreviewMessages(item).slice(0, 2)"
-            :key="preview.messageId"
-            class="flex items-start gap-2 text-xs"
-          >
-            <span class="shrink-0 font-medium">
-              {{ speakerLabel(preview) }}:
-            </span>
-            <span class="truncate opacity-80">{{ previewText(preview) }}</span>
-          </div>
-          <div v-if="normalizedPreviewMessages(item).length === 0" class="text-xs opacity-60 px-2">
-            {{ t("chat.conversationNoPreview") }}
-          </div>
+            <div class="px-3 pb-3 space-y-1">
+              <div
+                v-for="preview in normalizedPreviewMessages(item).slice(0, 2)"
+                :key="preview.messageId"
+                class="flex items-start gap-2 text-xs"
+              >
+                <span class="shrink-0 font-medium">
+                  {{ speakerLabel(preview) }}:
+                </span>
+                <span class="truncate opacity-80">{{ previewText(preview) }}</span>
+              </div>
+              <div v-if="normalizedPreviewMessages(item).length === 0" class="text-xs opacity-60 px-2">
+                {{ t("chat.conversationNoPreview") }}
+              </div>
+            </div>
+          </component>
         </div>
-      </component>
+      </section>
     </div>
   </div>
 </template>
@@ -110,6 +131,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
+import { Pin } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { formatConversationListTime } from "../utils/conversation-time";
 
@@ -125,6 +147,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "selectConversation", conversationId: string): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
+  (e: "togglePinConversation", conversationId: string): void;
 }>();
 
 const { t, locale } = useI18n();
@@ -135,6 +158,26 @@ const editingTitleDraft = ref("");
 const conversationPreviewCache = computed(() => new Map(
   props.items.map((item) => [String(item.conversationId || "").trim(), Array.isArray(item.previewMessages) ? item.previewMessages : []]),
 ));
+const conversationSections = computed(() => {
+  const pinned = props.items.filter((item) => !!item.isPinned || !!item.isMainConversation);
+  const others = props.items.filter((item) => !item.isPinned && !item.isMainConversation);
+  return [
+    pinned.length > 0
+      ? {
+        key: "pinned",
+        title: t("chat.pinnedConversations"),
+        items: pinned,
+      }
+      : null,
+    others.length > 0
+      ? {
+        key: "others",
+        title: t("chat.otherConversations"),
+        items: others,
+      }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; title: string; items: ChatConversationOverviewItem[] }>;
+});
 
 watchEffect(() => {
   const editingId = String(editingConversationId.value || "").trim();
@@ -187,6 +230,20 @@ function workspaceDepartmentLabel(item: ChatConversationOverviewItem): string {
 function handleConversationCardClick(item: ChatConversationOverviewItem) {
   if (isCurrentConversation(item) || isConversationItemDisabled(item)) return;
   emit("selectConversation", item.conversationId);
+}
+
+function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
+  return !item.isMainConversation;
+}
+
+function pinConversationTitle(item: ChatConversationOverviewItem): string {
+  if (item.isMainConversation) return t("chat.mainConversationPinned");
+  return item.isPinned ? t("chat.unpinConversation") : t("chat.pinConversation");
+}
+
+function toggleConversationPin(item: ChatConversationOverviewItem) {
+  if (!canToggleConversationPin(item)) return;
+  emit("togglePinConversation", String(item.conversationId || "").trim());
 }
 
 function conversationDisplayTitle(item: ChatConversationOverviewItem): string {

@@ -162,6 +162,8 @@ struct RuntimeStateFile {
     #[serde(default)]
     main_conversation_id: Option<String>,
     #[serde(default)]
+    pinned_conversation_ids: Vec<String>,
+    #[serde(default)]
     image_text_cache: Vec<ImageTextCacheEntry>,
     #[serde(default)]
     pdf_text_cache: Vec<PdfTextCacheEntry>,
@@ -185,6 +187,7 @@ impl Default for RuntimeStateFile {
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
             instruction_presets: Vec::new(),
             main_conversation_id: None,
+            pinned_conversation_ids: Vec::new(),
             image_text_cache: Vec::new(),
             pdf_text_cache: Vec::new(),
             pdf_image_cache: Vec::new(),
@@ -275,6 +278,7 @@ fn build_runtime_state_file(data: &AppData) -> RuntimeStateFile {
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
         instruction_presets: data.instruction_presets.clone(),
         main_conversation_id: data.main_conversation_id.clone(),
+        pinned_conversation_ids: data.pinned_conversation_ids.clone(),
         image_text_cache: data.image_text_cache.clone(),
         pdf_text_cache: data.pdf_text_cache.clone(),
         pdf_image_cache: data.pdf_image_cache.clone(),
@@ -334,6 +338,7 @@ fn apply_runtime_state_to_app_data(data: &mut AppData, runtime: &RuntimeStateFil
     data.background_voice_screenshot_mode = runtime.background_voice_screenshot_mode.clone();
     data.instruction_presets = runtime.instruction_presets.clone();
     data.main_conversation_id = runtime.main_conversation_id.clone();
+    data.pinned_conversation_ids = runtime.pinned_conversation_ids.clone();
     data.image_text_cache = runtime.image_text_cache.clone();
     data.pdf_text_cache = runtime.pdf_text_cache.clone();
     data.pdf_image_cache = runtime.pdf_image_cache.clone();
@@ -690,6 +695,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         background_voice_screenshot_mode: profile.background_voice_screenshot_mode,
         instruction_presets: profile.instruction_presets,
         main_conversation_id: None,
+        pinned_conversation_ids: Vec::new(),
         conversations: conversations.conversations,
         archived_conversations: Vec::new(),
         image_text_cache: image_cache.image_text_cache,
@@ -756,6 +762,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
         background_voice_screenshot_mode: runtime.background_voice_screenshot_mode,
         instruction_presets: runtime.instruction_presets,
         main_conversation_id: runtime.main_conversation_id,
+        pinned_conversation_ids: runtime.pinned_conversation_ids,
         conversations,
         archived_conversations: Vec::new(),
         image_text_cache: runtime.image_text_cache,

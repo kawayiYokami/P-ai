@@ -141,6 +141,10 @@ struct UnarchivedConversationSummary {
     is_active: bool,
     #[serde(default)]
     is_main_conversation: bool,
+    #[serde(default)]
+    is_pinned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pin_index: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_state: Option<MainSessionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -337,17 +341,51 @@ fn workspace_label_for_unarchived_conversation(
     "默认工作空间".to_string()
 }
 
+fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
+    let main_conversation_id = data
+        .main_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    let visible_ids = data
+        .conversations
+        .iter()
+        .filter(|conversation| {
+            conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+        })
+        .map(|conversation| conversation.id.trim().to_string())
+        .filter(|conversation_id| !conversation_id.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let mut seen = std::collections::HashSet::<String>::new();
+    data.pinned_conversation_ids
+        .iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .filter(|item| *item != main_conversation_id)
+        .filter(|item| visible_ids.contains(item))
+        .filter(|item| seen.insert(item.clone()))
+        .collect()
+}
+
 fn build_unarchived_conversation_summary(
     state: &AppState,
     app_config: &AppConfig,
     main_conversation_id: &str,
+    pinned_conversation_ids: &[String],
     conversation: &Conversation,
 ) -> UnarchivedConversationSummary {
     let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
+    let conversation_id = conversation.id.trim();
+    let is_main_conversation = conversation_id == main_conversation_id;
+    let pin_index = pinned_conversation_ids
+        .iter()
+        .position(|item| item.trim() == conversation_id);
     let department_id = resolved_foreground_department_id_for_conversation(
         app_config,
         conversation,
-        conversation.id.trim() == main_conversation_id,
+        is_main_conversation,
     );
     let department_name = department_by_id(app_config, &department_id)
         .map(|department| department.name.trim().to_string())
@@ -385,7 +423,9 @@ fn build_unarchived_conversation_summary(
             .map(ToOwned::to_owned),
         workspace_label: workspace_label_for_unarchived_conversation(state, conversation),
         is_active: conversation.status.trim() == "active",
-        is_main_conversation: conversation.id.trim() == main_conversation_id,
+        is_main_conversation,
+        is_pinned: is_main_conversation || pin_index.is_some(),
+        pin_index,
         runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
         current_todo: conversation_current_todo_text(conversation),
         plan_mode_enabled: get_conversation_plan_mode_enabled(state, &conversation.id)
@@ -404,13 +444,23 @@ fn unarchived_conversation_sort_key(summary: &UnarchivedConversationSummary) -> 
     )
 }
 
-fn sort_unarchived_conversation_summaries_with_parent_first(
+fn sort_unarchived_conversation_summaries(
     summaries: Vec<UnarchivedConversationSummary>,
 ) -> Vec<UnarchivedConversationSummary> {
     let mut ordered = summaries;
     ordered.sort_by(|a, b| {
         if a.is_main_conversation != b.is_main_conversation {
             return b.is_main_conversation.cmp(&a.is_main_conversation);
+        }
+        if a.is_pinned != b.is_pinned {
+            return b.is_pinned.cmp(&a.is_pinned);
+        }
+        if a.is_pinned && b.is_pinned {
+            let a_index = a.pin_index.unwrap_or(usize::MAX);
+            let b_index = b.pin_index.unwrap_or(usize::MAX);
+            return a_index
+                .cmp(&b_index)
+                .then_with(|| a.conversation_id.cmp(&b.conversation_id));
         }
         let (a_primary, a_secondary) = unarchived_conversation_sort_key(a);
         let (b_primary, b_secondary) = unarchived_conversation_sort_key(b);
@@ -419,92 +469,7 @@ fn sort_unarchived_conversation_summaries_with_parent_first(
             .then_with(|| b_secondary.cmp(a_secondary))
             .then_with(|| a.conversation_id.cmp(&b.conversation_id))
     });
-
-    let ordered_ids = ordered
-        .iter()
-        .map(|item| item.conversation_id.clone())
-        .collect::<Vec<_>>();
-    let children_by_parent = ordered.iter().enumerate().fold(
-        std::collections::HashMap::<String, Vec<String>>::new(),
-        |mut acc, (_index, item)| {
-            if let Some(parent_id) = item
-                .parent_conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                acc.entry(parent_id.to_string())
-                    .or_default()
-                    .push(item.conversation_id.clone());
-            }
-            acc
-        },
-    );
-    let mut by_id = ordered
-        .into_iter()
-        .map(|item| (item.conversation_id.clone(), item))
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut visited = std::collections::HashSet::<String>::new();
-    let mut output = Vec::<UnarchivedConversationSummary>::new();
-
-    fn append_with_children(
-        conversation_id: &str,
-        by_id: &mut std::collections::HashMap<String, UnarchivedConversationSummary>,
-        children_by_parent: &std::collections::HashMap<String, Vec<String>>,
-        visited: &mut std::collections::HashSet<String>,
-        output: &mut Vec<UnarchivedConversationSummary>,
-    ) {
-        let normalized_id = conversation_id.trim();
-        if normalized_id.is_empty() || !visited.insert(normalized_id.to_string()) {
-            return;
-        }
-        let Some(item) = by_id.remove(normalized_id) else {
-            return;
-        };
-        output.push(item);
-        if let Some(child_ids) = children_by_parent.get(normalized_id) {
-            for child_id in child_ids {
-                append_with_children(child_id, by_id, children_by_parent, visited, output);
-            }
-        }
-    }
-
-    for conversation_id in &ordered_ids {
-        let Some(parent_id) = by_id
-            .get(conversation_id)
-            .and_then(|item| item.parent_conversation_id.as_deref())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            append_with_children(
-                conversation_id,
-                &mut by_id,
-                &children_by_parent,
-                &mut visited,
-                &mut output,
-            );
-            continue;
-        };
-        if !by_id.contains_key(parent_id) {
-            append_with_children(
-                conversation_id,
-                &mut by_id,
-                &children_by_parent,
-                &mut visited,
-                &mut output,
-            );
-        }
-    }
-    for conversation_id in ordered_ids {
-        append_with_children(
-            &conversation_id,
-            &mut by_id,
-            &children_by_parent,
-            &mut visited,
-            &mut output,
-        );
-    }
-    output
+    ordered
 }
 
 fn collect_unarchived_conversation_summaries(
@@ -518,6 +483,7 @@ fn collect_unarchived_conversation_summaries(
         .map(str::trim)
         .unwrap_or_default()
         .to_string();
+    let pinned_conversation_ids = normalized_pinned_conversation_ids(data);
     let summaries = data
         .conversations
         .iter()
@@ -530,11 +496,12 @@ fn collect_unarchived_conversation_summaries(
                 state,
                 app_config,
                 &main_conversation_id,
+                &pinned_conversation_ids,
                 conversation,
             )
         })
         .collect::<Vec<_>>();
-    sort_unarchived_conversation_summaries_with_parent_first(summaries)
+    sort_unarchived_conversation_summaries(summaries)
 }
 
 fn delegate_conversation_summary_from_runtime_thread(
@@ -728,6 +695,15 @@ struct ConversationTodosUpdatedPayload {
     current_todo: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     current_todos: Vec<ConversationTodoItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationPinUpdatedPayload {
+    conversation_id: String,
+    is_pinned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pin_index: Option<usize>,
 }
 
 fn build_unarchived_conversation_overview_payload(
@@ -1101,6 +1077,26 @@ fn emit_conversation_todos_updated_payload(
     }
 }
 
+fn emit_conversation_pin_updated_payload(
+    state: &AppState,
+    payload: &ConversationPinUpdatedPayload,
+) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(err) => {
+            eprintln!("[会话置顶] 获取 app_handle 失败：锁已损坏，error={:?}", err);
+            None
+        }
+    };
+    let Some(app_handle) = app_handle else {
+        eprintln!("[会话置顶] 推送跳过：无法获取 app_handle");
+        return;
+    };
+    if let Err(err) = app_handle.emit("easy-call:conversation-pin-updated", payload) {
+        eprintln!("[会话置顶] 推送失败：错误={}", err);
+    }
+}
+
 fn normalize_conversation_todos(
     todos: Vec<ConversationTodoItem>,
 ) -> Vec<ConversationTodoItem> {
@@ -1367,6 +1363,8 @@ mod conversation_snapshot_api_tests {
             workspace_label: "默认工作空间".to_string(),
             is_active: false,
             is_main_conversation: false,
+            is_pinned: false,
+            pin_index: None,
             runtime_state: None,
             current_todo: None,
             plan_mode_enabled: false,
@@ -1375,16 +1373,25 @@ mod conversation_snapshot_api_tests {
     }
 
     #[test]
-    fn sort_unarchived_conversation_summaries_should_keep_parent_before_child() {
-        let ordered = sort_unarchived_conversation_summaries_with_parent_first(vec![
-            test_summary("child", "2026-04-18T10:02:00Z", Some("parent")),
-            test_summary("independent", "2026-04-18T10:03:00Z", None),
-            test_summary("parent", "2026-04-18T10:01:00Z", None),
+    fn sort_unarchived_conversation_summaries_should_group_main_pinned_and_recent() {
+        let mut main = test_summary("main", "2026-04-18T10:00:00Z", None);
+        main.is_main_conversation = true;
+        main.is_pinned = true;
+        let mut pinned = test_summary("pinned", "2026-04-18T10:01:00Z", None);
+        pinned.is_pinned = true;
+        pinned.pin_index = Some(0);
+        let recent = test_summary("recent", "2026-04-18T10:03:00Z", None);
+        let older = test_summary("older", "2026-04-18T10:02:00Z", None);
+        let ordered = sort_unarchived_conversation_summaries(vec![
+            older,
+            recent,
+            pinned,
+            main,
         ]);
         let ids = ordered
             .iter()
             .map(|item| item.conversation_id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec!["independent", "parent", "child"]);
+        assert_eq!(ids, vec!["main", "pinned", "recent", "older"]);
     }
 }

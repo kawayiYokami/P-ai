@@ -188,6 +188,7 @@
         @refresh-tool-review-messages="onReloadMessages"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
+        @toggle-pin-conversation="onToggleConversationPin"
         @create-conversation="onCreateConversation"
         @open-conversation-summary="openConversationSummary"
       />
@@ -549,6 +550,7 @@ const props = defineProps<{
   onReloadMessages: () => void;
   onSwitchConversation: (conversationId: string) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;
+  onToggleConversationPin: (conversationId: string) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;
   onDeriveConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onDeliverConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;

@@ -108,6 +108,8 @@ struct AppData {
     instruction_presets: Vec<PromptCommandPreset>,
     #[serde(default)]
     main_conversation_id: Option<String>,
+    #[serde(default)]
+    pinned_conversation_ids: Vec<String>,
     conversations: Vec<Conversation>,
     #[serde(default, skip_serializing)]
     archived_conversations: Vec<ConversationArchive>,
@@ -140,6 +142,7 @@ impl Default for AppData {
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
             instruction_presets: Vec::new(),
             main_conversation_id: None,
+            pinned_conversation_ids: Vec::new(),
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
             image_text_cache: Vec::new(),

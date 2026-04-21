@@ -1,5 +1,10 @@
 # 变更日志
 
+## 更新：会话置顶分组与图钉快速切换
+
+- 功能（chat-conversation-pin-grouping）：未归档会话列表与顶栏会话列表新增“置顶 / 其他”两组，主会话始终视为置顶；置顶会话按后置顶的更靠前排序，非置顶会话按最后消息时间倒序排列，图钉按钮放到时间右侧，并统一用分割线展示两组边界
+- 优化（chat-conversation-pin-fast-toggle）：切换会话置顶改为只写运行态中的 `pinned_conversation_ids`，并通过轻量事件 `easy-call:conversation-pin-updated` 让前端本地 patch 当前会话的置顶状态与顺序；不再为了更新图钉去重建整份会话概览或重新拉取全量列表
+
 ## 更新：主会话禁止归档与删除
 
 - 修复（main-conversation-archive-and-delete-locked）：主会话现在明确禁止归档与删除；后端 `force_archive_current`、归档预览与 `delete_unarchived_conversation` 会直接拦截主会话，前端归档弹窗、归档窗口删除按钮与删除动作也同步禁用或给出提示，避免主会话被误删/误归档后丢失入口
