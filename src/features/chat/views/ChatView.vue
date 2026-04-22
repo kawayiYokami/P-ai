@@ -34,7 +34,7 @@
         :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
         @scroll="onScroll"
       >
-        <div v-if="hasActiveOrPendingTodo" class="sticky top-0 z-20 flex justify-center pt-1">
+        <div v-if="hasActiveOrPendingTodo" class="pointer-events-none sticky top-0 z-20 flex justify-center pt-1">
           <div
             class="dropdown dropdown-bottom pointer-events-auto"
             :aria-label="t('config.task.fields.todo')"

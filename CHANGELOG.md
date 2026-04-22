@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.21
 
+- 修复（chat-todo-sticky-hit-area）：聊天窗口顶部当前待办条的 sticky 外层容器不再拦截整行点击，点击命中范围收回到中间待办按钮本体，避免下方左右两侧按钮被遮挡后无法点击
 - 修正（json-only-default-streaming）：撤回“`json_only` 默认强制非流式”的行为，恢复为默认沿用流式请求，仅在已有流式降级缓存命中时才切到非流式；避免部分上游要求 `stream=true` 时因错误强制非流式触发 `400 Bad Request`
 - 修正（streaming-fallback-predicate-tightening）：默认仍优先走流式，但自动降级到非流式的判定条件已收紧为“请求体 / 请求 schema 格式异常”，不再把流式响应解析异常、超时、5xx 等其他错误误判成应当禁用流式
 - 优化（tokio-worker-stack-and-llm-log-slimming）：Tauri 后端异步运行时改为显式使用 8MB Tokio worker 栈，缓解超大模型请求在主进程 worker 上执行时更容易触发栈溢出的风险；同时调用日志移除完整 `request` 持久化，不再为每轮模型请求额外保留一整份请求 JSON，仅继续保留计时、headers、工具信息、原始响应、错误与聚合轮次信息，降低大上下文场景下日志对象本身的内存占用与链路负担；工具安全审查、工具审查提交、归档摘要与主聊天轮次的模型调用日志也改为在外层调用点统一组装，不再由共享推理入口在内部直接落日志；`chat_pipeline` 聚合主卡现在会优先从 pending round buffer 读取最近一轮真实 `headers/tools`，避免聚合改造后回退到兜底值
