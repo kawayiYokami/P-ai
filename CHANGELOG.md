@@ -2,6 +2,7 @@
 
 ## 发布：v0.9.21
 
+- 修复（terminal-git-read-whitelist-and-local-rule-review）：终端只读白名单补齐 PowerShell 下常见只读 `git` 子命令（如 `status/diff/show/log`），避免 `git diff` 这类纯读命令被误送 AI 审查；同时对 `git pull/push/fetch/commit/merge/rebase/reset/checkout/clean/stash/apply` 等明确危险命令改为本地规则直接拦截，不再重复走 AI 审查，并统一返回带本地化说明的 `toolReview.kind=local_rule` 结果，其中 `git push/pull --force/-f` 会作为特别高危单独提示
 - 修复（chat-todo-sticky-hit-area）：聊天窗口顶部当前待办条的 sticky 外层容器不再拦截整行点击，点击命中范围收回到中间待办按钮本体，避免下方左右两侧按钮被遮挡后无法点击
 - 修正（json-only-default-streaming）：撤回“`json_only` 默认强制非流式”的行为，恢复为默认沿用流式请求，仅在已有流式降级缓存命中时才切到非流式；避免部分上游要求 `stream=true` 时因错误强制非流式触发 `400 Bad Request`
 - 修正（streaming-fallback-predicate-tightening）：默认仍优先走流式，但自动降级到非流式的判定条件已收紧为“请求体 / 请求 schema 格式异常”，不再把流式响应解析异常、超时、5xx 等其他错误误判成应当禁用流式

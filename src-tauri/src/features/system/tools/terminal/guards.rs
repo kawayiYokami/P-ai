@@ -31,9 +31,57 @@ fn terminal_is_powershell_encoded_command(command: &str) -> bool {
     saw_powershell && saw_encoded_flag
 }
 
+fn terminal_git_dangerous_block_reason(command: &str) -> Option<&'static str> {
+    for simple in terminal_split_simple_commands(command) {
+        let Some(first) = simple.argv.first() else {
+            continue;
+        };
+        let base_cmd = terminal_unquote_token(first).to_ascii_lowercase();
+        if base_cmd != "git" {
+            continue;
+        }
+        let second = simple
+            .argv
+            .get(1)
+            .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
+            .unwrap_or_default();
+        let has_force_flag = simple.argv.iter().skip(2).any(|item| {
+            let token = terminal_unquote_token(item).to_ascii_lowercase();
+            matches!(token.as_str(), "-f" | "--force")
+        });
+
+        match second.as_str() {
+            "push" if has_force_flag => {
+                return Some("git push --force/-f is especially dangerous and is blocked");
+            }
+            "pull" if has_force_flag => {
+                return Some("git pull --force/-f is especially dangerous and is blocked");
+            }
+            "push" => return Some("git push is blocked"),
+            "pull" => return Some("git pull is blocked"),
+            "fetch" => return Some("git fetch is blocked"),
+            "commit" => return Some("git commit is blocked"),
+            "merge" => return Some("git merge is blocked"),
+            "rebase" => return Some("git rebase is blocked"),
+            "reset" => return Some("git reset is blocked"),
+            "checkout" => return Some("git checkout is blocked"),
+            "switch" => return Some("git switch is blocked"),
+            "restore" => return Some("git restore is blocked"),
+            "clean" => return Some("git clean is blocked"),
+            "stash" => return Some("git stash is blocked"),
+            "apply" => return Some("git apply is blocked"),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn terminal_command_block_reason(command: &str) -> Option<&'static str> {
     if terminal_is_powershell_encoded_command(command) {
         return Some("encoded command is blocked");
+    }
+    if let Some(reason) = terminal_git_dangerous_block_reason(command) {
+        return Some(reason);
     }
     let lower = command.to_ascii_lowercase();
     if lower.contains("invoke-expression") || lower.contains("iex ") || lower.contains("iex(") {
@@ -159,5 +207,21 @@ mod terminal_output_decode_tests {
     fn detect_windows_1252_punctuation_should_not_become_garbled() {
         let bytes = [0x93, b'H', b'e', b'l', b'l', b'o', 0x94];
         assert_eq!(terminal_decode_output_bytes(&bytes), "“Hello”");
+    }
+
+    #[test]
+    fn git_push_force_should_be_blocked_as_high_risk() {
+        assert_eq!(
+            terminal_command_block_reason("git push --force origin main"),
+            Some("git push --force/-f is especially dangerous and is blocked")
+        );
+    }
+
+    #[test]
+    fn git_pull_should_be_blocked() {
+        assert_eq!(
+            terminal_command_block_reason("git pull origin main"),
+            Some("git pull is blocked")
+        );
     }
 }

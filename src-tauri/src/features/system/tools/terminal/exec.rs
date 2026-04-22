@@ -155,6 +155,10 @@ fn terminal_is_python_like_command(command: &str) -> bool {
     matches!(exe.as_str(), "python" | "python.exe" | "py" | "py.exe")
 }
 
+fn terminal_git_read_only_subcommand(subcommand: &str) -> bool {
+    matches!(subcommand, "status" | "diff" | "show" | "log")
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct TerminalSmartReviewReply {
     #[serde(default)]
@@ -177,6 +181,146 @@ enum TerminalSmartReviewOutcome {
         raw_json: String,
         model_name: String,
     },
+}
+
+fn terminal_localized_text(ui_language: &str, zh_cn: &str, zh_tw: &str, en: &str) -> String {
+    match ui_language.trim() {
+        "en-US" => en.to_string(),
+        "zh-TW" => zh_tw.to_string(),
+        _ => zh_cn.to_string(),
+    }
+}
+
+fn terminal_local_rule_model_name(ui_language: &str) -> String {
+    terminal_localized_text(ui_language, "本地规则", "本地規則", "Local rules")
+}
+
+fn terminal_local_review_value(ui_language: &str, review_opinion: impl Into<String>) -> Value {
+    serde_json::json!({
+        "kind": "local_rule",
+        "allow": false,
+        "reviewOpinion": review_opinion.into(),
+        "modelName": terminal_local_rule_model_name(ui_language),
+    })
+}
+
+fn terminal_local_rule_reason_message(ui_language: &str, reason: &str) -> String {
+    match reason {
+        "encoded command is blocked" => terminal_localized_text(
+            ui_language,
+            "命令使用了编码执行参数，本地规则已直接拦截。这类命令难以直接确认真实执行内容，风险过高，不进入 AI 审查。",
+            "命令使用了編碼執行參數，本地規則已直接攔截。這類命令難以直接確認真實執行內容，風險過高，不進入 AI 審查。",
+            "This command uses an encoded execution argument and was blocked by local rules. The real behavior cannot be inspected directly, so the risk is too high to send to AI review.",
+        ),
+        "Invoke-Expression/iex is blocked" => terminal_localized_text(
+            ui_language,
+            "命令使用了 Invoke-Expression/iex 动态执行，本地规则已直接拦截。这类命令会放大真实执行内容的不确定性，风险过高，不进入 AI 审查。",
+            "命令使用了 Invoke-Expression/iex 動態執行，本地規則已直接攔截。這類命令會放大真實執行內容的不確定性，風險過高，不進入 AI 審查。",
+            "This command uses Invoke-Expression/iex and was blocked by local rules. Dynamic execution makes the real behavior too uncertain, so it is too risky for AI review.",
+        ),
+        "spawning nested shells is blocked" => terminal_localized_text(
+            ui_language,
+            "命令尝试再启动一层 shell，本地规则已直接拦截。这会绕开当前终端约束并放大风险，不进入 AI 审查。",
+            "命令嘗試再啟動一層 shell，本地規則已直接攔截。這會繞開當前終端約束並放大風險，不進入 AI 審查。",
+            "This command tries to spawn another shell and was blocked by local rules. That can bypass current terminal constraints, so it is too risky for AI review.",
+        ),
+        "git push --force/-f is especially dangerous and is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git push --force/-f，本地规则已按特别高危直接拦截。它可能覆盖远端历史并影响他人协作，不进入 AI 审查。",
+            "命令包含 git push --force/-f，本地規則已按特別高危直接攔截。它可能覆蓋遠端歷史並影響他人協作，不進入 AI 審查。",
+            "This command includes git push --force/-f and was blocked as especially high risk. It can overwrite remote history and affect collaborators, so it does not go to AI review.",
+        ),
+        "git pull --force/-f is especially dangerous and is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git pull --force/-f，本地规则已按特别高危直接拦截。它会强行改动本地工作区和历史状态，不进入 AI 审查。",
+            "命令包含 git pull --force/-f，本地規則已按特別高危直接攔截。它會強行改動本地工作區和歷史狀態，不進入 AI 審查。",
+            "This command includes git pull --force/-f and was blocked as especially high risk. It can forcibly rewrite the local workspace and history, so it does not go to AI review.",
+        ),
+        "git push is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git push，本地规则已直接拦截。它会改动远端仓库状态，不属于可自动审查后直接执行的范围。",
+            "命令包含 git push，本地規則已直接攔截。它會改動遠端倉庫狀態，不屬於可自動審查後直接執行的範圍。",
+            "This command includes git push and was blocked by local rules. It changes remote repository state and is not eligible for automatic review and execution.",
+        ),
+        "git pull is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git pull，本地规则已直接拦截。它会拉取并改动本地仓库状态，不属于可自动审查后直接执行的范围。",
+            "命令包含 git pull，本地規則已直接攔截。它會拉取並改動本地倉庫狀態，不屬於可自動審查後直接執行的範圍。",
+            "This command includes git pull and was blocked by local rules. It changes local repository state after fetching remote updates, so it is not eligible for automatic review and execution.",
+        ),
+        "git fetch is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git fetch，本地规则已直接拦截。它会改动本地仓库引用状态，不进入 AI 审查。",
+            "命令包含 git fetch，本地規則已直接攔截。它會改動本地倉庫引用狀態，不進入 AI 審查。",
+            "This command includes git fetch and was blocked by local rules. It changes local repository references, so it does not go to AI review.",
+        ),
+        "git commit is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git commit，本地规则已直接拦截。它会生成新的仓库历史记录，不进入 AI 审查。",
+            "命令包含 git commit，本地規則已直接攔截。它會生成新的倉庫歷史記錄，不進入 AI 審查。",
+            "This command includes git commit and was blocked by local rules. It creates new repository history and does not go to AI review.",
+        ),
+        "git merge is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git merge，本地规则已直接拦截。它会改动分支历史和工作区状态，不进入 AI 审查。",
+            "命令包含 git merge，本地規則已直接攔截。它會改動分支歷史和工作區狀態，不進入 AI 審查。",
+            "This command includes git merge and was blocked by local rules. It changes branch history and workspace state, so it does not go to AI review.",
+        ),
+        "git rebase is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git rebase，本地规则已直接拦截。它会重写历史并可能影响后续协作，不进入 AI 审查。",
+            "命令包含 git rebase，本地規則已直接攔截。它會重寫歷史並可能影響後續協作，不進入 AI 審查。",
+            "This command includes git rebase and was blocked by local rules. It rewrites history and can affect later collaboration, so it does not go to AI review.",
+        ),
+        "git reset is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git reset，本地规则已直接拦截。它会改动仓库历史或工作区状态，不进入 AI 审查。",
+            "命令包含 git reset，本地規則已直接攔截。它會改動倉庫歷史或工作區狀態，不進入 AI 審查。",
+            "This command includes git reset and was blocked by local rules. It changes repository history or workspace state, so it does not go to AI review.",
+        ),
+        "git checkout is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git checkout，本地规则已直接拦截。它可能切换分支或覆盖文件状态，不进入 AI 审查。",
+            "命令包含 git checkout，本地規則已直接攔截。它可能切換分支或覆蓋文件狀態，不進入 AI 審查。",
+            "This command includes git checkout and was blocked by local rules. It can switch branches or overwrite file state, so it does not go to AI review.",
+        ),
+        "git switch is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git switch，本地规则已直接拦截。它可能切换分支并改动工作区状态，不进入 AI 审查。",
+            "命令包含 git switch，本地規則已直接攔截。它可能切換分支並改動工作區狀態，不進入 AI 審查。",
+            "This command includes git switch and was blocked by local rules. It can switch branches and change workspace state, so it does not go to AI review.",
+        ),
+        "git restore is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git restore，本地规则已直接拦截。它会覆盖本地文件状态，不进入 AI 审查。",
+            "命令包含 git restore，本地規則已直接攔截。它會覆蓋本地文件狀態，不進入 AI 審查。",
+            "This command includes git restore and was blocked by local rules. It overwrites local file state, so it does not go to AI review.",
+        ),
+        "git clean is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git clean，本地规则已直接拦截。它会删除未跟踪文件，风险过高，不进入 AI 审查。",
+            "命令包含 git clean，本地規則已直接攔截。它會刪除未跟蹤文件，風險過高，不進入 AI 審查。",
+            "This command includes git clean and was blocked by local rules. It deletes untracked files and is too risky for AI review.",
+        ),
+        "git stash is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git stash，本地规则已直接拦截。它会改动工作区与暂存状态，不进入 AI 审查。",
+            "命令包含 git stash，本地規則已直接攔截。它會改動工作區與暫存狀態，不進入 AI 審查。",
+            "This command includes git stash and was blocked by local rules. It changes workspace and stash state, so it does not go to AI review.",
+        ),
+        "git apply is blocked" => terminal_localized_text(
+            ui_language,
+            "命令包含 git apply，本地规则已直接拦截。它会直接把补丁写入工作区，不进入 AI 审查。",
+            "命令包含 git apply，本地規則已直接攔截。它會直接把補丁寫入工作區，不進入 AI 審查。",
+            "This command includes git apply and was blocked by local rules. It writes a patch directly into the workspace, so it does not go to AI review.",
+        ),
+        _ => terminal_localized_text(
+            ui_language,
+            "本地规则已直接拦截此命令。这类命令存在明确风险，不进入 AI 审查。",
+            "本地規則已直接攔截此命令。這類命令存在明確風險，不進入 AI 審查。",
+            "This command was blocked by local rules. It has a clearly identified risk and does not go to AI review.",
+        ),
+    }
 }
 
 fn terminal_command_is_read_whitelist(
@@ -228,25 +372,27 @@ fn terminal_command_is_read_whitelist(
             .unwrap_or_default();
 
         let allowed = match family {
-            TerminalShellFamily::PowerShell => matches!(
-                base_cmd.as_str(),
-                "set-location"
-                    | "get-childitem"
-                    | "get-content"
-                    | "select-string"
-                    | "select-object"
-                    | "where-object"
-                    | "sort-object"
-                    | "measure-object"
-                    | "get-item"
-                    | "test-path"
-                    | "resolve-path"
-                    | "get-location"
-                    | "pwd"
-                    | "rg"
-                    | "findstr"
-                    | "where"
-            ),
+            TerminalShellFamily::PowerShell => {
+                matches!(
+                    base_cmd.as_str(),
+                    "set-location"
+                        | "get-childitem"
+                        | "get-content"
+                        | "select-string"
+                        | "select-object"
+                        | "where-object"
+                        | "sort-object"
+                        | "measure-object"
+                        | "get-item"
+                        | "test-path"
+                        | "resolve-path"
+                        | "get-location"
+                        | "pwd"
+                        | "rg"
+                        | "findstr"
+                        | "where"
+                ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+            }
             TerminalShellFamily::Posix | TerminalShellFamily::Other => {
                 matches!(
                     base_cmd.as_str(),
@@ -267,8 +413,7 @@ fn terminal_command_is_read_whitelist(
                         | "stat"
                         | "which"
                         | "where"
-                ) || (base_cmd == "git"
-                    && matches!(second.as_str(), "status" | "diff" | "show" | "log"))
+                ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
             }
         };
 
@@ -467,14 +612,27 @@ async fn builtin_shell_exec(
 ) -> Result<Value, String> {
     let action = action.trim().to_ascii_lowercase();
     let cmd = command.trim();
+    let ui_language = state_read_config_cached(state)
+        .map(|config| config.ui_language)
+        .unwrap_or_else(|_| "zh-CN".to_string());
     let runtime_shell = terminal_shell_for_state(state);
     #[cfg(target_os = "windows")]
     if runtime_shell.kind == "missing-terminal-shell" {
+        let review = terminal_local_review_value(
+            &ui_language,
+            "当前系统未检测到可用终端，无法安全执行命令，请先安装并配置受支持的终端环境。",
+        );
         return Ok(serde_json::json!({
             "ok": false,
             "approved": false,
             "blockedReason": "missing_terminal_shell",
-            "message": "No supported shell was detected on Windows. Install Git and use Git Bash: https://git-scm.com/downloads",
+            "message": terminal_localized_text(
+                &ui_language,
+                "当前系统未检测到受支持的终端。请先安装 Git，并使用 Git Bash： https://git-scm.com/downloads",
+                "當前系統未檢測到受支持的終端。請先安裝 Git，並使用 Git Bash： https://git-scm.com/downloads",
+                "No supported terminal was detected on Windows. Install Git and use Git Bash: https://git-scm.com/downloads",
+            ),
+            "toolReview": review,
             "sessionId": normalize_terminal_tool_session_id(session_id),
             "command": cmd
         }));
@@ -505,7 +663,21 @@ async fn builtin_shell_exec(
         return Err("shell_exec.command is empty".to_string());
     }
     if let Some(reason) = terminal_command_block_reason(cmd) {
-        return Err(format!("shell_exec blocked: {reason}"));
+        let review = terminal_local_review_value(&ui_language, terminal_local_rule_reason_message(&ui_language, reason));
+        return Ok(serde_json::json!({
+            "ok": false,
+            "approved": false,
+            "blockedReason": "local_rule_blocked",
+            "message": terminal_localized_text(
+                &ui_language,
+                "本地规则已直接拦截此命令，存在明确风险，不进入 AI 审查。",
+                "本地規則已直接攔截此命令，存在明確風險，不進入 AI 審查。",
+                "This command was blocked by local rules because it has a clearly identified risk and does not go to AI review.",
+            ),
+            "toolReview": review,
+            "sessionId": normalized_session,
+            "command": cmd,
+        }));
     }
     let allowed_project_roots = terminal_allowed_project_roots_for_session_canonical(state, &normalized_session)?
         .iter()
@@ -519,11 +691,16 @@ async fn builtin_shell_exec(
     let cwd = match resolve_terminal_cwd(state, &normalized_session, None) {
         Ok(path) => path,
         Err(err) if err.contains("Call shell_switch_workspace first.") => {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "当前会话还没有切换到可执行命令的工作目录，请先切换工作目录后再执行。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "path_not_granted",
                 "message": err,
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -580,11 +757,16 @@ async fn builtin_shell_exec(
             .map(|item| terminal_path_for_user(&item.path))
             .collect::<Vec<_>>();
         if !relative_unmatched_paths.is_empty() {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "命令包含脱离当前工作目录的相对路径，本地规则已直接拦截，请改成当前目录内相对路径或显式绝对路径。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "relative_path_outside_workspace",
                 "message": "相对路径不能脱离当前工作目录，请改用当前目录内相对路径或显式绝对路径。",
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -601,11 +783,16 @@ async fn builtin_shell_exec(
             .map(|item| terminal_path_for_user(&item.path))
             .collect::<Vec<_>>();
         if !absolute_unmatched_paths.is_empty() {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "命令试图访问未纳管的绝对路径，本地规则已直接拦截；非读取类操作只能作用于已授权工作目录。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "absolute_path_not_granted",
                 "message": "非读取类命令不能访问未纳管的绝对路径，请改用已授权工作目录内路径。",
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -619,11 +806,16 @@ async fn builtin_shell_exec(
 
     if !is_read_whitelist && terminal_is_python_like_command(cmd) {
         if effective_access != SHELL_WORKSPACE_ACCESS_FULL_ACCESS {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "python/py 命令在当前目录需要完全访问权限，本地规则已直接拦截，请改用 apply_patch 或显式文件修改命令。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "python_requires_full_access",
                 "message": "python/py 命令默认不走审批；当前目录不是完全访问，请改用 apply_patch 或明确的文件修改命令。",
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -633,11 +825,16 @@ async fn builtin_shell_exec(
             }));
         }
     } else if !is_read_whitelist && effective_access == SHELL_WORKSPACE_ACCESS_READ_ONLY {
+        let review = terminal_local_review_value(
+            &ui_language,
+            "当前目录权限为只读，本地规则只允许读取类白名单命令，已直接拦截本次执行。",
+        );
         return Ok(serde_json::json!({
             "ok": false,
             "approved": false,
             "blockedReason": "read_only_workspace",
             "message": "当前目录权限为只读，仅允许读取类白名单命令。",
+            "toolReview": review,
             "sessionId": normalized_session,
             "rootPath": session_root_text,
             "workspacePath": workspace_path_text,
@@ -660,11 +857,16 @@ async fn builtin_shell_exec(
                 .collect::<Vec<_>>()
         };
         if !unmatched_write_paths.is_empty() {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "写入类命令试图作用于未授权路径，本地规则已直接拦截；写入只能发生在已配置工作目录中。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "write_path_not_granted",
                 "message": "写入类命令只能作用于已配置工作目录；未纳管绝对路径仅允许读取。",
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -676,11 +878,16 @@ async fn builtin_shell_exec(
         }
 
         if effective_write_access == SHELL_WORKSPACE_ACCESS_READ_ONLY {
+            let review = terminal_local_review_value(
+                &ui_language,
+                "当前目录权限为只读，本地规则禁止执行写入类终端命令，已直接拦截。",
+            );
             return Ok(serde_json::json!({
                 "ok": false,
                 "approved": false,
                 "blockedReason": "read_only_workspace",
                 "message": "当前目录权限为只读，禁止执行写入类终端命令。",
+                "toolReview": review,
                 "sessionId": normalized_session,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -962,6 +1169,10 @@ async fn builtin_shell_exec(
             }
             TerminalWriteRisk::Unknown => {
                 if effective_write_access == SHELL_WORKSPACE_ACCESS_APPROVAL {
+                    let review = terminal_local_review_value(
+                        &ui_language,
+                        "命令可能写入，但本地规则无法确认具体目标；在审批目录下，这类不明确写入会被直接拦截，请改成更明确的写入命令。",
+                    );
                     return Ok(serde_json::json!({
                         "ok": false,
                         "approved": false,
@@ -973,6 +1184,7 @@ async fn builtin_shell_exec(
                                 .map(|text| format!("{text} "))
                                 .unwrap_or_default()
                         ),
+                        "toolReview": review,
                         "sessionId": normalized_session,
                         "rootPath": session_root_text,
                         "workspacePath": workspace_path_text,
@@ -1575,5 +1787,77 @@ mod terminal_exec_tests {
             "powershell7",
             &analysis
         ));
+    }
+
+    #[test]
+    fn powershell_set_location_then_git_diff_should_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = r#"Set-Location 'E:/github/easy_call_ai'; git diff --stat"#;
+        let analysis = terminal_analyze_command(&cwd, command, "powershell7");
+
+        assert_eq!(analysis.write_risk, TerminalWriteRisk::None);
+        assert!(analysis.has_directory_change);
+        assert!(terminal_command_is_read_whitelist(
+            command,
+            "powershell7",
+            &analysis
+        ));
+    }
+
+    #[tokio::test]
+    async fn blocked_local_rule_should_return_local_tool_review() {
+        let root = std::env::temp_dir().join(format!("eca-terminal-blocked-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create root");
+        let shell = shell_candidate_by_kind("powershell7")
+            .or_else(|| shell_candidate_by_kind("powershell5"))
+            .expect("powershell shell");
+        let state = build_test_state(shell, root.clone());
+        let (_system_root, main_root, _secondary_root) = configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )
+        .expect("configure workspaces");
+        let session_id = configure_test_conversation_workspaces(
+            &state,
+            "conv-blocked-local-rule",
+            "agent-blocked-local-rule",
+            Some(&main_root),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &_secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )
+        .expect("configure conversation workspaces");
+
+        let result = builtin_shell_exec(
+            &state,
+            &session_id,
+            "run",
+            "powershell -EncodedCommand AAAA",
+            Some(8_000),
+        )
+        .await
+        .expect("run blocked command");
+
+        assert_eq!(
+            result.get("blockedReason").and_then(Value::as_str),
+            Some("local_rule_blocked")
+        );
+        assert_eq!(
+            result
+                .get("toolReview")
+                .and_then(|v| v.get("kind"))
+                .and_then(Value::as_str),
+            Some("local_rule")
+        );
+        assert_eq!(
+            result
+                .get("toolReview")
+                .and_then(|v| v.get("allow"))
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }
