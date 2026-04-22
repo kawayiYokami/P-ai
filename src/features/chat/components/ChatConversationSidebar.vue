@@ -1,8 +1,19 @@
 <template>
   <aside class="flex h-full w-88 shrink-0 flex-col border-r border-base-300 bg-base-200">
-    <div class="flex-1 min-h-0 overflow-y-auto py-1">
+    <div class="flex-1 min-h-0 overflow-y-auto p-2">
+      <div>
+        <label class="input input-bordered input-sm flex h-8 w-full items-center gap-2 bg-base-100">
+          <Search class="h-3.5 w-3.5 opacity-60" />
+          <input
+            v-model="conversationSearchQuery"
+            type="text"
+            class="w-full bg-transparent outline-none"
+            :placeholder="t('chat.conversationSearchPlaceholder')"
+          />
+        </label>
+      </div>
       <section
-        v-for="section in conversationSections"
+        v-for="section in filteredConversationSections"
         :key="section.key"
         class="mb-2 last:mb-0"
       >
@@ -72,15 +83,22 @@
                       {{ formatConversationTime(item.updatedAt) }}
                     </span>
                     <button
+                      v-if="!item.isMainConversation"
                       type="button"
-                      class="btn btn-ghost btn-xs h-6 min-h-6 w-6 min-w-6 p-0"
-                      :class="item.isPinned || item.isMainConversation ? 'text-primary' : 'text-base-content/45 hover:text-base-content'"
+                      class="btn btn-ghost btn-xs h-6 min-h-6 w-6 min-w-6 p-0 text-base-content/45 hover:text-base-content"
                       :title="pinConversationTitle(item)"
                       :disabled="!canToggleConversationPin(item)"
                       @click.stop="toggleConversationPin(item)"
                       @mousedown.stop
                     >
-                      <Pin class="h-3.5 w-3.5" />
+                      <PinOff
+                        v-if="item.isPinned || item.isMainConversation"
+                        class="h-3.5 w-3.5"
+                      />
+                      <Pin
+                        v-else
+                        class="h-3.5 w-3.5"
+                      />
                     </button>
                   </div>
                 </div>
@@ -116,6 +134,12 @@
           </component>
         </div>
       </section>
+      <div
+        v-if="filteredConversationSections.length === 0"
+        class="px-3 py-4 text-center text-sm text-base-content/60"
+      >
+        {{ t("chat.conversationSearchEmpty") }}
+      </div>
     </div>
   </aside>
 </template>
@@ -123,7 +147,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Pin } from "lucide-vue-next";
+import { Pin, PinOff, Search } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { formatConversationListTime } from "../utils/conversation-time";
 
@@ -146,6 +170,7 @@ const { t, locale } = useI18n();
 const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
+const conversationSearchQuery = ref("");
 
 const conversationPreviewCache = computed(() => new Map(
   props.items.map((item) => [String(item.conversationId || "").trim(), Array.isArray(item.previewMessages) ? item.previewMessages : []]),
@@ -171,6 +196,21 @@ const conversationSections = computed(() => {
   ].filter(Boolean) as Array<{ key: string; title: string; items: ChatConversationOverviewItem[] }>;
 });
 
+const normalizedConversationSearchQuery = computed(() =>
+  String(conversationSearchQuery.value || "").trim().toLocaleLowerCase(),
+);
+
+const filteredConversationSections = computed(() => {
+  const query = normalizedConversationSearchQuery.value;
+  if (!query) return conversationSections.value;
+  return conversationSections.value
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => conversationMatchesSearch(item, query)),
+    }))
+    .filter((section) => section.items.length > 0);
+});
+
 watchEffect(() => {
   const editingId = String(editingConversationId.value || "").trim();
   if (!editingId) return;
@@ -191,6 +231,17 @@ function setRenameInputRef(element: Element | { $el?: Element | null } | null) {
 
 function normalizedPreviewMessages(item: ChatConversationOverviewItem): ConversationPreviewMessage[] {
   return conversationPreviewCache.value.get(String(item.conversationId || "").trim()) || [];
+}
+
+function conversationMatchesSearch(item: ChatConversationOverviewItem, query: string): boolean {
+  if (!query) return true;
+  const title = conversationDisplayTitle(item).toLocaleLowerCase();
+  if (title.includes(query)) return true;
+  const previewTextBlock = normalizedPreviewMessages(item)
+    .slice(-2)
+    .map((preview) => previewText(preview).toLocaleLowerCase())
+    .join("\n");
+  return previewTextBlock.includes(query);
 }
 
 function isCurrentConversation(item: ChatConversationOverviewItem): boolean {

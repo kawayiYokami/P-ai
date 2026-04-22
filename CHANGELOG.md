@@ -2,6 +2,8 @@
 
 ## 发布：v0.9.21
 
+- 功能（chat-conversation-list-search-filter）：未归档会话侧边栏与会话切换弹层新增本地搜索过滤，支持按会话标题和最近两条预览消息筛选结果，并补齐中英繁搜索占位与空态文案
+- 优化（chat-conversation-pin-action-icon-clarify）：会话列表与会话切换弹层的置顶按钮图标改按“动作”表达语义，未置顶会话显示 `Pin`、已置顶会话显示 `PinOff`，主会话不再显示置顶按钮，避免把按钮误读成状态徽标
 - 优化（chat-conversation-list-spacing-tighten）：收紧聊天窗口会话列表与会话切换弹层的左右留白、分组间距和条目内部 padding/gap，让列表整体更紧凑，减少无效留白
 - 修复（terminal-git-read-whitelist-and-local-rule-review）：终端只读白名单补齐 PowerShell 下常见只读 `git` 子命令（如 `status/diff/show/log`），避免 `git diff` 这类纯读命令被误送 AI 审查；同时对 `git pull/push/fetch/commit/merge/rebase/reset/checkout/clean/stash/apply` 等明确危险命令改为本地规则直接拦截，不再重复走 AI 审查，并统一返回带本地化说明的 `toolReview.kind=local_rule` 结果，其中 `git push/pull --force/-f` 会作为特别高危单独提示
 - 修复（chat-todo-sticky-hit-area）：聊天窗口顶部当前待办条的 sticky 外层容器不再拦截整行点击，点击命中范围收回到中间待办按钮本体，避免下方左右两侧按钮被遮挡后无法点击
