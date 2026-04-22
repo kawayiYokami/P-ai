@@ -62,6 +62,125 @@
     }
 
     #[test]
+    fn conversation_prompt_service_snapshot_should_keep_cache_hits_stable() {
+        let now = now_iso();
+        let agent = default_agent();
+        let messages = vec![
+            test_text_message("user", "帮我看一下会话缓存", &now),
+            test_text_message("assistant", "我先整理一下", &now),
+            test_text_message("user", "继续", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now.clone()));
+        let fixed_system_prompt = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            &[],
+            Some(("用户", "我是测试用户")),
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+        );
+
+        let first = conversation_prompt_service().build_prompt_snapshot(
+            None,
+            "chat",
+            &conv,
+            &agent,
+            &[],
+            "zh-CN",
+            None,
+            &fixed_system_prompt,
+            None,
+            None,
+            &[],
+        );
+        let second = conversation_prompt_service().build_prompt_snapshot(
+            None,
+            "chat",
+            &conv,
+            &agent,
+            &[],
+            "zh-CN",
+            None,
+            &fixed_system_prompt,
+            None,
+            None,
+            &[],
+        );
+
+        assert_eq!(first.revisions, second.revisions);
+        assert_eq!(first.department_prompt, second.department_prompt);
+        assert_eq!(first.environment_prompt, second.environment_prompt);
+        assert_eq!(first.abstract_messages, second.abstract_messages);
+    }
+
+    #[test]
+    fn conversation_prompt_service_prompt_revision_should_ignore_todos_and_memory_recall() {
+        let now = now_iso();
+        let agent = default_agent();
+        let messages = vec![
+            test_text_message("user", "检查 prompt revision", &now),
+            test_text_message("assistant", "收到", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now.clone()));
+        let fixed_system_prompt = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            &[],
+            Some(("用户", "我是测试用户")),
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+        );
+        let baseline = conversation_prompt_service().build_prompt_snapshot(
+            None,
+            "chat",
+            &conv,
+            &agent,
+            &[],
+            "zh-CN",
+            None,
+            &fixed_system_prompt,
+            None,
+            None,
+            &[],
+        );
+
+        let mut with_conversation_side_blocks = conv.clone();
+        with_conversation_side_blocks.current_todos.push(ConversationTodoItem {
+            content: "第一步".to_string(),
+            status: "in_progress".to_string(),
+        });
+        with_conversation_side_blocks
+            .memory_recall_table
+            .push("memory-1".to_string());
+        let fixed_after = build_core_system_prompt_text(
+            &with_conversation_side_blocks,
+            &agent,
+            &[],
+            Some(("用户", "我是测试用户")),
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+        );
+        let mutated = conversation_prompt_service().build_prompt_snapshot(
+            None,
+            "chat",
+            &with_conversation_side_blocks,
+            &agent,
+            &[],
+            "zh-CN",
+            None,
+            &fixed_after,
+            None,
+            None,
+            &[],
+        );
+
+        assert_eq!(baseline.revisions.prompt_revision, mutated.revisions.prompt_revision);
+    }
+
+    #[test]
     fn build_prompt_should_map_non_self_personas_to_user_with_speaker_block() {
         let now = now_iso();
         let agent = default_agent();

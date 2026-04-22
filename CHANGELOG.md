@@ -1,5 +1,9 @@
 # 变更日志
 
+## 进行中
+
+- 重构（conversation-prompt-service-phase-1）：引入会话提示词服务第一阶段骨架，先收口提示词 owner 与只读 snapshot，不替换 `Conversation.messages` 作为持久化真源；系统提示词最终合成与对话消息投影入口开始统一经过服务层，并新增缓存命中稳定性与 `prompt_revision` 边界测试，确保 `todo/task` 与 `memory_recall` 不会误触发系统提示词 revision
+
 ## 发布：v0.9.30
 
 - 优化（chat-selection-branch-action-copywriting）：聊天窗口多选操作栏中的“会话分支”按钮文案调整为“创造会话分支”，让当前动作语义更直接

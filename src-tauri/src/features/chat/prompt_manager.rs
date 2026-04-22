@@ -484,110 +484,6 @@ fn build_core_system_prompt_text(
     }
 }
 
-fn build_system_prompt_ordered_blocks(
-    state: Option<&AppState>,
-    mode_label: &str,
-    conversation: &Conversation,
-    agent: &AgentProfile,
-    departments: &[DepartmentConfig],
-    ui_language: &str,
-    _selected_api: Option<&ApiConfig>,
-    fixed_system_prompt_text: &str,
-    user_profile_memory_block: Option<&str>,
-    terminal_block: Option<&str>,
-    system_preamble_blocks: &[String],
-) -> Vec<String> {
-    let department_snapshot = get_or_build_department_system_prompt_snapshot(
-        state,
-        conversation,
-        agent,
-        departments,
-        ui_language,
-    );
-    let department_config = departments_only_config(departments);
-    let current_department = department_for_agent_id(&department_config, &agent.id);
-    let mut tool_rule_blocks = Vec::<String>::new();
-    tool_rule_blocks.push(build_memory_rag_rule_block());
-    if let Some(todo_block) = build_builtin_tool_rule_block("todo") {
-        tool_rule_blocks.push(todo_block);
-    }
-    tool_rule_blocks.extend(department_snapshot.department_tool_rule_blocks.iter().cloned());
-    if !conversation_is_remote_im_contact(conversation) {
-        tool_rule_blocks.push(build_question_and_planning_rule_block());
-    }
-    if department_builtin_tool_enabled(current_department, "meme") {
-        if let Some(meme_block) = meme_prompt_rule_block(state).as_deref() {
-            tool_rule_blocks.push(meme_block.trim().to_string());
-        }
-    }
-    if conversation_is_remote_im_contact(conversation) {
-        tool_rule_blocks.push(prompt_xml_block(
-            "contact tools rule",
-            "联系人专用工具仅对当前联系人生效。\n\
-             1. 若需要先回应一句“收到、我先看一下、稍后回复”，请使用 `contact_reply`。\n\
-             2. 若需要发送图片或文件，请使用 `contact_send_files`。\n\
-             3. 若判断本轮结束时不应自动向联系人发送最终回复，请使用 `contact_no_reply`，并在 `reason` 中简要记录原因。\n\
-             4. `contact_reply` 与 `contact_send_files` 是中途动作，不会取消本轮结束后的自动最终回复。\n\
-             5. 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给当前联系人。",
-        ));
-    }
-
-    let (tool_rule_extra_blocks, runtime_extra_blocks, im_extra_blocks) =
-        split_system_preamble_blocks(system_preamble_blocks);
-    tool_rule_blocks.extend(tool_rule_extra_blocks);
-    if !tool_rule_blocks
-        .iter()
-        .any(|block| block.contains("<builtin tool general rule>"))
-        && !tool_rule_blocks.is_empty()
-    {
-        tool_rule_blocks.insert(0, build_builtin_tool_general_rule_block());
-    }
-
-    let environment_snapshot = get_or_build_conversation_environment_prompt_snapshot(
-        state,
-        conversation,
-        mode_label,
-        terminal_block,
-        &runtime_extra_blocks,
-        &im_extra_blocks,
-    );
-
-    let mut ordered_blocks = Vec::<String>::new();
-    if !fixed_system_prompt_text.trim().is_empty() {
-        ordered_blocks.push(fixed_system_prompt_text.trim().to_string());
-    }
-    if !department_snapshot.department_prompt_block.trim().is_empty() {
-        ordered_blocks.push(department_snapshot.department_prompt_block.trim().to_string());
-    }
-    ordered_blocks.extend(
-        tool_rule_blocks
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
-    );
-    if let Some(profile_block) = user_profile_memory_block
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        ordered_blocks.push(profile_block.to_string());
-    }
-    ordered_blocks.extend(
-        environment_snapshot
-            .runtime_blocks
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
-    );
-    ordered_blocks.extend(
-        environment_snapshot
-            .im_rule_blocks
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
-    );
-    ordered_blocks
-}
-
 fn build_system_prompt_text_uncached(ordered_blocks: &[String]) -> String {
     let mut prompt = String::new();
     for block in ordered_blocks {
@@ -612,62 +508,20 @@ fn finalize_system_prompt_with_manager(
     system_preamble_blocks: &[String],
     stage_logger: Option<&dyn Fn(&str)>,
 ) -> String {
-    let final_cache_key = format!(
-        "scope={}|conversation_id={}|agent={}",
-        prompt_cache_scope_key(state),
-        conversation.id.trim(),
-        agent.id.trim(),
-    );
-    let mut rebuild_reason = "cache_miss";
-    {
-        let cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
-        if let Some(entry) = cache.get(&final_cache_key) {
-            if entry.dirty_state.is_clean() {
-                if let Some(log_stage) = stage_logger {
-                    log_stage("prepare_context.prompt_system_cache_hit");
-                }
-                return entry.text.clone();
-            }
-            rebuild_reason = entry.dirty_state.rebuild_reason();
-        }
-    }
-    let department_id = department_id_for_agent(departments, &agent.id);
-    runtime_log_info(format!(
-        "[系统提示词] 开始重建 conversation_id={} agent_id={} department_id={} reason={}",
-        conversation.id.trim(),
-        agent.id.trim(),
-        department_id,
-        rebuild_reason
-    ));
-    let ordered_blocks = build_system_prompt_ordered_blocks(
+    conversation_prompt_service().finalize_system_prompt(
         state,
         mode_label,
         conversation,
         agent,
         departments,
-        ui_language,
         selected_api,
+        ui_language,
         fixed_system_prompt_text,
         user_profile_memory_block,
         terminal_block,
         system_preamble_blocks,
-    );
-    let prompt_text = build_system_prompt_text_uncached(&ordered_blocks);
-    let mut cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
-    cache.insert(
-        final_cache_key,
-        FinalSystemPromptCacheEntry {
-            conversation_id: conversation.id.trim().to_string(),
-            agent_id: agent.id.trim().to_string(),
-            department_id,
-            text: prompt_text.clone(),
-            dirty_state: FinalSystemPromptDirtyState::default(),
-        },
-    );
-    if let Some(log_stage) = stage_logger {
-        log_stage("prepare_context.prompt_system_cache_rebuilt");
-    }
-    prompt_text
+        stage_logger,
+    )
 }
 
 fn mark_prompt_cache_rebuild_internal(

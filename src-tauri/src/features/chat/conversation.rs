@@ -2350,7 +2350,7 @@ fn build_prompt_with_mode(
     if let Some(log_stage) = stage_logger {
         log_stage("prepare_context.prompt_fixed_system_ready");
     }
-    let conversation_payload = build_conversation_prompt_payload(
+    let conversation_payload = conversation_prompt_service().build_conversation_payload(
         &enriched_conversation,
         conversation,
         agent,
