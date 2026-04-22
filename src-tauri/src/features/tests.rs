@@ -50,8 +50,6 @@
             updated_at: now,
             last_user_at,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),

@@ -358,8 +358,6 @@ fn append_archive_delivery_message_to_conversation(
         target.messages.push(message.clone());
         target.updated_at = message.created_at.clone();
         target.last_assistant_at = Some(message.created_at.clone());
-        target.last_context_usage_ratio = 0.0;
-        target.last_effective_prompt_tokens = 0;
     }
     persist_single_conversation_runtime_fast(state, &data, target_conversation_id)?;
     drop(guard);
@@ -584,17 +582,16 @@ fn prepare_background_archive_active_conversation(
 
 fn build_force_compaction_preview_result(
     state: &AppState,
-    _selected_api: &ApiConfig,
+    selected_api: &ApiConfig,
     source: &Conversation,
 ) -> Result<ForceCompactionPreviewResult, String> {
     let message_count = archive_pipeline_message_count_for_delete(source);
     let has_assistant_reply = archive_pipeline_has_assistant_reply(source);
     let is_empty = source.messages.is_empty();
-    let usage_ratio = if source.last_context_usage_ratio.is_finite() {
-        source.last_context_usage_ratio.max(0.0)
-    } else {
-        0.0
-    };
+    let usage_ratio = conversation_prompt_service()
+        .latest_real_prompt_usage(source, selected_api)
+        .map(|usage| usage.usage_ratio.max(0.0))
+        .unwrap_or(0.0);
     let context_usage_percent = usage_ratio
         .mul_add(100.0, 0.0)
         .round()
@@ -1939,8 +1936,6 @@ async fn run_context_compaction_pipeline_inner(
         let now = now_iso();
         conversation.updated_at = now.clone();
         conversation.last_user_at = Some(now);
-        conversation.last_context_usage_ratio = 0.0;
-        conversation.last_effective_prompt_tokens = 0;
     }
     let active_conversation_id = data
         .conversations
@@ -2332,8 +2327,6 @@ mod archive_pipeline_tests {
             updated_at: "2026-04-18T10:03:00Z".to_string(),
             last_user_at: Some("2026-04-18T10:02:00Z".to_string()),
             last_assistant_at: Some("2026-04-18T10:03:00Z".to_string()),
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),

@@ -611,14 +611,21 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         return Ok(false);
     };
 
-    let estimated_prompt_tokens =
-        estimate_prepared_prompt_tokens(&prepared_before, selected_api, &context.agent);
-    let context_window = u64::from(selected_api.context_window_tokens.max(1));
-    let usage_ratio = estimated_prompt_tokens as f64 / context_window as f64;
-    if usage_ratio < 0.82 {
+    let usage = conversation_prompt_service().resolve_prompt_usage(
+        &prepared_before,
+        selected_api,
+        &context.agent,
+        &source,
+    );
+    let force_threshold = if usage.source == "estimated_prompt_tokens" {
+        0.95
+    } else {
+        0.82
+    };
+    if usage.usage_ratio < force_threshold {
         runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} usage_ratio={:.4}",
-            context.conversation_id, usage_ratio
+            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} usage_ratio={:.4} source={} threshold={:.2}",
+            context.conversation_id, usage.usage_ratio, usage.source, force_threshold
         ));
         return Ok(false);
     }
@@ -676,8 +683,12 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         ));
     } else {
         runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} estimated_prompt_tokens={}",
-            context.conversation_id, usage_ratio, estimated_prompt_tokens
+            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} source={} effective_prompt_tokens={} estimated_prompt_tokens={}",
+            context.conversation_id,
+            usage.usage_ratio,
+            usage.source,
+            usage.effective_prompt_tokens,
+            usage.estimated_prompt_tokens.unwrap_or(0)
         ));
     }
 

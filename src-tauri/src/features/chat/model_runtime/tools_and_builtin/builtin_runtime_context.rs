@@ -90,11 +90,10 @@ async fn builtin_organize_context(
                 "message": "此时不应该整理：当前对话少于 10 句。"
             }));
         }
-        let usage_ratio = if source.last_context_usage_ratio.is_finite() {
-            source.last_context_usage_ratio.max(0.0)
-        } else {
-            0.0
-        };
+        let usage_ratio = conversation_prompt_service()
+            .latest_real_prompt_usage(&source, &selected_api)
+            .map(|usage| usage.usage_ratio.max(0.0))
+            .unwrap_or(0.0);
         if usage_ratio < 0.10 {
             return Ok(serde_json::json!({
                 "ok": false,

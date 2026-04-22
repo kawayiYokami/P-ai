@@ -948,8 +948,6 @@ maxOutputTokens = 8192
             updated_at: "2026-04-15T00:00:00Z".to_string(),
             last_user_at: None,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),

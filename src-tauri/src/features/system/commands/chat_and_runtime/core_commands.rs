@@ -331,8 +331,6 @@ fn append_delegate_result_message_and_emit(
     conversation.messages.push(message.clone());
     conversation.updated_at = message.created_at.clone();
     conversation.last_assistant_at = Some(message.created_at.clone());
-    conversation.last_context_usage_ratio = 0.0;
-    conversation.last_effective_prompt_tokens = 0;
     persist_single_conversation_runtime_fast(app_state, &data, conversation_id)?;
     emit_conversation_message_appended_event(app_state, conversation_id, message);
 
@@ -1483,8 +1481,6 @@ async fn stop_chat_message(
     conversation.messages.push(assistant_message.clone());
     conversation.updated_at = now.clone();
     conversation.last_assistant_at = Some(now);
-    conversation.last_context_usage_ratio = 0.0;
-    conversation.last_effective_prompt_tokens = 0;
     let conversation_id = conversation.id.clone();
 
     if let Some(conversation) = runtime_conversation {

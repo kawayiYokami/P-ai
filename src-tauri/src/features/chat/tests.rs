@@ -1548,26 +1548,140 @@
         let (decision, source) =
             decide_archive_before_send_with_fallback(0, 0.0, Some(820), 1000, Some(&now), true);
         assert_eq!(source, "estimated_prompt_tokens");
-        assert!(decision.should_archive);
-        assert!(decision.forced);
+        assert!(!decision.should_archive);
+        assert!(!decision.forced);
         assert!(decision.usage_ratio >= 0.82);
     }
 
     #[test]
-    fn append_user_message_should_keep_previous_context_usage_cache() {
+    fn archive_decision_should_force_only_at_95pct_when_estimate_is_used() {
+        let now = now_iso();
+        let (decision, source) =
+            decide_archive_before_send_with_fallback(0, 0.0, Some(950), 1000, Some(&now), true);
+        assert_eq!(source, "estimated_prompt_tokens");
+        assert!(decision.should_archive);
+        assert!(decision.forced);
+        assert_eq!(decision.reason, "force_estimated_context_usage_95");
+    }
+
+    #[test]
+    fn latest_real_prompt_usage_should_prefer_latest_assistant_message_provider_meta() {
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-main", "active", &now);
-        conversation.last_context_usage_ratio = 0.67;
-        conversation.last_effective_prompt_tokens = 54321;
-        let user_message = test_text_message("user", "新的用户消息", &now);
+        conversation.messages.push(ChatMessage {
+            id: "assistant-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "这是最近一条助手消息".to_string(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "effectivePromptTokens": 640,
+                "contextUsageRatio": 0.64,
+                "contextUsagePercent": 64
+            })),
+            tool_call: None,
+            mcp_call: None,
+        });
+        let agent = AgentProfile {
+            id: DEFAULT_AGENT_ID.to_string(),
+            name: "默认助手".to_string(),
+            system_prompt: String::new(),
+            tools: Vec::new(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            source: "global".to_string(),
+            scope: "global".to_string(),
+        };
+        let usage = conversation_prompt_service()
+            .latest_real_prompt_usage(&conversation, &ApiConfig::default())
+            .expect("latest real prompt usage");
 
-        let updated = append_user_message_to_conversation(conversation, user_message, &now);
+        assert_eq!(usage.source, "assistant_message_effective_prompt_tokens");
+        assert_eq!(usage.effective_prompt_tokens, 640);
+        assert!((usage.usage_ratio - 0.64).abs() < f64::EPSILON);
+        assert!(usage.estimated_prompt_tokens.is_none());
 
-        assert_eq!(updated.last_context_usage_ratio, 0.67);
-        assert_eq!(updated.last_effective_prompt_tokens, 54321);
-        assert_eq!(updated.last_user_at.as_deref(), Some(now.as_str()));
-        assert_eq!(updated.updated_at, now);
-        assert_eq!(updated.messages.len(), 1);
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: Vec::new(),
+            latest_user_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let resolved = conversation_prompt_service().resolve_prompt_usage(
+            &prepared,
+            &ApiConfig::default(),
+            &agent,
+            &conversation,
+        );
+        assert_eq!(resolved, usage);
+    }
+
+    #[test]
+    fn resolve_prompt_usage_should_ignore_conversation_last_fields_without_assistant_meta() {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-main", "active", &now);
+        conversation.messages.push(ChatMessage {
+            id: "assistant-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "这是最近一条没有 provider meta 的助手消息".to_string(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        });
+        let agent = AgentProfile {
+            id: DEFAULT_AGENT_ID.to_string(),
+            name: "默认助手".to_string(),
+            system_prompt: String::new(),
+            tools: Vec::new(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            source: "global".to_string(),
+            scope: "global".to_string(),
+        };
+        let prepared = PreparedPrompt {
+            preamble: "系统提示词".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "用户消息".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let usage = conversation_prompt_service().resolve_prompt_usage(
+            &prepared,
+            &ApiConfig::default(),
+            &agent,
+            &conversation,
+        );
+
+        assert_eq!(usage.source, "estimated_prompt_tokens");
+        assert!(usage.estimated_prompt_tokens.is_some());
+        assert!(usage.effective_prompt_tokens > 0);
+        assert!(usage.usage_ratio > 0.0);
     }
 
     fn test_chat_runtime_state() -> AppState {
@@ -1671,8 +1785,6 @@
             updated_at: updated_at.to_string(),
             last_user_at: None,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: status.to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),
@@ -2082,8 +2194,6 @@
             updated_at: now.clone(),
             last_user_at: None,
             last_assistant_at: Some(now.clone()),
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),
@@ -2359,8 +2469,6 @@
             updated_at: now.clone(),
             last_user_at: None,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),
@@ -2429,8 +2537,6 @@
             updated_at: now,
             last_user_at: None,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),

@@ -37,6 +37,14 @@ struct ConversationPromptSnapshot {
     abstract_messages: Vec<AbstractConversationMessageProjection>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PromptUsageResolution {
+    effective_prompt_tokens: u64,
+    usage_ratio: f64,
+    estimated_prompt_tokens: Option<u64>,
+    source: &'static str,
+}
+
 #[derive(Debug, Clone)]
 struct AbstractMessageProjectionCacheEntry {
     revision: u64,
@@ -172,6 +180,135 @@ fn build_abstract_message_projection(
 }
 
 impl ConversationPromptService {
+    fn latest_real_prompt_usage(
+        &self,
+        conversation: &Conversation,
+        selected_api: &ApiConfig,
+    ) -> Option<PromptUsageResolution> {
+        let context_window = f64::from(selected_api.context_window_tokens.max(1));
+        for message in conversation.messages.iter().rev() {
+            if message.role.trim() != "assistant" {
+                continue;
+            }
+            let Some(provider_meta) = message.provider_meta.as_ref() else {
+                continue;
+            };
+            if let Some(value) = provider_meta
+                .get("effectivePromptTokens")
+                .and_then(Value::as_u64)
+                .filter(|value| *value > 0)
+            {
+                let usage_ratio = provider_meta
+                    .get("contextUsageRatio")
+                    .and_then(Value::as_f64)
+                    .filter(|value| value.is_finite() && *value > 0.0)
+                    .unwrap_or_else(|| value as f64 / context_window);
+                return Some(PromptUsageResolution {
+                    effective_prompt_tokens: value,
+                    usage_ratio,
+                    estimated_prompt_tokens: None,
+                    source: "assistant_message_effective_prompt_tokens",
+                });
+            }
+            if let Some(value) = provider_meta
+                .get("contextUsageRatio")
+                .and_then(Value::as_f64)
+                .filter(|value| value.is_finite() && *value > 0.0)
+            {
+                return Some(PromptUsageResolution {
+                    effective_prompt_tokens: (value * context_window)
+                        .round()
+                        .clamp(0.0, u64::MAX as f64) as u64,
+                    usage_ratio: value,
+                    estimated_prompt_tokens: None,
+                    source: "assistant_message_context_usage_ratio",
+                });
+            }
+        }
+        None
+    }
+
+    fn estimate_prepared_prompt_tokens(
+        &self,
+        prepared: &PreparedPrompt,
+        selected_api: &ApiConfig,
+        current_agent: &AgentProfile,
+    ) -> u64 {
+        let mut total = 0.0f64;
+        total += estimated_tokens_for_text(&prepared.preamble);
+        for hm in &prepared.history_messages {
+            total += 10.0;
+            total += estimated_tokens_for_text(&hm.text);
+            for block in &hm.extra_text_blocks {
+                total += estimated_tokens_for_text(block);
+            }
+            if let Some(v) = hm.user_time_text.as_deref() {
+                total += estimated_tokens_for_text(v);
+            }
+            if let Some(v) = hm.reasoning_content.as_deref() {
+                total += estimated_tokens_for_text(v);
+            }
+            if let Some(calls) = hm.tool_calls.as_ref() {
+                let text = serde_json::to_string(calls).unwrap_or_default();
+                total += estimated_tokens_for_text(&text);
+            }
+        }
+        for text_block in prepared_prompt_latest_user_text_blocks(prepared) {
+            total += estimated_tokens_for_text(&text_block);
+        }
+        total += prepared.latest_images.len() as f64 * 280.0;
+        total += prepared.latest_audios.len() as f64 * 320.0;
+
+        if selected_api.enable_tools {
+            let mut seen = std::collections::HashSet::<String>::new();
+            for tool in selected_api
+                .tools
+                .iter()
+                .chain(current_agent.tools.iter())
+                .filter(|tool| tool.enabled)
+            {
+                let key = tool.id.trim().to_ascii_lowercase();
+                if key.is_empty() || !seen.insert(key) {
+                    continue;
+                }
+                let text = serde_json::to_string(tool).unwrap_or_default();
+                total += estimated_tokens_for_text(&text);
+            }
+        }
+
+        total.ceil().max(0.0).min(u64::MAX as f64) as u64
+    }
+
+    fn resolve_prompt_usage_from_estimate(
+        &self,
+        prepared: &PreparedPrompt,
+        selected_api: &ApiConfig,
+        current_agent: &AgentProfile,
+    ) -> PromptUsageResolution {
+        let context_window = f64::from(selected_api.context_window_tokens.max(1));
+        let estimated_prompt_tokens =
+            self.estimate_prepared_prompt_tokens(prepared, selected_api, current_agent);
+        PromptUsageResolution {
+            effective_prompt_tokens: estimated_prompt_tokens,
+            usage_ratio: estimated_prompt_tokens as f64 / context_window,
+            estimated_prompt_tokens: Some(estimated_prompt_tokens),
+            source: "estimated_prompt_tokens",
+        }
+    }
+
+    fn resolve_prompt_usage(
+        &self,
+        prepared: &PreparedPrompt,
+        selected_api: &ApiConfig,
+        current_agent: &AgentProfile,
+        conversation: &Conversation,
+    ) -> PromptUsageResolution {
+        if let Some(usage) = self.latest_real_prompt_usage(conversation, selected_api) {
+            return usage;
+        }
+        self.resolve_prompt_usage_from_estimate(prepared, selected_api, current_agent)
+    }
+
     fn build_prompt_revisions(
         &self,
         conversation: &Conversation,

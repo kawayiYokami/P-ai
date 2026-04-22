@@ -1124,8 +1124,6 @@ async fn send_chat_message_inner(
         user_intro: String,
         last_archive_summary: Option<String>,
         prompt_conversation_before: Conversation,
-        cached_effective_prompt_tokens_before_send: u64,
-        cached_usage_ratio_before_send: f64,
         is_remote_im_contact_conversation: bool,
         remote_im_contact_processing_mode: String,
         enable_pdf_images: bool,
@@ -1163,8 +1161,6 @@ async fn send_chat_message_inner(
             updated_at: String::new(),
             last_user_at: None,
             last_assistant_at: None,
-            last_context_usage_ratio: 0.0,
-            last_effective_prompt_tokens: 0,
             status: String::new(),
             summary: String::new(),
             user_profile_snapshot: String::new(),
@@ -1246,14 +1242,6 @@ async fn send_chat_message_inner(
         } else {
             "continuous".to_string()
         };
-        let cached_effective_prompt_tokens_before_send =
-            conversation_before.last_effective_prompt_tokens;
-        let cached_usage_ratio_before_send =
-            if conversation_before.last_context_usage_ratio.is_finite() {
-                conversation_before.last_context_usage_ratio.max(0.0)
-            } else {
-                0.0
-            };
         let last_archive_summary =
             if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
                 None
@@ -1287,8 +1275,6 @@ async fn send_chat_message_inner(
             user_intro: user_persona_intro(data),
             last_archive_summary,
             prompt_conversation_before,
-            cached_effective_prompt_tokens_before_send,
-            cached_usage_ratio_before_send,
             is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
             enable_pdf_images: data.pdf_read_mode == "image" && selected_api.enable_image,
@@ -1344,14 +1330,6 @@ async fn send_chat_message_inner(
         } else {
             "continuous".to_string()
         };
-        let cached_effective_prompt_tokens_before_send =
-            conversation_before.last_effective_prompt_tokens;
-        let cached_usage_ratio_before_send =
-            if conversation_before.last_context_usage_ratio.is_finite() {
-                conversation_before.last_context_usage_ratio.max(0.0)
-            } else {
-                0.0
-            };
         let last_archive_summary =
             if is_runtime_conversation || conversation_is_delegate(&conversation_before) {
                 None
@@ -1384,8 +1362,6 @@ async fn send_chat_message_inner(
             user_intro: user_persona_intro(data),
             last_archive_summary,
             prompt_conversation_before,
-            cached_effective_prompt_tokens_before_send,
-            cached_usage_ratio_before_send,
             is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
             enable_pdf_images: data.pdf_read_mode == "image" && selected_api.enable_image,
@@ -2168,20 +2144,15 @@ async fn send_chat_message_inner(
             model_name
         };
         let conversation_id = conversation.id.clone();
-        let estimated_prompt_tokens =
-            if snapshot.cached_effective_prompt_tokens_before_send > 0
-                || snapshot.cached_usage_ratio_before_send > 0.0
-            {
-                None
-            } else {
-                let estimated = estimate_prepared_prompt_tokens(
-                    &prepared_prompt,
-                    &selected_api,
-                    &snapshot.current_agent,
-                );
-                log_run_stage("prepare_context.prompt_tokens_estimated");
-                Some(estimated)
-            };
+        let usage_resolution = conversation_prompt_service().resolve_prompt_usage(
+            &prepared_prompt,
+            &selected_api,
+            &snapshot.current_agent,
+            &conversation,
+        );
+        if usage_resolution.estimated_prompt_tokens.is_some() {
+            log_run_stage("prepare_context.prompt_tokens_estimated");
+        }
         log_run_stage("prepare_context.done");
         Ok((
             model_name,
@@ -2189,9 +2160,7 @@ async fn send_chat_message_inner(
             conversation_id,
             latest_user_text,
             snapshot.current_agent,
-            estimated_prompt_tokens,
-            snapshot.cached_effective_prompt_tokens_before_send,
-            snapshot.cached_usage_ratio_before_send,
+            usage_resolution.estimated_prompt_tokens,
             snapshot.is_remote_im_contact_conversation,
             snapshot.remote_im_contact_processing_mode,
             tool_loop_auto_compaction_context,
@@ -2209,43 +2178,46 @@ async fn send_chat_message_inner(
     .await?
         && prepared_context.5.is_some()
     {
-        prepared_context.5 = Some(estimate_prepared_prompt_tokens(
+        prepared_context.5 = Some(conversation_prompt_service().estimate_prepared_prompt_tokens(
             &prepared_context.1,
             &selected_api,
             &prepared_context.4,
         ));
     }
-    let conversation_for_compaction = prepared_context.11.clone();
+    let conversation_for_compaction = prepared_context.9.clone();
     let estimated_prompt_tokens_before_send = prepared_context.5;
-    let cached_effective_prompt_tokens_before_send = prepared_context.6;
-    let cached_usage_ratio_before_send = prepared_context.7;
-    let is_runtime_conversation = prepared_context.12;
+    let is_runtime_conversation = prepared_context.10;
     if is_runtime_conversation {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
             eprintln!(
-                "[ARCHIVE] check before user message skipped: conversation_id={}, reason=delegate_runtime_thread",
+                "[归档] 发送前检查 跳过: conversation_id={}, reason=delegate_runtime_thread",
                 conversation_id
             );
         }
     } else {
-        let (decision, decision_source) = decide_archive_before_send_with_fallback(
-            cached_effective_prompt_tokens_before_send,
-            cached_usage_ratio_before_send,
-            estimated_prompt_tokens_before_send,
-            selected_api.context_window_tokens,
+        let latest_real_usage = conversation_prompt_service()
+            .latest_real_prompt_usage(&conversation_for_compaction, &selected_api);
+        let usage_resolution = conversation_prompt_service().resolve_prompt_usage(
+            &prepared_context.1,
+            &selected_api,
+            &prepared_context.4,
+            &conversation_for_compaction,
+        );
+        let (decision, decision_source) = decide_archive_before_send_from_usage(
+            &usage_resolution,
             conversation_for_compaction.last_user_at.as_deref(),
             archive_pipeline_has_assistant_reply(&conversation_for_compaction),
         );
         eprintln!(
-            "[ARCHIVE] check before user message: should_archive={}, forced={}, reason={}, usage_ratio={:.4}, source={}, cached_effective_prompt_tokens={}, cached_usage_ratio={:.4}, estimated_prompt_tokens={:?}, context_window_tokens={}",
+            "[归档] 发送前检查: should_archive={}, forced={}, reason={}, usage_ratio={:.4}, source={}, latest_real_effective_prompt_tokens={:?}, latest_real_usage_ratio={:?}, estimated_prompt_tokens={:?}, context_window_tokens={}",
             decision.should_archive,
             decision.forced,
             decision.reason,
             decision.usage_ratio,
             decision_source,
-            cached_effective_prompt_tokens_before_send,
-            cached_usage_ratio_before_send,
-            estimated_prompt_tokens_before_send,
+            latest_real_usage.map(|usage| usage.effective_prompt_tokens),
+            latest_real_usage.map(|usage| usage.usage_ratio),
+            usage_resolution.estimated_prompt_tokens.or(estimated_prompt_tokens_before_send),
             selected_api.context_window_tokens
         );
         if decision.should_archive {
@@ -2308,11 +2280,13 @@ async fn send_chat_message_inner(
                     .await?
                         && prepared_context.5.is_some()
                     {
-                        prepared_context.5 = Some(estimate_prepared_prompt_tokens(
-                            &prepared_context.1,
-                            &selected_api,
-                            &prepared_context.4,
-                        ));
+                        prepared_context.5 = Some(
+                            conversation_prompt_service().estimate_prepared_prompt_tokens(
+                                &prepared_context.1,
+                                &selected_api,
+                                &prepared_context.4,
+                            ),
+                        );
                     }
                 }
                 Err(err) => {
@@ -2343,8 +2317,6 @@ async fn send_chat_message_inner(
         latest_user_text,
         current_agent,
         estimated_prompt_tokens,
-        _cached_effective_prompt_tokens_before_send,
-        _cached_usage_ratio_before_send,
         is_remote_im_contact_conversation,
         remote_im_contact_processing_mode,
         tool_loop_auto_compaction_context,
@@ -2592,7 +2564,11 @@ async fn send_chat_message_inner(
         if trusted_input_tokens.is_some() {
             0
         } else {
-            estimate_prepared_prompt_tokens(&prepared_prompt, &active_selected_api, &current_agent)
+            conversation_prompt_service().estimate_prepared_prompt_tokens(
+                &prepared_prompt,
+                &active_selected_api,
+                &current_agent,
+            )
         }
     });
     let (effective_prompt_tokens, effective_prompt_source) =
@@ -2709,8 +2685,6 @@ async fn send_chat_message_inner(
                     conversation.updated_at = now.clone();
                     conversation.last_assistant_at = Some(now);
                 }
-                conversation.last_effective_prompt_tokens = effective_prompt_tokens;
-                conversation.last_context_usage_ratio = context_usage_ratio;
                 state_write_conversation_with_chat_index_cached(&state, &conversation)?;
             }
             Err(err) if !err.contains("not found") => return Err(err),
@@ -2742,8 +2716,6 @@ async fn send_chat_message_inner(
                         conversation.updated_at = now.clone();
                         conversation.last_assistant_at = Some(now);
                     }
-                    conversation.last_effective_prompt_tokens = effective_prompt_tokens;
-                    conversation.last_context_usage_ratio = context_usage_ratio;
                     delegate_runtime_thread_conversation_update(&state, &conversation_id, conversation)?;
                 }
             }

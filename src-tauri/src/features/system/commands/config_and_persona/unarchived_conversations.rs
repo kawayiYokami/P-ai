@@ -340,8 +340,6 @@ fn clone_foreground_conversation_for_copy(
     conversation.archived_at = None;
     conversation.created_at = now.clone();
     conversation.updated_at = now.clone();
-    conversation.last_context_usage_ratio = 0.0;
-    conversation.last_effective_prompt_tokens = 0;
     conversation.messages = source
         .messages
         .iter()
@@ -1841,8 +1839,6 @@ fn persist_rewind_conversation_state(
         .rev()
         .find(|m| m.role == "assistant")
         .map(|m| m.created_at.clone());
-    conversation.last_context_usage_ratio = 0.0;
-    conversation.last_effective_prompt_tokens = 0;
     Ok((
         removed_count,
         remove_from,
@@ -2126,8 +2122,6 @@ mod unarchived_conversations_tests {
             updated_at: "2026-04-18T10:01:00Z".to_string(),
             last_user_at: None,
             last_assistant_at: Some("2026-04-18T10:01:00Z".to_string()),
-            last_context_usage_ratio: 0.4,
-            last_effective_prompt_tokens: 2048,
             status: "active".to_string(),
             summary: String::new(),
             user_profile_snapshot: String::new(),

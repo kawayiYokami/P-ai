@@ -235,8 +235,6 @@ fn build_conversation_record(
         updated_at: now,
         last_user_at: None,
         last_assistant_at: None,
-        last_context_usage_ratio: 0.0,
-        last_effective_prompt_tokens: 0,
         status: "active".to_string(),
         summary: String::new(),
         user_profile_snapshot: String::new(),
@@ -538,6 +536,66 @@ fn build_archive_decision_from_usage_ratio(
     }
 }
 
+fn build_archive_decision_from_estimated_usage_ratio(
+    usage_ratio: f64,
+    last_user_at: Option<&str>,
+    has_assistant_reply: bool,
+) -> ArchiveDecision {
+    if !has_assistant_reply {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "no_assistant_reply".to_string(),
+            usage_ratio,
+        };
+    }
+    if usage_ratio >= 0.95 {
+        return ArchiveDecision {
+            should_archive: true,
+            forced: true,
+            reason: "force_estimated_context_usage_95".to_string(),
+            usage_ratio,
+        };
+    }
+
+    let Some(last_user_at) = last_user_at.and_then(parse_iso) else {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "no_last_user_timestamp".to_string(),
+            usage_ratio,
+        };
+    };
+
+    let now = now_utc();
+    let idle_seconds = now.unix_timestamp() - last_user_at.unix_timestamp();
+    if idle_seconds < ARCHIVE_IDLE_SECONDS {
+        return ArchiveDecision {
+            should_archive: false,
+            forced: false,
+            reason: "idle_not_reached_30m".to_string(),
+            usage_ratio,
+        };
+    }
+
+    if usage_ratio >= 0.30 {
+        return ArchiveDecision {
+            should_archive: true,
+            forced: false,
+            reason: "idle_30m_and_usage_30pct".to_string(),
+            usage_ratio,
+        };
+    }
+
+    ArchiveDecision {
+        should_archive: false,
+        forced: false,
+        reason: "usage_below_30pct".to_string(),
+        usage_ratio,
+    }
+}
+
+#[cfg(test)]
 fn decide_archive_before_model_request(
     estimated_prompt_tokens: u64,
     context_window_tokens: u32,
@@ -549,6 +607,7 @@ fn decide_archive_before_model_request(
     build_archive_decision_from_usage_ratio(usage_ratio, last_user_at, has_assistant_reply)
 }
 
+#[cfg(test)]
 fn decide_archive_before_send_with_fallback(
     cached_effective_prompt_tokens: u64,
     cached_usage_ratio: f64,
@@ -579,14 +638,37 @@ fn decide_archive_before_send_with_fallback(
         );
     }
     (
-        decide_archive_before_model_request(
-            estimated_prompt_tokens.unwrap_or(0),
-            context_window_tokens,
+        build_archive_decision_from_estimated_usage_ratio(
+            (estimated_prompt_tokens.unwrap_or(0) as f64
+                / context_window_tokens.max(1) as f64)
+                .max(0.0),
             last_user_at,
             has_assistant_reply,
         ),
         "estimated_prompt_tokens",
     )
+}
+
+fn decide_archive_before_send_from_usage(
+    usage: &PromptUsageResolution,
+    last_user_at: Option<&str>,
+    has_assistant_reply: bool,
+) -> (ArchiveDecision, &'static str) {
+    let decision = match usage.source {
+        "cached_effective_prompt_tokens" | "cached_usage_ratio" => {
+            build_archive_decision_from_usage_ratio(
+                usage.usage_ratio,
+                last_user_at,
+                has_assistant_reply,
+            )
+        }
+        _ => build_archive_decision_from_estimated_usage_ratio(
+            usage.usage_ratio,
+            last_user_at,
+            has_assistant_reply,
+        ),
+    };
+    (decision, usage.source)
 }
 
 fn archive_conversation_now(
@@ -2279,8 +2361,6 @@ fn build_prompt_with_mode(
         updated_at: conversation.updated_at.clone(),
         last_user_at: conversation.last_user_at.clone(),
         last_assistant_at: conversation.last_assistant_at.clone(),
-        last_context_usage_ratio: conversation.last_context_usage_ratio,
-        last_effective_prompt_tokens: conversation.last_effective_prompt_tokens,
         status: conversation.status.clone(),
         summary: conversation.summary.clone(),
         user_profile_snapshot: conversation.user_profile_snapshot.clone(),

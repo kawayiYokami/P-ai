@@ -172,10 +172,6 @@ fn normalize_archive_for_import(archive: &mut ConversationArchive, data_path: &P
     {
         conversation.last_assistant_at = None;
     }
-    if !conversation.last_context_usage_ratio.is_finite() {
-        conversation.last_context_usage_ratio = 0.0;
-    }
-
     for message in &mut conversation.messages {
         if message.id.trim().is_empty() {
             message.id = Uuid::new_v4().to_string();

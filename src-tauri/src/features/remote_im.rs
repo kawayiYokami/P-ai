@@ -1701,8 +1701,6 @@ fn remote_im_clear_contact_conversation(
     conversation.memory_recall_table.clear();
     conversation.last_user_at = None;
     conversation.last_assistant_at = None;
-    conversation.last_context_usage_ratio = 0.0;
-    conversation.last_effective_prompt_tokens = 0;
     conversation.status = "inactive".to_string();
     conversation.updated_at = now_iso();
 
