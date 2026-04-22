@@ -25,7 +25,7 @@
           :disabled="selectedMessageCount === 0"
           @click="emit('selectionActionBranch')"
         >
-          会话分支
+          创造会话分支
         </button>
         <button
           type="button"
