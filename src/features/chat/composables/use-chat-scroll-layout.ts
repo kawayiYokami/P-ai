@@ -26,6 +26,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const userScrollingDown = ref(false);
   const suppressNextAnimatedConversationScroll = ref(false);
   let suppressAnimatedConversationScrollUntilMs = 0;
+  let forceBottomAnchorOnNextMessageLayout = false;
 
   let composerResizeObserver: ResizeObserver | null = null;
   let activeTurnLayoutObserver: ResizeObserver | null = null;
@@ -211,11 +212,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     () => {
       suppressNextAnimatedConversationScroll.value = true;
       suppressAnimatedConversationScrollUntilMs = Date.now() + 480;
+      forceBottomAnchorOnNextMessageLayout = true;
       nextTick(() => {
         updateActiveTurnLayout();
         syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
-        alignActiveTurnUserToTop("auto");
+        scrollToBottom("auto");
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);
@@ -224,6 +226,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         }
       });
     },
+    { immediate: true },
   );
 
   watch(showSideConversationList, () => {
@@ -241,7 +244,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         updateActiveTurnLayout();
         syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
-        if (!options.lastMessageIsOwn.value) {
+        if (forceBottomAnchorOnNextMessageLayout) {
+          requestAnimationFrame(() => {
+            scrollToBottom("auto");
+            forceBottomAnchorOnNextMessageLayout = false;
+          });
+        } else if (!options.lastMessageIsOwn.value) {
           const shouldSuppressAnimation =
             suppressNextAnimatedConversationScroll.value
             || Date.now() < suppressAnimatedConversationScrollUntilMs;
@@ -290,6 +298,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     options.conversationScrollToBottomRequest,
     (nextValue, prevValue) => {
       if (!nextValue || nextValue === prevValue) return;
+      forceBottomAnchorOnNextMessageLayout = true;
       nextTick(() => {
         requestAnimationFrame(() => {
           scrollToBottom("auto");

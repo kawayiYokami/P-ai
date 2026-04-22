@@ -126,12 +126,66 @@ fn build_foreground_conversation_snapshot_core(
     })
 }
 
+fn build_foreground_conversation_snapshot_from_conversation(
+    state: &AppState,
+    conversation: &Conversation,
+    recent_limit: usize,
+) -> Result<ForegroundConversationSnapshotCore, String> {
+    let total_messages = conversation.messages.len();
+    let start = total_messages.saturating_sub(recent_limit);
+    let messages = conversation.messages[start..].to_vec();
+    Ok(ForegroundConversationSnapshotCore {
+        conversation_id: conversation.id.clone(),
+        messages,
+        has_more_history: start > 0,
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
+        current_todo: conversation_current_todo_text(conversation),
+        current_todos: conversation.current_todos.clone(),
+    })
+}
+
 #[tauri::command]
 fn get_foreground_conversation_light_snapshot(
     input: ForegroundConversationLightSnapshotInput,
     state: State<'_, AppState>,
 ) -> Result<ForegroundConversationLightSnapshotOutput, String> {
     let started_at = std::time::Instant::now();
+    let direct_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if let Some(conversation_id) = direct_conversation_id {
+        let mut snapshot = with_unarchived_conversation_by_id(state.inner(), &conversation_id, |conversation| {
+            ensure_unarchived_conversation_not_organizing(state.inner(), &conversation.id)?;
+            build_foreground_conversation_snapshot_from_conversation(
+                state.inner(),
+                conversation,
+                SWITCH_SNAPSHOT_RECENT_LIMIT,
+            )
+        })?;
+
+        materialize_chat_message_parts_from_media_refs(&mut snapshot.messages, &state.data_path);
+        runtime_log_info(format!(
+            "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",
+            snapshot.conversation_id,
+            snapshot.messages.len(),
+            snapshot.has_more_history,
+            started_at.elapsed().as_millis()
+        ));
+
+        return Ok(ForegroundConversationLightSnapshotOutput {
+            conversation_id: snapshot.conversation_id,
+            messages: snapshot.messages,
+            has_more_history: snapshot.has_more_history,
+            runtime_state: snapshot.runtime_state,
+            current_todo: snapshot.current_todo,
+            current_todos: snapshot.current_todos,
+        });
+    }
+
     let guard = state
         .conversation_lock
         .lock()
@@ -1044,6 +1098,13 @@ struct GetUnarchivedConversationRecentMessagesInput {
     limit: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetUnarchivedConversationMessageByIdInput {
+    conversation_id: String,
+    message_id: String,
+}
+
 fn default_recent_unarchived_message_limit() -> usize {
     5
 }
@@ -1108,6 +1169,32 @@ fn get_unarchived_conversation_recent_messages(
         .ok_or_else(|| "Unarchived conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
+}
+
+#[tauri::command]
+fn get_unarchived_conversation_message_by_id(
+    input: GetUnarchivedConversationMessageByIdInput,
+    state: State<'_, AppState>,
+) -> Result<ChatMessage, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let message_id = input.message_id.trim();
+    if message_id.is_empty() {
+        return Err("messageId is required.".to_string());
+    }
+
+    let mut message = with_unarchived_conversation_by_id(state.inner(), conversation_id, |conversation| {
+        conversation
+            .messages
+            .iter()
+            .find(|item| item.id.trim() == message_id)
+            .cloned()
+            .ok_or_else(|| format!("Message not found: {message_id}"))
+    })?;
+    materialize_chat_message_parts_from_media_refs(std::slice::from_mut(&mut message), &state.data_path);
+    Ok(message)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1461,44 +1548,105 @@ fn resolve_unarchived_conversation_index_with_fallback(
     ))
 }
 
+fn with_unarchived_conversation_by_id<T>(
+    state: &AppState,
+    conversation_id: &str,
+    reader: impl FnOnce(&Conversation) -> Result<T, String>,
+) -> Result<T, String> {
+    let normalized_conversation_id = conversation_id.trim();
+    if normalized_conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let result = {
+        let mut cached = state
+            .cached_app_data
+            .lock()
+            .map_err(|err| format!("Failed to lock cached app data: {:?}", err))?;
+        if cached.is_none() {
+            drop(cached);
+            let loaded = state_read_app_data_cached(state)?;
+            cached = state
+                .cached_app_data
+                .lock()
+                .map_err(|err| format!("Failed to lock cached app data: {:?}", err))?;
+            if cached.is_none() {
+                *cached = Some(loaded);
+            }
+        }
+        let data = cached
+            .as_ref()
+            .ok_or_else(|| "Cached app data is unexpectedly missing".to_string())?;
+        let conversation = data
+            .conversations
+            .iter()
+            .find(|item| {
+                item.id == normalized_conversation_id
+                    && item.summary.trim().is_empty()
+                    && conversation_visible_in_foreground_lists(item)
+            })
+            .ok_or_else(|| format!("Unarchived conversation not found: {normalized_conversation_id}"))?;
+        reader(conversation)?
+    };
+    drop(guard);
+    Ok(result)
+}
+
+fn clone_messages_after_page(
+    messages: &[ChatMessage],
+    after_message_id: &str,
+    limit: usize,
+) -> Result<Vec<ChatMessage>, String> {
+    let after_idx = messages
+        .iter()
+        .position(|item| item.id == after_message_id)
+        .ok_or_else(|| format!("afterMessageId not found: {after_message_id}"))?;
+    let end = (after_idx + 1 + limit).min(messages.len());
+    Ok(messages[(after_idx + 1)..end].to_vec())
+}
+
+fn clone_messages_before_page(
+    messages: &[ChatMessage],
+    before_message_id: &str,
+    limit: usize,
+) -> Result<(Vec<ChatMessage>, bool), String> {
+    let before_idx = messages
+        .iter()
+        .position(|item| item.id == before_message_id)
+        .ok_or_else(|| format!("beforeMessageId not found: {before_message_id}"))?;
+    let start = before_idx.saturating_sub(limit);
+    let has_more = start > 0;
+    Ok((messages[start..before_idx].to_vec(), has_more))
+}
+
 fn resolve_unarchived_conversation_messages_after(
     state: &AppState,
     conversation_id: &str,
     after_message_id: Option<&str>,
     fallback_limit: usize,
 ) -> Result<(Vec<ChatMessage>, Option<String>), String> {
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let data = state_read_app_data_cached(state)?;
-    let conversation = data
-        .conversations
-        .iter()
-        .find(|item| {
-            item.id == conversation_id
-                && item.summary.trim().is_empty()
-                && conversation_visible_in_foreground_lists(item)
-        })
-        .ok_or_else(|| format!("Unarchived conversation not found: {conversation_id}"))?;
-    let messages = conversation.messages.clone();
-    drop(guard);
-
     let trimmed_after = after_message_id
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let (mut page, fallback_mode) = if let Some(after_id) = trimmed_after {
-        if let Some(after_idx) = messages.iter().position(|item| item.id == after_id) {
-            (messages[(after_idx + 1)..].to_vec(), None)
+    let (mut page, fallback_mode) = with_unarchived_conversation_by_id(state, conversation_id, |conversation| {
+        let messages = &conversation.messages;
+        let page_result = if let Some(after_id) = trimmed_after {
+            if let Some(after_idx) = messages.iter().position(|item| item.id == after_id) {
+                (messages[(after_idx + 1)..].to_vec(), None)
+            } else {
+                let start = messages.len().saturating_sub(fallback_limit);
+                (messages[start..].to_vec(), Some("recent_limit".to_string()))
+            }
         } else {
             let start = messages.len().saturating_sub(fallback_limit);
             (messages[start..].to_vec(), Some("recent_limit".to_string()))
-        }
-    } else {
-        let start = messages.len().saturating_sub(fallback_limit);
-        (messages[start..].to_vec(), Some("recent_limit".to_string()))
-    };
+        };
+        Ok(page_result)
+    })?;
     materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
     Ok((page, fallback_mode))
 }
@@ -1513,6 +1661,24 @@ fn get_active_conversation_messages_before(
         return Err("beforeMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 100);
+    let direct_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if let Some(conversation_id) = direct_conversation_id {
+        let (mut page, has_more) = with_unarchived_conversation_by_id(state.inner(), &conversation_id, |conversation| {
+            clone_messages_before_page(&conversation.messages, before_message_id, limit)
+        })?;
+        materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
+        return Ok(GetActiveConversationMessagesBeforeOutput {
+            messages: page,
+            has_more,
+        });
+    }
 
     let guard = state
         .conversation_lock
@@ -1550,30 +1716,15 @@ fn get_active_conversation_messages_before(
             .ok_or_else(|| "Selected agent not found.".to_string())?
     };
 
-    let requested_conversation_id = input
-        .session
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
     let idx = resolve_unarchived_conversation_index_with_fallback(
         &mut data,
         &app_config,
         &effective_agent_id,
-        requested_conversation_id,
+        None,
     )?;
-
-    let messages = data.conversations[idx].messages.clone();
+    let (mut page, has_more) =
+        clone_messages_before_page(&data.conversations[idx].messages, before_message_id, limit)?;
     drop(guard);
-
-    let before_idx = messages
-        .iter()
-        .position(|item| item.id == before_message_id)
-        .ok_or_else(|| format!("beforeMessageId not found: {before_message_id}"))?;
-
-    let start = before_idx.saturating_sub(limit);
-    let has_more = start > 0;
-    let mut page = messages[start..before_idx].to_vec();
     materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
     Ok(GetActiveConversationMessagesBeforeOutput {
         messages: page,
@@ -1591,6 +1742,23 @@ fn get_active_conversation_messages_after(
         return Err("afterMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 200);
+    let direct_conversation_id = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if let Some(conversation_id) = direct_conversation_id {
+        let mut page = with_unarchived_conversation_by_id(state.inner(), &conversation_id, |conversation| {
+            clone_messages_after_page(&conversation.messages, after_message_id, limit)
+        })?;
+        materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
+        return Ok(GetActiveConversationMessagesAfterOutput {
+            messages: page,
+        });
+    }
 
     let guard = state
         .conversation_lock
@@ -1628,29 +1796,14 @@ fn get_active_conversation_messages_after(
             .ok_or_else(|| "Selected agent not found.".to_string())?
     };
 
-    let requested_conversation_id = input
-        .session
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
     let idx = resolve_unarchived_conversation_index_with_fallback(
         &mut data,
         &app_config,
         &effective_agent_id,
-        requested_conversation_id,
+        None,
     )?;
-
-    let messages = data.conversations[idx].messages.clone();
+    let mut page = clone_messages_after_page(&data.conversations[idx].messages, after_message_id, limit)?;
     drop(guard);
-
-    let after_idx = messages
-        .iter()
-        .position(|item| item.id == after_message_id)
-        .ok_or_else(|| format!("afterMessageId not found: {after_message_id}"))?;
-
-    let end = (after_idx + 1 + limit).min(messages.len());
-    let mut page = messages[(after_idx + 1)..end].to_vec();
     materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
     Ok(GetActiveConversationMessagesAfterOutput {
         messages: page,

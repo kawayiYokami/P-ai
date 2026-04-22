@@ -82,6 +82,7 @@ struct ListToolReviewBatchesOutput {
 struct ToolReviewItemDetail {
     batch_key: String,
     call_id: String,
+    message_id: String,
     tool_name: String,
     order_index: usize,
     has_review: bool,
@@ -104,12 +105,14 @@ struct RunToolReviewBatchOutput {
 struct SubmitToolReviewBatchOutput {
     batch_key: String,
     report: ToolReviewReportSummary,
+    report_message_id: String,
 }
 
 #[derive(Debug, Clone)]
 struct ToolReviewCollectedItem {
     batch_key: String,
     call_id: String,
+    message_id: String,
     tool_name: String,
     order_index: usize,
     args_value: Value,
@@ -295,6 +298,7 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
                     batches[batch_idx].items.push(ToolReviewCollectedItem {
                         batch_key: batch_key.clone(),
                         call_id: call_id.clone(),
+                        message_id: String::new(),
                         tool_name,
                         order_index,
                         args_value: call.arguments_value,
@@ -323,6 +327,7 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
                 continue;
             };
             let item = &mut batches[pending_batch_idx].items[pending_item_idx];
+            item.message_id = message.id.clone();
             item.result_text = event.text.trim().to_string();
             item.result_value = serde_json::from_str::<Value>(event.text.trim()).ok();
             item.review_value = item
@@ -372,6 +377,7 @@ fn tool_review_item_detail_from_collected(item: &ToolReviewCollectedItem) -> Too
     ToolReviewItemDetail {
         batch_key: item.batch_key.clone(),
         call_id: item.call_id.clone(),
+        message_id: item.message_id.clone(),
         tool_name: item.tool_name.clone(),
         order_index: item.order_index,
         has_review: item.review_value.is_some(),
@@ -771,7 +777,7 @@ fn tool_review_upsert_report_message(
     conversation: &mut Conversation,
     batch: &ToolReviewCollectedBatch,
     report_text: &str,
-) -> ToolReviewReportSummary {
+) -> (ToolReviewReportSummary, String) {
     let generated_at = now_iso();
     let reviewed_tool_call_ids = batch
         .items
@@ -822,12 +828,12 @@ fn tool_review_upsert_report_message(
                   text: report_text.trim().to_string(),
               }];
               existing.provider_meta = Some(provider_meta);
-              return report;
+              return (report, existing.id.clone());
           }
       }
       let insert_index = tool_review_report_insert_index(conversation, batch)
           .min(conversation.messages.len());
-      conversation.messages.insert(insert_index, ChatMessage {
+      let report_message = ChatMessage {
           id: Uuid::new_v4().to_string(),
           role: "assistant".to_string(),
           created_at: generated_at.clone(),
@@ -839,8 +845,40 @@ fn tool_review_upsert_report_message(
           provider_meta: Some(provider_meta),
           tool_call: None,
           mcp_call: None,
-      });
-    report
+      };
+      let report_message_id = report_message.id.clone();
+      conversation.messages.insert(insert_index, report_message);
+    (report, report_message_id)
+}
+
+fn with_tool_review_conversation<T>(
+    state: &AppState,
+    conversation_id: &str,
+    reader: impl FnOnce(&Conversation) -> Result<T, String>,
+) -> Result<T, String> {
+    let normalized_conversation_id = conversation_id.trim();
+    if normalized_conversation_id.is_empty() {
+        return Err("conversationId 不能为空。".to_string());
+    }
+    let guard = state
+        .conversation_lock
+        .lock()
+        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+    let result = {
+        let cached = state
+            .cached_conversations
+            .lock()
+            .map_err(|err| format!("Failed to lock cached conversations: {:?}", err))?;
+        if let Some(conversation) = cached.get(normalized_conversation_id) {
+            reader(conversation)?
+        } else {
+            drop(cached);
+            let conversation = state_read_conversation_cached(state, normalized_conversation_id)?;
+            reader(&conversation)?
+        }
+    };
+    drop(guard);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -856,37 +894,39 @@ fn list_tool_review_batches(
             current_batch_key: None,
         });
     }
-    let lock_started_at = std::time::Instant::now();
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let lock_wait_elapsed_ms = lock_started_at.elapsed().as_millis();
     let read_started_at = std::time::Instant::now();
-    let conversation = state_read_conversation_cached(&state, conversation_id)?;
+    let (batches, current_batch_key, message_count, collect_elapsed_ms, current_key_elapsed_ms) =
+        with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+            let collect_started_at = std::time::Instant::now();
+            let batches = collect_tool_review_batches_internal(conversation);
+            let collect_elapsed_ms = collect_started_at.elapsed().as_millis();
+            let current_key_started_at = std::time::Instant::now();
+            let current_batch_key = conversation
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
+                .map(|message| message.id.clone());
+            let current_key_elapsed_ms = current_key_started_at.elapsed().as_millis();
+            Ok((
+                batches,
+                current_batch_key,
+                conversation.messages.len(),
+                collect_elapsed_ms,
+                current_key_elapsed_ms,
+            ))
+        })?;
     let read_elapsed_ms = read_started_at.elapsed().as_millis();
-    drop(guard);
-    let collect_started_at = std::time::Instant::now();
-    let batches = collect_tool_review_batches_internal(&conversation);
-    let collect_elapsed_ms = collect_started_at.elapsed().as_millis();
-    let current_key_started_at = std::time::Instant::now();
-    let current_batch_key = conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
-        .map(|message| message.id.clone());
-    let current_key_elapsed_ms = current_key_started_at.elapsed().as_millis();
     runtime_log_debug(format!(
         "[工具审查] 批次读取 完成 total_ms={} lock_wait_ms={} read_ms={} collect_ms={} current_batch_ms={} conversation_id={} batch_count={} message_count={}",
         total_started_at.elapsed().as_millis(),
-        lock_wait_elapsed_ms,
+        0,
         read_elapsed_ms,
         collect_elapsed_ms,
         current_key_elapsed_ms,
         conversation_id,
         batches.len(),
-        conversation.messages.len()
+        message_count
     ));
     Ok(ListToolReviewBatchesOutput {
         current_batch_key,
@@ -907,14 +947,10 @@ fn get_tool_review_item_detail(
     if conversation_id.is_empty() || call_id.is_empty() {
         return Err("conversationId 和 callId 不能为空。".to_string());
     }
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-    let conversation = state_read_conversation_cached(&state, conversation_id)?;
-    drop(guard);
-    let item = tool_review_find_item(&conversation, call_id)?;
-    Ok(tool_review_item_detail_from_collected(&item))
+    with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+        let item = tool_review_find_item(conversation, call_id)?;
+        Ok(tool_review_item_detail_from_collected(&item))
+    })
 }
 
 #[tauri::command]
@@ -1041,12 +1077,14 @@ async fn submit_tool_review_batch(
         .into_iter()
         .find(|item| item.batch_key == batch_key)
         .ok_or_else(|| format!("Tool review batch not found: {batch_key}"))?;
-    let report = tool_review_upsert_report_message(&mut conversation, &refreshed_batch, &report_text);
+    let (report, report_message_id) =
+        tool_review_upsert_report_message(&mut conversation, &refreshed_batch, &report_text);
     state_write_conversation_cached(&state, &conversation)?;
     drop(guard);
 
     Ok(SubmitToolReviewBatchOutput {
         batch_key: batch_key.to_string(),
         report,
+        report_message_id,
     })
 }

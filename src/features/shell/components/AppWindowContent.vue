@@ -141,6 +141,8 @@
         :conversation-busy="forcingArchive || compactingConversation"
         :frozen="branchingConversation || forwardingConversationSelection"
         :message-blocks="visibleMessageBlocks"
+        :has-more-history="chatHasMoreHistory"
+        :loading-older-history="chatLoadingOlderHistory"
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
         :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
         :current-workspace-name="currentChatWorkspaceName"
@@ -171,6 +173,7 @@
         @stop-recording="stopRecording"
         @send-chat="sendChat"
         @stop-chat="stopChat"
+        @load-older-history="onLoadOlderChatHistory"
         @reached-bottom="onReachedChatBottom"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
@@ -185,7 +188,7 @@
         @open-supervision-task="openSupervisionTaskDialog"
         @close-supervision-task="closeSupervisionTaskDialog"
         @save-supervision-task="saveSupervisionTask"
-        @refresh-tool-review-messages="onReloadMessages"
+        @refresh-tool-review-message="onRefreshToolReviewMessage"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
         @toggle-pin-conversation="onToggleConversationPin"
@@ -431,6 +434,8 @@ const props = defineProps<{
   branchingConversation: boolean;
   forwardingConversationSelection: boolean;
   visibleMessageBlocks: ChatMessageBlock[];
+  chatHasMoreHistory: boolean;
+  chatLoadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
   currentChatWorkspaceName: string;
@@ -539,6 +544,7 @@ const props = defineProps<{
   stopRecording: () => void;
   sendChat: () => void;
   stopChat: () => void;
+  onLoadOlderChatHistory: () => void;
   onReachedChatBottom: () => void;
   onRecallTurn: (payload: { turnId: string }) => void;
   onRegenerateTurn: (payload: { turnId: string }) => void;
@@ -547,7 +553,7 @@ const props = defineProps<{
   openSupervisionTaskDialog: () => void;
   closeSupervisionTaskDialog: () => void;
   saveSupervisionTask: (payload: { durationHours: number; goal: string; why: string; todo: string }) => void;
-  onReloadMessages: () => void;
+  onRefreshToolReviewMessage: (payload: { conversationId: string; messageId: string }) => void;
   onSwitchConversation: (conversationId: string) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;
   onToggleConversationPin: (conversationId: string) => void;

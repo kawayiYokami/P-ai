@@ -32,8 +32,18 @@
         ref="scrollContainer"
         class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
         :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
-        @scroll="onScroll"
+        @scroll="onConversationScroll"
       >
+        <div
+          v-if="loadingOlderHistory"
+          class="pointer-events-none sticky top-0 z-10 flex justify-center pb-2"
+        >
+          <div class="badge badge-ghost gap-2 border-base-300 bg-base-100/90 px-3 py-3 shadow-sm">
+            <span class="loading loading-spinner loading-xs"></span>
+            <span>{{ t("chat.loadingOlderMessages") }}</span>
+          </div>
+        </div>
+
         <div v-if="hasActiveOrPendingTodo" class="pointer-events-none sticky top-0 z-20 flex justify-center pt-1">
           <div
             class="dropdown dropdown-bottom pointer-events-auto"
@@ -84,70 +94,43 @@
           </div>
         </div>
 
-        <template v-for="item in chatRenderItems" :key="item.id">
-          <div
-            v-if="item.kind === 'compaction'"
-            class="mt-4 flex items-center gap-3 text-[11px] text-base-content/45"
-          >
-            <div class="h-px flex-1 bg-base-300/80"></div>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
-              :title="t('chat.viewSummary')"
-              @click="openConversationSummary"
-            >
-              <History class="h-3.5 w-3.5" />
-              <span>{{ t("chat.viewSummary") }}</span>
-            </button>
-            <div class="h-px flex-1 bg-base-300/80"></div>
-          </div>
-          <template v-else-if="item.kind === 'message'">
-            <ChatMessageItem
-              v-memo="messageMemoKey(item.block, item.renderId, item.blockIndex)"
-              :block="item.block"
-              :selection-key="item.renderId"
-              :selection-mode-enabled="messageSelectionModeEnabled"
-              :selected="selectedMessageRenderIdSet.has(item.renderId)"
-              :chatting="chatting"
-              :busy="conversationBusy"
-              :frozen="frozen"
-              :user-alias="userAlias"
-              :user-avatar-url="userAvatarUrl"
-              :persona-name-map="personaNameMap"
-              :persona-avatar-url-map="personaAvatarUrlMap"
-              :stream-tool-calls="visibleStreamToolCalls"
-              :markdown-is-dark="markdownIsDark"
-              :playing-audio-id="playingAudioId"
-              :active-turn-user="item.renderId === activeTurnUserId"
-              :can-regenerate="canRegenerateBlock(item.block, item.blockIndex)"
-              :can-confirm-plan="canConfirmPlan(item.block)"
-              @recall-turn="$emit('recallTurn', $event)"
-              @regenerate-turn="$emit('regenerateTurn', $event)"
-              @confirm-plan="$emit('confirmPlan', $event)"
-              @enter-selection-mode="enterMessageSelectionMode"
-              @toggle-message-selected="toggleMessageSelected"
-              @copy-message="copyMessage"
-              @open-image-preview="openImagePreview"
-              @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
-              @assistant-link-click="handleAssistantLinkClick"
-            />
-          </template>
-          <div
-            v-else
-            class="ecall-turn-group"
-            :data-active-turn-group="item.groupId === activeTurnGroupId ? 'true' : undefined"
-          >
+        <div ref="virtualListContainer" class="ecall-chat-virtual-list relative min-w-0 flex flex-col">
+          <template v-for="segment in virtualRenderSegments" :key="segment.key">
             <div
-              class="ecall-turn-stack"
-              :style="item.groupId === activeTurnGroupId ? { minHeight: `${activeTurnGroupMinHeight}px` } : undefined"
-            >
-              <template v-for="groupItem in item.items" :key="groupItem.renderId">
+              v-if="segment.spacerBefore > 0"
+              class="ecall-chat-virtual-spacer"
+              :style="{ height: `${segment.spacerBefore}px` }"
+            ></div>
+
+            <template v-for="item in segment.items" :key="item.id">
+              <div
+                :ref="element => handleVirtualRenderItemRef(item.id, element)"
+                class="ecall-chat-virtual-item"
+              >
+                <div
+                  v-if="item.kind === 'compaction'"
+                  class="mt-4 flex items-center gap-3 text-[11px] text-base-content/45"
+                >
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
+                    :title="t('chat.viewSummary')"
+                    @click="openConversationSummary"
+                  >
+                    <History class="h-3.5 w-3.5" />
+                    <span>{{ t("chat.viewSummary") }}</span>
+                  </button>
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                </div>
+
                 <ChatMessageItem
-                  v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex)"
-                  :block="groupItem.block"
-                  :selection-key="groupItem.renderId"
+                  v-else-if="item.kind === 'message'"
+                  v-memo="messageMemoKey(item.block, item.renderId, item.blockIndex)"
+                  :block="item.block"
+                  :selection-key="item.renderId"
                   :selection-mode-enabled="messageSelectionModeEnabled"
-                  :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
+                  :selected="selectedMessageRenderIdSet.has(item.renderId)"
                   :chatting="chatting"
                   :busy="conversationBusy"
                   :frozen="frozen"
@@ -158,9 +141,9 @@
                   :stream-tool-calls="visibleStreamToolCalls"
                   :markdown-is-dark="markdownIsDark"
                   :playing-audio-id="playingAudioId"
-                  :active-turn-user="groupItem.renderId === activeTurnUserId"
-                  :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
-                  :can-confirm-plan="canConfirmPlan(groupItem.block)"
+                  :active-turn-user="item.renderId === activeTurnUserId"
+                  :can-regenerate="canRegenerateBlock(item.block, item.blockIndex)"
+                  :can-confirm-plan="canConfirmPlan(item.block)"
                   @recall-turn="$emit('recallTurn', $event)"
                   @regenerate-turn="$emit('regenerateTurn', $event)"
                   @confirm-plan="$emit('confirmPlan', $event)"
@@ -171,10 +154,59 @@
                   @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
                   @assistant-link-click="handleAssistantLinkClick"
                 />
-              </template>
-            </div>
-          </div>
-        </template>
+
+                <div
+                  v-else
+                  class="ecall-turn-group"
+                  :data-active-turn-group="item.groupId === activeTurnGroupId ? 'true' : undefined"
+                >
+                  <div
+                    class="ecall-turn-stack"
+                    :style="item.groupId === activeTurnGroupId ? { minHeight: `${activeTurnGroupMinHeight}px` } : undefined"
+                  >
+                    <template v-for="groupItem in item.items" :key="groupItem.renderId">
+                      <ChatMessageItem
+                        v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex)"
+                        :block="groupItem.block"
+                        :selection-key="groupItem.renderId"
+                        :selection-mode-enabled="messageSelectionModeEnabled"
+                        :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
+                        :chatting="chatting"
+                        :busy="conversationBusy"
+                        :frozen="frozen"
+                        :user-alias="userAlias"
+                        :user-avatar-url="userAvatarUrl"
+                        :persona-name-map="personaNameMap"
+                        :persona-avatar-url-map="personaAvatarUrlMap"
+                        :stream-tool-calls="visibleStreamToolCalls"
+                        :markdown-is-dark="markdownIsDark"
+                        :playing-audio-id="playingAudioId"
+                        :active-turn-user="groupItem.renderId === activeTurnUserId"
+                        :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
+                        :can-confirm-plan="canConfirmPlan(groupItem.block)"
+                        @recall-turn="$emit('recallTurn', $event)"
+                        @regenerate-turn="$emit('regenerateTurn', $event)"
+                        @confirm-plan="$emit('confirmPlan', $event)"
+                        @enter-selection-mode="enterMessageSelectionMode"
+                        @toggle-message-selected="toggleMessageSelected"
+                        @copy-message="copyMessage"
+                        @open-image-preview="openImagePreview"
+                        @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
+                        @assistant-link-click="handleAssistantLinkClick"
+                      />
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <div
+            v-if="virtualBottomSpacerHeight > 0"
+            class="ecall-chat-virtual-spacer"
+            :style="{ height: `${virtualBottomSpacerHeight}px` }"
+          ></div>
+        </div>
 
         <div ref="toolbarContainer" class="pt-1 pb-2">
           <ChatWorkspaceToolbar
@@ -217,7 +249,7 @@
         <button
           class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-lg"
           :title="t('chat.jumpToBottom')"
-          @click="jumpToBottom"
+          @click="handleJumpToBottom"
         >
           <ChevronsDown class="h-4 w-4" />
         </button>
@@ -357,7 +389,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, toRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, ListTodo } from "lucide-vue-next";
@@ -375,6 +407,7 @@ import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatToolReview } from "../composables/use-chat-tool-review";
+import { useChatVirtualList } from "../composables/use-chat-virtual-list";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 
 type ChatRenderItem =
@@ -425,6 +458,8 @@ const props = defineProps<{
   conversationBusy: boolean;
   frozen: boolean;
   messageBlocks: ChatMessageBlock[];
+  hasMoreHistory: boolean;
+  loadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
   currentWorkspaceName: string;
@@ -663,8 +698,9 @@ const emit = defineEmits<{
   (e: "togglePinConversation", conversationId: string): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string }): void;
   (e: "openConversationSummary", conversationId: string): void;
+  (e: "loadOlderHistory"): void;
   (e: "reachedBottom"): void;
-  (e: "refreshToolReviewMessages"): void;
+  (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
   (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
@@ -677,6 +713,9 @@ const linkOpenErrorText = ref("");
 const composerPanelRef = ref<{ focusInput: (options?: FocusOptions) => void } | null>(null);
 const messageSelectionModeEnabled = ref(false);
 const selectedMessageRenderIds = ref<string[]>([]);
+const pendingOlderHistoryRestore = ref<null | { scrollHeight: number; scrollTop: number; messageCount: number }>(null);
+const olderHistoryRequestPending = ref(false);
+const LOAD_OLDER_HISTORY_THRESHOLD_PX = 96;
 
 const {
   scrollContainer,
@@ -705,6 +744,59 @@ const {
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
 
+const virtualTailKeepAliveIds = computed(() => {
+  const tailIds = chatRenderItems.value.slice(-4).map((item) => item.id);
+  const activeGroupItemId = activeTurnGroupId.value ? `group-${activeTurnGroupId.value}` : "";
+  if (activeGroupItemId) tailIds.push(activeGroupItemId);
+  return tailIds.filter((value, index, list) => !!value && list.indexOf(value) === index);
+});
+
+const {
+  listContainer: virtualListContainer,
+  renderSegments: virtualRenderSegments,
+  bottomSpacerHeight: virtualBottomSpacerHeight,
+  bindItemElement: bindVirtualRenderItemElement,
+  handleScroll: handleVirtualScroll,
+  pinToBottomOnNextLayout,
+  syncViewportMetrics,
+} = useChatVirtualList({
+  items: chatRenderItems,
+  scrollContainer,
+  estimateHeight: estimateChatRenderItemHeight,
+  keepAliveIds: virtualTailKeepAliveIds,
+  overscanPx: 840,
+  keepAlivePadding: 1,
+});
+
+function onConversationScroll() {
+  onScroll();
+  handleVirtualScroll();
+  maybeRequestOlderHistory();
+}
+
+function handleJumpToBottom() {
+  pinToBottomOnNextLayout();
+  jumpToBottom();
+}
+
+function handleVirtualRenderItemRef(itemId: string, element: unknown) {
+  bindVirtualRenderItemElement(itemId, element instanceof Element ? element : null);
+}
+
+function maybeRequestOlderHistory() {
+  const scrollEl = scrollContainer.value;
+  if (!scrollEl) return;
+  if (!props.hasMoreHistory || props.loadingOlderHistory || olderHistoryRequestPending.value) return;
+  if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_THRESHOLD_PX) return;
+  pendingOlderHistoryRestore.value = {
+    scrollHeight: scrollEl.scrollHeight,
+    scrollTop: scrollEl.scrollTop,
+    messageCount: props.messageBlocks.length,
+  };
+  olderHistoryRequestPending.value = true;
+  emit("loadOlderHistory");
+}
+
 watch(
   showSideConversationList,
   (value) => {
@@ -720,6 +812,44 @@ watch(
   () => String(props.activeConversationId || "").trim(),
   () => {
     exitMessageSelectionMode();
+    pinToBottomOnNextLayout();
+    pendingOlderHistoryRestore.value = null;
+    olderHistoryRequestPending.value = false;
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.conversationScrollToBottomRequest,
+  (nextValue, prevValue) => {
+    if (!nextValue || nextValue === prevValue) return;
+    pinToBottomOnNextLayout();
+  },
+);
+
+watch(
+  () => props.messageBlocks.length,
+  () => {
+    syncViewportMetrics();
+  },
+);
+
+watch(
+  () => props.loadingOlderHistory,
+  async (loading, wasLoading) => {
+    if (loading) return;
+    if (!wasLoading) return;
+    olderHistoryRequestPending.value = false;
+    const restore = pendingOlderHistoryRestore.value;
+    pendingOlderHistoryRestore.value = null;
+    if (!restore) return;
+    const scrollEl = scrollContainer.value;
+    if (!scrollEl) return;
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const deltaHeight = scrollEl.scrollHeight - restore.scrollHeight;
+    scrollEl.scrollTop = Math.max(0, restore.scrollTop + deltaHeight);
+    syncViewportMetrics();
   },
 );
 const {
@@ -802,7 +932,7 @@ const {
   messageBlocks: computed(() => props.messageBlocks),
   refreshTick: toRef(props, "toolReviewRefreshTick"),
   t,
-  onRefreshMessages: () => emit("refreshToolReviewMessages"),
+  onRefreshMessage: (payload) => emit("refreshToolReviewMessage", payload),
 });
 
 function isOwnMessage(block: ChatMessageBlock): boolean {
@@ -854,6 +984,46 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
     requiresInteractionState ? props.conversationBusy : false,
     requiresInteractionState ? props.frozen : false,
   ];
+}
+
+function estimateChatRenderItemHeight(item: ChatRenderItem): number {
+  if (item.kind === "compaction") return 44;
+  if (item.kind === "message") {
+    return estimateMessageBlockHeight(item.block) + 8;
+  }
+  return item.items.reduce((total, groupItem) => total + estimateMessageBlockHeight(groupItem.block) + 8, 0) + 8;
+}
+
+function estimateMessageBlockHeight(block: ChatMessageBlock): number {
+  let estimate = isOwnMessage(block) ? 78 : 108;
+  const text = String(block.text || "");
+  const inlineReasoning = String(block.reasoningInline || "");
+  const standardReasoning = String(block.reasoningStandard || "");
+  const combinedTextLength = text.length + inlineReasoning.length + standardReasoning.length;
+  estimate += Math.min(920, Math.ceil(combinedTextLength / 28) * 9);
+
+  const codeFenceCount = countFenceMatches(text, /```[\w-]*\s*[\r\n]/g);
+  const mermaidFenceCount = countFenceMatches(text, /```(?:\s*)mermaid\b/gi);
+  estimate += codeFenceCount * 180;
+  estimate += mermaidFenceCount * 120;
+
+  if (block.planCard) estimate += 84;
+  if (block.taskTrigger) estimate += 120;
+  if (standardReasoning.trim()) estimate += Math.min(240, Math.ceil(standardReasoning.length / 36) * 12);
+  if (inlineReasoning.trim()) estimate += Math.min(180, Math.ceil(inlineReasoning.length / 36) * 10);
+  if (block.toolCalls.length > 0) estimate += block.toolCalls.length * 56 + 36;
+  if (Array.isArray(block.memeSegments) && block.memeSegments.length > 0) {
+    estimate += block.memeSegments.length * 42;
+  }
+  estimate += block.images.length * 120;
+  estimate += block.audios.length * 42;
+  estimate += block.attachmentFiles.length * 34;
+  return Math.max(64, estimate);
+}
+
+function countFenceMatches(text: string, pattern: RegExp): number {
+  if (!text) return 0;
+  return Array.from(text.matchAll(pattern)).length;
 }
 
 function isCompactionBlock(block: ChatMessageBlock): boolean {
@@ -1094,6 +1264,22 @@ onBeforeUnmount(() => {
 .ecall-turn-group {
   display: block;
   width: 100%;
+}
+
+.ecall-chat-virtual-list {
+  width: 100%;
+  min-width: 0;
+}
+
+.ecall-chat-virtual-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.ecall-chat-virtual-spacer {
+  width: 100%;
+  flex: 0 0 auto;
 }
 
 .ecall-turn-stack {

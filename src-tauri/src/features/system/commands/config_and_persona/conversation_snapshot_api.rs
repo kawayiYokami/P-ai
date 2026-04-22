@@ -657,7 +657,7 @@ struct ForegroundConversationSnapshotCore {
     current_todos: Vec<ConversationTodoItem>,
 }
 
-const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 50;
+const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

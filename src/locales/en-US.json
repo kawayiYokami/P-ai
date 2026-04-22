@@ -800,6 +800,7 @@
     "abstract": "Abstract"
   },
   "chat": {
+    "loadingOlderMessages": "Loading older messages",
     "command": "Command",
     "noInstructionPresets": "No instruction presets yet",
     "noMentionCandidates": "No mentionable personas",

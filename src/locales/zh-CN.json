@@ -801,6 +801,7 @@
     "abstract": "抽象"
   },
   "chat": {
+    "loadingOlderMessages": "加载更早消息中",
     "command": "指令",
     "noInstructionPresets": "暂无指令预设",
     "noMentionCandidates": "暂无可提及人格",

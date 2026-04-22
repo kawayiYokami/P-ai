@@ -800,6 +800,7 @@
     "abstract": "抽象"
   },
   "chat": {
+    "loadingOlderMessages": "載入更早訊息中",
     "command": "指令",
     "noInstructionPresets": "暫無指令預設",
     "noMentionCandidates": "暫無可提及人格",

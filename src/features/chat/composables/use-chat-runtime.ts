@@ -44,7 +44,7 @@ type ConversationMaintenanceAction = {
 };
 
 export function useChatRuntime(options: UseChatRuntimeOptions) {
-  const RECENT_MESSAGE_WINDOW = 50;
+  const RECENT_MESSAGE_WINDOW = 10;
 
   function currentConversationIdOrNull(): string | null {
     const value = String(options.currentConversationId?.value || "").trim();
@@ -178,13 +178,13 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
     const startedAt = options.perfNow();
     try {
-      const msgs = await invokeTauri<ChatMessage[]>("get_active_conversation_messages", {
+      const snapshot = await invokeTauri<{ messages: ChatMessage[] }>("get_foreground_conversation_light_snapshot", {
         input: {
-          apiConfigId: options.activeChatApiConfigId.value,
           agentId: options.assistantDepartmentAgentId.value,
           conversationId: currentConversationIdOrNull(),
         },
       });
+      const msgs = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
       if (options.perfDebug) console.log(`[PERF] loadAllMessages count=${msgs.length}`);
       const recent = Array.isArray(msgs) ? msgs.slice(-RECENT_MESSAGE_WINDOW) : [];
       options.allMessages.value = recent;

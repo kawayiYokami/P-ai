@@ -37,6 +37,7 @@ export type ToolReviewBatchSummary = {
 export type ToolReviewItemDetail = {
   batchKey: string;
   callId: string;
+  messageId: string;
   toolName: string;
   orderIndex: number;
   hasReview: boolean;
@@ -51,13 +52,19 @@ type ToolReviewBatchListOutput = {
   currentBatchKey?: string;
 };
 
+type SubmitToolReviewBatchOutput = {
+  batchKey: string;
+  report: ToolReviewReportSummary;
+  reportMessageId: string;
+};
+
 type UseChatToolReviewOptions = {
   activeConversationId: Ref<string>;
   selectedChatModelId: Ref<string>;
   messageBlocks: ComputedRef<ChatMessageBlock[]>;
   refreshTick: Ref<number>;
   t: (key: string, params?: Record<string, unknown>) => string;
-  onRefreshMessages?: () => void | Promise<void>;
+  onRefreshMessage?: (input: { conversationId: string; messageId: string }) => void | Promise<void>;
 };
 
 export function useChatToolReview(options: UseChatToolReviewOptions) {
@@ -102,9 +109,20 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       && (!toolReviewLoadedForCurrentConversation.value || toolReviewHasReviewableContent.value)
   );
 
-  async function refreshMessagesAfterReviewMutation() {
-    if (!options.onRefreshMessages) return;
-    await options.onRefreshMessages();
+  async function refreshMessagesAfterReviewMutation(
+    conversationId: string,
+    messageIds: string[],
+  ) {
+    if (!options.onRefreshMessage) return;
+    const normalizedMessageIds = messageIds
+      .map((item) => String(item || "").trim())
+      .filter((item, index, list) => !!item && list.indexOf(item) === index);
+    for (const messageId of normalizedMessageIds) {
+      await options.onRefreshMessage({
+        conversationId,
+        messageId,
+      });
+    }
   }
 
   function resolveValidBatchKey(
@@ -152,10 +170,12 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     }
   }
 
-  async function loadToolReviewItemDetail(callId: string) {
+  async function loadToolReviewItemDetail(callId: string, force = false) {
     const normalizedCallId = String(callId || "").trim();
     const conversationId = String(options.activeConversationId.value || "").trim();
-    if (!normalizedCallId || !conversationId || toolReviewDetailMap.value[normalizedCallId]) return;
+    if (!normalizedCallId || !conversationId) return null;
+    const cachedDetail = toolReviewDetailMap.value[normalizedCallId];
+    if (!force && cachedDetail) return cachedDetail;
     toolReviewDetailLoadingCallId.value = normalizedCallId;
     try {
       const detail = await invokeTauri<ToolReviewItemDetail>("get_tool_review_item_detail", {
@@ -169,8 +189,10 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         [normalizedCallId]: detail,
       };
       toolReviewErrorText.value = "";
+      return detail;
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
+      return null;
     } finally {
       if (toolReviewDetailLoadingCallId.value === normalizedCallId) {
         toolReviewDetailLoadingCallId.value = "";
@@ -195,7 +217,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         [normalizedCallId]: detail,
       };
       await refreshToolReviewBatches();
-      await refreshMessagesAfterReviewMutation();
+      await refreshMessagesAfterReviewMutation(conversationId, [detail.messageId]);
       toolReviewErrorText.value = "";
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
@@ -219,11 +241,14 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         },
       });
       const reviewedCallIds = Array.isArray(result?.reviewedCallIds) ? result.reviewedCallIds : [];
-      for (const callId of reviewedCallIds) {
-        await loadToolReviewItemDetail(callId);
-      }
+      const refreshedDetails = await Promise.all(reviewedCallIds.map((callId) => loadToolReviewItemDetail(callId, true)));
       await refreshToolReviewBatches();
-      await refreshMessagesAfterReviewMutation();
+      await refreshMessagesAfterReviewMutation(
+        conversationId,
+        refreshedDetails
+          .map((detail) => String(detail?.messageId || "").trim())
+          .filter(Boolean),
+      );
       toolReviewErrorText.value = "";
     } catch (error) {
       toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
@@ -241,7 +266,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     toolReviewSubmittingBatchKey.value = normalizedBatchKey;
     toolReviewReportErrorText.value = "";
     try {
-      await invokeTauri("submit_tool_review_batch", {
+      const result = await invokeTauri<SubmitToolReviewBatchOutput>("submit_tool_review_batch", {
         input: {
           conversationId,
           batchKey: normalizedBatchKey,
@@ -249,7 +274,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         },
       });
       await refreshToolReviewBatches();
-      await refreshMessagesAfterReviewMutation();
+      await refreshMessagesAfterReviewMutation(conversationId, [String(result?.reportMessageId || "").trim()]);
       toolReviewReportErrorText.value = "";
       toolReviewErrorText.value = "";
     } catch (error) {

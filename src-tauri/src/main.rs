@@ -545,6 +545,7 @@ fn main() {
             mark_conversation_read,
             get_unarchived_conversation_messages,
             get_unarchived_conversation_recent_messages,
+            get_unarchived_conversation_message_by_id,
             list_delegate_conversations,
             get_delegate_conversation_messages,
             delete_unarchived_conversation,

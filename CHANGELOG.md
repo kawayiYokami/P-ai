@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（chat-foreground-windowing-and-review-refresh）：聊天前台切换改为直接从底部最新窗口进入，首屏轻量快照收敛为最近 10 条、向上滚动分页每次补 10 条，并引入动态高度虚拟滚动以降低超长会话渲染卡顿；同时收紧会话/工具审查读取热路径，优先走内存缓存快照，工具审查改为按 messageId 精确刷新单条消息，避免把 review 误当成“补后续消息”
 - 功能（codex-rate-limits-and-spark-buckets）：Codex 供应商登录状态卡新增官方 usage 快照查询，复用现有 OAuth/本地凭证链路请求 `/wham/usage`，展示主 Codex 与 GPT-5.3-Codex-Spark 两组 `5h/weekly` 额度、重置时间与 credits 状态，并兼容当前默认 `https://chatgpt.com/backend-api/codex` 基址的 usage 查询归一化
 - 重构（compaction-close-and-restart-dispatch）：上下文压缩现在被明确建模为调度边界事件；无论是发送前自动整理还是工具续调前整理，一旦命中压缩，当前调度都会闭口结束，并在压缩完成后以新的 `request_id / dispatch_id` 重开一次调度，不再在同一次调度里跨过压缩消息继续原地续跑；同时统一首发与续调两条链的压缩判定入口，确保真相层、展示层与抽象调度层都一致表现为“消息组 -> 压缩消息 -> 新消息组”
 - 修复（prompt-usage-source-unification-and-conversation-cache-removal）：提示词服务的上下文占用查询现在统一以最近一条 assistant 消息的 `providerMeta` 为真实真源，找不到时才回退到本地估算；同时移除 `Conversation.last_context_usage_ratio` 与 `Conversation.last_effective_prompt_tokens` 这组伪状态字段，避免前后端围绕“会话级缓存”和“消息级真实值”继续分叉，强制压缩判断、手动整理上下文预览与相关测试夹具也同步切到同一套真源语义
