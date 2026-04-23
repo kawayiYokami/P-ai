@@ -27,6 +27,7 @@ Thumbs.db
 # Tauri / Rust build outputs
 src-tauri/target/
 src-tauri/gen/
+src-tauri/memory/
 target/
 
 # Tauri local config overrides
