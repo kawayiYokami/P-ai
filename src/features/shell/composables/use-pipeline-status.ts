@@ -15,6 +15,7 @@ export interface PipelineStageEvent {
   elapsed_ms: number;
   conversation_id: string;
   status: "idle" | "busy" | "error";
+  request_id?: string;
 }
 
 export interface PipelineState {
@@ -31,12 +32,20 @@ export function usePipelineStatus(): PipelineState {
   const isBusy = ref(false);
 
   let hasWarning = false;
+  let latestRequestId: string | undefined;
   let unlisten: UnlistenFn | null = null;
   let errorAutoRecoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMounted(async () => {
     unlisten = await listen<PipelineStageEvent>("pipeline_stage", (event) => {
       const payload = event.payload;
+      // Ignore events from stale requests — only accept the latest request_id
+      if (payload.request_id) {
+        if (latestRequestId && payload.request_id !== latestRequestId && payload.status !== "busy") {
+          return;
+        }
+        latestRequestId = payload.request_id;
+      }
       label.value = payload.label;
       elapsedMs.value = payload.elapsed_ms;
 

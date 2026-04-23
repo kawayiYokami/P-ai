@@ -1062,6 +1062,7 @@ async fn send_chat_message_inner(
         };
         title
     };
+    let pipeline_request_id_for_chat_log = trace_id.clone();
     let conversation_id_for_chat_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
     let log_chat_stage = |stage: &str| {
         if !should_record_chat_stage(stage) {
@@ -1088,6 +1089,7 @@ async fn send_chat_message_inner(
                     "label": describe_chat_stage(stage),
                     "elapsed_ms": elapsed_ms,
                     "conversation_id": conversation_id_for_chat_log.clone(),
+                    "request_id": pipeline_request_id_for_chat_log.clone(),
                     "status": "busy"
                 }));
             }
@@ -1591,6 +1593,8 @@ async fn send_chat_message_inner(
     let resolved_api_for_log = resolved_api.clone();
     let conversation_id_for_run_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
     let conversation_id_for_finish_log = conversation_id_for_run_log.clone();
+    let pipeline_request_id_for_run_log = trace_id.clone();
+    let pipeline_request_id_for_finish_log = trace_id.clone();
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
     let run = async move {
@@ -1620,6 +1624,7 @@ async fn send_chat_message_inner(
                     "label": describe_chat_stage(stage),
                     "elapsed_ms": elapsed_ms,
                     "conversation_id": conversation_id_for_run_log.clone(),
+                    "request_id": pipeline_request_id_for_run_log.clone(),
                     "status": "busy"
                 }));
             }
@@ -2826,6 +2831,7 @@ async fn send_chat_message_inner(
                 "label": if finish_status == "error" { "请求失败" } else { "发送消息结束" },
                 "elapsed_ms": elapsed_ms,
                 "conversation_id": conversation_id_for_finish_log.clone(),
+                "request_id": pipeline_request_id_for_finish_log.clone(),
                 "status": finish_status
             }));
         }
