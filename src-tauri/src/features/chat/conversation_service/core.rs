@@ -1,4 +1,42 @@
 impl ConversationService {
+    fn with_unarchived_conversation_by_id_fast<T>(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        reader: impl FnOnce(&Conversation) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
+        let guard = state
+            .conversation_lock
+            .lock()
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        let result = with_app_data_cached_ref(state, |data, _detail| {
+            let conversation = data
+                .conversations
+                .iter()
+                .find(|item| {
+                    item.id == normalized_conversation_id
+                        && item.summary.trim().is_empty()
+                        && conversation_visible_in_foreground_lists(item)
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "Unarchived conversation not found: {normalized_conversation_id}"
+                    )
+                })?;
+            self.ensure_unarchived_foreground_conversation(
+                conversation,
+                normalized_conversation_id,
+            )?;
+            reader(conversation)
+        })?;
+        drop(guard);
+        Ok(result)
+    }
+
     fn get_or_ensure_cached_app_data(&self, state: &AppState) -> Result<AppData, String> {
         {
             let cached = state

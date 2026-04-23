@@ -323,7 +323,7 @@ impl ConversationService {
             .map(ToOwned::to_owned);
 
         let (mut page, has_more) = if let Some(conversation_id) = direct_conversation_id {
-            self.with_unarchived_conversation_by_id(state, &conversation_id, |conversation| {
+            self.with_unarchived_conversation_by_id_fast(state, &conversation_id, |conversation| {
                 clone_messages_before_page(
                     &conversation.messages,
                     normalized_before_message_id,
@@ -413,7 +413,7 @@ impl ConversationService {
             .map(ToOwned::to_owned);
 
         let mut page = if let Some(conversation_id) = direct_conversation_id {
-            self.with_unarchived_conversation_by_id(state, &conversation_id, |conversation| {
+            self.with_unarchived_conversation_by_id_fast(state, &conversation_id, |conversation| {
                 clone_messages_after_page(
                     &conversation.messages,
                     normalized_after_message_id,
@@ -495,7 +495,7 @@ impl ConversationService {
             .filter(|value| !value.is_empty());
 
         let (mut page, fallback_mode) =
-            self.with_unarchived_conversation_by_id(state, conversation_id, |conversation| {
+            self.with_unarchived_conversation_by_id_fast(state, conversation_id, |conversation| {
                 let messages = &conversation.messages;
                 let page_result = if let Some(after_id) = trimmed_after {
                     if let Some(after_idx) = messages.iter().position(|item| item.id == after_id) {

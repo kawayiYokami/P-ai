@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+- 优化（chat-history-page-fast-read-path）：会话补历史/补后续消息这条高频读取链路新增只读快路径；当已明确传入 `conversationId` 时，不再 clone 整份 `AppData` 再切局部消息页，而是直接借用缓存中的会话引用，只克隆目标分页消息并继续做最小 media materialize，显著压低补消息热路径的锁持有与读取耗时
 - 修复（archive-list-title-source-correction）：归档消息列表标题改为优先使用会话自身 `title`，仅在标题为空时才回退到首条用户消息预览，避免归档窗口左侧列表把正文预览误当标题展示
 - 优化（chat-rewind-lightweight-preview-and-agent-check-removal）：撤回消息链路移除与当前历史回滚无关的 agent 存活检查、private org 合并与 overview 全量刷新依赖，未归档会话预览读取改为纯读且瘦身重字段；撤回成功后前端仅在本地已握有足够最近正式消息时才局部推送当前会话预览，否则不做额外读取或刷新，显著压低撤回耗时
 - 优化（chat-virtual-scroll-compensation-and-own-message-alignment）：聊天虚拟滚动继续收口动态高度与补历史补偿语义，首屏快照与历史分页保持前端可控条数，消息统一补稳定 id，向上补历史改为以 `scrollHeight` 差值做主补偿、消息头像锚点做兜底，向上滚动时旧项测量优先吃缓存避免二次顶动；同时恢复“用户消息正式落库后再平滑顶到上缘”的行为，保留群组渲染与工具栏同层布局，修复长消息历史补位、用户消息对齐与滚动稳定性问题
