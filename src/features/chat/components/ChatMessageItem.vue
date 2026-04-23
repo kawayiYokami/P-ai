@@ -147,7 +147,7 @@
         </div>
       </div>
       <div v-if="!isOwnMessage(block) && block.reasoningStandard" class="flex flex-col opacity-90">
-        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55">
+        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55" @toggle="onReasoningStandardToggle">
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
             <span class="inline-block shrink-0 text-[10px] leading-none text-success">▲</span>
             <span
@@ -156,13 +156,16 @@
               {{ reasoningSummaryLabel(block) }}
             </span>
           </summary>
-          <div class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70">
+          <div
+            v-if="reasoningStandardExpanded"
+            class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70"
+          >
             {{ block.reasoningStandard }}
           </div>
         </details>
       </div>
       <div v-if="!isOwnMessage(block) && resolvedInlineReasoning(block)" class="flex flex-col opacity-90">
-        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55">
+        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55" @toggle="onInlineReasoningToggle">
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 cursor-pointer hover:bg-base-200">
             <span class="inline-block shrink-0 text-[10px] leading-none text-success">▲</span>
             <span
@@ -171,13 +174,16 @@
               {{ reasoningSummaryLabel(block) }}
             </span>
           </summary>
-          <div class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70">
+          <div
+            v-if="inlineReasoningExpanded"
+            class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70"
+          >
             {{ resolvedInlineReasoning(block) }}
           </div>
         </details>
       </div>
       <div v-if="toolCallsForBlock(block).length > 0" class="flex flex-col opacity-90">
-        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55">
+        <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55" @toggle="onToolCallsToggle">
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
             <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
             <span
@@ -185,7 +191,10 @@
             >{{ toolStatusLabel(block) }}</span>
             <span v-if="toolNamesLabel(block)" class="truncate">{{ ` · ${toolNamesLabel(block)}` }}</span>
           </summary>
-          <div class="collapse-content px-0 pb-1 pt-2 text-xs text-base-content/70">
+          <div
+            v-if="toolCallsExpanded"
+            class="collapse-content px-0 pb-1 pt-2 text-xs text-base-content/70"
+          >
             <ul class="timeline timeline-vertical timeline-compact">
               <li
                 v-for="(toolCall, idx) in toolCallsForBlock(block)"
@@ -563,12 +572,32 @@ const showRegenerateAction = false;
 const { t } = useI18n();
 const resolvedImageSrcMap = ref<Record<string, string>>({});
 const markdownContainerRef = ref<HTMLElement | null>(null);
+const reasoningStandardExpanded = ref(false);
+const inlineReasoningExpanded = ref(false);
+const toolCallsExpanded = ref(false);
 let disposed = false;
 
 const displayName = computed(() => messageName(props.block));
 const avatarUrl = computed(() => messageAvatarUrl(props.block));
 const formattedCreatedAt = computed(() => formattedBlockTime(props.block.createdAt));
 const streamingHeaderStatus = computed(() => assistantStreamingHeaderStatus(props.block));
+
+function detailsOpenFromEvent(event: Event): boolean {
+  const target = event.target;
+  return target instanceof HTMLDetailsElement ? target.open : false;
+}
+
+function onReasoningStandardToggle(event: Event): void {
+  reasoningStandardExpanded.value = detailsOpenFromEvent(event);
+}
+
+function onInlineReasoningToggle(event: Event): void {
+  inlineReasoningExpanded.value = detailsOpenFromEvent(event);
+}
+
+function onToolCallsToggle(event: Event): void {
+  toolCallsExpanded.value = detailsOpenFromEvent(event);
+}
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();

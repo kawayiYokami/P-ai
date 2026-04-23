@@ -61,7 +61,7 @@ impl ConversationService {
             state,
             &data,
             target_idx,
-            SWITCH_SNAPSHOT_RECENT_LIMIT,
+            DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT,
         )?;
         let unarchived_conversations =
             collect_unarchived_conversation_summaries(state, &app_config, &data);

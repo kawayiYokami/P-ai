@@ -28,20 +28,13 @@
           </div>
         </div>
 
-        <DynamicScroller
-          ref="dynamicScrollerRef"
+        <div
+          ref="scrollContainer"
           class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
           :class="chatting || frozen || conversationBusy ? 'pointer-events-auto' : ''"
-          :style="hideScrollerUntilBottomAnchored ? { visibility: 'hidden' } : undefined"
           :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
-          :items="chatRenderItems"
-          key-field="id"
-          :min-item-size="virtualMinItemSize"
-          :buffer="840"
-          :shift="true"
-          @visible="handleDynamicScrollerVisible"
+          @scroll="onConversationScroll"
         >
-        <template #before>
           <div
             v-if="loadingOlderHistory"
             class="pointer-events-none sticky top-0 z-10 flex justify-center pb-2"
@@ -101,144 +94,141 @@
               </div>
             </div>
           </div>
-        </template>
-
-        <template #default="{ item, index, active }">
-          <DynamicScrollerItem
-            :item="item"
-            :active="active"
-            :index="index"
-            :size-dependencies="virtualItemSizeDependencies(item)"
-          >
+          <div class="ecall-chat-history-flow flex min-w-0 flex-col">
             <div
-              class="ecall-chat-virtual-item"
-              :ref="element => handleVirtualRenderItemRef(item.id, element)"
+              class="relative min-w-0 w-full"
+              :style="{ height: `${totalVirtualSize}px` }"
             >
               <div
-                v-if="item.kind === 'compaction'"
-                class="mt-4 flex items-center gap-3 text-[11px] text-base-content/45"
-              >
-                <div class="h-px flex-1 bg-base-300/80"></div>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
-                  :title="t('chat.viewSummary')"
-                  @click="openConversationSummary"
-                >
-                  <History class="h-3.5 w-3.5" />
-                  <span>{{ t("chat.viewSummary") }}</span>
-                </button>
-                <div class="h-px flex-1 bg-base-300/80"></div>
-              </div>
-
-              <ChatMessageItem
-                v-else-if="item.kind === 'message'"
-                v-memo="messageMemoKey(item.block, item.renderId, item.blockIndex)"
-                :block="item.block"
-                :selection-key="item.renderId"
-                :selection-mode-enabled="messageSelectionModeEnabled"
-                :selected="selectedMessageRenderIdSet.has(item.renderId)"
-                :chatting="chatting"
-                :busy="conversationBusy"
-                :frozen="frozen"
-                :user-alias="userAlias"
-                :user-avatar-url="userAvatarUrl"
-                :persona-name-map="personaNameMap"
-                :persona-avatar-url-map="personaAvatarUrlMap"
-                :stream-tool-calls="visibleStreamToolCalls"
-                :markdown-is-dark="markdownIsDark"
-                :playing-audio-id="playingAudioId"
-                :active-turn-user="item.renderId === activeTurnUserId"
-                :can-regenerate="canRegenerateBlock(item.block, item.blockIndex)"
-                :can-confirm-plan="canConfirmPlan(item.block)"
-                @recall-turn="$emit('recallTurn', $event)"
-                @regenerate-turn="$emit('regenerateTurn', $event)"
-                @confirm-plan="$emit('confirmPlan', $event)"
-                @enter-selection-mode="enterMessageSelectionMode"
-                @toggle-message-selected="toggleMessageSelected"
-                @copy-message="copyMessage"
-                @open-image-preview="openImagePreview"
-                @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
-                @assistant-link-click="handleAssistantLinkClick"
-              />
-
-              <div
-                v-else
-                class="ecall-turn-group"
-                :data-active-turn-group="item.groupId === activeTurnGroupId ? 'true' : undefined"
+                v-for="entry in virtualEntries"
+                :key="entry.item.id"
+                :data-index="entry.row.index"
+                :data-render-item-id="entry.item.id"
+                :ref="(el) => measureVirtualRow(entry.item.id, el)"
+                class="absolute left-0 top-0 w-full ecall-chat-virtual-item"
+                :style="{ transform: `translateY(${entry.row.start}px)` }"
               >
                 <div
-                  class="ecall-turn-stack"
-                  :style="item.groupId === activeTurnGroupId ? { minHeight: `${activeTurnGroupMinHeight}px` } : undefined"
+                  v-if="entry.item.kind === 'compaction'"
+                  class="mt-4 flex items-center gap-3 text-[11px] text-base-content/45"
                 >
-                  <template v-for="groupItem in item.items" :key="groupItem.renderId">
-                    <ChatMessageItem
-                      v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex)"
-                      :block="groupItem.block"
-                      :selection-key="groupItem.renderId"
-                      :selection-mode-enabled="messageSelectionModeEnabled"
-                      :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
-                      :chatting="chatting"
-                      :busy="conversationBusy"
-                      :frozen="frozen"
-                      :user-alias="userAlias"
-                      :user-avatar-url="userAvatarUrl"
-                      :persona-name-map="personaNameMap"
-                      :persona-avatar-url-map="personaAvatarUrlMap"
-                      :stream-tool-calls="visibleStreamToolCalls"
-                      :markdown-is-dark="markdownIsDark"
-                      :playing-audio-id="playingAudioId"
-                      :active-turn-user="groupItem.renderId === activeTurnUserId"
-                      :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
-                      :can-confirm-plan="canConfirmPlan(groupItem.block)"
-                      @recall-turn="$emit('recallTurn', $event)"
-                      @regenerate-turn="$emit('regenerateTurn', $event)"
-                      @confirm-plan="$emit('confirmPlan', $event)"
-                      @enter-selection-mode="enterMessageSelectionMode"
-                      @toggle-message-selected="toggleMessageSelected"
-                      @copy-message="copyMessage"
-                      @open-image-preview="openImagePreview"
-                      @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
-                      @assistant-link-click="handleAssistantLinkClick"
-                    />
-                  </template>
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
+                    :title="t('chat.viewSummary')"
+                    @click="openConversationSummary"
+                  >
+                    <History class="h-3.5 w-3.5" />
+                    <span>{{ t("chat.viewSummary") }}</span>
+                  </button>
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                </div>
+
+                <ChatMessageItem
+                  v-else-if="entry.item.kind === 'message'"
+                  v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex)"
+                  :block="entry.item.block"
+                  :selection-key="entry.item.renderId"
+                  :selection-mode-enabled="messageSelectionModeEnabled"
+                  :selected="selectedMessageRenderIdSet.has(entry.item.renderId)"
+                  :chatting="chatting"
+                  :busy="conversationBusy"
+                  :frozen="frozen"
+                  :user-alias="userAlias"
+                  :user-avatar-url="userAvatarUrl"
+                  :persona-name-map="personaNameMap"
+                  :persona-avatar-url-map="personaAvatarUrlMap"
+                  :stream-tool-calls="visibleStreamToolCalls"
+                  :markdown-is-dark="markdownIsDark"
+                  :playing-audio-id="playingAudioId"
+                  :active-turn-user="false"
+                  :can-regenerate="canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
+                  :can-confirm-plan="canConfirmPlan(entry.item.block)"
+                  @recall-turn="$emit('recallTurn', $event)"
+                  @regenerate-turn="$emit('regenerateTurn', $event)"
+                  @confirm-plan="$emit('confirmPlan', $event)"
+                  @enter-selection-mode="enterMessageSelectionMode"
+                  @toggle-message-selected="toggleMessageSelected"
+                  @copy-message="copyMessage"
+                  @open-image-preview="openImagePreview"
+                  @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
+                  @assistant-link-click="handleAssistantLinkClick"
+                />
+
+                <div
+                  v-else
+                  class="ecall-turn-group"
+                >
+                  <div class="ecall-turn-stack">
+                    <template v-for="groupItem in entry.item.items" :key="groupItem.renderId">
+                      <ChatMessageItem
+                        v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex)"
+                        :block="groupItem.block"
+                        :selection-key="groupItem.renderId"
+                        :selection-mode-enabled="messageSelectionModeEnabled"
+                        :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
+                        :chatting="chatting"
+                        :busy="conversationBusy"
+                        :frozen="frozen"
+                        :user-alias="userAlias"
+                        :user-avatar-url="userAvatarUrl"
+                        :persona-name-map="personaNameMap"
+                        :persona-avatar-url-map="personaAvatarUrlMap"
+                        :stream-tool-calls="visibleStreamToolCalls"
+                        :markdown-is-dark="markdownIsDark"
+                        :playing-audio-id="playingAudioId"
+                        :active-turn-user="false"
+                        :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
+                        :can-confirm-plan="canConfirmPlan(groupItem.block)"
+                        @recall-turn="$emit('recallTurn', $event)"
+                        @regenerate-turn="$emit('regenerateTurn', $event)"
+                        @confirm-plan="$emit('confirmPlan', $event)"
+                        @enter-selection-mode="enterMessageSelectionMode"
+                        @toggle-message-selected="toggleMessageSelected"
+                        @copy-message="copyMessage"
+                        @open-image-preview="openImagePreview"
+                        @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
+                        @assistant-link-click="handleAssistantLinkClick"
+                      />
+                    </template>
+                  </div>
                 </div>
               </div>
             </div>
-          </DynamicScrollerItem>
-        </template>
-        </DynamicScroller>
 
-        <div ref="toolbarContainer" class="pt-1 pb-2">
-          <ChatWorkspaceToolbar
-            :chatting="chatting"
-            :frozen="frozen"
-            :workspace-button-label="t('chat.allowedWorkspaceButton')"
-            :workspace-button-name="currentWorkspaceName"
-            :persona-presence-chips="personaPresenceChips"
-            :mentionable-agent-ids="mentionableAgentIds"
-            :selected-mention-agent-ids="selectedMentionAgentIds"
-            :supervision-active="supervisionActive"
-            :supervision-label="t('chat.supervision.button')"
-            :supervision-active-label="t('chat.supervision.buttonActive')"
-            :supervision-title="supervisionButtonTitle"
-            :review-button-label="toolReviewButtonLabel"
-            :review-panel-open="toolReviewPanelOpen"
-            :review-button-enabled="toolReviewButtonEnabled"
-            @lock-workspace="$emit('lockWorkspace')"
-            @mention-persona="agentId => {
-              const normalizedAgentId = String(agentId || '').trim();
-              if (!normalizedAgentId) return;
-              if (selectedMentionAgentIds.includes(normalizedAgentId)) {
-                emit('removeMention', normalizedAgentId);
-                return;
-              }
-              const match = mentionOptions.find((item) => String(item.agentId || '').trim() === normalizedAgentId);
-              if (match) emit('addMention', match);
-            }"
-            @open-supervision-task="$emit('openSupervisionTask')"
-            @toggle-tool-review="toggleToolReviewPanel"
-          />
+            <div ref="toolbarContainer" class="pt-1 pb-2">
+              <ChatWorkspaceToolbar
+                :chatting="chatting"
+                :frozen="frozen"
+                :workspace-button-label="t('chat.allowedWorkspaceButton')"
+                :workspace-button-name="currentWorkspaceName"
+                :persona-presence-chips="personaPresenceChips"
+                :mentionable-agent-ids="mentionableAgentIds"
+                :selected-mention-agent-ids="selectedMentionAgentIds"
+                :supervision-active="supervisionActive"
+                :supervision-label="t('chat.supervision.button')"
+                :supervision-active-label="t('chat.supervision.buttonActive')"
+                :supervision-title="supervisionButtonTitle"
+                :review-button-label="toolReviewButtonLabel"
+                :review-panel-open="toolReviewPanelOpen"
+                :review-button-enabled="toolReviewButtonEnabled"
+                @lock-workspace="$emit('lockWorkspace')"
+                @mention-persona="agentId => {
+                  const normalizedAgentId = String(agentId || '').trim();
+                  if (!normalizedAgentId) return;
+                  if (selectedMentionAgentIds.includes(normalizedAgentId)) {
+                    emit('removeMention', normalizedAgentId);
+                    return;
+                  }
+                  const match = mentionOptions.find((item) => String(item.agentId || '').trim() === normalizedAgentId);
+                  if (match) emit('addMention', match);
+                }"
+                @open-supervision-task="$emit('openSupervisionTask')"
+                @toggle-tool-review="toggleToolReviewPanel"
+              />
+            </div>
+          </div>
         </div>
         <div
           v-show="showJumpToBottom"
@@ -389,8 +379,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
-import { DynamicScroller, DynamicScrollerItem, type DynamicScrollerExposed } from "vue-virtual-scroller";
+import { computed, nextTick, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInstance } from "vue";
+import { useVirtualizer } from "@tanstack/vue-virtual";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, ListTodo } from "lucide-vue-next";
@@ -414,10 +404,6 @@ type ChatRenderItem =
   | { kind: "compaction"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
   | { kind: "message"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
   | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number }> };
-
-type DynamicScrollerInstance = DynamicScrollerExposed<ChatRenderItem> & {
-  $el?: Element | null;
-};
 
 const MAX_GROUP_ITEM_COUNT = 2;
 
@@ -641,22 +627,6 @@ const chatRenderItems = computed<ChatRenderItem[]>(() => {
   flushGroup();
   return items;
 });
-const activeTurnGroupId = computed(() => {
-  for (let idx = chatRenderItems.value.length - 1; idx >= 0; idx -= 1) {
-    const item = chatRenderItems.value[idx];
-    if (item.kind !== "group") continue;
-    return item.groupId;
-  }
-  return "";
-});
-const activeTurnUserId = computed(() => {
-  for (let idx = chatRenderItems.value.length - 1; idx >= 0; idx -= 1) {
-    const item = chatRenderItems.value[idx];
-    if (item.kind !== "group") continue;
-    return String(item.items[0]?.renderId || "").trim();
-  }
-  return "";
-});
 const mentionableAgentIds = computed(() =>
   props.mentionOptions
     .map((item) => String(item?.agentId || "").trim())
@@ -737,27 +707,18 @@ const pendingOlderHistoryRestore = ref<null | {
 }>(null);
 const olderHistoryRequestPending = ref(false);
 const LOAD_OLDER_HISTORY_THRESHOLD_PX = 96;
-const dynamicScrollerRef = ref<DynamicScrollerInstance | null>(null);
+const LOAD_OLDER_HISTORY_REARM_THRESHOLD_PX = 180;
 const observedVirtualItemElements = new Map<string, HTMLElement>();
-const hideScrollerUntilBottomAnchored = ref(false);
-let pendingBottomSeed = false;
-const virtualMinItemSize = computed(() => {
-  const sample = chatRenderItems.value.slice(0, 12);
-  if (sample.length <= 0) return 120;
-  const total = sample.reduce((sum, item) => sum + Math.max(64, Math.round(estimateChatRenderItemHeight(item))), 0);
-  return Math.max(64, Math.round(total / sample.length));
-});
-let boundScrollElement: HTMLElement | null = null;
-let pendingScrollerRefreshFrame = 0;
-let pinToBottomPending = false;
+let pendingMeasureFrame = 0;
 let pendingPinToBottomFrame = 0;
+let lastConversationScrollTop = 0;
+const olderHistoryTriggerArmed = ref(true);
 
 const {
   scrollContainer,
   composerContainer,
   toolbarContainer,
   chatLayoutRoot,
-  activeTurnGroupMinHeight,
   showJumpToBottom,
   jumpToBottomStyle,
   showSideConversationList,
@@ -768,21 +729,10 @@ const {
   busy: toRef(props, "conversationBusy"),
   frozen: toRef(props, "frozen"),
   messageBlockCount: computed(() => props.messageBlocks.length),
-  lastMessageIsOwn: computed(() => {
-    const lastBlock = props.messageBlocks[props.messageBlocks.length - 1];
-    return lastBlock ? isRightAlignedMessage(lastBlock) : false;
-  }),
-  latestOwnMessageAlignRequest: toRef(props, "latestOwnMessageAlignRequest"),
   conversationScrollToBottomRequest: toRef(props, "conversationScrollToBottomRequest"),
   onReachedBottom: () => emit("reachedBottom"),
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
-  requestBottomAnchor: () => pinToBottomOnNextLayout(),
 });
-
-function resolveScrollerElement(): HTMLElement | null {
-  const candidate = dynamicScrollerRef.value?.$el;
-  return candidate instanceof HTMLElement ? candidate : null;
-}
 
 function refreshObservedVirtualItemElements() {
   const validIds = new Set(chatRenderItems.value.map((item) => item.id));
@@ -791,79 +741,81 @@ function refreshObservedVirtualItemElements() {
   }
 }
 
-function attachDynamicScrollerElement() {
-  const nextElement = resolveScrollerElement();
-  if (boundScrollElement === nextElement) return;
-  if (boundScrollElement) {
-    boundScrollElement.removeEventListener("scroll", onConversationScroll);
-  }
-  boundScrollElement = nextElement;
-  scrollContainer.value = nextElement;
-  if (nextElement) {
-    if (pendingBottomSeed) {
-      nextElement.scrollTop = Number.MAX_SAFE_INTEGER;
-    }
-    nextElement.addEventListener("scroll", onConversationScroll, { passive: true });
-    onScroll();
-  }
-}
+const virtualizer = useVirtualizer(
+  computed(() => ({
+    count: chatRenderItems.value.length,
+    getScrollElement: () => scrollContainer.value,
+    getItemKey: (index: number) => chatRenderItems.value[index]?.id ?? `row-${index}`,
+    estimateSize: (index: number) => estimateChatRenderItemHeight(chatRenderItems.value[index]),
+    overscan: 4,
+  })),
+);
 
-function scheduleDynamicScrollerRefresh() {
-  if (pendingScrollerRefreshFrame) return;
+const virtualRows = computed(() => virtualizer.value.getVirtualItems());
+const virtualEntries = computed(() => {
+  return virtualRows.value
+    .map((row) => {
+      const item = chatRenderItems.value[row.index];
+      return item ? { row, item } : null;
+    })
+    .filter((entry): entry is { row: typeof virtualRows.value[number]; item: ChatRenderItem } => Boolean(entry));
+});
+const totalVirtualSize = computed(() => virtualizer.value.getTotalSize());
+
+function scheduleVirtualMeasure() {
+  if (pendingMeasureFrame) return;
   void nextTick(() => {
-    if (pendingScrollerRefreshFrame) return;
-    pendingScrollerRefreshFrame = requestAnimationFrame(() => {
-      pendingScrollerRefreshFrame = 0;
-      const scroller = dynamicScrollerRef.value;
-      if (!scroller) return;
+    if (pendingMeasureFrame) return;
+    pendingMeasureFrame = requestAnimationFrame(() => {
+      pendingMeasureFrame = 0;
       refreshObservedVirtualItemElements();
-      scroller.forceUpdate();
-      if (pinToBottomPending) {
-        scheduleDeferredPinToBottom();
-      } else if (hideScrollerUntilBottomAnchored.value) {
-        hideScrollerUntilBottomAnchored.value = false;
-      }
+      virtualizer.value.measure();
     });
   });
 }
 
-function scheduleDeferredPinToBottom() {
-  if (pendingPinToBottomFrame) return;
-  pendingPinToBottomFrame = requestAnimationFrame(() => {
+function measureVirtualRow(itemId: string, element: Element | ComponentPublicInstance | null) {
+  const normalizedItemId = String(itemId || "").trim();
+  if (!element) {
+    if (normalizedItemId) observedVirtualItemElements.delete(normalizedItemId);
+    return;
+  }
+  const target = element instanceof Element ? element : ((element.$el as Element | undefined) ?? null);
+  if (!target) {
+    if (normalizedItemId) observedVirtualItemElements.delete(normalizedItemId);
+    return;
+  }
+  virtualizer.value.measureElement(target);
+  const resolvedItemId = normalizedItemId || String(target.getAttribute("data-render-item-id") || "").trim();
+  if (resolvedItemId && target instanceof HTMLElement) {
+    observedVirtualItemElements.set(resolvedItemId, target);
+  }
+}
+
+function pinToBottomOnNextLayout(smooth = false) {
+  if (pendingPinToBottomFrame) {
+    cancelAnimationFrame(pendingPinToBottomFrame);
     pendingPinToBottomFrame = 0;
-    const scroller = dynamicScrollerRef.value;
-    if (!scroller || !pinToBottomPending) return;
-    requestAnimationFrame(() => {
-      if (!dynamicScrollerRef.value || !pinToBottomPending) return;
-      const lastIndex = chatRenderItems.value.length - 1;
-      if (lastIndex >= 0) {
-        dynamicScrollerRef.value.scrollToItem(lastIndex, { align: "end" });
-      }
-      pinToBottomPending = false;
-      dynamicScrollerRef.value.scrollToBottom();
-      pendingBottomSeed = false;
+  }
+  void nextTick(() => {
+    scheduleVirtualMeasure();
+    pendingPinToBottomFrame = requestAnimationFrame(() => {
+      pendingPinToBottomFrame = 0;
+      const scrollEl = scrollContainer.value;
+      if (!scrollEl) return;
       requestAnimationFrame(() => {
-        hideScrollerUntilBottomAnchored.value = false;
+        scrollEl.scrollTo({
+          top: scrollEl.scrollHeight,
+          behavior: smooth ? "smooth" : "auto",
+        });
         onScroll();
       });
     });
   });
 }
 
-function pinToBottomOnNextLayout() {
-  pinToBottomPending = true;
-  scheduleDynamicScrollerRefresh();
-}
-
-function handleDynamicScrollerVisible() {
-  attachDynamicScrollerElement();
-  if (pinToBottomPending) {
-    scheduleDynamicScrollerRefresh();
-  }
-}
-
 function syncViewportMetrics() {
-  scheduleDynamicScrollerRefresh();
+  scheduleVirtualMeasure();
 }
 
 function getItemViewportTop(itemId: string): number | null {
@@ -879,7 +831,10 @@ function getFirstVisibleItemId(): string {
   const containerTop = scrollEl.getBoundingClientRect().top;
   let candidateId = "";
   let candidateTop = Number.POSITIVE_INFINITY;
-  for (const [itemId, element] of observedVirtualItemElements.entries()) {
+  for (const entry of virtualEntries.value) {
+    const itemId = entry.item.id;
+    const element = observedVirtualItemElements.get(itemId);
+    if (!element || !element.isConnected) continue;
     const rect = element.getBoundingClientRect();
     if (rect.bottom <= containerTop + 1) continue;
     if (rect.top < candidateTop) {
@@ -891,27 +846,31 @@ function getFirstVisibleItemId(): string {
 }
 
 function onConversationScroll() {
+  const scrollEl = scrollContainer.value;
+  if (scrollEl) {
+    if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_REARM_THRESHOLD_PX) {
+      olderHistoryTriggerArmed.value = true;
+    }
+  }
   onScroll();
   maybeRequestOlderHistory();
+  if (scrollEl) {
+    lastConversationScrollTop = scrollEl.scrollTop;
+  }
 }
 
 function handleJumpToBottom() {
   emit("jumpToConversationBottom");
 }
 
-function handleVirtualRenderItemRef(itemId: string, element: unknown) {
-  if (!(element instanceof HTMLElement)) {
-    observedVirtualItemElements.delete(itemId);
-    return;
-  }
-  observedVirtualItemElements.set(itemId, element);
-}
-
 function maybeRequestOlderHistory() {
   const scrollEl = scrollContainer.value;
   if (!scrollEl) return;
   if (!props.hasMoreHistory || props.loadingOlderHistory || olderHistoryRequestPending.value) return;
+  if (!olderHistoryTriggerArmed.value) return;
   if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_THRESHOLD_PX) return;
+  const isMovingUpward = scrollEl.scrollTop <= lastConversationScrollTop;
+  if (!isMovingUpward) return;
   const anchorItemId = getFirstVisibleItemId();
   pendingOlderHistoryRestore.value = {
     anchorItemId,
@@ -921,6 +880,7 @@ function maybeRequestOlderHistory() {
     messageCount: props.messageBlocks.length,
   };
   olderHistoryRequestPending.value = true;
+  olderHistoryTriggerArmed.value = false;
   emit("loadOlderHistory");
 }
 
@@ -940,11 +900,11 @@ watch(
   () => String(props.activeConversationId || "").trim(),
   () => {
     exitMessageSelectionMode();
-    hideScrollerUntilBottomAnchored.value = true;
-    pendingBottomSeed = true;
-    pinToBottomOnNextLayout();
+    pinToBottomOnNextLayout(false);
     pendingOlderHistoryRestore.value = null;
     olderHistoryRequestPending.value = false;
+    olderHistoryTriggerArmed.value = true;
+    lastConversationScrollTop = 0;
   },
   { immediate: true },
 );
@@ -953,7 +913,7 @@ watch(
   () => props.conversationScrollToBottomRequest,
   (nextValue, prevValue) => {
     if (!nextValue || nextValue === prevValue) return;
-    pinToBottomOnNextLayout();
+    pinToBottomOnNextLayout(false);
   },
 );
 
@@ -982,12 +942,20 @@ watch(
       const nextAnchorTop = getItemViewportTop(restore.anchorItemId);
       if (nextAnchorTop !== null && restore.anchorTop !== null) {
         scrollEl.scrollTop += nextAnchorTop - restore.anchorTop;
+        lastConversationScrollTop = scrollEl.scrollTop;
+        if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_REARM_THRESHOLD_PX) {
+          olderHistoryTriggerArmed.value = true;
+        }
         syncViewportMetrics();
         return;
       }
     }
     const deltaHeight = scrollEl.scrollHeight - restore.scrollHeight;
     scrollEl.scrollTop = Math.max(0, restore.scrollTop + deltaHeight);
+    lastConversationScrollTop = scrollEl.scrollTop;
+    if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_REARM_THRESHOLD_PX) {
+      olderHistoryTriggerArmed.value = true;
+    }
     syncViewportMetrics();
   },
 );
@@ -1130,7 +1098,6 @@ function blockGroupRenderId(block: ChatMessageBlock) {
 
 function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: number) {
   const selected = selectedMessageRenderIdSet.value.has(renderId);
-  const activeTurnUser = renderId === activeTurnUserId.value;
   const canRegenerate = canRegenerateBlock(block, blockIndex);
   const canConfirm = canConfirmPlan(block);
   const requiresInteractionState = canRegenerate || canConfirm;
@@ -1145,7 +1112,6 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
     props.conversationBusy,
     messageSelectionModeEnabled.value,
     selected,
-    activeTurnUser,
     canRegenerate,
     canConfirm,
     requiresInteractionState ? props.chatting : false,
@@ -1424,13 +1390,9 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 }
 
 onBeforeUnmount(() => {
-  if (boundScrollElement) {
-    boundScrollElement.removeEventListener("scroll", onConversationScroll);
-    boundScrollElement = null;
-  }
-  if (pendingScrollerRefreshFrame) {
-    cancelAnimationFrame(pendingScrollerRefreshFrame);
-    pendingScrollerRefreshFrame = 0;
+  if (pendingMeasureFrame) {
+    cancelAnimationFrame(pendingMeasureFrame);
+    pendingMeasureFrame = 0;
   }
   if (pendingPinToBottomFrame) {
     cancelAnimationFrame(pendingPinToBottomFrame);
@@ -1439,24 +1401,6 @@ onBeforeUnmount(() => {
   observedVirtualItemElements.clear();
   stopAudioPlayback();
 });
-
-onMounted(() => {
-  void nextTick(() => {
-    attachDynamicScrollerElement();
-    syncViewportMetrics();
-  });
-});
-
-watch(
-  () => dynamicScrollerRef.value,
-  () => {
-    void nextTick(() => {
-      attachDynamicScrollerElement();
-      syncViewportMetrics();
-    });
-  },
-  { immediate: true },
-);
 
 </script>
 

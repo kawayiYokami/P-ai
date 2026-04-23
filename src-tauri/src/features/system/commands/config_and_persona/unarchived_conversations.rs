@@ -39,11 +39,15 @@ fn get_foreground_conversation_light_snapshot(
     state: State<'_, AppState>,
 ) -> Result<ForegroundConversationLightSnapshotOutput, String> {
     let started_at = std::time::Instant::now();
+    let recent_limit = input
+        .limit
+        .unwrap_or(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT)
+        .clamp(1, 50);
     let snapshot = conversation_service().read_foreground_snapshot(
         state.inner(),
         input.conversation_id.as_deref(),
         input.agent_id.as_deref(),
-        SWITCH_SNAPSHOT_RECENT_LIMIT,
+        recent_limit,
     )?;
     runtime_log_info(format!(
         "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",

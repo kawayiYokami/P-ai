@@ -504,6 +504,8 @@ struct ForegroundConversationLightSnapshotInput {
     conversation_id: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -545,7 +547,7 @@ struct ForegroundConversationSnapshotCore {
     current_todos: Vec<ConversationTodoItem>,
 }
 
-const SWITCH_SNAPSHOT_RECENT_LIMIT: usize = 10;
+const DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT: usize = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

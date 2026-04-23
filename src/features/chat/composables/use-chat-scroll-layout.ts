@@ -6,12 +6,9 @@ type UseChatScrollLayoutOptions = {
   busy: Ref<boolean>;
   frozen: Ref<boolean>;
   messageBlockCount: Ref<number>;
-  lastMessageIsOwn: Ref<boolean>;
-  latestOwnMessageAlignRequest: Ref<number>;
   conversationScrollToBottomRequest: Ref<number>;
   onReachedBottom: () => void;
   focusComposerInput: (options?: FocusOptions) => void;
-  requestBottomAnchor?: () => void;
 };
 
 export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
@@ -19,19 +16,15 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const composerContainer = ref<HTMLElement | null>(null);
   const toolbarContainer = ref<HTMLElement | null>(null);
   const chatLayoutRoot = ref<HTMLElement | null>(null);
-  const activeTurnGroupMinHeight = ref(0);
   const jumpToBottomOffset = ref(96);
   const showSideConversationList = ref(false);
   const lastBottomState = ref(false);
   const lastScrollTop = ref(0);
   const userScrollingDown = ref(false);
-  const suppressNextAnimatedConversationScroll = ref(false);
-  let suppressAnimatedConversationScrollUntilMs = 0;
-  let forceBottomAnchorOnNextMessageLayout = false;
-
   let composerResizeObserver: ResizeObserver | null = null;
-  let activeTurnLayoutObserver: ResizeObserver | null = null;
   let chatLayoutResizeObserver: ResizeObserver | null = null;
+  let pendingComposerResizeFrame = 0;
+  let pendingChatLayoutResizeFrame = 0;
 
   const CHAT_SIDE_LIST_RATIO_THRESHOLD = 1.5;
 
@@ -51,14 +44,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   function jumpToBottom() {
     scrollToBottom("smooth");
-  }
-
-  function requestBottomAnchor() {
-    if (options.requestBottomAnchor) {
-      options.requestBottomAnchor();
-      return;
-    }
-    scrollToBottom("auto");
   }
 
   function syncConversationLayoutMode() {
@@ -96,93 +81,40 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     lastBottomState.value = nearBottom;
   }
 
-  function activeTurnUserElement(): HTMLElement | null {
-    const el = scrollContainer.value;
-    if (!el) return null;
-    return el.querySelector<HTMLElement>("[data-active-turn-user='true'][data-message-id]");
-  }
-
-  function activeTurnGroupElement(): HTMLElement | null {
-    const el = scrollContainer.value;
-    if (!el) return null;
-    return el.querySelector<HTMLElement>("[data-active-turn-group='true']");
-  }
-
-  function alignActiveTurnUserToTop(behavior: ScrollBehavior = "auto"): boolean {
-    const activeTurnUser = activeTurnUserElement();
-    const scrollEl = scrollContainer.value;
-    if (!activeTurnUser || !scrollEl) return false;
-    const targetTop = Math.max(0, activeTurnUser.offsetTop - scrollEl.offsetTop);
-    const distance = Math.abs(scrollEl.scrollTop - targetTop);
-    const finalBehavior: ScrollBehavior =
-      behavior === "smooth" && distance > scrollEl.clientHeight * 3 ? "auto" : behavior;
-    activeTurnUser.scrollIntoView({
-      block: "start",
-      behavior: finalBehavior,
-    });
-    return true;
-  }
-
-  function updateActiveTurnLayout() {
-    const scrollEl = scrollContainer.value;
-    const activeTurnUserEl = activeTurnUserElement();
-    const activeTurnGroupEl = activeTurnGroupElement();
-    if (!scrollEl || !activeTurnUserEl || !activeTurnGroupEl) {
-      activeTurnGroupMinHeight.value = 0;
-      return;
-    }
-    const scrollStyles = window.getComputedStyle(scrollEl);
-    const scrollViewportHeight =
-      scrollEl.clientHeight
-      - parseFloat(scrollStyles.paddingTop || "0")
-      - parseFloat(scrollStyles.paddingBottom || "0");
-    const toolbarHeight = toolbarContainer.value?.offsetHeight ?? 0;
-    const visibleTurnHeight = Math.max(0, scrollViewportHeight - toolbarHeight);
-    const nextGroupMinHeight = visibleTurnHeight;
-    if (Math.abs(activeTurnGroupMinHeight.value - nextGroupMinHeight) > 0.5) {
-      activeTurnGroupMinHeight.value = nextGroupMinHeight;
-    }
-  }
-
-  function syncActiveTurnLayoutObserver() {
-    if (activeTurnLayoutObserver) {
-      activeTurnLayoutObserver.disconnect();
-      activeTurnLayoutObserver = null;
-    }
-    if (typeof ResizeObserver === "undefined") return;
-    activeTurnLayoutObserver = new ResizeObserver(() => {
-      updateActiveTurnLayout();
-    });
-    const scrollEl = scrollContainer.value;
-    const activeTurnUserEl = activeTurnUserElement();
-    const activeTurnGroupEl = activeTurnGroupElement();
-    const toolbarEl = toolbarContainer.value;
-    if (scrollEl) activeTurnLayoutObserver.observe(scrollEl);
-    if (activeTurnUserEl) activeTurnLayoutObserver.observe(activeTurnUserEl);
-    if (activeTurnGroupEl) activeTurnLayoutObserver.observe(activeTurnGroupEl);
-    if (toolbarEl) activeTurnLayoutObserver.observe(toolbarEl);
-  }
-
   onMounted(() => {
     nextTick(() => {
       syncConversationLayoutMode();
       updateJumpToBottomOffset();
       if (composerContainer.value && typeof ResizeObserver !== "undefined") {
         composerResizeObserver = new ResizeObserver(() => {
-          updateJumpToBottomOffset();
+          if (typeof window === "undefined") {
+            updateJumpToBottomOffset();
+            return;
+          }
+          if (pendingComposerResizeFrame) return;
+          pendingComposerResizeFrame = window.requestAnimationFrame(() => {
+            pendingComposerResizeFrame = 0;
+            updateJumpToBottomOffset();
+          });
         });
         composerResizeObserver.observe(composerContainer.value);
       }
       if (chatLayoutRoot.value && typeof ResizeObserver !== "undefined") {
         chatLayoutResizeObserver = new ResizeObserver(() => {
-          syncConversationLayoutMode();
-          updateActiveTurnLayout();
-          syncActiveTurnLayoutObserver();
+          if (typeof window === "undefined") {
+            syncConversationLayoutMode();
+            updateJumpToBottomOffset();
+            return;
+          }
+          if (pendingChatLayoutResizeFrame) return;
+          pendingChatLayoutResizeFrame = window.requestAnimationFrame(() => {
+            pendingChatLayoutResizeFrame = 0;
+            syncConversationLayoutMode();
+            updateJumpToBottomOffset();
+          });
         });
         chatLayoutResizeObserver.observe(chatLayoutRoot.value);
       }
-      updateActiveTurnLayout();
-      syncActiveTurnLayoutObserver();
       const el = scrollContainer.value;
       if (el) {
         lastBottomState.value = isNearBottom(el);
@@ -197,13 +129,17 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       composerResizeObserver.disconnect();
       composerResizeObserver = null;
     }
+    if (pendingComposerResizeFrame && typeof window !== "undefined") {
+      window.cancelAnimationFrame(pendingComposerResizeFrame);
+      pendingComposerResizeFrame = 0;
+    }
     if (chatLayoutResizeObserver) {
       chatLayoutResizeObserver.disconnect();
       chatLayoutResizeObserver = null;
     }
-    if (activeTurnLayoutObserver) {
-      activeTurnLayoutObserver.disconnect();
-      activeTurnLayoutObserver = null;
+    if (pendingChatLayoutResizeFrame && typeof window !== "undefined") {
+      window.cancelAnimationFrame(pendingChatLayoutResizeFrame);
+      pendingChatLayoutResizeFrame = 0;
     }
   });
 
@@ -219,14 +155,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   watch(
     options.activeConversationId,
     () => {
-      suppressNextAnimatedConversationScroll.value = true;
-      suppressAnimatedConversationScrollUntilMs = Date.now() + 480;
-      forceBottomAnchorOnNextMessageLayout = true;
       nextTick(() => {
-        updateActiveTurnLayout();
-        syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
-        requestBottomAnchor();
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);
@@ -240,8 +170,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   watch(showSideConversationList, () => {
     nextTick(() => {
-      updateActiveTurnLayout();
-      syncActiveTurnLayoutObserver();
       updateJumpToBottomOffset();
     });
   });
@@ -250,49 +178,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     options.messageBlockCount,
     () => {
       nextTick(() => {
-        updateActiveTurnLayout();
-        syncActiveTurnLayoutObserver();
         updateJumpToBottomOffset();
-        if (forceBottomAnchorOnNextMessageLayout) {
-          requestAnimationFrame(() => {
-            requestBottomAnchor();
-            forceBottomAnchorOnNextMessageLayout = false;
-          });
-        } else if (!options.lastMessageIsOwn.value) {
-          const shouldSuppressAnimation =
-            suppressNextAnimatedConversationScroll.value
-            || Date.now() < suppressAnimatedConversationScrollUntilMs;
-          const behavior: ScrollBehavior = shouldSuppressAnimation ? "auto" : "smooth";
-          requestAnimationFrame(() => {
-            alignActiveTurnUserToTop(behavior);
-            if (Date.now() >= suppressAnimatedConversationScrollUntilMs) {
-              suppressNextAnimatedConversationScroll.value = false;
-            }
-          });
-        } else {
-          suppressNextAnimatedConversationScroll.value = false;
-        }
-        const el = scrollContainer.value;
-        if (el) {
-          lastBottomState.value = isNearBottom(el);
-          lastScrollTop.value = el.scrollTop;
-          userScrollingDown.value = false;
-        }
-      });
-    },
-  );
-
-  watch(
-    options.latestOwnMessageAlignRequest,
-    (nextValue, prevValue) => {
-      if (!nextValue || nextValue === prevValue) return;
-      nextTick(() => {
-        updateActiveTurnLayout();
-        syncActiveTurnLayoutObserver();
-        updateJumpToBottomOffset();
-        requestAnimationFrame(() => {
-          alignActiveTurnUserToTop("smooth");
-        });
         const el = scrollContainer.value;
         if (el) {
           lastBottomState.value = isNearBottom(el);
@@ -307,10 +193,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     options.conversationScrollToBottomRequest,
     (nextValue, prevValue) => {
       if (!nextValue || nextValue === prevValue) return;
-      forceBottomAnchorOnNextMessageLayout = true;
       nextTick(() => {
         requestAnimationFrame(() => {
-          requestBottomAnchor();
+          scrollToBottom("auto");
           const el = scrollContainer.value;
           if (el) {
             lastBottomState.value = isNearBottom(el);
@@ -327,7 +212,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     composerContainer,
     toolbarContainer,
     chatLayoutRoot,
-    activeTurnGroupMinHeight,
     showJumpToBottom,
     jumpToBottomStyle,
     showSideConversationList,

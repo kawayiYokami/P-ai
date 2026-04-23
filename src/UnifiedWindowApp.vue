@@ -420,7 +420,8 @@ const props = withDefaults(defineProps<{ fixedViewMode?: "chat" | "archives" | "
 
 const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
 const BACKGROUND_CONVERSATION_CACHE_LIMIT = 10;
-const OLDER_HISTORY_PAGE_SIZE = 10;
+const FOREGROUND_SNAPSHOT_RECENT_LIMIT = 2;
+const OLDER_HISTORY_PAGE_SIZE = 2;
 type BackgroundConversationBadgeState = "completed" | "failed";
 type ForegroundPaintTrace = {
   id: number;
@@ -2711,6 +2712,7 @@ async function requestConversationLightSnapshot(conversationId?: string | null):
     input: {
       conversationId: String(conversationId || "").trim() || null,
       agentId: String(currentForegroundAgentId.value || "").trim() || null,
+      limit: FOREGROUND_SNAPSHOT_RECENT_LIMIT,
     },
   });
 }

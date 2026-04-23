@@ -14,6 +14,7 @@ const wrapperRef = ref<HTMLElement | null>(null);
 const canExpand = ref(false);
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let pendingResizeFrame = 0;
 
 const resolvedNode = computed(() => {
   if (!props.node?.diff) return props.node;
@@ -47,6 +48,18 @@ function refreshExpandAvailability() {
     return;
   }
   canExpand.value = contentEl.scrollHeight > collapsedMaxHeightPx + 1;
+}
+
+function scheduleResizeDrivenRefresh() {
+  if (typeof window === "undefined") {
+    refreshExpandAvailability();
+    return;
+  }
+  if (pendingResizeFrame) return;
+  pendingResizeFrame = window.requestAnimationFrame(() => {
+    pendingResizeFrame = 0;
+    refreshExpandAvailability();
+  });
 }
 
 function scheduleExpandAvailabilityRefresh() {
@@ -85,7 +98,7 @@ const resolvedProps = computed(() => {
 onMounted(() => {
   if (typeof ResizeObserver !== "undefined" && wrapperRef.value) {
     resizeObserver = new ResizeObserver(() => {
-      refreshExpandAvailability();
+      scheduleResizeDrivenRefresh();
     });
     resizeObserver.observe(wrapperRef.value);
   }
@@ -103,6 +116,10 @@ onBeforeUnmount(() => {
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
+  }
+  if (pendingResizeFrame && typeof window !== "undefined") {
+    window.cancelAnimationFrame(pendingResizeFrame);
+    pendingResizeFrame = 0;
   }
   resizeObserver?.disconnect();
   resizeObserver = null;
