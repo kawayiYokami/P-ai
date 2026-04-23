@@ -25,5 +25,16 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      ignored: [
+        "**/.git/**",
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/src-tauri/target/**",
+        "**/src-tauri/memory/**",
+        "**/src-tauri/gen/**",
+        "**/src-tauri/icons/**",
+      ],
+    },
   },
 });

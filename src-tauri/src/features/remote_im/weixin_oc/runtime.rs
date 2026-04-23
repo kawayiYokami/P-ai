@@ -110,17 +110,43 @@ impl WeixinOcManager {
     }
 
     async fn stop_channel_inner(&self, channel_id: &str) {
+        let started_at = std::time::Instant::now();
         if let Some(tx) = self.stop_senders.write().await.remove(channel_id) {
             let _ = tx.send(true);
         }
         if let Some(handle) = self.tasks.write().await.remove(channel_id) {
-            let _ = handle.await;
+            let mut handle = handle;
+            tokio::select! {
+                join_result = &mut handle => {
+                    if let Err(err) = join_result {
+                        eprintln!(
+                            "[个人微信] 停止旧轮询任务失败: channel_id={}, error={}",
+                            channel_id,
+                            err
+                        );
+                    }
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(1500)) => {
+                    eprintln!(
+                        "[个人微信] 停止旧轮询任务超时，正在中止: channel_id={}, elapsed_ms={}",
+                        channel_id,
+                        started_at.elapsed().as_millis()
+                    );
+                    handle.abort();
+                    let _ = handle.await;
+                }
+            }
         }
         self.stop_all_typing_for_channel(channel_id).await;
         self.set_state(channel_id, |state| {
             state.connected = false;
         })
         .await;
+        eprintln!(
+            "[个人微信] stop_channel_inner 完成: channel_id={}, elapsed_ms={}",
+            channel_id,
+            started_at.elapsed().as_millis()
+        );
     }
 
     async fn stop_channel(&self, channel_id: &str) {
@@ -409,6 +435,7 @@ impl WeixinOcManager {
         let channel_id = channel.id.clone();
         eprintln!("[个人微信] start_channel: channel_id={}", channel_id);
         self.stop_channel_inner(&channel_id).await;
+        eprintln!("[个人微信] start_channel stop旧任务完成: channel_id={}", channel_id);
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         self.stop_senders
             .write()

@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@source not "../dist";
+@source not "../src-tauri/target";
+@source not "../src-tauri/memory";
+@source not "../src-tauri/gen";
+@source not "../src-tauri/icons";
 
 .ecall-shimmer-text {
   position: relative;
