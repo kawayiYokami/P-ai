@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+- 优化（welcome-completion-progress-theme-color）：设置首页欢迎卡的配置完成度圆环改为跟随主题主色，保留 DaisyUI `radial-progress` 默认结构，避免中性色在自定义深色主题下显得脏灰或与背景层级冲突
 - 优化（generated-dark-theme-base-swap）：自定义深色主题保持现有色阶生成算法不变，仅在生成后对调 `base-100` 与 `base-300`，让最深背景落到 `base-300`，同时保留亮色自定义主题与预设主题行为
 - 优化（conversation-read-agent-runtime-snapshot）：会话读取层的 active snapshot / active messages / 历史前后分页 fallback 分支不再通过 `data.clone()` 合并整份运行数据来解析有效人格，改为仅复制 agents 小快照并合并私有组织；会话索引与消息页仍基于原 `AppData` 处理，保留 active fallback 创建/归一化语义，同时减少大消息数据在读取路径上的额外复制
 - 优化（conversation-read-and-scheduler-copy-slimming）：归档与远程 IM 联系人会话的纯读接口改为借用缓存中的 `AppData` 直接提取目标摘要/消息，不再为列表或消息读取 clone 整份运行数据；聊天调度提交阶段改为消费临时 prepared batch，消息落库与 history-flushed 推送只保留必要的一次消息副本，继续降低大消息批次出队时的内存峰值

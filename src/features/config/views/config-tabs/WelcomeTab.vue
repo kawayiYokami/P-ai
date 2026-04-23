@@ -15,7 +15,7 @@
             <p class="mt-2 text-base opacity-80">{{ t("config.welcome.subtitle") }}</p>
           </div>
           <!-- 配置完成度 -->
-          <div class="radial-progress shrink-0 text-neutral" :style="`--value:${completionRate};--size:5rem`" role="progressbar">
+          <div class="radial-progress shrink-0 text-primary" :style="`--value:${completionRate};--size:5rem`" role="progressbar">
             {{ completionRate }}%
           </div>
         </div>
