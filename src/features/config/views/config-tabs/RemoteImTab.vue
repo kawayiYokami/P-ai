@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-wrap items-start gap-4 min-h-0 h-full pr-1">
     <!-- 左侧：渠道列表 -->
-    <div class="self-start h-auto bg-base-100 rounded-box border border-base-300 basis-[22rem] min-w-[20rem] max-w-full shrink-0 flex flex-col overflow-hidden">
+    <div class="self-start h-auto bg-base-100 rounded-box border border-base-300 min-w-[22rem] flex-1 basis-[26rem] flex flex-col overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2 shrink-0">
         <span class="font-semibold text-sm">{{ t("config.remoteIm.title") }}</span>
         <div class="flex gap-1">
@@ -13,31 +13,27 @@
       <div v-if="channels.length === 0" class="text-xs italic opacity-60 py-4 text-center">
         {{ t("config.remoteIm.empty") }}
       </div>
-      <ul v-else class="menu w-full">
-        <li v-for="ch in channels" :key="ch.id">
+      <div v-else class="flex-1 overflow-y-auto py-3">
+        <div class="flex flex-wrap gap-3">
           <div
-            class="flex w-full items-center gap-2 rounded-lg border border-transparent"
-            :class="selectedChannelId === ch.id ? 'bg-primary border-primary text-primary-content' : ''"
+            v-for="ch in channels"
+            :key="ch.id"
+            class="w-[12rem] max-w-full shrink-0 rounded-box border transition-colors"
+            :class="selectedChannelId === ch.id ? 'border-primary bg-primary/8' : 'border-base-300 bg-base-200 hover:border-base-content/20'"
             @click="selectedChannelId = ch.id"
           >
-            <div class="flex-1 min-w-0">
-              <div class="font-bold text-xs truncate">{{ ch.name || t('config.remoteIm.channelName') }}</div>
-              <div class="text-[10px] opacity-60 truncate">{{ platformLabelOf(ch.platform) }}</div>
-            </div>
-            <div class="ml-auto flex items-center gap-1 shrink-0">
-              <button
-                class="btn btn-ghost btn-square hover:bg-base-300"
-                :title="t('config.remoteIm.channelDetails')"
-                @click.stop="openChannelConfigModal(ch.id)"
-              >
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
+            <div class="flex items-start justify-between gap-3 px-4 py-2">
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-sm font-semibold">
+                  {{ ch.name || t('config.remoteIm.channelName') }}
+                </div>
+                <div class="mt-1 text-[11px] opacity-60 truncate">
+                  {{ platformLabelOf(ch.platform) }}
+                </div>
+              </div>
               <input
                 type="checkbox"
-                class="toggle toggle-primary toggle-sm"
+                class="toggle toggle-primary toggle-sm mt-0.5 shrink-0"
                 :checked="ch.enabled"
                 :disabled="saving"
                 @mousedown.stop
@@ -45,9 +41,19 @@
                 @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
               />
             </div>
+            <div class="px-4 pb-2">
+              <button
+                class="btn btn-sm w-full border"
+                :class="selectedChannelId === ch.id ? 'btn-primary border-primary' : 'border-base-300 bg-base-300 text-base-content hover:bg-base-content/10'"
+                :title="t('config.remoteIm.channelDetails')"
+                @click.stop="openChannelConfigModal(ch.id)"
+              >
+                编辑
+              </button>
+            </div>
           </div>
-        </li>
-      </ul>
+        </div>
+      </div>
     </div>
 
     <!-- 右侧：联系人列表 -->
@@ -70,11 +76,50 @@
         </li>
         <template v-else>
           <li v-for="item in currentChannelContacts" :key="item.id" class="border-b border-base-200 last:border-b-0">
-            <div class="flex items-center gap-2 px-3 py-2">
+            <div class="flex items-start gap-2 px-3 py-2">
                 <span class="badge shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">{{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}</span>
                 <div class="flex-1 min-w-0">
-                  <div class="truncate font-semibold">{{ contactSafeDisplayName(item) }}</div>
-                  <div class="text-xs opacity-50">{{ contactSecondaryText(item) }}</div>
+                  <div class="truncate font-semibold">
+                    <span class="font-normal opacity-70">[{{ contactDepartmentLabel(item) }}]</span>
+                    {{ " " }}
+                    {{ contactSafeDisplayName(item) }}
+                    <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1 text-[10px]">
+                    <span
+                      class="badge badge-info badge-xs"
+                      :title="processingModeHint(item)"
+                    >
+                      {{ contactProcessingModeLabel(item) }}
+                    </span>
+                    <span
+                      class="badge badge-primary badge-xs"
+                      :title="contactActivationHint(item)"
+                    >
+                      {{ contactActivationModeLabel(item) }}
+                    </span>
+                    <span
+                      v-if="item.allowReceive"
+                      class="badge badge-xs badge-warning"
+                      title="允许收信"
+                    >
+                      收信
+                    </span>
+                    <span
+                      v-if="item.allowSend"
+                      class="badge badge-xs badge-warning"
+                      title="允许发信"
+                    >
+                      发信
+                    </span>
+                    <span
+                      v-if="item.allowSendFiles"
+                      class="badge badge-xs badge-warning"
+                      title="允许发文件"
+                    >
+                      文件
+                    </span>
+                  </div>
                 </div>
                 <button
                   class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
@@ -1357,6 +1402,24 @@ function contactSecondaryText(item: RemoteImContact): string {
     return item.remoteContactType === "group" ? "微信群联系人" : "微信个人联系人";
   }
   return item.remoteContactId;
+}
+
+function contactDepartmentLabel(item: RemoteImContact): string {
+  const departmentId = String(item.boundDepartmentId || "").trim();
+  if (!departmentId) return "主部门";
+  const matched = remoteImDepartmentOptions.value.find((dept) => dept.id === departmentId);
+  return matched ? matched.name : departmentId;
+}
+
+function contactProcessingModeLabel(item: RemoteImContact): string {
+  return normalizeProcessingMode(item.processingMode) === "qa" ? "无上下文" : "有上下文";
+}
+
+function contactActivationModeLabel(item: RemoteImContact): string {
+  const mode = normalizeActivationMode(item.activationMode || "never");
+  if (mode === "always") return t("config.remoteIm.activateModeAlways");
+  if (mode === "keyword") return t("config.remoteIm.activateModeKeyword");
+  return t("config.remoteIm.activateModeNever");
 }
 
 async function refreshChannelStatus() {
