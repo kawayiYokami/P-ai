@@ -84,8 +84,11 @@ fn merge_memory_groups_into_store(
         if source_ids.len() < 2 {
             continue;
         }
-        let upserted_ids =
-            upsert_memories_into_store_with_ids(data_path, &[group.target.clone()], owner_agent_id)?;
+        let upserted_ids = upsert_memories_into_store_with_ids(
+            data_path,
+            &[group.target.clone()],
+            owner_agent_id,
+        )?;
         let retained = upserted_ids
             .iter()
             .map(|id| id.as_str())
@@ -112,6 +115,31 @@ fn merge_memory_groups_into_store(
         }
     }
     Ok(merged_groups)
+}
+
+fn resolve_archive_owner_context(
+    state: &AppState,
+    source: &Conversation,
+) -> Result<(AgentProfile, String, String), String> {
+    let mut config = state_read_config_cached(state)?;
+    let (user_alias, mut agents) = with_app_data_cached_ref(state, |data, _detail| {
+        Ok((data.user_alias.clone(), data.agents.clone()))
+    })?;
+    merge_private_organization_into_runtime(&state.data_path, &mut config, &mut agents)?;
+
+    let owner_agent_id = resolve_archive_owner_agent_id(&config, &agents, source)?;
+    let owner_agent = agents
+        .iter()
+        .find(|agent| agent.id == owner_agent_id)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "归档记忆归属人格不存在: conversation_id={}, agent_id={}",
+                source.id, owner_agent_id
+            )
+        })?;
+
+    Ok((owner_agent, owner_agent_id, user_alias))
 }
 
 fn archive_profile_memory_type_allowed(raw: &str) -> bool {
@@ -266,25 +294,32 @@ fn archive_report_scope_label(source: &Conversation) -> &'static str {
     }
 }
 
-fn build_archive_reporting_conversation(source: &Conversation) -> Conversation {
+fn build_archive_reporting_conversation(
+    source: &Conversation,
+) -> std::borrow::Cow<'_, Conversation> {
     let Some(fork_cursor) = source
         .fork_message_cursor
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return source.clone();
+        return std::borrow::Cow::Borrowed(source);
     };
     let Some(fork_index) = source
         .messages
         .iter()
         .position(|message| message.id.trim() == fork_cursor)
     else {
-        return source.clone();
+        return std::borrow::Cow::Borrowed(source);
     };
     let mut reporting = source.clone();
-    reporting.messages = source.messages.iter().skip(fork_index + 1).cloned().collect();
-    reporting
+    reporting.messages = source
+        .messages
+        .iter()
+        .skip(fork_index + 1)
+        .cloned()
+        .collect();
+    std::borrow::Cow::Owned(reporting)
 }
 
 fn build_archive_delivery_message(
@@ -401,20 +436,18 @@ fn build_force_compaction_preview_result(
         .latest_real_prompt_usage(source, selected_api)
         .map(|usage| usage.usage_ratio.max(0.0))
         .unwrap_or(0.0);
-    let context_usage_percent = usage_ratio
-        .mul_add(100.0, 0.0)
-        .round()
-        .clamp(0.0, 100.0) as u32;
-    let compaction_disabled_reason =
-        if get_conversation_runtime_state(state, &source.id)? == MainSessionState::OrganizingContext {
-            Some("当前会话正在整理上下文或归档处理中，请稍候。".to_string())
-        } else if is_empty {
-            Some("当前会话为空，无需整理。".to_string())
-        } else if !has_assistant_reply {
-            Some("当前会话还没有助理回复，暂不建议压缩。".to_string())
-        } else {
-            None
-        };
+    let context_usage_percent = usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
+    let compaction_disabled_reason = if get_conversation_runtime_state(state, &source.id)?
+        == MainSessionState::OrganizingContext
+    {
+        Some("当前会话正在整理上下文或归档处理中，请稍候。".to_string())
+    } else if is_empty {
+        Some("当前会话为空，无需整理。".to_string())
+    } else if !has_assistant_reply {
+        Some("当前会话还没有助理回复，暂不建议压缩。".to_string())
+    } else {
+        None
+    };
     Ok(ForceCompactionPreviewResult {
         conversation_id: source.id.clone(),
         can_compact: compaction_disabled_reason.is_none(),
@@ -458,38 +491,40 @@ async fn summarize_archived_conversation_with_model_v2(
     _recall_table: &[String],
 ) -> Result<MemoryCurationDraft, String> {
     let app_config = state_read_config_cached(state)?;
-    let app_data = state_read_app_data_cached(state)?;
     let current_user_profile = build_user_profile_memory_board(&state.data_path, agent)?
         .unwrap_or_else(|| "（无）".to_string());
-    let mut prepared = build_prepared_prompt_for_mode(
-        PromptBuildMode::SummaryContext,
-        source_conversation,
-        agent,
-        &app_data.agents,
-        &app_config.departments,
-        user_alias,
-        "",
-        "concise",
-        "zh-CN",
-        None,
-        None,
-        None,
-        Some(ChatPromptOverrides {
-            latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
-                scene,
-                user_alias: user_alias.to_string(),
-                current_user_profile: current_user_profile.clone(),
-                include_todo_block: build_summary_context_todo_block(source_conversation).is_some(),
+    let mut prepared = with_app_data_cached_ref(state, |app_data, _detail| {
+        Ok(build_prepared_prompt_for_mode(
+            PromptBuildMode::SummaryContext,
+            source_conversation,
+            agent,
+            &app_data.agents,
+            &app_config.departments,
+            user_alias,
+            "",
+            "concise",
+            "zh-CN",
+            None,
+            None,
+            None,
+            Some(ChatPromptOverrides {
+                latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
+                    scene,
+                    user_alias: user_alias.to_string(),
+                    current_user_profile: current_user_profile.clone(),
+                    include_todo_block: build_summary_context_todo_block(source_conversation)
+                        .is_some(),
+                }),
+                latest_images: Some(Vec::new()),
+                latest_audios: Some(Vec::new()),
+                ..ChatPromptOverrides::default()
             }),
-            latest_images: Some(Vec::new()),
-            latest_audios: Some(Vec::new()),
-            ..ChatPromptOverrides::default()
-        }),
-        Some(state),
-        Some(selected_api),
-        Some(resolved_api),
-        None,
-    );
+            Some(state),
+            Some(selected_api),
+            Some(resolved_api),
+            None,
+        ))
+    })?;
     prepared.latest_images.clear();
     prepared.latest_audios.clear();
     let timeout_secs = 360u64;
@@ -739,7 +774,10 @@ fn memory_curation_id_alias_map(memories: &[MemoryEntry]) -> HashMap<String, Str
     map
 }
 
-fn resolve_memory_curation_ids(items: &[String], id_alias_map: &HashMap<String, String>) -> Vec<String> {
+fn resolve_memory_curation_ids(
+    items: &[String],
+    id_alias_map: &HashMap<String, String>,
+) -> Vec<String> {
     let mut seen = HashSet::<String>::new();
     let mut out = Vec::<String>::new();
     for raw in items {
@@ -803,12 +841,7 @@ fn emit_archive_history_flushed_event(
     archive_id: &str,
     archive_reason: &str,
 ) {
-    let app_handle = match state
-        .app_handle
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone())
-    {
+    let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
         None => {
             eprintln!(
@@ -852,12 +885,7 @@ fn emit_compaction_history_flushed_event(
     conversation_id: &str,
     compression_message: &ChatMessage,
 ) {
-    let app_handle = match state
-        .app_handle
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone())
-    {
+    let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
         None => {
             eprintln!(
@@ -936,11 +964,7 @@ fn delete_main_conversation_and_activate_latest(
     selected_api: &ApiConfig,
     source: &Conversation,
 ) -> Result<String, String> {
-    conversation_service().delete_main_conversation_and_activate_latest(
-        state,
-        selected_api,
-        source,
-    )
+    conversation_service().delete_main_conversation_and_activate_latest(state, selected_api, source)
 }
 
 fn build_compaction_message(
@@ -1110,7 +1134,8 @@ fn apply_summary_context_result(
     };
     let memory_feedback =
         memory_store_apply_archive_feedback(data_path, recall_ids, &draft.useful_memory_ids)?;
-    let merged_memories = merge_memories_into_store(data_path, &draft.new_memories, owner_agent_id)?;
+    let merged_memories =
+        merge_memories_into_store(data_path, &draft.new_memories, owner_agent_id)?;
     let merged_groups =
         merge_memory_groups_into_store(data_path, &draft.merge_groups, owner_agent_id)?;
     let (linked_profile_memories, created_profile_memories, skipped_profile_memories) =
@@ -1223,7 +1248,10 @@ async fn summarize_compaction_with_fallback(
                         merge_groups: Vec::new(),
                         profile_memories: Vec::new(),
                     },
-                    Some(format!("SummaryContext 读取可见记忆失败，压缩摘要留空：{}", err)),
+                    Some(format!(
+                        "SummaryContext 读取可见记忆失败，压缩摘要留空：{}",
+                        err
+                    )),
                 )
             }
         };
@@ -1294,7 +1322,9 @@ async fn force_archive_current(
     if source.id.trim() == main_conversation_id {
         return Err("主会话暂不支持归档。".to_string());
     }
-    if get_conversation_runtime_state(state.inner(), &source.id)? == MainSessionState::OrganizingContext {
+    if get_conversation_runtime_state(state.inner(), &source.id)?
+        == MainSessionState::OrganizingContext
+    {
         return Err("强制归档正在进行中，请稍候。".to_string());
     }
     let active_conversation_id =
@@ -1332,7 +1362,10 @@ async fn force_archive_current(
             }
             trigger_chat_queue_processing(&state_cloned);
         });
-        if futures_util::FutureExt::catch_unwind(panic_safe_task).await.is_err() {
+        if futures_util::FutureExt::catch_unwind(panic_safe_task)
+            .await
+            .is_err()
+        {
             eprintln!(
                 "[ARCHIVE-FORCE] 失败，任务=background_force_archive，conversation_id={}，error=panic",
                 source_cloned.id
@@ -1374,11 +1407,9 @@ async fn force_compact_current(
         resolve_archive_target_conversation(state.inner(), &input)?;
     let preview = build_force_compaction_preview_result(state.inner(), &selected_api, &source)?;
     if !preview.can_compact {
-        return Err(
-            preview
-                .compaction_disabled_reason
-                .unwrap_or_else(|| "当前会话暂时不能压缩。".to_string()),
-        );
+        return Err(preview
+            .compaction_disabled_reason
+            .unwrap_or_else(|| "当前会话暂时不能压缩。".to_string()));
     }
     let result = run_context_compaction_pipeline(
         state.inner(),
@@ -1464,11 +1495,7 @@ pub(crate) async fn run_archive_pipeline(
     let trace_id = Uuid::new_v4().to_string();
 
     // 设置状态为 OrganizingContext（仅影响所属会话）
-    set_conversation_runtime_state(
-        state,
-        &source.id,
-        MainSessionState::OrganizingContext,
-    )?;
+    set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=archive_pipeline, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
@@ -1486,7 +1513,8 @@ pub(crate) async fn run_archive_pipeline(
         trace_tag,
         started_at,
         &trace_id,
-    ).await;
+    )
+    .await;
 
     // 归档完成，切换回 Idle（即使内部失败也要恢复状态）
     let elapsed_ms = started_at.elapsed().as_millis();
@@ -1521,11 +1549,7 @@ pub(crate) async fn run_context_compaction_pipeline(
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
 
-    set_conversation_runtime_state(
-        state,
-        &source.id,
-        MainSessionState::OrganizingContext,
-    )?;
+    set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
@@ -1567,7 +1591,7 @@ async fn run_context_compaction_pipeline_inner(
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     source: &Conversation,
-    effective_agent_id: &str,
+    _effective_agent_id: &str,
     compaction_reason: &str,
     trace_tag: &str,
     started_at: std::time::Instant,
@@ -1615,62 +1639,53 @@ async fn run_context_compaction_pipeline_inner(
         });
     }
 
-    let (host_agent, host_agent_id, user_alias) = {
-        let data = state_read_app_data_cached(&state)?;
-        let user_alias = data.user_alias.clone();
-        let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
-        let host_agent = data
-            .agents
-            .iter()
-            .find(|a| a.id == host_agent_id)
-            .cloned()
-            .ok_or_else(|| "Host agent not found.".to_string())?;
-        (host_agent, host_agent_id, user_alias)
-    };
+    let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
 
     eprintln!(
-        "[{}] trace={} begin api={} model={} format={} conversation={} hostAgent={}",
+        "[{}] trace={} begin api={} model={} format={} conversation={} ownerAgent={}",
         trace_tag,
         trace_id,
         selected_api.id,
         selected_api.model,
         resolved_api.request_format,
         source.id,
-        host_agent_id
+        owner_agent_id
     );
 
     let (summary_draft, compaction_warning) = summarize_compaction_with_fallback(
         state,
         selected_api,
         resolved_api,
-        &host_agent,
+        &owner_agent,
         &user_alias,
         source,
         trace_id,
     )
     .await;
     let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-    let applied_report =
-        apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
-    let summary_with_pending_plan = if let Some(plan_context) =
-        pending_plan_context_for_compaction(&source.messages)
-    {
-        let plan_block = format!("未完成计划：\n{}", clean_text(plan_context.trim()));
-        if summary_draft.summary.trim().is_empty() {
-            plan_block
+    let applied_report = apply_summary_context_result(
+        &state.data_path,
+        &owner_agent,
+        &deduped_recall,
+        &summary_draft,
+    )?;
+    let summary_with_pending_plan =
+        if let Some(plan_context) = pending_plan_context_for_compaction(&source.messages) {
+            let plan_block = format!("未完成计划：\n{}", clean_text(plan_context.trim()));
+            if summary_draft.summary.trim().is_empty() {
+                plan_block
+            } else {
+                format!("{}\n\n{}", summary_draft.summary.trim(), plan_block)
+            }
         } else {
-            format!("{}\n\n{}", summary_draft.summary.trim(), plan_block)
-        }
-    } else {
-        summary_draft.summary.clone()
-    };
-    let user_profile_snapshot = if conversation_is_delegate(source)
-        || conversation_is_remote_im_contact(source)
-    {
-        None
-    } else {
-        build_user_profile_snapshot_block(&state.data_path, &host_agent, 12)?
-    };
+            summary_draft.summary.clone()
+        };
+    let user_profile_snapshot =
+        if conversation_is_delegate(source) || conversation_is_remote_im_contact(source) {
+            None
+        } else {
+            build_user_profile_snapshot_block(&state.data_path, &owner_agent, 12)?
+        };
 
     let compression_message = build_compaction_message(
         &summary_with_pending_plan,
@@ -1680,7 +1695,7 @@ async fn run_context_compaction_pipeline_inner(
         Some(&build_compaction_preserved_dialogue_block(
             source,
             &user_alias,
-            &host_agent.name,
+            &owner_agent.name,
             10_000,
         )),
     );
@@ -1694,8 +1709,7 @@ async fn run_context_compaction_pipeline_inner(
     let compression_message_id = persist_result.compression_message_id;
     eprintln!(
         "[ARCHIVE-PIPELINE] 上下文整理消息写入校验通过: conversation_id={}, message_id={}",
-        source.id,
-        compression_message_id
+        source.id, compression_message_id
     );
     match clear_apply_patch_temp(&state.data_path) {
         Ok((record_count, blob_count)) => {
@@ -1746,17 +1760,16 @@ async fn run_archive_pipeline_inner(
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     source: &Conversation,
-    effective_agent_id: &str,
+    _effective_agent_id: &str,
     target_conversation_id: Option<&str>,
     archive_reason: &str,
     trace_tag: &str,
     started_at: std::time::Instant,
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
-    let is_main_conversation = {
-        let data = state_read_app_data_cached(&state)?;
-        data.main_conversation_id.as_deref().map(str::trim) == Some(source.id.as_str())
-    };
+    let is_main_conversation = with_app_data_cached_ref(state, |data, _detail| {
+        Ok(data.main_conversation_id.as_deref().map(str::trim) == Some(source.id.as_str()))
+    })?;
 
     if source.messages.is_empty() {
         if !is_main_conversation {
@@ -1846,34 +1859,22 @@ async fn run_archive_pipeline_inner(
         });
     }
 
-    let (host_agent, host_agent_id, user_alias, memories) = {
-        let data = state_read_app_data_cached(&state)?;
-        let user_alias = data.user_alias.clone();
-        let host_agent_id = choose_archive_host_agent_id(&data, source, effective_agent_id);
-        let host_agent = data
-            .agents
-            .iter()
-            .find(|a| a.id == host_agent_id)
-            .cloned()
-            .ok_or_else(|| "Host agent not found.".to_string())?;
-        let host_private_memory_enabled = host_agent.private_memory_enabled;
-        let memories = memory_store_list_memories_visible_for_agent(
-            &state.data_path,
-            &host_agent_id,
-            host_private_memory_enabled,
-        )?;
-        (host_agent, host_agent_id, user_alias, memories)
-    };
+    let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
+    let memories = memory_store_list_memories_visible_for_agent(
+        &state.data_path,
+        &owner_agent_id,
+        owner_agent.private_memory_enabled,
+    )?;
 
     eprintln!(
-        "[{}] trace={} begin api={} model={} format={} conversation={} hostAgent={}",
+        "[{}] trace={} begin api={} model={} format={} conversation={} ownerAgent={}",
         trace_tag,
         trace_id,
         selected_api.id,
         selected_api.model,
         resolved_api.request_format,
         source.id,
-        host_agent_id
+        owner_agent_id
     );
 
     let reporting_source = build_archive_reporting_conversation(source);
@@ -1881,16 +1882,20 @@ async fn run_archive_pipeline_inner(
         state,
         resolved_api,
         selected_api,
-        &host_agent,
+        &owner_agent,
         &user_alias,
-        &reporting_source,
+        reporting_source.as_ref(),
         &memories,
     )
     .await;
     let mut archive_warning = archive_warning_main;
     let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-    let applied_report =
-        apply_summary_context_result(&state.data_path, &host_agent, &deduped_recall, &summary_draft)?;
+    let applied_report = apply_summary_context_result(
+        &state.data_path,
+        &owner_agent,
+        &deduped_recall,
+        &summary_draft,
+    )?;
 
     let mut data = state_read_app_data_cached(&state)?;
     let _source_conversation_idx = data
@@ -1898,8 +1903,13 @@ async fn run_archive_pipeline_inner(
         .iter()
         .position(|item| item.id == source.id && item.summary.trim().is_empty())
         .ok_or_else(|| "归档前会话已变化，请重试归档。".to_string())?;
-    let archive_id = archive_conversation_now(&mut data, &source.id, archive_reason, &summary_draft.summary)
-        .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
+    let archive_id = archive_conversation_now(
+        &mut data,
+        &source.id,
+        archive_reason,
+        &summary_draft.summary,
+    )
+    .ok_or_else(|| "活动对话已变化，请重试归档。".to_string())?;
     if !is_main_conversation {
         mark_tasks_as_session_lost(&state.data_path, &source.id);
     }
@@ -1935,7 +1945,10 @@ async fn run_archive_pipeline_inner(
 
     // 清理PDF缓存
     if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
-        eprintln!("[归档] 清理 PDF 缓存失败: conversation={}, error={}", source.id, e);
+        eprintln!(
+            "[归档] 清理 PDF 缓存失败: conversation={}, error={}",
+            source.id, e
+        );
     }
 
     if let Some(active_conversation_id_value) = active_conversation_id.as_deref() {
@@ -1965,7 +1978,9 @@ async fn run_archive_pipeline_inner(
             ));
             let next_warning = format!("归档汇报投放失败：{}", err);
             archive_warning = Some(match archive_warning {
-                Some(existing) if !existing.trim().is_empty() => format!("{}\n{}", existing, next_warning),
+                Some(existing) if !existing.trim().is_empty() => {
+                    format!("{}\n{}", existing, next_warning)
+                }
                 _ => next_warning,
             });
         }

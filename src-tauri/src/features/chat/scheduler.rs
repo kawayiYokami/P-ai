@@ -752,13 +752,14 @@ pub(crate) fn get_conversation_plan_mode_enabled(
             return Ok(slot.plan_mode_enabled);
         }
     }
-    let data = state_read_app_data_cached(state)?;
-    Ok(data
-        .conversations
-        .iter()
-        .find(|conversation| conversation.id.trim() == normalized_conversation_id)
-        .map(|conversation| conversation.plan_mode_enabled)
-        .unwrap_or(false))
+    with_app_data_cached_ref(state, |data, _detail| {
+        Ok(data
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id.trim() == normalized_conversation_id)
+            .map(|conversation| conversation.plan_mode_enabled)
+            .unwrap_or(false))
+    })
 }
 
 fn collect_activated_remote_im_sources(
@@ -958,19 +959,13 @@ async fn process_conversation_batch(
     // 这里统一覆盖 created_at 为 history_flush_time，
     // 目的是把“正式进入历史的时间”作为消息的业务生效时间。
     // 入队时间只用于队列观察，不用于正式会话排序和轮次判断。
-    let scheduler_data = state_read_app_data_cached(state)?;
-    let (summary_seed_agent_id, should_seed_summary_context) = {
+    let scheduler_context = with_app_data_cached_ref(state, |scheduler_data, _detail| {
         let Some(conversation_idx) = scheduler_data
             .conversations
             .iter()
             .position(|c| c.id == conversation_id && c.summary.trim().is_empty())
         else {
-            complete_pending_chat_events_with_error(
-                state,
-                &event_ids,
-                &format!("目标会话不存在，conversationId={conversation_id}"),
-            )?;
-            return Err(format!("目标会话不存在，conversationId={conversation_id}"));
+            return Ok(None);
         };
         let conversation = scheduler_data
             .conversations
@@ -982,26 +977,34 @@ async fn process_conversation_batch(
         let should_seed_summary_context = !has_summary_context
             && !conversation_is_delegate(conversation)
             && !conversation_is_remote_im_contact(conversation);
-        let summary_seed_agent_id = if should_seed_summary_context
+        let summary_seed_agent = if should_seed_summary_context
             && conversation.user_profile_snapshot.trim().is_empty()
         {
             scheduler_data
                 .agents
                 .iter()
                 .find(|item| item.id == conversation.agent_id)
-                .map(|item| item.id.clone())
+                .cloned()
         } else {
             None
         };
-        (summary_seed_agent_id, should_seed_summary_context)
+        Ok(Some((
+            summary_seed_agent,
+            should_seed_summary_context,
+            scheduler_data.agents.clone(),
+        )))
+    })?;
+    let Some((summary_seed_agent, should_seed_summary_context, scheduler_agents)) =
+        scheduler_context
+    else {
+        complete_pending_chat_events_with_error(
+            state,
+            &event_ids,
+            &format!("目标会话不存在，conversationId={conversation_id}"),
+        )?;
+        return Err(format!("目标会话不存在，conversationId={conversation_id}"));
     };
-    let seeded_profile_snapshot = if let Some(agent_id) = summary_seed_agent_id.as_deref() {
-        let Some(agent) = scheduler_data.agents.iter().find(|item| item.id == agent_id) else {
-            return Err(format!(
-                "未找到用户画像种子人格，conversation_id={}, agent_id={}",
-                conversation_id, agent_id
-            ));
-        };
+    let seeded_profile_snapshot = if let Some(agent) = summary_seed_agent.as_ref() {
         match with_memory_lock(state, "scheduler_profile_snapshot", || {
             build_user_profile_snapshot_block(&state.data_path, agent, 12)
         }) {
@@ -1030,7 +1033,7 @@ async fn process_conversation_batch(
                 with_memory_lock(state, "scheduler_user_message_recall", || {
                     collect_recall_payload_for_user_message(
                         &state.data_path,
-                        &scheduler_data.agents,
+                        &scheduler_agents,
                         &event.session_info.agent_id,
                         &persisted,
                     )
@@ -1291,7 +1294,7 @@ async fn activate_main_assistant(
     )?;
 
     // 对 WeixinOc 渠道启动 typing 状态（对方正在输入）
-    let weixin_oc_typing_sources: Vec<(String, String)> = {
+    let weixin_oc_typing_sources: Vec<(String, String, WeixinOcCredentials)> = {
         let config = state_read_config_cached(state);
         let config = match config {
             Ok(c) => c,
@@ -1309,24 +1312,21 @@ async fn activate_main_assistant(
                 if credentials.token.trim().is_empty() {
                     return None;
                 }
-                Some((src.channel_id.clone(), src.remote_contact_id.clone()))
+                Some((
+                    src.channel_id.clone(),
+                    src.remote_contact_id.clone(),
+                    credentials,
+                ))
             })
             .collect()
     };
-    for (ch_id, contact_id) in &weixin_oc_typing_sources {
-        let channel_config = {
-            let config = state_read_config_cached(state).unwrap_or_default();
-            remote_im_channel_by_id(&config, ch_id).cloned()
-        };
-        if let Some(channel) = channel_config {
-            let credentials = WeixinOcCredentials::from_value(&channel.credentials);
-            let ctx_token = weixin_oc_manager()
-                .get_context_token(ch_id, contact_id)
-                .await;
-            weixin_oc_manager()
-                .start_typing(ch_id, credentials, contact_id, ctx_token)
-                .await;
-        }
+    for (ch_id, contact_id, credentials) in &weixin_oc_typing_sources {
+        let ctx_token = weixin_oc_manager()
+            .get_context_token(&ch_id, &contact_id)
+            .await;
+        weixin_oc_manager()
+            .start_typing(&ch_id, credentials.clone(), &contact_id, ctx_token)
+            .await;
     }
 
     // 构造 trigger_only 请求
@@ -1436,7 +1436,7 @@ async fn activate_main_assistant(
     let result = send_chat_message_inner(request, state, &active_channel).await;
 
     // WeixinOc 渠道：回复结束后停止 typing
-    for (ch_id, contact_id) in &weixin_oc_typing_sources {
+    for (ch_id, contact_id, _) in &weixin_oc_typing_sources {
         weixin_oc_manager().stop_typing(ch_id, contact_id).await;
     }
 

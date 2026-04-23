@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+- 优化（archive-and-dispatch-clone-slimming）：压缩/归档、聊天调度与工具调用热路径继续削减大对象 clone，归档报告会话改为按需借用、请求体与原始 JSON 生命周期收窄、调用日志避免复制整轮请求重字段；同时将归档/压缩记忆归属修正为严格从会话所属部门的唯一人格解析，拒绝消息 hint / fallback 人格投票，并为任务 target_scope 降级补充带上下文的诊断日志，降低超长消息与原始请求体导致线程栈溢出的风险
 - 优化（chat-foreground-snapshot-and-tool-review-fast-read-path）：前台轻量快照与工具审查批次读取这两条高频读链继续切到只读快路径，命中 `conversationId` 时统一直接借用缓存中的目标会话引用，不再经由整份 `AppData` clone 后再切片，进一步把切换会话与工具审查面板首读压到近乎瞬时
 - 优化（chat-history-page-fast-read-path）：会话补历史/补后续消息这条高频读取链路新增只读快路径；当已明确传入 `conversationId` 时，不再 clone 整份 `AppData` 再切局部消息页，而是直接借用缓存中的会话引用，只克隆目标分页消息并继续做最小 media materialize，显著压低补消息热路径的锁持有与读取耗时
 - 修复（archive-list-title-source-correction）：归档消息列表标题改为优先使用会话自身 `title`，仅在标题为空时才回退到首条用户消息预览，避免归档窗口左侧列表把正文预览误当标题展示

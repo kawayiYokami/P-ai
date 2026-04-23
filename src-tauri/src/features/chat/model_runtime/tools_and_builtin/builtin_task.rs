@@ -15,31 +15,35 @@ fn task_tool_target_scope_from_conversation(
     let conversation_id = conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    let data = state_read_app_data_cached(app_state).ok()?;
-    if let Some(conversation) = data
-        .conversations
-        .iter()
-        .find(|item| item.id == conversation_id)
-    {
-        return Some(if conversation_is_remote_im_contact(conversation) {
-            TASK_TARGET_SCOPE_CONTACT.to_string()
-        } else {
-            TASK_TARGET_SCOPE_DESKTOP.to_string()
-        });
-    }
-    Some(
-        if data.remote_im_contacts.iter().any(|contact| {
-            contact
-                .bound_conversation_id
-                .as_deref()
-                .map(str::trim)
-                == Some(conversation_id)
+    with_app_data_cached_ref(app_state, |data, _detail| {
+        if let Some(conversation) = data
+            .conversations
+            .iter()
+            .find(|item| item.id == conversation_id)
+        {
+            return Ok(Some(if conversation_is_remote_im_contact(conversation) {
+                TASK_TARGET_SCOPE_CONTACT.to_string()
+            } else {
+                TASK_TARGET_SCOPE_DESKTOP.to_string()
+            }));
+        }
+        Ok(Some(if data.remote_im_contacts.iter().any(|contact| {
+            contact.bound_conversation_id.as_deref().map(str::trim) == Some(conversation_id)
         }) {
             TASK_TARGET_SCOPE_CONTACT.to_string()
         } else {
             TASK_TARGET_SCOPE_DESKTOP.to_string()
-        },
-    )
+        }))
+    })
+    .map_err(|err| {
+        eprintln!(
+            "[任务] target_scope解析失败: conversation_id={}, error={:?}",
+            conversation_id, err
+        );
+        err
+    })
+    .ok()
+    .flatten()
 }
 
 fn task_tool_goal_from_args(args: &TaskToolArgsWire) -> Option<String> {

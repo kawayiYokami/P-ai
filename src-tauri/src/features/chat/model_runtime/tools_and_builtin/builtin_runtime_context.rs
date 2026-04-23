@@ -34,13 +34,7 @@ async fn builtin_organize_context(
     agent_id: &str,
 ) -> Result<Value, String> {
     let (selected_api, resolved_api, source, effective_agent_id) = {
-        let mut app_config = read_config(&app_state.config_path)?;
-        let mut data = state_read_app_data_cached(app_state)?;
-        merge_private_organization_into_runtime_data(
-            &app_state.data_path,
-            &mut app_config,
-            &mut data,
-        )?;
+        let app_config = state_read_config_cached(app_state)?;
         let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
@@ -48,13 +42,15 @@ async fn builtin_organize_context(
         if effective_agent_id.is_empty() {
             return Err("缺少人格 ID，无法整理上下文。".to_string());
         }
-        let source_idx = latest_active_conversation_index(&data, &selected_api.id, &effective_agent_id)
-            .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
-        let source = data
-            .conversations
-            .get(source_idx)
-            .cloned()
-            .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
+        let source = with_app_data_cached_ref(app_state, |data, _detail| {
+            let source_idx =
+                latest_active_conversation_index(data, &selected_api.id, &effective_agent_id)
+                    .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
+            data.conversations
+                .get(source_idx)
+                .cloned()
+                .ok_or_else(|| "当前没有可整理的活动对话。".to_string())
+        })?;
         if source.messages.len() < 10 {
             return Ok(serde_json::json!({
                 "ok": false,

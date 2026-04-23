@@ -2276,21 +2276,34 @@ async fn send_chat_message_inner(
                 Err(error) if error == CHAT_DISPATCH_RESTART_AFTER_COMPACTION
             );
             if !restart_after_compaction {
+                let ModelCallLogParts {
+                    scene,
+                    request_format,
+                    provider_name,
+                    model_name,
+                    base_url,
+                    headers,
+                    tools,
+                    response,
+                    error,
+                    elapsed_ms,
+                    timeline,
+                } = chat_round_execution.log_parts;
                 push_llm_round_log(
                     Some(&state),
                     Some(format!("round-{chat_session_key}")),
                     Some(chat_session_key.to_string()),
-                    chat_round_execution.log_parts.scene,
-                    chat_round_execution.log_parts.request_format,
-                    &chat_round_execution.log_parts.provider_name,
-                    &chat_round_execution.log_parts.model_name,
-                    &chat_round_execution.log_parts.base_url,
-                    chat_round_execution.log_parts.headers.clone(),
-                    chat_round_execution.log_parts.tools.clone(),
-                    chat_round_execution.log_parts.response.clone(),
-                    chat_round_execution.log_parts.error.clone(),
-                    chat_round_execution.log_parts.elapsed_ms,
-                    chat_round_execution.log_parts.timeline.clone(),
+                    scene,
+                    request_format,
+                    &provider_name,
+                    &model_name,
+                    &base_url,
+                    headers,
+                    tools,
+                    response,
+                    error,
+                    elapsed_ms,
+                    timeline,
                 );
             }
             let request_finish_stage = format!(
@@ -2525,8 +2538,9 @@ async fn send_chat_message_inner(
                 "[聊天] 助理 provider_meta 不是对象，合并前已保留原始值: value={}",
                 merged
             ));
+            let raw_provider_meta = std::mem::replace(&mut merged, serde_json::json!({}));
             merged = serde_json::json!({
-                "_raw_provider_meta": merged.clone(),
+                "_raw_provider_meta": raw_provider_meta,
             });
         }
         if let Some(target) = merged.as_object_mut() {

@@ -5,8 +5,8 @@ fn check_tools_status(
 ) -> Result<Vec<ToolLoadStatus>, String> {
     let mut config = state_read_config_cached(&state)?;
     normalize_api_tools(&mut config);
-    let mut data = state_read_app_data_cached(&state)?;
-    merge_private_organization_into_runtime_data(&state.data_path, &mut config, &mut data)?;
+    let mut agents = with_app_data_cached_ref(&state, |data, _detail| Ok(data.agents.clone()))?;
+    merge_private_organization_into_runtime(&state.data_path, &mut config, &mut agents)?;
 
     let target_agent_id = input
         .agent_id
@@ -15,8 +15,7 @@ fn check_tools_status(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| "缺少人格 ID".to_string())?;
-    data
-        .agents
+    agents
         .iter()
         .find(|item| item.id == target_agent_id)
         .cloned()

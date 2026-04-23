@@ -61,11 +61,9 @@ async fn get_prompt_preview(
         input.conversation_id.as_deref(),
         &effective_agent_id,
     );
-    let latest_user_message = conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| prompt_role_for_message(message, &effective_agent_id).as_deref() == Some("user"));
+    let latest_user_message = conversation.messages.iter().rev().find(|message| {
+        prompt_role_for_message(message, &effective_agent_id).as_deref() == Some("user")
+    });
     let latest_user_message_id = latest_user_message
         .map(|message| message.id.clone())
         .unwrap_or_default();
@@ -74,7 +72,10 @@ async fn get_prompt_preview(
             message
                 .provider_meta
                 .as_ref()
-                .and_then(|meta| meta.get("retrieved_memory_ids").or_else(|| meta.get("recallMemoryIds")))
+                .and_then(|meta| {
+                    meta.get("retrieved_memory_ids")
+                        .or_else(|| meta.get("recallMemoryIds"))
+                })
                 .and_then(Value::as_array)
                 .map(|items| {
                     items
@@ -106,39 +107,38 @@ async fn get_prompt_preview(
         .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
         .map(|c| c.summary.clone());
     let mut prepared = match preview_mode {
-        PromptPreviewMode::Chat => {
-            build_prepared_prompt_for_mode(
-                PromptBuildMode::Chat,
-                &conversation,
-                &agent,
-                &data.agents,
-                &app_config.departments,
-                &user_name,
-                &user_intro,
-                &data.response_style_id,
-                &app_config.ui_language,
-                Some(&state.data_path),
-                last_archive_summary.as_deref(),
-                None,
-                Some(ChatPromptOverrides::default()),
-                Some(&*state),
-                Some(&api_config),
-                Some(&resolved_api),
-                Some(data.pdf_read_mode == "image" && api_config.enable_image),
-            )
-        }
+        PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conversation,
+            &agent,
+            &data.agents,
+            &app_config.departments,
+            &user_name,
+            &user_intro,
+            &data.response_style_id,
+            &app_config.ui_language,
+            Some(&state.data_path),
+            last_archive_summary.as_deref(),
+            None,
+            Some(ChatPromptOverrides::default()),
+            Some(&*state),
+            Some(&api_config),
+            Some(&resolved_api),
+            Some(data.pdf_read_mode == "image" && api_config.enable_image),
+        ),
         PromptPreviewMode::Compaction | PromptPreviewMode::Archive => {
-            let host_agent_id = choose_archive_host_agent_id(&data, &conversation, &effective_agent_id);
-            let host_agent = data
+            let owner_agent_id =
+                resolve_archive_owner_agent_id(&app_config, &data.agents, &conversation)?;
+            let owner_agent = data
                 .agents
                 .iter()
-                .find(|item| item.id == host_agent_id)
+                .find(|item| item.id == owner_agent_id)
                 .cloned()
                 .ok_or_else(|| "Selected agent not found.".to_string())?;
             build_prepared_prompt_for_mode(
                 PromptBuildMode::SummaryContext,
                 &conversation,
-                &host_agent,
+                &owner_agent,
                 &data.agents,
                 &app_config.departments,
                 &user_name,
@@ -158,7 +158,7 @@ async fn get_prompt_preview(
                         user_alias: user_name.clone(),
                         current_user_profile: build_user_profile_memory_board(
                             &state.data_path,
-                            &host_agent,
+                            &owner_agent,
                         )?
                         .unwrap_or_else(|| "（无）".to_string()),
                         include_todo_block: build_summary_context_todo_block(&conversation)
@@ -192,8 +192,9 @@ async fn get_prompt_preview(
     )
     .await?;
 
-    let request_body_json = serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
-        .map_err(|err| format!("序列化请求预览失败：{err}"))?;
+    let request_body_json =
+        serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
+            .map_err(|err| format!("序列化请求预览失败：{err}"))?;
     eprintln!(
         "[请求体预览] 完成: mode={:?} conversation_id={} latest_user_text_len={} latest_images={} latest_audios={} request_has_memory_board={} request_len={}",
         preview_mode,
@@ -254,8 +255,7 @@ fn archive_first_user_preview(conversation: &Conversation, ui_language: &str) ->
         .iter()
         .find(|m| {
             m.role == "user"
-                && m
-                    .speaker_agent_id
+                && m.speaker_agent_id
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
@@ -312,7 +312,13 @@ fn archive_to_conversation(archive: ConversationArchive) -> Conversation {
     if conversation.id.trim().is_empty() {
         conversation.id = Uuid::new_v4().to_string();
     }
-    if conversation.archived_at.as_deref().unwrap_or("").trim().is_empty() {
+    if conversation
+        .archived_at
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
         conversation.archived_at = Some(archive.archived_at);
     }
     conversation.status = "archived".to_string();
@@ -333,10 +339,7 @@ fn get_archive_messages(
 }
 
 #[tauri::command]
-fn get_archive_summary(
-    archive_id: String,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+fn get_archive_summary(archive_id: String, state: State<'_, AppState>) -> Result<String, String> {
     conversation_service().read_archive_summary(state.inner(), &archive_id)
 }
 

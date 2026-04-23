@@ -768,28 +768,29 @@ async fn run_genai_tool_loop(
             .await?;
         }
 
-        let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
-        if let Some(system) = system_prompt
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            request = request.with_system(system.to_string());
-        }
-        if !genai_tools.is_empty() {
-            request = request.with_tools(genai_tools.clone());
-        }
-
         let mut turn_text = String::new();
         let mut turn_reasoning = String::new();
         let mut turn_tool_calls = Vec::<genai::chat::ToolCall>::new();
         let mut stop_after_remote_im_done_in_turn = false;
 
-        let mut stream = client
-            .exec_chat_stream(service_target.clone(), request, Some(&options))
-            .await
-            .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
-            .stream;
+        let mut stream = {
+            let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+            if let Some(system) = system_prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                request = request.with_system(system.to_string());
+            }
+            if !genai_tools.is_empty() {
+                request = request.with_tools(genai_tools.clone());
+            }
+            client
+                .exec_chat_stream(service_target.clone(), request, Some(&options))
+                .await
+                .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
+                .stream
+        };
 
         while let Some(chunk) = stream.next().await {
             match chunk {
@@ -1286,28 +1287,29 @@ async fn run_genai_tool_loop_non_stream(
             .await?;
         }
 
-        let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
-        if let Some(system) = system_prompt
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            request = request.with_system(system.to_string());
-        }
-        if !genai_tools.is_empty() {
-            request = request.with_tools(genai_tools.clone());
-        }
-
         let mut stop_after_remote_im_done_in_turn = false;
-        let round = execute_genai_non_stream_round(
-            &client,
-            &service_target,
-            request,
-            &options,
-            on_delta,
-            !full_assistant_text.trim().is_empty(),
-        )
-        .await?;
+        let round = {
+            let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+            if let Some(system) = system_prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                request = request.with_system(system.to_string());
+            }
+            if !genai_tools.is_empty() {
+                request = request.with_tools(genai_tools.clone());
+            }
+            execute_genai_non_stream_round(
+                &client,
+                &service_target,
+                request,
+                &options,
+                on_delta,
+                !full_assistant_text.trim().is_empty(),
+            )
+            .await?
+        };
         let turn_text = round.turn_text;
         let turn_reasoning = round.turn_reasoning;
         let turn_tool_calls = reorder_turn_tool_calls_for_contact_tail(round.turn_tool_calls);
