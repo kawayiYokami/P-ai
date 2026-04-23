@@ -415,7 +415,8 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 model.enable_tools = true;
                 model.temperature = default_api_temperature();
                 model.custom_temperature_enabled = false;
-                model.context_window_tokens = default_codex_context_window_tokens();
+                model.context_window_tokens =
+                    codex_context_window_tokens_for_model(&model.model);
                 model.max_output_tokens = default_max_output_tokens();
                 model.custom_max_output_tokens_enabled = false;
 
@@ -460,7 +461,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
             api.api_key.clear();
             api.temperature = default_api_temperature();
             api.custom_temperature_enabled = false;
-            api.context_window_tokens = default_codex_context_window_tokens();
+            api.context_window_tokens = codex_context_window_tokens_for_model(&api.model);
             api.max_output_tokens = default_max_output_tokens();
             api.custom_max_output_tokens_enabled = false;
 

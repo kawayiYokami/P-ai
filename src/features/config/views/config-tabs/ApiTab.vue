@@ -700,8 +700,8 @@ function createProvider(seed: string, capability: ApiCapability = activeCapabili
     codexLocalAuthPath: DEFAULT_CODEX_LOCAL_AUTH_PATH,
     apiKeys: isCodex ? [] : [""],
     keyCursor: 0,
-    cachedModelOptions: isCodex ? ["gpt-5.4"] : ["gpt-4o-mini"],
-    models: [createModel(seed, isCodex ? "gpt-5.4" : "gpt-4o-mini")],
+    cachedModelOptions: isCodex ? ["gpt-5.5"] : ["gpt-4o-mini"],
+    models: [createModel(seed, isCodex ? "gpt-5.5" : "gpt-4o-mini")],
     failureRetryCount: 0,
   };
 }
@@ -834,7 +834,7 @@ function addModelCard() {
   const seed = buildProviderSeed();
   const model = createModel(seed, "");
   if (provider.requestFormat === "codex") {
-    model.model = "gpt-5.4";
+    model.model = "gpt-5.5";
   }
   provider.models.push(model);
   applyProtocolDefaults(provider);

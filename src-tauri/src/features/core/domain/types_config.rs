@@ -518,6 +518,15 @@ fn default_codex_context_window_tokens() -> u32 {
     272_000
 }
 
+fn codex_context_window_tokens_for_model(model_id: &str) -> u32 {
+    match model_id.trim().to_ascii_lowercase().as_str() {
+        "gpt-5.5" => 265_000,
+        "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.2" => 272_000,
+        "gpt-5.3-codex-spark" => 125_000,
+        _ => default_codex_context_window_tokens(),
+    }
+}
+
 fn default_max_output_tokens() -> u32 {
     4_096
 }
