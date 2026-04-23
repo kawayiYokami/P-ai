@@ -1019,6 +1019,7 @@ async fn send_chat_message_inner(
         };
         title
     };
+    let conversation_id_for_chat_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
     let log_chat_stage = |stage: &str| {
         if !should_record_chat_stage(stage) {
             return;
@@ -1037,6 +1038,16 @@ async fn send_chat_message_inner(
                 elapsed_ms,
                 since_prev_ms,
             });
+
+            if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
+                let _ = app_handle.emit("pipeline_stage", serde_json::json!({
+                    "stage": stage,
+                    "label": describe_chat_stage(stage),
+                    "elapsed_ms": elapsed_ms,
+                    "conversation_id": conversation_id_for_chat_log.clone(),
+                    "status": "busy"
+                }));
+            }
         }
     };
     let flush_chat_timeline = |reason: &str| {
@@ -1473,6 +1484,8 @@ async fn send_chat_message_inner(
     let chat_session_key_for_log = chat_session_key.clone();
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();
+    let conversation_id_for_run_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
+    let conversation_id_for_finish_log = conversation_id_for_run_log.clone();
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
     let run = async move {
@@ -1495,6 +1508,16 @@ async fn send_chat_message_inner(
                 elapsed_ms,
                 since_prev_ms,
             });
+
+            if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
+                let _ = app_handle.emit("pipeline_stage", serde_json::json!({
+                    "stage": stage,
+                    "label": describe_chat_stage(stage),
+                    "elapsed_ms": elapsed_ms,
+                    "conversation_id": conversation_id_for_run_log.clone(),
+                    "status": "busy"
+                }));
+            }
         }
     };
     log_run_stage("run.begin");
@@ -2654,7 +2677,26 @@ async fn send_chat_message_inner(
     };
 
     let result = futures_util::future::Abortable::new(run, abort_registration).await;
-    log_chat_stage("send_chat_message_inner.finish");
+    let finish_status = match &result {
+        Ok(Ok(_)) => "idle",
+        Ok(Err(_)) => "error",
+        Err(_) => "idle",
+    };
+    {
+        let elapsed_ms = chat_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
+            let _ = app_handle.emit("pipeline_stage", serde_json::json!({
+                "stage": "send_chat_message_inner.finish",
+                "label": if finish_status == "error" { "请求失败" } else { "发送消息结束" },
+                "elapsed_ms": elapsed_ms,
+                "conversation_id": conversation_id_for_finish_log.clone(),
+                "status": finish_status
+            }));
+        }
+    }
     flush_chat_timeline("send_chat_message_inner.finish");
     {
         let mut inflight = state

@@ -48,7 +48,7 @@
       </button>
 
       <div
-        class="inline-flex h-8 w-8 items-center justify-center text-base-content/70"
+        class="relative inline-flex h-8 w-8 items-center justify-center text-base-content/70"
         :title="`当前上下文已使用 ${normalizedChatUsagePercent}%`"
       >
         <svg
@@ -61,7 +61,7 @@
             r="14"
             fill="none"
             stroke="currentColor"
-            stroke-width="4"
+            stroke-width="3.5"
             class="opacity-20"
           />
           <circle
@@ -70,13 +70,35 @@
             r="14"
             fill="none"
             stroke="currentColor"
-            stroke-width="4"
+            stroke-width="3.5"
             stroke-linecap="round"
             :stroke-dasharray="circumference"
             :stroke-dashoffset="strokeDashoffset"
           />
         </svg>
+        <span
+          v-if="viewMode === 'chat'"
+          class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          :title="pipelineLabel || '空闲'"
+        >
+          <span class="relative flex h-2.5 w-2.5">
+            <span
+              v-if="pipelineIsBusy"
+              class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-90"
+              :class="pipelineStatus === 'error' ? 'bg-error' : 'bg-success'"
+            ></span>
+            <span
+              class="relative inline-flex h-2.5 w-2.5 rounded-full"
+              :class="{
+                'bg-warning': pipelineStatus === 'warning',
+                'bg-success': pipelineStatus === 'idle' || pipelineStatus === 'busy',
+                'bg-error': pipelineStatus === 'error'
+              }"
+            ></span>
+          </span>
+        </span>
       </div>
+
     </div>
 
     <div
@@ -112,7 +134,7 @@
       >
         <span
           v-if="hasAvailableUpdate && !checkingUpdate"
-          class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-error"
+          class="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-error"
           aria-hidden="true"
         ></span>
         <span v-if="checkingUpdate" class="loading loading-spinner loading-xs"></span>
@@ -330,6 +352,7 @@ import ChatConversationListCard from "../../chat/components/ChatConversationList
 import { registerChatMarkstreamComponents } from "../../chat/markdown/register-chat-markstream";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import "markstream-vue/index.css";
+import { usePipelineStatus } from "../composables/use-pipeline-status";
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -352,6 +375,8 @@ const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
 enableMermaid();
 enableKatex();
 registerChatMarkstreamComponents();
+
+const { status: pipelineStatus, label: pipelineLabel, isBusy: pipelineIsBusy } = usePipelineStatus();
 
 const markstreamMarkdown = getMarkdown();
 const markdownCodeBlockProps = {
