@@ -1149,6 +1149,37 @@
   },
   "appearance": {
     "theme": "主题",
+    "themeBuilderSummary": "保留预设主题切换，同时支持用少量参数即时合成一套稳定的自定义主题。",
+    "themeTabs": {
+      "preset": "预设",
+      "generated": "自定义"
+    },
+    "presetThemes": "预设主题",
+    "generatedTheme": "自定义生成",
+    "customThemeTitle": "当前自定义主题",
+    "customThemeSummary": "{mode}模式 · 点击即可切换到这套主题",
+    "customThemeControls": "自定义参数",
+    "customThemeHint": "改动会即时预览，并自动在窗口间同步。",
+    "resetGeneratedTheme": "恢复默认",
+    "mode": "明暗模式",
+    "modeOptions": {
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "themeHue": "主题色相",
+    "contrast": "对比度",
+    "brightness": "亮度",
+    "tint": "透色",
+    "tone": "饱和度",
+    "radius": "统一圆角",
+    "uiSizePreset": "界面尺寸",
+    "sizePresets": {
+      "compact": "紧凑",
+      "default": "默认",
+      "comfortable": "舒展"
+    },
+    "depthEnabled": "层次效果",
+    "noiseEnabled": "纹理效果",
     "themeLight": "浅色",
     "themeDark": "深色",
     "language": "界面语言",

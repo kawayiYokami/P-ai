@@ -379,6 +379,7 @@ const markdownMermaidProps = {
 
 const props = defineProps<{
   viewMode: "chat" | "archives" | "config";
+  currentTheme: string;
   titleText: string;
   chatUsagePercent: number;
   forcingArchive: boolean;
@@ -489,10 +490,7 @@ const changelogLoaded = ref(false);
 const changelogNodes = computed(() =>
   parseMarkdownToStructure(changelogMarkdown.value || "", markstreamMarkdown, { final: true }),
 );
-const markdownIsDark = computed(() => {
-  const theme = String(document.documentElement.getAttribute("data-theme") || "").toLowerCase();
-  return ["dark", "night", "black", "business", "dracula", "dim", "forest", "synthwave"].includes(theme);
-});
+const markdownIsDark = computed(() => ["dark", "night", "black", "business", "dracula", "dim", "forest", "synthwave", "generated-dark"].includes(String(props.currentTheme || "").toLowerCase()));
 
 function loadRecentConversationTopics() {
   try {

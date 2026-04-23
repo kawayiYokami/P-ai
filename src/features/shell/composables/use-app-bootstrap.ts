@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AgentWorkSignalPayload, AppConfig } from "../../../types/app";
+import type { AppThemeState } from "../theme/theme-types";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
@@ -41,7 +42,7 @@ export type TerminalApprovalRequestPayload = {
 type AppBootstrapOptions = {
   setViewMode: (mode: ViewMode) => void;
   initWindowMode: () => ViewMode;
-  onThemeChanged: (theme: string) => void;
+  onThemeChanged: (theme: AppThemeState) => void;
   onLocaleChanged: (locale: string) => void;
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
@@ -61,7 +62,7 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
     options.setViewMode(mode);
     try {
       unlisteners.push(
-        await listen<string>("easy-call:theme-changed", (event) => {
+        await listen<AppThemeState>("easy-call:theme-changed", (event) => {
           options.onThemeChanged(event.payload);
         }),
       );

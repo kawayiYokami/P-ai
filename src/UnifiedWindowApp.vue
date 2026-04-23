@@ -3,6 +3,7 @@
   <div class="window-shell text-sm bg-base-200">
     <AppWindowHeader
       :view-mode="viewMode"
+      :current-theme="currentTheme"
       :title-text="titleText"
       :chat-usage-percent="chatUsagePercent"
       :forcing-archive="forcingArchive"
@@ -52,6 +53,8 @@
       :config-tab="configTab"
       :locale-options="localeOptions"
       :current-theme="currentTheme"
+      :generated-theme-controls="generatedThemeControls"
+      :generated-theme-tokens="generatedThemeTokens"
       :on-refresh-tool-review-message="refreshForegroundConversationMessageById"
       :selected-api-config="selectedApiConfig"
       :tool-api-config="toolApiConfig"
@@ -190,6 +193,9 @@
       :patch-conversation-api-settings="patchConversationApiSettings"
       :patch-chat-settings="patchChatSettings"
       :set-theme="setTheme"
+      :activate-generated-theme="activateGeneratedTheme"
+      :update-generated-theme-controls="updateGeneratedThemeControls"
+      :reset-generated-theme="resetGeneratedTheme"
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
       :save-config="saveConfig"
@@ -452,7 +458,17 @@ const {
   toggleMaximizeWindow,
 } =
   useWindowShell();
-const { currentTheme, applyTheme, setTheme, restoreThemeFromStorage } = useAppTheme();
+const {
+  currentTheme,
+  generatedThemeControls,
+  generatedThemeTokens,
+  applyTheme,
+  setTheme,
+  activateGeneratedTheme,
+  updateGeneratedThemeControls,
+  resetGeneratedTheme,
+  restoreThemeFromStorage,
+} = useAppTheme();
 
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",

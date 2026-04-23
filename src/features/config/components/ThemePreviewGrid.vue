@@ -6,7 +6,7 @@
           v-for="theme in lightThemes"
           :key="theme"
           type="button"
-          class="rounded-box border text-left overflow-hidden transition-all"
+          class="overflow-hidden rounded-box border text-left transition-all"
           :class="currentTheme === theme ? 'border-base-content shadow-sm ring-1 ring-base-content/30' : 'border-base-300 hover:border-base-content/30'"
           :data-theme="theme"
           @click="$emit('select', theme)"
@@ -34,7 +34,7 @@
           v-for="theme in darkThemes"
           :key="theme"
           type="button"
-          class="rounded-box border text-left overflow-hidden transition-all"
+          class="overflow-hidden rounded-box border text-left transition-all"
           :class="currentTheme === theme ? 'border-base-content shadow-sm ring-1 ring-base-content/30' : 'border-base-300 hover:border-base-content/30'"
           :data-theme="theme"
           @click="$emit('select', theme)"
@@ -59,6 +59,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 defineProps<{
   lightThemes: string[];
   darkThemes: string[];
@@ -68,8 +70,6 @@ defineProps<{
 defineEmits<{
   (e: "select", value: string): void;
 }>();
-
-import { useI18n } from "vue-i18n";
 
 const { t, te } = useI18n();
 

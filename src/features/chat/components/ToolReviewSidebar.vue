@@ -259,19 +259,19 @@ function closeReportDialog() {
   --tw-prose-body: currentColor;
   --tw-prose-headings: currentColor;
   --tw-prose-lead: currentColor;
-  --tw-prose-links: hsl(var(--bc));
+  --tw-prose-links: var(--color-base-content);
   --tw-prose-bold: currentColor;
   --tw-prose-counters: currentColor;
-  --tw-prose-bullets: hsl(var(--bc) / 0.5);
-  --tw-prose-hr: hsl(var(--bc) / 0.15);
+  --tw-prose-bullets: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+  --tw-prose-hr: color-mix(in srgb, var(--color-base-content) 15%, transparent);
   --tw-prose-quotes: currentColor;
-  --tw-prose-quote-borders: hsl(var(--bc) / 0.2);
-  --tw-prose-captions: hsl(var(--bc) / 0.75);
+  --tw-prose-quote-borders: color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  --tw-prose-captions: color-mix(in srgb, var(--color-base-content) 75%, transparent);
   --tw-prose-code: currentColor;
   --tw-prose-pre-code: currentColor;
-  --tw-prose-pre-bg: hsl(var(--b2));
-  --tw-prose-th-borders: hsl(var(--bc) / 0.2);
-  --tw-prose-td-borders: hsl(var(--bc) / 0.15);
+  --tw-prose-pre-bg: var(--color-base-200);
+  --tw-prose-th-borders: color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  --tw-prose-td-borders: color-mix(in srgb, var(--color-base-content) 15%, transparent);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content) {
@@ -403,11 +403,11 @@ function closeReportDialog() {
 .assistant-markdown :deep(.ecall-markdown-content :where(a,.link-node)) {
   text-decoration: underline;
   text-underline-offset: 0.18em;
-  text-decoration-color: hsl(var(--bc) / 0.28);
+  text-decoration-color: color-mix(in srgb, var(--color-base-content) 28%, transparent);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(a,.link-node):hover) {
-  text-decoration-color: hsl(var(--bc) / 0.5);
+  text-decoration-color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(strong,.strong-node)) {
@@ -415,9 +415,9 @@ function closeReportDialog() {
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
-  border-left: 3px solid hsl(var(--bc) / 0.16);
+  border-left: 3px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
   padding-left: 0.68rem;
-  color: hsl(var(--bc) / 0.82);
+  color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote) .markdown-renderer),
@@ -428,13 +428,13 @@ function closeReportDialog() {
 
 .assistant-markdown :deep(.ecall-markdown-content :where(hr,.hr-node)) {
   border: 0;
-  border-top: 1px solid hsl(var(--bc) / 0.14);
+  border-top: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
   margin: 0.65rem 0;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code)) {
-  border: 1px solid hsl(var(--bc) / 0.12);
-  background: hsl(var(--b2));
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: var(--color-base-200);
   border-radius: 0.4rem;
   padding: 0.08rem 0.3rem;
   font-family: var(
@@ -460,14 +460,14 @@ function closeReportDialog() {
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(th,.table-node th)) {
-  border-bottom: 1px solid hsl(var(--bc) / 0.16);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
   padding: 0.36rem 0.5rem;
   text-align: left;
   font-weight: 600;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(td,.table-node td)) {
-  border-bottom: 1px solid hsl(var(--bc) / 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent);
   padding: 0.34rem 0.5rem;
 }
 

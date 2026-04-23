@@ -205,8 +205,13 @@
           :ui-language="uiLanguage"
           :locale-options="localeOptions"
           :current-theme="currentTheme"
+          :generated-theme-controls="generatedThemeControls"
+          :generated-theme-tokens="generatedThemeTokens"
           @update:ui-language="$emit('update:uiLanguage', $event)"
           @set-theme="$emit('setTheme', $event)"
+          @activate-generated-theme="$emit('activateGeneratedTheme')"
+          @update-generated-theme-controls="$emit('updateGeneratedThemeControls', $event)"
+          @reset-generated-theme="$emit('resetGeneratedTheme')"
         />
 
         <MigrationTab
@@ -333,6 +338,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, ImageTextCacheStats, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
+import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
 import Cropper from "cropperjs";
 import SettingsContentContainer from "../components/SettingsContentContainer.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
@@ -364,6 +370,8 @@ const props = defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
+  generatedThemeControls: GeneratedThemeControls;
+  generatedThemeTokens: GeneratedThemeTokens;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -423,6 +431,9 @@ const emit = defineEmits<{
   (e: "patchConversationApiSettings", value: ConversationApiSettingsPatch): void;
   (e: "patchChatSettings", value: ChatSettingsPatch): void;
   (e: "setTheme", value: string): void;
+  (e: "activateGeneratedTheme"): void;
+  (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
+  (e: "resetGeneratedTheme"): void;
   (e: "refreshModels"): void;
   (e: "toolSwitchChanged"): void;
   (e: "openMemoryViewer"): void;

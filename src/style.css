@@ -257,7 +257,7 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  background: hsl(var(--b2));
+  background: var(--color-base-200);
 }
 
 /* Reserve scrollbar gutter for common vertical scrolling containers so

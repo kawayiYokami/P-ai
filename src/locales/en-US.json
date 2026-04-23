@@ -1144,6 +1144,37 @@
   },
   "appearance": {
     "theme": "Theme",
+    "themeBuilderSummary": "Keep preset themes for quick switching, and add a low-friction custom generator for live theme synthesis.",
+    "themeTabs": {
+      "preset": "Preset",
+      "generated": "Custom"
+    },
+    "presetThemes": "Preset Themes",
+    "generatedTheme": "Custom Generator",
+    "customThemeTitle": "Current Custom Theme",
+    "customThemeSummary": "{mode} mode - click to switch to this theme",
+    "customThemeControls": "Custom Controls",
+    "customThemeHint": "Changes preview instantly and stay in sync across windows.",
+    "resetGeneratedTheme": "Reset Defaults",
+    "mode": "Mode",
+    "modeOptions": {
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "themeHue": "Theme Hue",
+    "contrast": "Contrast",
+    "brightness": "Brightness",
+    "tint": "Tint",
+    "tone": "Saturation",
+    "radius": "Unified Radius",
+    "uiSizePreset": "UI Size",
+    "sizePresets": {
+      "compact": "Compact",
+      "default": "Default",
+      "comfortable": "Comfortable"
+    },
+    "depthEnabled": "Depth Effect",
+    "noiseEnabled": "Noise Effect",
     "themeLight": "Light",
     "themeDark": "Dark",
     "language": "UI Language",

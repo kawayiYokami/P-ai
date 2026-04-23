@@ -14,6 +14,8 @@
       :ui-language="config.uiLanguage"
       :locale-options="localeOptions"
       :current-theme="currentTheme"
+      :generated-theme-controls="generatedThemeControls"
+      :generated-theme-tokens="generatedThemeTokens"
       :selected-api-config="selectedApiConfig"
       :tool-api-config="toolApiConfig"
       :base-url-reference="baseUrlReference"
@@ -70,6 +72,9 @@
       @patch-conversation-api-settings="patchConversationApiSettings"
       @patch-chat-settings="patchChatSettings"
       @set-theme="setTheme"
+      @activate-generated-theme="activateGeneratedTheme"
+      @update-generated-theme-controls="updateGeneratedThemeControls"
+      @reset-generated-theme="resetGeneratedTheme"
       @refresh-models="refreshModels"
       @tool-switch-changed="onToolsChanged"
       @save-api-config="saveConfig"
@@ -323,6 +328,7 @@ import type {
   ToolLoadStatus,
   UnarchivedConversationSummary,
 } from "../../../types/app";
+import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
 import {
   buildShareExportFileName,
   buildShareHtmlDocument,
@@ -353,6 +359,8 @@ const props = defineProps<{
   configTab: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
+  generatedThemeControls: GeneratedThemeControls;
+  generatedThemeTokens: GeneratedThemeTokens;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -503,6 +511,9 @@ const props = defineProps<{
   patchConversationApiSettings: (value: import("../../../types/app").ConversationApiSettingsPatch) => void;
   patchChatSettings: (value: import("../../../types/app").ChatSettingsPatch) => void;
   setTheme: (value: string) => void;
+  activateGeneratedTheme: () => void;
+  updateGeneratedThemeControls: (patch: Partial<GeneratedThemeControls>) => void;
+  resetGeneratedTheme: () => void;
   refreshModels: () => void;
   saveConfig: () => Promise<boolean> | boolean;
   restoreConfig: () => boolean;
