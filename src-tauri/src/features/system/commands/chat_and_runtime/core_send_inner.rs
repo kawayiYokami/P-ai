@@ -136,7 +136,7 @@ fn write_retrieved_memory_ids_into_provider_meta(
         return;
     }
     let mut meta = provider_meta
-        .clone()
+        .take()
         .unwrap_or_else(|| serde_json::json!({}));
     if !meta.is_object() {
         meta = serde_json::json!({});
@@ -701,7 +701,7 @@ fn update_remote_im_reply_decision_for_message(
     let update_message = |message: &mut ChatMessage| {
         let mut meta = message
             .provider_meta
-            .clone()
+            .take()
             .unwrap_or_else(|| serde_json::json!({}));
         if !meta.is_object() {
             meta = serde_json::json!({});
@@ -2579,11 +2579,11 @@ async fn send_chat_message_inner(
                             text: assistant_text_for_storage.clone(),
                         }],
                         extra_text_blocks: Vec::new(),
-                        provider_meta: provider_meta.clone(),
+                        provider_meta,
                         tool_call: if tool_history_events.is_empty() {
                             None
                         } else {
-                            Some(tool_history_events.clone())
+                            Some(tool_history_events)
                         },
                         mcp_call: None,
                     };
@@ -2604,7 +2604,7 @@ async fn send_chat_message_inner(
                 {
                     let now = now_iso();
                     if !suppress_assistant_message {
-                    let assistant_message = ChatMessage {
+                        let assistant_message = ChatMessage {
                             id: assistant_message_id.clone(),
                             role: "assistant".to_string(),
                             created_at: now.clone(),
@@ -2613,11 +2613,11 @@ async fn send_chat_message_inner(
                                 text: assistant_text_for_storage.clone(),
                             }],
                             extra_text_blocks: Vec::new(),
-                            provider_meta: provider_meta.clone(),
+                            provider_meta,
                             tool_call: if tool_history_events.is_empty() {
                                 None
                             } else {
-                                Some(tool_history_events.clone())
+                                Some(tool_history_events)
                             },
                             mcp_call: None,
                         };

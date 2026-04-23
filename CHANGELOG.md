@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+- 优化（chat-provider-meta-move-on-write）：聊天发送与调度链路中多处 `provider_meta` / `tool_history_events` 写回改为 move-on-write，避免为了追加记忆命中、远程 IM 决策或图片外置标记而复制整块原始 JSON；助手消息落库也改为移动大字段进最终消息，仅保留必要的一次消息副本用于返回与自动发送
 - 优化（archive-and-dispatch-clone-slimming）：压缩/归档、聊天调度与工具调用热路径继续削减大对象 clone，归档报告会话改为按需借用、请求体与原始 JSON 生命周期收窄、调用日志避免复制整轮请求重字段；同时将归档/压缩记忆归属修正为严格从会话所属部门的唯一人格解析，拒绝消息 hint / fallback 人格投票，并为任务 target_scope 降级补充带上下文的诊断日志，降低超长消息与原始请求体导致线程栈溢出的风险
 - 优化（chat-foreground-snapshot-and-tool-review-fast-read-path）：前台轻量快照与工具审查批次读取这两条高频读链继续切到只读快路径，命中 `conversationId` 时统一直接借用缓存中的目标会话引用，不再经由整份 `AppData` clone 后再切片，进一步把切换会话与工具审查面板首读压到近乎瞬时
 - 优化（chat-history-page-fast-read-path）：会话补历史/补后续消息这条高频读取链路新增只读快路径；当已明确传入 `conversationId` 时，不再 clone 整份 `AppData` 再切局部消息页，而是直接借用缓存中的会话引用，只克隆目标分页消息并继续做最小 media materialize，显著压低补消息热路径的锁持有与读取耗时

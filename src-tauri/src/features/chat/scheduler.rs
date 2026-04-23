@@ -928,7 +928,7 @@ async fn process_conversation_batch(
         if deferred_image_count > 0 {
             let mut provider_meta = deferred_message
                 .provider_meta
-                .clone()
+                .take()
                 .unwrap_or_else(|| serde_json::json!({}));
             if !provider_meta.is_object() {
                 provider_meta = serde_json::json!({});
