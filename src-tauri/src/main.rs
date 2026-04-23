@@ -402,8 +402,12 @@ fn main() {
         }));
     }
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = tauri::Builder::default();
+    let builder = if cfg!(debug_assertions) {
+        eprintln!("[单实例] 当前为调试构建，跳过单实例拦截");
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let chat_is_visible = app
                 .get_webview_window("chat")
                 .and_then(|window| window.is_visible().ok())
@@ -415,6 +419,9 @@ fn main() {
                 eprintln!("[单实例] 已拦截重复启动并激活现有实例: target={}", target);
             }
         }))
+    };
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
