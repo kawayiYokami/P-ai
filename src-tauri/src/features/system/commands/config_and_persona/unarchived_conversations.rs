@@ -1125,25 +1125,6 @@ async fn rewind_conversation_from_message(
         message_id, input.undo_apply_patch
     ));
 
-    let has_requested_agent = {
-        let mut app_config = read_config(&state.config_path)?;
-        let data = state_read_app_data_cached(&state)?;
-        let mut runtime_data = data.clone();
-        merge_private_organization_into_runtime_data(&state.data_path, &mut app_config, &mut runtime_data)?;
-        runtime_data
-            .agents
-            .iter()
-            .any(|a| a.id == requested_agent_id && !a.is_built_in_user)
-    };
-    if !has_requested_agent {
-        let elapsed_ms = started_at.elapsed().as_millis();
-        runtime_log_error(format!(
-            "[会话撤回] 失败，任务=rewind_conversation_from_message，reason=agent_not_found，agent_id={}，duration_ms={}",
-            requested_agent_id, elapsed_ms
-        ));
-        return Err(format!("Selected agent '{requested_agent_id}' not found."));
-    }
-
     let result = conversation_service().rewind_conversation_from_message(
         state.inner(),
         &input,
@@ -1168,7 +1149,6 @@ async fn rewind_conversation_from_message(
                 current_todos,
             },
         );
-        let _ = emit_unarchived_conversation_overview_updated_from_state(state.inner());
     }
 
     if let Some(snapshot) = git_snapshot.as_ref() {

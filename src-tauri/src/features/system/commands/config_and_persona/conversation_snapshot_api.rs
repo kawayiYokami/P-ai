@@ -236,19 +236,6 @@ fn build_conversation_preview_messages(
         .collect()
 }
 
-fn workspace_label_for_unarchived_conversation(
-    state: &AppState,
-    conversation: &Conversation,
-) -> String {
-    if let Some(path) = terminal_workspace_path_from_conversation(state, conversation) {
-        return resolve_workspace_display_name_for_conversation(state, Some(conversation), &path);
-    }
-    if let Ok(workspace) = terminal_default_workspace_for_conversation_resolved(state, Some(conversation)) {
-        return workspace.name;
-    }
-    "默认工作空间".to_string()
-}
-
 fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
     let main_conversation_id = data
         .main_conversation_id
@@ -278,7 +265,7 @@ fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
 }
 
 fn build_unarchived_conversation_summary(
-    state: &AppState,
+    _state: &AppState,
     app_config: &AppConfig,
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
@@ -329,15 +316,16 @@ fn build_unarchived_conversation_summary(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
-        workspace_label: workspace_label_for_unarchived_conversation(state, conversation),
+        // 会话列表预览保持最轻量，只返回标题/时间/基础标识与最近预览消息。
+        // 工作区、运行态、计划模式等重字段走其他链路，不在这里同步重算。
+        workspace_label: String::new(),
         is_active: conversation.status.trim() == "active",
         is_main_conversation,
         is_pinned: is_main_conversation || pin_index.is_some(),
         pin_index,
-        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
-        current_todo: conversation_current_todo_text(conversation),
-        plan_mode_enabled: get_conversation_plan_mode_enabled(state, &conversation.id)
-            .unwrap_or(conversation.plan_mode_enabled),
+        runtime_state: None,
+        current_todo: None,
+        plan_mode_enabled: false,
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
 }

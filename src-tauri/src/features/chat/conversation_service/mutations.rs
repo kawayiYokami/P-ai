@@ -314,14 +314,7 @@ impl ConversationService {
                 )
             })?;
 
-        let mut app_config = read_config(&state.config_path)?;
         let mut data = state_read_app_data_cached(state)?;
-        ensure_rewind_agent_available(
-            &state.data_path,
-            &mut app_config,
-            &data,
-            requested_agent_id,
-        )?;
         let requested_conversation_id = trimmed_option(input.session.conversation_id.as_deref());
         let idx = resolve_rewind_target_conversation_index(
             &data,
@@ -886,24 +879,6 @@ impl StopChatConversationTarget {
                 .ok_or_else(|| "Active conversation index is out of bounds.".to_string()),
         }
     }
-}
-
-fn ensure_rewind_agent_available(
-    data_path: &PathBuf,
-    app_config: &mut AppConfig,
-    data: &AppData,
-    requested_agent_id: &str,
-) -> Result<(), String> {
-    let mut runtime_data = data.clone();
-    merge_private_organization_into_runtime_data(data_path, app_config, &mut runtime_data)?;
-    if runtime_data
-        .agents
-        .iter()
-        .any(|agent| agent.id == requested_agent_id && !agent.is_built_in_user)
-    {
-        return Ok(());
-    }
-    Err(format!("Selected agent '{requested_agent_id}' not found."))
 }
 
 fn execute_rewind_conversation_mutation(

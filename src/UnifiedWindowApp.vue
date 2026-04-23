@@ -2704,6 +2704,44 @@ function updateForegroundConversationOverviewFromMessages(
   }
 }
 
+function maybeUpdateForegroundConversationOverviewFromLoadedMessages(
+  conversationId: string,
+  messages: ChatMessage[],
+  remainingCount: number,
+) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  const currentConversationId = String(currentChatConversationId.value || "").trim();
+  if (cid !== currentConversationId) return;
+  const formalMessages = (Array.isArray(messages) ? messages : [])
+    .filter((message) => !isOverviewDraftMessage(message));
+  const requiredPreviewCount = Math.min(2, Math.max(0, Number(remainingCount) || 0));
+  if (requiredPreviewCount <= 0) return;
+  if (formalMessages.length < requiredPreviewCount) return;
+  const previewMessages = formalMessages
+    .slice(-requiredPreviewCount)
+    .map(previewMessageFromChatMessage);
+  const lastMessage = formalMessages[formalMessages.length - 1];
+  const lastMessageAt = String(lastMessage?.createdAt || "").trim();
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== cid) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      messageCount: Math.max(0, Number(remainingCount) || formalMessages.length),
+      updatedAt: lastMessageAt || item.updatedAt,
+      lastMessageAt: lastMessageAt || item.lastMessageAt,
+      previewMessages,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = sortUnarchivedConversationOverviewItems(nextItems);
+  }
+}
+
 async function requestConversationLightSnapshot(conversationId?: string | null): Promise<SwitchConversationSnapshot> {
   return invokeTauri<SwitchConversationSnapshot>("get_foreground_conversation_light_snapshot", {
     input: {
@@ -3968,6 +4006,7 @@ const {
   activeAgentId: currentForegroundAgentId,
   currentConversationId: currentChatConversationId,
   allMessages,
+  maybeUpdateConversationOverviewFromLoadedMessages: maybeUpdateForegroundConversationOverviewFromLoadedMessages,
   chatting,
   forcingArchive,
   compactingConversation,

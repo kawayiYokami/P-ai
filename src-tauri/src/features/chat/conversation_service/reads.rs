@@ -167,24 +167,8 @@ impl ConversationService {
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = state_read_app_data_cached(state)?;
-        let before_conversation_count = data.conversations.len();
-        let before_main_conversation_id = data.main_conversation_id.clone();
+        let data = state_read_app_data_cached(state)?;
         let app_config = state_read_config_cached(state)?;
-        let normalized_changed = normalize_single_active_main_conversation(&mut data);
-        let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
-        let changed = normalized_changed
-            || department_changed
-            || data.conversations.len() != before_conversation_count
-            || data.main_conversation_id != before_main_conversation_id;
-        if changed {
-            persist_selected_conversations_and_runtime(
-                state,
-                &data,
-                &foreground_conversation_ids(&data),
-                "refresh_unarchived_conversation_overview_payload",
-            )?;
-        }
         let payload = build_unarchived_conversation_overview_payload(state, &app_config, &data);
         drop(guard);
         Ok(payload)
@@ -199,25 +183,9 @@ impl ConversationService {
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut data = state_read_app_data_cached(state)?;
-        let before_conversation_count = data.conversations.len();
-        let before_main_conversation_id = data.main_conversation_id.clone();
+        let data = state_read_app_data_cached(state)?;
         let app_config = state_read_config_cached(state)?;
-        let normalized_changed = normalize_single_active_main_conversation(&mut data);
-        let department_changed = normalize_foreground_conversation_departments(&app_config, &mut data);
         let summaries = collect_unarchived_conversation_summaries(state, &app_config, &data);
-        let changed = normalized_changed
-            || department_changed
-            || data.conversations.len() != before_conversation_count
-            || data.main_conversation_id != before_main_conversation_id;
-        if changed {
-            persist_selected_conversations_and_runtime(
-                state,
-                &data,
-                &foreground_conversation_ids(&data),
-                "list_unarchived_conversations",
-            )?;
-        }
         drop(guard);
         Ok(ListUnarchivedConversationsMutationResult { summaries })
     }

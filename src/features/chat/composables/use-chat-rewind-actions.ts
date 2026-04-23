@@ -15,6 +15,11 @@ type UseChatRewindActionsOptions = {
   activeAgentId: Ref<string>;
   currentConversationId: Ref<string>;
   allMessages: ShallowRef<ChatMessage[]>;
+  maybeUpdateConversationOverviewFromLoadedMessages: (
+    conversationId: string,
+    messages: ChatMessage[],
+    remainingCount: number,
+  ) => void;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   compactingConversation: Ref<boolean>;
@@ -174,6 +179,11 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       const keepCount = keepCountFromLocal >= 0 ? keepCountFromLocal : keepCountFromBackend;
       const nextMessages = currentMessages.slice(0, keepCount);
       options.allMessages.value = nextMessages;
+      options.maybeUpdateConversationOverviewFromLoadedMessages(
+        conversationId,
+        nextMessages,
+        Number(result.remainingCount) || nextMessages.length,
+      );
       console.info("[会话撤回] 完成", {
         removedCount: Number(result.removedCount) || 0,
         remainingCount: Number(result.remainingCount) || nextMessages.length,
