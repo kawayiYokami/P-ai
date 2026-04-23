@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+- 优化（conversation-read-agent-runtime-snapshot）：会话读取层的 active snapshot / active messages / 历史前后分页 fallback 分支不再通过 `data.clone()` 合并整份运行数据来解析有效人格，改为仅复制 agents 小快照并合并私有组织；会话索引与消息页仍基于原 `AppData` 处理，保留 active fallback 创建/归一化语义，同时减少大消息数据在读取路径上的额外复制
 - 优化（conversation-read-and-scheduler-copy-slimming）：归档与远程 IM 联系人会话的纯读接口改为借用缓存中的 `AppData` 直接提取目标摘要/消息，不再为列表或消息读取 clone 整份运行数据；聊天调度提交阶段改为消费临时 prepared batch，消息落库与 history-flushed 推送只保留必要的一次消息副本，继续降低大消息批次出队时的内存峰值
 - 优化（chat-provider-meta-move-on-write）：聊天发送与调度链路中多处 `provider_meta` / `tool_history_events` 写回改为 move-on-write，避免为了追加记忆命中、远程 IM 决策或图片外置标记而复制整块原始 JSON；助手消息落库也改为移动大字段进最终消息，仅保留必要的一次消息副本用于返回与自动发送
 - 优化（archive-and-dispatch-clone-slimming）：压缩/归档、聊天调度与工具调用热路径继续削减大对象 clone，归档报告会话改为按需借用、请求体与原始 JSON 生命周期收窄、调用日志避免复制整轮请求重字段；同时将归档/压缩记忆归属修正为严格从会话所属部门的唯一人格解析，拒绝消息 hint / fallback 人格投票，并为任务 target_scope 降级补充带上下文的诊断日志，降低超长消息与原始请求体导致线程栈溢出的风险
