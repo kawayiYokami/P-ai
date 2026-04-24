@@ -432,7 +432,29 @@ impl ConversationService {
             started_at,
         )?;
         if result.removed_count > 0 {
-            state_schedule_conversation_persist(state, &conversation, false)?;
+            let store_paths = message_store::message_store_paths(&state.data_path, &conversation.id)?;
+            if message_store::should_write_jsonl_snapshot_directory_shard(&store_paths)? {
+                let _write_guard = state
+                    .app_data_persist_write_lock
+                    .lock()
+                    .map_err(|err| {
+                        named_lock_error(
+                            "app_data_persist_write_lock",
+                            file!(),
+                            line!(),
+                            module_path!(),
+                            &err,
+                        )
+                    })?;
+                message_store::write_jsonl_snapshot_truncated_directory_shard(
+                    &store_paths,
+                    &conversation,
+                    result.remaining_count,
+                )?;
+                state_mark_conversation_direct_persisted(state, &conversation, true)?;
+            } else {
+                state_schedule_conversation_persist(state, &conversation, false)?;
+            }
         }
         drop(guard);
 

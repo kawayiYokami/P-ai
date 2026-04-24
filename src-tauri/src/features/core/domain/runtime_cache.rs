@@ -331,6 +331,80 @@ fn sync_cached_app_data_conversation_deleted(
     sync_cached_app_data_signature(state)
 }
 
+fn state_mark_conversation_direct_persisted(
+    state: &AppState,
+    conversation: &Conversation,
+    include_chat_index: bool,
+) -> Result<(), String> {
+    let disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
+    {
+        let mut cached = state
+            .cached_conversations
+            .lock()
+            .map_err(|_| "Failed to lock cached conversations".to_string())?;
+        cached.insert(conversation.id.clone(), conversation.clone());
+    }
+    {
+        let mut cached_mtimes = state
+            .cached_conversation_mtimes
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
+        cached_mtimes.insert(conversation.id.clone(), disk_mtime);
+    }
+    {
+        let mut dirty_ids = state
+            .cached_conversation_dirty_ids
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation dirty ids".to_string())?;
+        dirty_ids.remove(&conversation.id);
+    }
+    {
+        let mut deleted_ids = state
+            .cached_deleted_conversation_ids
+            .lock()
+            .map_err(|_| "Failed to lock cached deleted conversation ids".to_string())?;
+        deleted_ids.remove(&conversation.id);
+    }
+    {
+        let mut pending = state
+            .conversation_persist_pending
+            .lock()
+            .map_err(|_| "Failed to lock pending conversation persist".to_string())?;
+        let should_clear_slot = if let Some(slot) = pending.as_mut() {
+            slot.conversations.remove(&conversation.id);
+            slot.deleted_conversation_ids.remove(&conversation.id);
+            slot.conversations.is_empty()
+                && slot.deleted_conversation_ids.is_empty()
+                && slot.chat_index.is_none()
+        } else {
+            false
+        };
+        if should_clear_slot {
+            *pending = None;
+        }
+    }
+    sync_cached_app_data_conversation(state, conversation)?;
+    if include_chat_index {
+        let mut chat_index = state_read_chat_index_cached(state)?;
+        upsert_chat_index_conversation(&mut chat_index, conversation);
+        let _ = write_chat_index_shard(&state.data_path, &chat_index)?;
+        let chat_index_mtime = path_modified_time(&app_layout_chat_index_path(&state.data_path));
+        *state
+            .cached_chat_index
+            .lock()
+            .map_err(|_| "Failed to lock cached chat index".to_string())? = Some(chat_index);
+        *state
+            .cached_chat_index_mtime
+            .lock()
+            .map_err(|_| "Failed to lock cached chat index mtime".to_string())? = chat_index_mtime;
+        state
+            .cached_chat_index_dirty
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+    refresh_cached_app_data_dirty(state);
+    Ok(())
+}
+
 fn has_pending_app_data_persist(state: &AppState) -> bool {
     state
         .app_data_persist_pending

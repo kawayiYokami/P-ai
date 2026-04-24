@@ -143,6 +143,18 @@ pub(super) fn retain_message_store_block_file_cache_paths(
     cache.retain(|path, _| allowed_paths.contains(path));
 }
 
+pub(super) fn forget_message_store_block_file_cache_paths(
+    paths: &std::collections::HashSet<PathBuf>,
+) {
+    if paths.is_empty() {
+        return;
+    }
+    let mut cache = lock_message_store_block_file_cache();
+    for path in paths {
+        cache.remove(path);
+    }
+}
+
 impl<'a> ConversationJsonMessageStore<'a> {
     fn new(conversation: &'a Conversation) -> Self {
         Self { conversation }
