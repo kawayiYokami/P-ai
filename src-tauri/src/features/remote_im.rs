@@ -1172,25 +1172,63 @@ fn build_chat_message_from_input(
     images: &[BinaryPart],
     audios: &[BinaryPart],
     attachments: &[AttachmentMetaInput],
+    data_path: &PathBuf,
 ) -> ChatMessage {
     let mut parts = Vec::<MessagePart>::new();
+    let downloads_subdir = remote_im_conversation_downloads_subdir(conversation_id);
     if !text.is_empty() {
         parts.push(MessagePart::Text {
             text: text.to_string(),
         });
     }
     for img in images {
+        let bytes_base64 =
+            externalize_stored_binary_base64_in_downloads_subdir(
+                data_path,
+                &downloads_subdir,
+                &img.mime,
+                &img.bytes_base64,
+            )
+                .unwrap_or_else(|err| {
+                    eprintln!(
+                        "[远程IM] 入站图片外置化失败，保留原始内容: conversation_id={}，contact_id={}，mime={}，bytes_len={}，error={}",
+                        conversation_id,
+                        contact_id,
+                        img.mime,
+                        img.bytes_base64.len(),
+                        err
+                    );
+                    img.bytes_base64.clone()
+                });
         parts.push(MessagePart::Image {
             mime: img.mime.clone(),
-            bytes_base64: img.bytes_base64.clone(),
+            bytes_base64,
             name: None,
             compressed: false,
         });
     }
     for audio in audios {
+        let bytes_base64 =
+            externalize_stored_binary_base64_in_downloads_subdir(
+                data_path,
+                &downloads_subdir,
+                &audio.mime,
+                &audio.bytes_base64,
+            )
+                .unwrap_or_else(|err| {
+                    eprintln!(
+                        "[远程IM] 入站音频外置化失败，保留原始内容: conversation_id={}，contact_id={}，mime={}，bytes_len={}，error={}",
+                        conversation_id,
+                        contact_id,
+                        audio.mime,
+                        audio.bytes_base64.len(),
+                        err
+                    );
+                    audio.bytes_base64.clone()
+                });
         parts.push(MessagePart::Audio {
             mime: audio.mime.clone(),
-            bytes_base64: audio.bytes_base64.clone(),
+            bytes_base64,
             name: None,
             compressed: false,
         });
@@ -1221,6 +1259,10 @@ fn build_chat_message_from_input(
         tool_call: None,
         mcp_call: None,
     }
+}
+
+fn remote_im_conversation_downloads_subdir(conversation_id: &str) -> String {
+    conversation_id.trim().to_string()
 }
 
 fn create_pending_event(
@@ -1690,6 +1732,7 @@ pub(crate) fn remote_im_enqueue_message_internal(
         &images,
         &audios,
         &attachments,
+        &state.data_path,
     );
 
     let (activate_assistant, state_reason) = remote_im_prepare_enqueue_runtime_state(

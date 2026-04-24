@@ -912,7 +912,7 @@ fn read_chat_image_data_url(
             data_url: String::new(),
         });
     }
-    if media_id_from_marker(media_ref).is_none() {
+    if stored_binary_ref_from_marker(media_ref).is_none() {
         return Err("Chat image mediaRef is invalid.".to_string());
     }
     let mime = input.mime.trim().to_ascii_lowercase();

@@ -100,12 +100,12 @@ fn normalize_media_for_import(data_path: &PathBuf, mime: &str, stored: &str) -> 
     if trimmed.is_empty() {
         return String::new();
     }
-    if media_id_from_marker(trimmed).is_some() {
+    if stored_binary_ref_from_marker(trimmed).is_some() {
         let decoded = match resolve_stored_binary_base64(data_path, trimmed) {
             Ok(v) => v,
             Err(err) => {
                 eprintln!(
-                    "[ARCHIVE-IMPORT] resolve media ref failed: marker={}, err={}",
+                    "[ARCHIVE-IMPORT] resolve stored ref failed: marker={}, err={}",
                     trimmed, err
                 );
                 return trimmed.to_string();

@@ -2235,6 +2235,7 @@ mod message_store_reader_tests {
         let outside_dir = root.join("outside-shard");
         fs::create_dir_all(&outside_dir).expect("create outside dir");
         let bad_paths = MessageStorePaths {
+            data_path: paths.data_path.clone(),
             conversation_id: paths.conversation_id.clone(),
             legacy_conversation_file: paths.legacy_conversation_file.clone(),
             shard_dir: outside_dir.clone(),

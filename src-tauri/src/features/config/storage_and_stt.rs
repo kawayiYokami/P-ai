@@ -1076,6 +1076,7 @@ fn normalize_app_config(config: &mut AppConfig) {
 }
 
 const MEDIA_REF_PREFIX: &str = "@media:";
+const DOWNLOAD_REF_PREFIX: &str = "@download:";
 const MEDIA_BASE64_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_IMAGE_TEXT_CACHE_ENTRIES: usize = 1000;
 
@@ -1151,6 +1152,12 @@ fn media_storage_dir_from_data_path(data_path: &PathBuf) -> Result<PathBuf, Stri
     Ok(app_root_from_data_path(data_path).join("media"))
 }
 
+fn downloads_storage_dir_from_data_path(data_path: &PathBuf) -> Result<PathBuf, String> {
+    Ok(app_root_from_data_path(data_path)
+        .join("llm-workspace")
+        .join("downloads"))
+}
+
 fn media_extension_from_mime(mime: &str) -> &'static str {
     match mime.trim().to_ascii_lowercase().as_str() {
         "image/webp" => "webp",
@@ -1176,8 +1183,32 @@ fn media_marker_from_id(media_id: &str) -> String {
     format!("{MEDIA_REF_PREFIX}{media_id}")
 }
 
+fn download_marker_from_id(download_id: &str) -> String {
+    format!("{DOWNLOAD_REF_PREFIX}{download_id}")
+}
+
 fn media_id_from_marker(value: &str) -> Option<&str> {
     value.trim().strip_prefix(MEDIA_REF_PREFIX)
+}
+
+fn download_id_from_marker(value: &str) -> Option<&str> {
+    value.trim().strip_prefix(DOWNLOAD_REF_PREFIX)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoredBinaryRefKind {
+    Media,
+    Download,
+}
+
+fn stored_binary_ref_from_marker(value: &str) -> Option<(StoredBinaryRefKind, &str)> {
+    if let Some(media_id) = media_id_from_marker(value) {
+        return Some((StoredBinaryRefKind::Media, media_id));
+    }
+    if let Some(download_id) = download_id_from_marker(value) {
+        return Some((StoredBinaryRefKind::Download, download_id));
+    }
+    None
 }
 
 fn persist_media_bytes(data_path: &PathBuf, mime: &str, raw: &[u8]) -> Result<String, String> {
@@ -1205,17 +1236,20 @@ fn resolve_stored_binary_base64(data_path: &PathBuf, stored: &str) -> Result<Str
     if trimmed.is_empty() {
         return Ok(String::new());
     }
-    let Some(media_id) = media_id_from_marker(trimmed) else {
+    let Some((kind, stored_id)) = stored_binary_ref_from_marker(trimmed) else {
         return Ok(trimmed.to_string());
     };
     if let Some(hit) = media_base64_cache_get(trimmed) {
         return Ok(hit);
     }
-    let dir = media_storage_dir_from_data_path(data_path)?;
-    let path = dir.join(media_id);
+    let dir = match kind {
+        StoredBinaryRefKind::Media => media_storage_dir_from_data_path(data_path)?,
+        StoredBinaryRefKind::Download => downloads_storage_dir_from_data_path(data_path)?,
+    };
+    let path = dir.join(stored_id);
     let raw = fs::read(&path).map_err(|err| {
         format!(
-            "Read media file failed ({}): {err}",
+            "Read stored binary file failed ({}): {err}",
             path.to_string_lossy()
         )
     })?;
@@ -1233,7 +1267,7 @@ fn externalize_stored_binary_base64(
     if trimmed.is_empty() {
         return Ok(String::new());
     }
-    if media_id_from_marker(trimmed).is_some() {
+    if stored_binary_ref_from_marker(trimmed).is_some() {
         return Ok(trimmed.to_string());
     }
     let raw = B64
@@ -1241,6 +1275,69 @@ fn externalize_stored_binary_base64(
         .map_err(|err| format!("Decode media base64 failed: {err}"))?;
     let media_id = persist_media_bytes(data_path, mime, &raw)?;
     Ok(media_marker_from_id(&media_id))
+}
+
+fn externalize_stored_binary_base64_in_downloads_subdir(
+    data_path: &PathBuf,
+    downloads_subdir: &str,
+    mime: &str,
+    stored: &str,
+) -> Result<String, String> {
+    let trimmed = stored.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    if stored_binary_ref_from_marker(trimmed).is_some() {
+        return Ok(trimmed.to_string());
+    }
+    let subdir = sanitize_storage_subdir(downloads_subdir)?;
+    let raw = B64
+        .decode(trimmed)
+        .map_err(|err| format!("Decode media base64 failed: {err}"))?;
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(&raw);
+    let hash = format!("{:x}", hasher.finalize());
+    let download_id = format!("{subdir}/{hash}.{}", media_extension_from_mime(mime));
+    let dir = downloads_storage_dir_from_data_path(data_path)?.join(&subdir);
+    fs::create_dir_all(&dir).map_err(|err| {
+        format!(
+            "Create downloads subdir failed ({}): {err}",
+            dir.to_string_lossy()
+        )
+    })?;
+    let path = downloads_storage_dir_from_data_path(data_path)?.join(&download_id);
+    if !path.exists() {
+        fs::write(&path, raw).map_err(|err| {
+            format!(
+                "Write download file failed ({}): {err}",
+                path.to_string_lossy()
+            )
+        })?;
+    }
+    Ok(download_marker_from_id(&download_id))
+}
+
+fn sanitize_storage_subdir(value: &str) -> Result<String, String> {
+    let normalized = value.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err("storage subdir is empty".to_string());
+    }
+    let mut parts = Vec::<String>::new();
+    for part in normalized.split('/') {
+        let part = part.trim();
+        if part.is_empty() || part == "." || part == ".." {
+            return Err(format!("Invalid media subdir segment: {part}"));
+        }
+        if part
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+        {
+            return Err(format!("Invalid media subdir segment: {part}"));
+        }
+        parts.push(part.to_string());
+    }
+    Ok(parts.join("/"))
 }
 
 fn externalize_message_parts_to_media_refs(
@@ -1303,10 +1400,10 @@ fn externalize_message_parts_to_media_refs_lossy(parts: &mut [MessagePart], data
 fn materialize_message_parts_from_media_refs(parts: &mut [MessagePart], data_path: &PathBuf) {
     for part in parts {
         match part {
-            // 图片在前台显示链路里保留 @media: 引用，由前端按需懒加载；
+            // 图片在前台显示链路里保留已外置附件引用，由前端按需懒加载；
             // 仅音频维持旧行为，继续展开为 base64。
             MessagePart::Audio { bytes_base64, .. } => {
-                if media_id_from_marker(bytes_base64).is_none() {
+                if stored_binary_ref_from_marker(bytes_base64).is_none() {
                     continue;
                 }
                 match resolve_stored_binary_base64(data_path, bytes_base64) {

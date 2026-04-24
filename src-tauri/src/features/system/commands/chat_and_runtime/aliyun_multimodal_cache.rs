@@ -187,7 +187,7 @@ fn resolve_message_part_binary_base64_for_hash(
     data_path: &PathBuf,
     bytes_base64: &str,
 ) -> Result<String, String> {
-    if media_id_from_marker(bytes_base64).is_some() {
+    if stored_binary_ref_from_marker(bytes_base64).is_some() {
         resolve_stored_binary_base64(data_path, bytes_base64)
     } else {
         Ok(bytes_base64.trim().to_string())

@@ -303,6 +303,7 @@ fn slim_older_conversation_block_part(part: &MessagePart) -> Option<MessagePart>
         } => {
             let trimmed = bytes_base64.trim();
             if !(trimmed.starts_with("@media:")
+                || trimmed.starts_with("@download:")
                 || trimmed.starts_with("http://")
                 || trimmed.starts_with("https://"))
             {
@@ -323,6 +324,7 @@ fn slim_older_conversation_block_part(part: &MessagePart) -> Option<MessagePart>
         } => {
             let trimmed = bytes_base64.trim();
             if !(trimmed.starts_with("@media:")
+                || trimmed.starts_with("@download:")
                 || trimmed.starts_with("http://")
                 || trimmed.starts_with("https://"))
             {

@@ -7,6 +7,7 @@ const MESSAGE_STORE_BLOBS_DIR_NAME: &str = "blobs";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MessageStorePaths {
+    data_path: PathBuf,
     conversation_id: String,
     legacy_conversation_file: PathBuf,
     shard_dir: PathBuf,
@@ -33,6 +34,7 @@ pub(super) fn message_store_paths(
     validate_message_store_conversation_id(conversation_id)?;
     let shard_dir = app_layout_chat_conversations_dir(data_path).join(conversation_id);
     Ok(MessageStorePaths {
+        data_path: data_path.clone(),
         conversation_id: conversation_id.to_string(),
         legacy_conversation_file: app_layout_chat_conversation_path(data_path, conversation_id),
         manifest_file: shard_dir.join(MESSAGE_STORE_MANIFEST_FILE_NAME),

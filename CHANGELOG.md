@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（remote-im-media-conversation-scoped-storage）：远程 IM 入站图片/音频在接收边界即外置化到 `llm-workspace/downloads/<conversation_id>/`，消息正文只保留 `@download:` 引用；消息块迁移/写入前增加残留 base64 附件清洗兜底，旧引用不搬迁，新落盘不再混入全局媒体池
 - 功能（conversation-block-message-store-migration）：会话消息存储新增目录型 JSONL 仓库与启动期迁移门禁，底层 shard 读写在保持业务调用方不感知的前提下支持 `Conversation -> ConversationBlock -> Message` 三层布局；迁移生成 `blocks/*.jsonl` 与最小 `messages.idx.json`，索引仅保留 `messageId / blockId / offset / byteLen`，联系人会话按压缩边界或本地 04:00 日界线切块，旧 block 自动瘦身工具/MCP/运行态挂件但保留文本和外置/URL 媒体引用
 - 修复（apply-patch-full-access-review-bypass）：`apply_patch` 的工具智能审查改为仅在工作目录安全等级为“审批”时触发；命中“完全”权限的目录按本地授权直接执行补丁，避免已授予完全访问后仍反复弹出审查确认
 - 优化（tool-loop-copy-slimming）：工具调度循环改为移动消费工具调用字段与工具历史事件，避免重复 clone 工具参数、调用 ID 与结果文本，降低超大工具参数/历史事件在调度热路径上的内存压力
