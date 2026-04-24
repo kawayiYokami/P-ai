@@ -185,7 +185,8 @@ fn write_jsonl_snapshot_directory_shard_incremental(
     let mut next_items = Vec::<MessageStoreIndexItem>::with_capacity(conversation.messages.len());
     for (idx, block_refs) in source_blocks.iter().enumerate() {
         if rewrite_block_indices.contains(&idx) {
-            let should_slim = idx < new_block_count.saturating_sub(2);
+            let should_slim =
+                should_slim_conversation_block(!conversation.summary.trim().is_empty(), idx, new_block_count);
             let block = build_jsonl_snapshot_conversation_block(block_refs, should_slim)?;
             let block_path = paths.shard_dir.join(&block.block_file);
             write_jsonl_snapshot_atomic(&block_path, &block.content)?;
@@ -369,7 +370,11 @@ pub(super) fn write_jsonl_snapshot_truncated_directory_shard(
     for (idx, block_refs) in source_blocks.iter().enumerate() {
         let is_last_kept_block = idx + 1 == new_block_count;
         if is_last_kept_block {
-            let should_slim = idx < new_block_count.saturating_sub(2);
+            let should_slim = should_slim_conversation_block(
+                !normalized_conversation.summary.trim().is_empty(),
+                idx,
+                new_block_count,
+            );
             let block = build_jsonl_snapshot_conversation_block(block_refs, should_slim)?;
             let block_path = paths.shard_dir.join(&block.block_file);
             write_jsonl_snapshot_atomic(&block_path, &block.content)?;

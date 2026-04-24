@@ -61,34 +61,37 @@ struct ConversationBlockMessageRefs<'a> {
 fn build_jsonl_snapshot_conversation_blocks(
     messages: &[ChatMessage],
 ) -> Result<JsonlSnapshotConversationBlocks, String> {
-    build_jsonl_snapshot_conversation_blocks_from_refs(&split_messages_into_conversation_blocks(
-        messages, false,
-    ))
+    build_jsonl_snapshot_conversation_blocks_from_refs(
+        false,
+        &split_messages_into_conversation_blocks(messages, false),
+    )
 }
 
 fn build_jsonl_snapshot_conversation_blocks_for_conversation(
     conversation: &Conversation,
 ) -> Result<JsonlSnapshotConversationBlocks, String> {
-    build_jsonl_snapshot_conversation_blocks_from_refs(&split_conversation_messages_into_blocks(
-        conversation,
-    ))
+    build_jsonl_snapshot_conversation_blocks_from_refs(
+        !conversation.summary.trim().is_empty(),
+        &split_conversation_messages_into_blocks(conversation),
+    )
 }
 
 fn build_jsonl_snapshot_conversation_blocks_from_refs(
+    archived_conversation: bool,
     source_blocks: &[ConversationBlockMessageRefs<'_>],
 ) -> Result<JsonlSnapshotConversationBlocks, String> {
     let message_count = source_blocks
         .iter()
         .map(|block| block.messages.len())
         .sum::<usize>();
-    let full_start = source_blocks.len().saturating_sub(2);
     let mut blocks = Vec::<JsonlSnapshotConversationBlock>::with_capacity(source_blocks.len());
     let mut all_items = Vec::<MessageStoreIndexItem>::with_capacity(message_count);
     let mut total_bytes = 0_u64;
     let mut last_message_id = String::new();
 
     for (block_idx, block_messages) in source_blocks.iter().enumerate() {
-        let should_slim = block_idx < full_start;
+        let should_slim =
+            should_slim_conversation_block(archived_conversation, block_idx, source_blocks.len());
         let block = build_jsonl_snapshot_conversation_block(block_messages, should_slim)?;
         last_message_id = block
             .index_items
@@ -148,6 +151,17 @@ fn split_messages_into_conversation_blocks(
             messages,
         })
         .collect()
+}
+
+fn should_slim_conversation_block(
+    archived_conversation: bool,
+    block_idx: usize,
+    block_count: usize,
+) -> bool {
+    if archived_conversation {
+        return true;
+    }
+    block_idx < block_count.saturating_sub(2)
 }
 
 fn split_messages_into_remote_im_compaction_or_day_blocks(
