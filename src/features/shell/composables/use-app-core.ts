@@ -34,9 +34,9 @@ export function useAppCore(options: UseAppCoreOptions) {
   }
 
   const localeOptions = computed<Array<{ value: SupportedLocale; label: string }>>(() => [
-    { value: "zh-CN", label: options.t("config.language.zhCN") },
-    { value: "en-US", label: options.t("config.language.enUS") },
-    { value: "zh-TW", label: options.t("config.language.zhTW") },
+    { value: "zh-CN", label: "简体中文" },
+    { value: "en-US", label: "English" },
+    { value: "zh-TW", label: "繁體中文" },
   ]);
 
   function applyUiLanguage(value: string): boolean {
