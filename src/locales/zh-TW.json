@@ -381,8 +381,8 @@
     },
     "persona": {
       "title": "人格",
-      "userTag": "用户",
-      "systemTag": "系統",
+      "userTag": "用戶",
+      "systemTag": "預設",
       "add": "新增人格",
       "remove": "删除当前人格",
       "name": "人格名称",
@@ -458,7 +458,9 @@
         "invalidModel": "部門「{name}」包含無效的驅動模型，請重新選擇後再自動保存。",
         "missingAssistant": "缺少主部門，請先恢復主部門配置。",
         "assistantNeedsModel": "主部門必須至少配置一個驅動模型，當前不會自動保存。",
+        "assistantCannotBeDeputy": "主部門不能作為副手部門。",
         "deputyNeedsAssignee": "副手部門必須選擇一個副手人格。",
+        "deputyBuiltinPersonaForbidden": "用戶人格和系統人格不能擔任副手。",
         "deputyAgentConflict": "副手部門的人格不能同時擔任非副手部門。"
       },
       "summary": "部門概述",
@@ -477,6 +479,7 @@
       "permissionBuiltinTools": "內建工具",
       "permissionSkills": "技能",
       "permissionSkillsRequireExec": "需要先允許終端（exec）工具，技能才可選。",
+      "permissionDeputySkillsDisabled": "副手部門默認禁止使用預設 Skill；用戶自建 Skill 仍可按權限配置使用。",
       "permissionMcpTools": "MCP 工具",
       "assignee": "任命",
       "assigneePlaceholder": "暫不指定",

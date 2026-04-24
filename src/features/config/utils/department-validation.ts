@@ -57,10 +57,16 @@ export function validateDepartmentConfig(
     if (agentId) nonDeputyAgentIds.add(agentId);
   }
   for (const department of departments) {
+    if ((department.id === "assistant-department" || department.isBuiltInAssistant) && department.isDeputy) {
+      return t("config.department.validation.assistantCannotBeDeputy");
+    }
     if (!department.isDeputy) continue;
     const agentId = String(department.agentIds?.[0] || "").trim();
     if (!agentId) {
       return t("config.department.validation.deputyNeedsAssignee");
+    }
+    if (agentId === "user-persona" || agentId === "system-persona") {
+      return t("config.department.validation.deputyBuiltinPersonaForbidden");
     }
     if (nonDeputyAgentIds.has(agentId)) {
       return t("config.department.validation.deputyAgentConflict");

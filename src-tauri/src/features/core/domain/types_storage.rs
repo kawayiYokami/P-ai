@@ -326,6 +326,58 @@ fn builtin_tool_visible_in_department_permissions(tool_id: &str) -> bool {
     builtin_tool_is_department_controlled(tool_id)
 }
 
+fn deputy_department_builtin_tool_allowed(tool_id: &str) -> bool {
+    matches!(tool_id.trim(), "fetch" | "websearch" | "exec" | "read_file")
+}
+
+fn workspace_preset_skill_name(name: &str) -> bool {
+    matches!(
+        name.trim(),
+        "agent-office"
+            | "agents-md-setup"
+            | "assistant-interaction-guide"
+            | "browser-automation"
+            | "mcp-setup"
+            | "news-analyst"
+            | "pai-guide"
+            | "private-organization-guide"
+            | "skill-setup"
+            | "workspace-guide"
+    )
+}
+
+fn deputy_department_restricted_reason(
+    department: &DepartmentConfig,
+    category: DepartmentPermissionCategory,
+    item_name: &str,
+) -> Option<String> {
+    if !department.is_deputy {
+        return None;
+    }
+    let item_name = item_name.trim();
+    match category {
+        DepartmentPermissionCategory::BuiltinTool => {
+            if deputy_department_builtin_tool_allowed(item_name) {
+                None
+            } else {
+                Some(format!(
+                    "副手部门默认只能使用调查型工具，工具 `{item_name}` 不被允许"
+                ))
+            }
+        }
+        DepartmentPermissionCategory::Skill => {
+            if workspace_preset_skill_name(item_name) {
+                Some(format!(
+                    "副手部门默认禁止使用预设 Skill，Skill `{item_name}` 不被允许"
+                ))
+            } else {
+                None
+            }
+        }
+        DepartmentPermissionCategory::McpTool => None,
+    }
+}
+
 fn normalize_department_permission_mode(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "whitelist" => "whitelist".to_string(),
@@ -382,6 +434,24 @@ fn department_permission_allows_any_name(
     category: DepartmentPermissionCategory,
     candidate_names: &[&str],
 ) -> bool {
+    if let Some(department) = department {
+        if department.is_deputy {
+            match category {
+                DepartmentPermissionCategory::BuiltinTool => {
+                    return candidate_names.iter().any(|candidate| {
+                        let candidate = candidate.trim();
+                        !candidate.is_empty() && deputy_department_builtin_tool_allowed(candidate)
+                    });
+                }
+                DepartmentPermissionCategory::Skill => {
+                    if candidate_names.iter().any(|candidate| workspace_preset_skill_name(candidate)) {
+                        return false;
+                    }
+                }
+                DepartmentPermissionCategory::McpTool => {}
+            }
+        }
+    }
     let Some((control, list)) = department_permission_candidates(department, category) else {
         return true;
     };
@@ -409,6 +479,11 @@ fn department_permission_restricted_reason(
     category: DepartmentPermissionCategory,
     item_name: &str,
 ) -> Option<String> {
+    if let Some(department) = department {
+        if let Some(reason) = deputy_department_restricted_reason(department, category, item_name) {
+            return Some(reason);
+        }
+    }
     let Some((control, _)) = department_permission_candidates(department, category) else {
         return None;
     };
@@ -436,11 +511,18 @@ fn tool_restricted_by_department(
         return None;
     }
     let department = department?;
+    if let Some(reason) = deputy_department_restricted_reason(
+        department,
+        DepartmentPermissionCategory::BuiltinTool,
+        tool_id,
+    ) {
+        return Some(reason);
+    }
     let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
     if !is_assistant
         && matches!(
             tool_id,
-            "reload" | "organize_context" | "wait" | "screenshot" | "operate" | "task" | "delegate"
+            "reload" | "organize_context" | "wait" | "screenshot" | "operate" | "task"
         )
     {
         let department_name = department.name.trim();
@@ -556,6 +638,48 @@ mod types_storage_tests {
             Some(&blacklist),
             DepartmentPermissionCategory::McpTool,
             &["server-a::search", "search"],
+        ));
+    }
+
+    #[test]
+    fn deputy_department_permission_should_apply_default_guard_even_when_control_disabled() {
+        let mut deputy = default_deputy_department("api-a");
+        deputy.permission_control.enabled = false;
+
+        assert!(department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::BuiltinTool,
+            &["exec"],
+        ));
+        assert!(department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::BuiltinTool,
+            &["read_file"],
+        ));
+        assert!(!department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::BuiltinTool,
+            &["operate"],
+        ));
+        assert!(!department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::BuiltinTool,
+            &["screenshot"],
+        ));
+        assert!(!department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::Skill,
+            &["workspace-guide"],
+        ));
+        assert!(department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::Skill,
+            &["github-project-breakdown"],
+        ));
+        assert!(department_permission_allows_any_name(
+            Some(&deputy),
+            DepartmentPermissionCategory::McpTool,
+            &["server-a::search"],
         ));
     }
 }

@@ -382,7 +382,7 @@
     "persona": {
       "title": "Persona",
       "userTag": "User",
-      "systemTag": "System",
+      "systemTag": "Preset",
       "add": "Add Persona",
       "remove": "Remove Persona",
       "name": "Persona Name",
@@ -458,7 +458,9 @@
         "invalidModel": "Department \"{name}\" contains an invalid driver model. Please reselect it before auto-save resumes.",
         "missingAssistant": "The primary department is missing. Restore it first.",
         "assistantNeedsModel": "The primary department must have at least one driver model. Auto-save is paused.",
+        "assistantCannotBeDeputy": "The primary department cannot be a deputy department.",
         "deputyNeedsAssignee": "Deputy departments must select one deputy persona.",
+        "deputyBuiltinPersonaForbidden": "The user persona and system persona cannot serve as deputies.",
         "deputyAgentConflict": "A deputy department persona cannot also serve a non-deputy department."
       },
       "summary": "Department Summary",
@@ -477,6 +479,7 @@
       "permissionBuiltinTools": "Builtin Tools",
       "permissionSkills": "Skills",
       "permissionSkillsRequireExec": "Skills require the terminal tool (exec) to be allowed first.",
+      "permissionDeputySkillsDisabled": "Deputy departments cannot use preset Skills by default. User-created Skills still follow permission settings.",
       "permissionMcpTools": "MCP Tools",
       "assignee": "Assignee",
       "assigneePlaceholder": "Not assigned",

@@ -82,7 +82,7 @@
         <DepartmentTab
           :config="config"
           :api-configs="config.apiConfigs"
-          :personas="assistantPersonas"
+          :personas="personas"
           :assistant-department-agent-id="assistantDepartmentAgentId"
           :saving-config="savingConfig"
           :save-config-action="saveConfigAction"

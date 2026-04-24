@@ -5,7 +5,7 @@
       <div class="card-body p-4">
         <div class="flex gap-1">
           <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-            <option v-for="p in personas" :key="p.id" :value="p.id">
+            <option v-for="p in sortedPersonas" :key="p.id" :value="p.id">
               {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (p.isBuiltInSystem ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
             </option>
           </select>
@@ -215,6 +215,20 @@ const pendingDisableAgentId = ref("");
 const selectedPersonaIsPrivateWorkspace = computed(
   () => props.selectedPersona?.source === "private_workspace",
 );
+const sortedPersonas = computed(() => sortPersonasForSelect(props.personas));
+
+function personaSelectRank(persona: PersonaProfile): number {
+  if (persona.isBuiltInUser) return 0;
+  if (persona.isBuiltInSystem) return 1;
+  return 2;
+}
+
+function sortPersonasForSelect(personas: PersonaProfile[]): PersonaProfile[] {
+  return personas
+    .map((persona, index) => ({ persona, index }))
+    .sort((a, b) => personaSelectRank(a.persona) - personaSelectRank(b.persona) || a.index - b.index)
+    .map((item) => item.persona);
+}
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();

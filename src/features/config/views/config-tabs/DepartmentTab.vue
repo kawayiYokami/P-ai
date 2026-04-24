@@ -32,13 +32,12 @@
               <button
                 class="btn btn-sm btn-square"
                 type="button"
-                :class="!selectedDepartment || selectedDepartmentIsPrivateWorkspace ? 'cursor-not-allowed bg-base-200 text-base-content/30' : 'bg-base-200'"
-                :title="selectedDepartmentIsSystemBuiltIn ? t('common.reset') : t('config.department.remove')"
-                :disabled="!selectedDepartment || selectedDepartmentIsPrivateWorkspace || savingConfig"
-                @click="handleSelectedDepartmentPrimaryAction"
+                :class="!departmentDirty ? 'cursor-not-allowed bg-base-200 text-base-content/30' : 'bg-base-200'"
+                :title="t('common.reset')"
+                :disabled="!departmentDirty || savingConfig"
+                @click="restoreDepartmentDraftsFromSaved"
               >
-                <RotateCcw v-if="selectedDepartmentIsSystemBuiltIn" class="h-3.5 w-3.5" />
-                <Trash2 v-else class="h-3.5 w-3.5" />
+                <RotateCcw class="h-3.5 w-3.5" />
               </button>
 
               <button
@@ -100,7 +99,7 @@
               </div>
             </div>
 
-            <div class="px-4 py-4">
+            <div v-if="showDeputyToggle" class="px-4 py-4">
               <label class="flex items-center justify-between gap-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3">
                 <div>
                   <div class="text-sm font-medium">{{ t("config.department.deputyToggle") }}</div>
@@ -110,7 +109,7 @@
                   type="checkbox"
                   class="toggle toggle-sm toggle-primary"
                   :checked="!!selectedDepartment.isDeputy"
-                  :disabled="selectedDepartmentIsPrivateWorkspace || selectedDepartment.id === 'deputy-department'"
+                  :disabled="selectedDepartmentIsPrivateWorkspace || selectedDepartment.id === 'deputy-department' || selectedDepartment.isBuiltInAssistant || selectedDepartment.id === 'assistant-department'"
                   @change="setSelectedDepartmentDeputy(($event.target as HTMLInputElement).checked)"
                 />
               </label>
@@ -267,7 +266,7 @@
                     <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionBuiltinTools") }}</div>
                     <fieldset class="grid min-w-0 gap-2 overflow-hidden">
                       <button
-                        v-for="item in permissionCatalog.builtinTools"
+                        v-for="item in visiblePermissionBuiltinTools"
                         :key="`builtin-${item.name}`"
                         type="button"
                         class="flex min-w-0 w-full max-w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition"
@@ -282,7 +281,7 @@
                         :aria-checked="permissionNameChecked('builtinToolNames', item.name)"
                         role="checkbox"
                         :disabled="permissionListDisabled"
-                        @click="togglePermissionName('builtinToolNames', item.name, !permissionNameChecked('builtinToolNames', item.name))"
+                        @click="toggleBuiltinPermissionName(item.name)"
                       >
                         <span
                           class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition"
@@ -309,12 +308,15 @@
 
                   <div class="grid min-w-0 gap-2 overflow-hidden">
                     <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionSkills") }}</div>
-                    <div v-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
+                    <div v-if="selectedDepartment.isDeputy" class="text-xs text-base-content/50">
+                      {{ t("config.department.permissionDeputySkillsDisabled") }}
+                    </div>
+                    <div v-else-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
                       {{ t("config.department.permissionSkillsRequireExec") }}
                     </div>
                     <fieldset class="grid min-w-0 gap-2 overflow-hidden">
                       <button
-                        v-for="item in permissionCatalog.skills"
+                        v-for="item in visiblePermissionSkills"
                         :key="`skill-${item.name}`"
                         type="button"
                         class="flex min-w-0 w-full max-w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition"
@@ -473,19 +475,25 @@ function cloneDepartment(department: DepartmentConfig): DepartmentConfig {
       ? department.apiConfigIds
       : [department.apiConfigId || ""],
   );
+  const id = String(department.id || "").trim();
+  const isDeputy = !!department.isDeputy || id === "deputy-department";
+  const agentIds = normalizeNameList(department.agentIds);
+  if (isDeputy && agentIds.length === 0) {
+    agentIds.push("deputy-agent");
+  }
   return {
-    id: String(department.id || "").trim(),
+    id,
     name: String(department.name || ""),
     summary: String(department.summary || ""),
     guide: String(department.guide || ""),
     apiConfigId: apiConfigIds[0] || "",
     apiConfigIds,
-    agentIds: normalizeNameList(department.agentIds),
+    agentIds,
     createdAt: String(department.createdAt || "").trim(),
     updatedAt: String(department.updatedAt || "").trim(),
     orderIndex: Math.max(1, Number(department.orderIndex || 1)),
     isBuiltInAssistant: !!department.isBuiltInAssistant,
-    isDeputy: !!department.isDeputy || String(department.id || "").trim() === "deputy-department",
+    isDeputy,
     source: String(department.source || "").trim() || "main_config",
     scope: String(department.scope || "").trim() || "global",
     permissionControl: normalizePermissionControl(department.permissionControl),
@@ -605,6 +613,18 @@ const skillPermissionRequiresExec = computed(() =>
 const skillPermissionListDisabled = computed(() =>
   permissionListDisabled.value || skillPermissionRequiresExec.value,
 );
+const showDeputyToggle = computed(() => {
+  const department = selectedDepartment.value;
+  if (!department) return false;
+  return department.id !== "assistant-department" && !department.isBuiltInAssistant;
+});
+const visiblePermissionBuiltinTools = computed(() => {
+  return permissionCatalog.value.builtinTools.filter((item) => !builtinPermissionNameForceHidden(item.name));
+});
+const visiblePermissionSkills = computed(() => {
+  if (!selectedDepartment.value?.isDeputy) return permissionCatalog.value.skills;
+  return permissionCatalog.value.skills.filter((item) => !deputySkillPermissionNameHidden(item.name));
+});
 
 const nonDeputyAssigneeIds = computed(() => {
   const ids = new Set<string>();
@@ -627,15 +647,72 @@ const deputyAssigneeIds = computed(() => {
 });
 
 const availableAssigneePersonas = computed(() =>
-  props.personas.filter((persona) => {
-    const id = String(persona.id || "").trim();
-    if (!id) return false;
-    if (selectedDepartment.value?.isDeputy) {
-      return !nonDeputyAssigneeIds.value.has(id);
-    }
-    return !deputyAssigneeIds.value.has(id) && id !== "deputy-agent";
-  }),
+  sortPersonasForSelect(
+    props.personas.filter((persona) => {
+      const id = String(persona.id || "").trim();
+      if (!id) return false;
+      if (selectedDepartment.value?.isDeputy) {
+        return canServeAsDeputyPersona(persona) && !nonDeputyAssigneeIds.value.has(id);
+      }
+      return canServeAsRegularDepartmentPersona(persona) && !deputyAssigneeIds.value.has(id);
+    }),
+  ),
 );
+
+function canServeAsDeputyPersona(persona: PersonaProfile): boolean {
+  const id = String(persona.id || "").trim();
+  return id !== "user-persona" && id !== "system-persona" && !persona.isBuiltInUser;
+}
+
+function canServeAsRegularDepartmentPersona(persona: PersonaProfile): boolean {
+  const id = String(persona.id || "").trim();
+  return id !== "deputy-agent" && !persona.isBuiltInUser && !persona.isBuiltInSystem;
+}
+
+function personaSelectRank(persona: PersonaProfile): number {
+  if (persona.isBuiltInUser) return 0;
+  if (persona.isBuiltInSystem) return 1;
+  return 2;
+}
+
+function sortPersonasForSelect(personas: PersonaProfile[]): PersonaProfile[] {
+  return personas
+    .map((persona, index) => ({ persona, index }))
+    .sort((a, b) => personaSelectRank(a.persona) - personaSelectRank(b.persona) || a.index - b.index)
+    .map((item) => item.persona);
+}
+
+function builtinPermissionNameForceHidden(name: string): boolean {
+  const department = selectedDepartment.value;
+  if (!department) return false;
+  const toolName = String(name || "").trim();
+  if (!toolName) return true;
+  if (department.isDeputy) {
+    return !["fetch", "websearch", "exec", "read_file"].includes(toolName);
+  }
+  const isAssistant = department.id === "assistant-department" || !!department.isBuiltInAssistant;
+  if (isAssistant) return false;
+  return ["reload", "organize_context", "wait", "screenshot", "operate", "task"].includes(toolName);
+}
+
+function workspacePresetSkillName(name: string): boolean {
+  return [
+    "agent-office",
+    "agents-md-setup",
+    "assistant-interaction-guide",
+    "browser-automation",
+    "mcp-setup",
+    "news-analyst",
+    "pai-guide",
+    "private-organization-guide",
+    "skill-setup",
+    "workspace-guide",
+  ].includes(String(name || "").trim());
+}
+
+function deputySkillPermissionNameHidden(name: string): boolean {
+  return !!selectedDepartment.value?.isDeputy && workspacePresetSkillName(name);
+}
 
 function ensureDepartmentPermissionControl(target: DepartmentConfig | null | undefined) {
   if (!target) return null;
@@ -668,6 +745,10 @@ function syncDepartmentDraftsFromSource() {
     return;
   }
   selectedDepartmentId.value = departmentDrafts.value[0]?.id || "assistant-department";
+}
+
+function restoreDepartmentDraftsFromSaved() {
+  syncDepartmentDraftsFromSource();
 }
 
 function touchSelectedDepartment() {
@@ -812,8 +893,14 @@ function togglePermissionName(
   updateDepartmentPermissionControl({ [category]: Array.from(next) } as Partial<NonNullable<DepartmentConfig["permissionControl"]>>);
 }
 
+function toggleBuiltinPermissionName(name: string) {
+  if (builtinPermissionNameForceHidden(name)) return;
+  togglePermissionName("builtinToolNames", name, !permissionNameChecked("builtinToolNames", name));
+}
+
 function handleSkillPermissionToggle(name: string) {
   if (skillPermissionListDisabled.value) return;
+  if (deputySkillPermissionNameHidden(name)) return;
   togglePermissionName("skillNames", name, !permissionNameChecked("skillNames", name));
 }
 

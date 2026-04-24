@@ -101,6 +101,9 @@ fn tool_enabled(
     current_department: Option<&DepartmentConfig>,
     id: &str,
 ) -> bool {
+    if tool_restricted_by_department(current_department, id).is_some() {
+        return false;
+    }
     if builtin_tool_is_fixed_system(id) {
         return selected_api.enable_tools;
     }
@@ -108,9 +111,6 @@ fn tool_enabled(
         return false;
     }
     if id == "screenshot" && !selected_api.enable_image {
-        return false;
-    }
-    if tool_restricted_by_department(current_department, id).is_some() {
         return false;
     }
     if !selected_api.enable_tools {
