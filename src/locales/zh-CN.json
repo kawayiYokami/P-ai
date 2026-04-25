@@ -1189,6 +1189,7 @@
     "themeHue": "主题色相",
     "contrast": "对比度",
     "brightness": "亮度",
+    "darkness": "暗度",
     "tint": "透色",
     "tone": "饱和度",
     "radius": "统一圆角",
