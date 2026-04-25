@@ -15,7 +15,10 @@
         <div class="flex-1 rounded-md border border-base-300 bg-base-100 px-3 py-1.5 text-sm leading-5">
           {{ draft.name || t('config.mcpServerCard.displayNamePlaceholder') }}
         </div>
-        <button class="btn btn-sm btn-warning" type="button" :disabled="disabled" @click="$emit('remove', draft.id)">{{ t('config.mcpServerCard.delete') }}</button>
+        <button class="btn btn-sm btn-warning" type="button" :disabled="disabled" @click="$emit('remove', draft.id)">
+          <Trash2 class="h-4 w-4" />
+          {{ t('config.mcpServerCard.delete') }}
+        </button>
       </div>
 
       <div class="collapse collapse-arrow bg-base-100 border-base-300 border">
@@ -58,6 +61,7 @@
 <script setup lang="ts">
 import { reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { Trash2 } from "lucide-vue-next";
 import type { McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
 import McpToolList from "./McpToolList.vue";
 

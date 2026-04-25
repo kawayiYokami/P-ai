@@ -49,6 +49,7 @@
           :disabled="viewMode === 'delegate' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isMainConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
           @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
         >
+          <Trash2 class="h-4 w-4" />
           {{ t("common.delete") }}
         </button>
         <input
@@ -236,6 +237,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { Trash2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import { summarizeToolActivityForDisplay } from "../../../utils/chat-message-semantics";

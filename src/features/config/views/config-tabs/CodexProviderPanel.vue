@@ -162,7 +162,7 @@
                   <div class="card-title text-base mb-1">{{ `${provider.name || provider.id}/${modelCard.model || "未命名模型"}` }}</div>
                 </button>
                 <button class="btn btn-sm btn-square btn-ghost" type="button" :class="provider.models.length <= 1 ? 'text-base-content/30' : 'text-error'" :disabled="provider.models.length <= 1" @click="removeModelCard(modelCard.id)">
-                  <span>x</span>
+                  <Trash2 class="h-3.5 w-3.5" />
                 </button>
               </div>
 
@@ -200,6 +200,7 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
+import { Trash2 } from "lucide-vue-next";
 import type {
   ApiModelConfigItem,
   ApiProviderConfigItem,

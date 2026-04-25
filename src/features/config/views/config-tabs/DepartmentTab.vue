@@ -77,6 +77,7 @@
               :disabled="selectedDepartmentIsPrivateWorkspace || savingConfig"
               @click="handleSelectedDepartmentPrimaryAction"
             >
+              <Trash2 v-if="!selectedDepartmentIsSystemBuiltIn" class="h-4 w-4" />
               {{ selectedDepartmentIsSystemBuiltIn ? t("config.department.restoreInitial") : t("config.department.remove") }}
             </button>
           </div>
@@ -180,7 +181,7 @@
                       :title="t('config.department.removeModel')"
                       @click="removeDepartmentApiConfigAt(idx)"
                     >
-                      ×
+                      <Trash2 class="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
