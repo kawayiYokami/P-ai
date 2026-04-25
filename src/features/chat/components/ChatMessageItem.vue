@@ -185,7 +185,15 @@
       <div v-if="toolCallsForBlock(block).length > 0" class="flex flex-col opacity-90">
         <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55" @toggle="onToolCallsToggle">
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
-            <span class="inline-block h-2 w-2 rounded-full bg-success"></span>
+            <span
+              v-if="toolSummaryDoing(block)"
+              class="relative inline-flex h-2 w-2 shrink-0 overflow-visible text-success"
+            >
+              <span
+                class="loading loading-spinner loading-md absolute left-1/2 top-1/2 h-5 w-5 max-h-none max-w-none -translate-x-1/2 -translate-y-1/2 text-success"
+              ></span>
+            </span>
+            <span v-else class="inline-block h-2 w-2 rounded-full bg-success"></span>
             <span
               class="font-medium"
             >{{ toolStatusLabel(block) }}</span>
@@ -708,7 +716,12 @@ function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsT
 
 function toolStatusLabel(block: ChatMessageBlock): string {
   if (!showStreamingUi(block)) return "工具执行毕";
-  return toolCallsForBlock(block).some((call) => call.status === "doing") ? "工具执行中" : "工具执行毕";
+  return toolSummaryDoing(block) ? "工具执行中" : "工具执行毕";
+}
+
+function toolSummaryDoing(block: ChatMessageBlock): boolean {
+  if (!showStreamingUi(block)) return false;
+  return toolCallsForBlock(block).some((call) => String(call.status || "").trim() === "doing");
 }
 
 function toolTimelineDotClass(block: ChatMessageBlock, toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
