@@ -3303,7 +3303,10 @@ async function createUnarchivedConversation(input?: { title?: string; department
     const copySourceConversationId = input?.copyCurrent
       ? String(currentChatConversationId.value || "").trim()
       : "";
-    const result = await invokeTauri<{ conversationId: string }>("create_unarchived_conversation", {
+    const result = await invokeTauri<{
+      conversationId: string;
+      unarchivedConversations?: UnarchivedConversationSummary[];
+    }>("create_unarchived_conversation", {
       input: {
         departmentId,
         title: String(input?.title || "").trim() || null,
@@ -3312,7 +3315,11 @@ async function createUnarchivedConversation(input?: { title?: string; department
     });
     const conversationId = String(result?.conversationId || "").trim();
     if (!conversationId) return;
-    await refreshUnarchivedConversationOverview();
+    if (Array.isArray(result.unarchivedConversations)) {
+      unarchivedConversations.value = result.unarchivedConversations;
+    } else {
+      await refreshUnarchivedConversationOverview();
+    }
     const snapshot = await requestConversationLightSnapshot(conversationId);
     applyConversationSnapshot(snapshot);
   } catch (error) {

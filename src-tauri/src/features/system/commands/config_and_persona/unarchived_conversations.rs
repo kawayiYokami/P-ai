@@ -119,6 +119,7 @@ struct CreateUnarchivedConversationInput {
 #[serde(rename_all = "camelCase")]
 struct CreateUnarchivedConversationOutput {
     conversation_id: String,
+    unarchived_conversations: Vec<UnarchivedConversationSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +399,7 @@ fn create_unarchived_conversation(
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
     Ok(CreateUnarchivedConversationOutput {
         conversation_id: result.conversation_id,
+        unarchived_conversations: result.overview_payload.unarchived_conversations,
     })
 }
 
