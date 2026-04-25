@@ -2,7 +2,12 @@
 
 ## 进行中
 
+## 发布：v0.9.46
+
+- 修复（deepseek-kimi-reasoning-tool-history）：DeepSeek/Kimi 工具调用链路将 assistant `tool_calls` 对应的 `reasoning_content` 写入会话工具历史，并在会话 JSON -> 抽象 `PreparedHistoryMessage` -> genai 请求体的全过程中原样传递；带 `tool_calls` 的 assistant 历史消息不参与相邻 assistant 合并，避免思维链错位、被拼接或被清洗
+- 修复（chat-model-picker-deepseek-kimi）：聊天输入区模型下拉的文本模型白名单补充 `deepseek/kimi`，避免设置页已配置 DeepSeek/Kimi 协议后发送栏仍无法选择
 - 修复（mcp-windows-process-tree-cleanup）：Windows 下 stdio MCP 连接新增 Job Object 进程树托管，应用退出、断开连接或异常崩溃后会随句柄关闭一起回收整棵 MCP 子进程树，避免 `cmd /C -> npx/node` 链残留后台驻留
+- 发布（release-0.9.46）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.46`，纳入本轮 DeepSeek/Kimi reasoning 传递修复与 Windows MCP 进程树清理修复
 
 ## 发布：v0.9.45
 

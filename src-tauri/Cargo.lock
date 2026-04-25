@@ -2065,7 +2065,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "easy-call-ai"
-version = "0.9.45"
+version = "0.9.46"
 dependencies = [
  "aes 0.8.4",
  "aho-corasick",
