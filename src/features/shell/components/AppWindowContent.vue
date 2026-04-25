@@ -201,7 +201,6 @@
         @rename-conversation="onRenameConversation"
         @toggle-pin-conversation="onToggleConversationPin"
         @create-conversation="onCreateConversation"
-        @open-conversation-summary="openConversationSummary"
       />
       <div
         v-if="chatBusyOverlay"

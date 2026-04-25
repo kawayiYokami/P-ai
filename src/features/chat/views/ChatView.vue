@@ -117,7 +117,7 @@
                     type="button"
                     class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
                     :title="t('chat.viewSummary')"
-                    @click="openConversationSummary"
+                    @click="openConversationSummary(entry.item.block, $event)"
                   >
                     <History class="h-3.5 w-3.5" />
                     <span>{{ t("chat.viewSummary") }}</span>
@@ -244,6 +244,28 @@
                 @detach-conversation="handleDetachConversationRequest"
                 @toggle-tool-review="toggleToolReviewPanel"
               />
+            </div>
+          </div>
+        </div>
+        <div
+          v-if="conversationSummaryCard.visible"
+          class="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-3"
+        >
+          <div class="pointer-events-auto w-full max-w-xl rounded-box border border-base-300 bg-base-100 shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+              <div class="text-sm font-semibold">{{ t("chat.viewSummary") }}</div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                @click="closeConversationSummaryCard"
+              >
+                {{ t("common.close") }}
+              </button>
+            </div>
+            <div class="max-h-[min(52vh,28rem)] overflow-y-auto px-4 py-3">
+              <div class="whitespace-pre-wrap break-words text-sm leading-6 text-base-content/85">
+                {{ conversationSummaryCard.text }}
+              </div>
             </div>
           </div>
         </div>
@@ -707,7 +729,6 @@ const emit = defineEmits<{
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string }): void;
-  (e: "openConversationSummary", conversationId: string): void;
   (e: "loadOlderHistory"): void;
   (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
@@ -742,6 +763,10 @@ function openBranchSelectionMenu() {
 }
 
 const linkOpenErrorText = ref("");
+const conversationSummaryCard = ref<{ visible: boolean; text: string }>({
+  visible: false,
+  text: "",
+});
 const composerPanelRef = ref<{ focusInput: (options?: FocusOptions) => void } | null>(null);
 const messageSelectionModeEnabled = ref(false);
 const selectedMessageRenderIds = ref<string[]>([]);
@@ -1424,10 +1449,21 @@ function handleConversationRename(payload: { conversationId: string; title: stri
   });
 }
 
-function openConversationSummary() {
-  const conversationId = String(props.activeConversationId || "").trim();
-  if (!conversationId) return;
-  emit("openConversationSummary", conversationId);
+function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {
+  event?.stopPropagation();
+  const text = String(block?.text || "").trim();
+  if (!text) return;
+  conversationSummaryCard.value = {
+    visible: true,
+    text,
+  };
+}
+
+function closeConversationSummaryCard() {
+  conversationSummaryCard.value = {
+    visible: false,
+    text: "",
+  };
 }
 
 function enterMessageSelectionMode(selectionKey: string) {
