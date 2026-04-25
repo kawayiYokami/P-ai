@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（chat-todo-floating-intent-label-and-report-closure-guide）：聊天窗口顶部悬浮待办条改为显示“{人格名} 打算{当前待办}”，直接暴露当前人格准备推进的下一步，降低用户把阶段汇报误判为卡住的概率；同时 `todo` 工具指南补充“最后一条通常应为向用户汇报结果的收尾步骤、汇报前必须先把已完成步骤和收尾待办划为 completed、阶段进展不要伪装成最终完成”的约束，推动 todo 状态与汇报时机保持闭合
 - 修复（chat-unread-backend-truth-source）：未归档会话未读数改由后端基于 `active_chat_view_bindings` 统一判定与维护；只要任一活跃聊天窗口正在查看目标会话，消息落库、助手追加与历史刷写等链路就不再继续累计未读，并在命中活跃视图时清理残留未读；前端移除本地 unread 自增/清零推测逻辑，改为只消费后端返回的 overview/snapshot 真值，修复当前窗口或独立聊天窗口正在阅读时仍被错误增加未读的问题
 - 修复（terminal-approval-smart-review-allow-pass-through）：终端审查链路改为收缩本地 Git 硬拦截范围，普通 `git commit/pull/fetch/merge/rebase/checkout/switch/restore/stash/apply` 不再在本地规则层直接拒绝；`approval` 目录下的 `shell_exec` 智能审查提示词补齐“白名单外但明显无副作用”判定方法，测试/检查/编译校验命令与仅输出到终端的 `curl/wget/Invoke-WebRequest` 可由模型直接返回 `allow=true` 放行，而写文件、下载落盘、重定向写文件、管道执行脚本与无法确认副作用的命令返回 `allow=false`；同时终端后处理改为在 `approval` 下尊重模型 `allow=true` 结果，避免模型已判安全后仍再次弹用户审批
 

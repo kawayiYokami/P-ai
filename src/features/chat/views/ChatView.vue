@@ -57,7 +57,7 @@
                 class="btn btn-sm max-w-[min(88vw,30rem)] flex-nowrap justify-start gap-2 overflow-hidden rounded-full border-base-300 bg-base-300 text-base-content hover:border-base-300 hover:bg-base-200 normal-case"
               >
                 <ListTodo class="h-4 w-4 shrink-0 opacity-70" />
-                <span class="min-w-0 flex-1 truncate text-left">{{ activeConversationTodo }}</span>
+                <span class="min-w-0 flex-1 truncate text-left">{{ activeConversationTodoDisplay }}</span>
                 <span
                   v-if="normalizedConversationTodos.length > 1"
                   class="badge badge-ghost badge-sm shrink-0"
@@ -570,6 +570,13 @@ const activeConversationTodo = computed(() => {
   const index = activeConversationTodoIndex.value;
   if (index < 0) return "";
   return String(normalizedConversationTodos.value[index]?.content || "").trim();
+});
+
+const activeConversationTodoDisplay = computed(() => {
+  const todo = activeConversationTodo.value;
+  if (!todo) return "";
+  const personaName = String(props.personaName || "").trim();
+  return personaName ? `${personaName} 打算${todo}` : `打算${todo}`;
 });
 
 const supervisionButtonTitle = computed(() => {
