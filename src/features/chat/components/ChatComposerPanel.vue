@@ -271,13 +271,6 @@
             @change="handleChatModelChange"
           >
             <option
-              v-if="selectedChatModelDisplayName"
-              :value="selectedChatModelId"
-              hidden
-            >
-              {{ selectedChatModelDisplayName }}
-            </option>
-            <option
               v-for="item in normalizedChatModelOptions"
               :key="item.id"
               :value="item.id"
@@ -434,15 +427,9 @@ const normalizedChatModelOptions = computed(() =>
     .map((item) => ({
       id: String(item?.id || "").trim(),
       name: String(item?.name || "").trim(),
-      modelName: String(item?.model || "").trim(),
     }))
     .filter((item) => !!item.id && !!item.name),
 );
-const selectedChatModelDisplayName = computed(() => {
-  const current = normalizedChatModelOptions.value.find((item) => item.id === props.selectedChatModelId);
-  if (!current) return "";
-  return current.modelName || current.name;
-});
 
 const showStopAction = computed(() =>
   props.chatting || ["queued", "waiting", "streaming"].includes(String(props.frontendRoundPhase || "idle")),
