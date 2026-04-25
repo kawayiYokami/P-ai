@@ -57,6 +57,17 @@ pub(crate) enum ChatEventSource {
     RemoteIm,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ChatQueueMode {
+    Normal,
+    Guided,
+}
+
+fn default_chat_queue_mode() -> ChatQueueMode {
+    ChatQueueMode::Normal
+}
+
 /// 会话信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +88,9 @@ pub(crate) struct ChatPendingEvent {
     pub created_at: String,
     /// 来源类型
     pub source: ChatEventSource,
+    /// 队列模式
+    #[serde(default = "default_chat_queue_mode")]
+    pub queue_mode: ChatQueueMode,
     /// 要写入的消息集合
     pub messages: Vec<ChatMessage>,
     /// 是否在本批消息写入历史后激活主助理
@@ -109,6 +123,7 @@ pub(crate) enum ChatEventIngress {
 pub(crate) struct ChatQueueEventSummary {
     pub id: String,
     pub source: ChatEventSource,
+    pub queue_mode: ChatQueueMode,
     pub created_at: String,
     pub message_preview: String,
     pub conversation_id: String,
@@ -205,6 +220,7 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
             summaries.push(ChatQueueEventSummary {
                 id: event.id.clone(),
                 source: event.source.clone(),
+                queue_mode: event.queue_mode.clone(),
                 created_at: event.created_at.clone(),
                 message_preview: preview,
                 conversation_id: event.conversation_id.clone(),
@@ -236,8 +252,8 @@ pub(crate) fn emit_chat_queue_snapshot(state: &AppState) {
     }
 }
 
-/// 从队列中移除指定事件
-pub(crate) fn remove_from_queue(
+/// 将普通队列消息退回输入框
+pub(crate) fn recall_queue_event(
     state: &AppState,
     event_id: &str,
 ) -> Result<Option<ChatPendingEvent>, String> {
@@ -251,6 +267,9 @@ pub(crate) fn remove_from_queue(
     let mut remaining_queue_len = 0usize;
     for slot in slots.values_mut() {
         if let Some(pos) = slot.pending_queue.iter().position(|e| e.id == event_id) {
+            if slot.pending_queue[pos].queue_mode == ChatQueueMode::Guided {
+                return Err("引导中的消息不能移出队列".to_string());
+            }
             removed = slot.pending_queue.remove(pos);
             remaining_queue_len = slot.pending_queue.len();
             break;
@@ -259,17 +278,52 @@ pub(crate) fn remove_from_queue(
     drop(slots);
     if removed.is_some() {
         eprintln!(
-            "[聊天调度] 从队列移除事件: id={}, queue_len={}",
+            "[聊天调度] 队列消息退回输入框: id={}, queue_len={}",
             event_id, remaining_queue_len
         );
         emit_chat_queue_snapshot(state);
         complete_pending_chat_events_with_error(
             state,
             &[event_id.to_string()],
-            "消息已从队列移除",
+            "消息已退回输入框",
         )?;
     }
     Ok(removed)
+}
+
+pub(crate) fn mark_queue_event_guided(
+    state: &AppState,
+    event_id: &str,
+) -> Result<Option<String>, String> {
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let mut updated_conversation_id = None::<String>;
+    for slot in slots.values_mut() {
+        if let Some(event) = slot.pending_queue.iter_mut().find(|item| item.id == event_id) {
+            if !matches!(event.source, ChatEventSource::User) {
+                return Err("只有用户队列消息可以设置为引导".to_string());
+            }
+            if event.queue_mode == ChatQueueMode::Guided {
+                updated_conversation_id = Some(event.conversation_id.clone());
+                break;
+            }
+            event.queue_mode = ChatQueueMode::Guided;
+            updated_conversation_id = Some(event.conversation_id.clone());
+            break;
+        }
+    }
+    drop(slots);
+    if let Some(conversation_id) = updated_conversation_id.as_deref() {
+        runtime_log_info(format!(
+            "[引导投送] 开始，任务=mark_queue_event_guided，conversation_id={}，event_id={}",
+            conversation_id, event_id
+        ));
+        emit_chat_queue_snapshot(state);
+    }
+    Ok(updated_conversation_id)
 }
 
 pub(crate) fn clear_conversation_queue(
@@ -306,6 +360,68 @@ pub(crate) fn clear_conversation_queue(
         complete_pending_chat_events_with_error(state, &removed_event_ids, error_message)?;
     }
     Ok(removed_count)
+}
+
+fn clone_guided_queue_events_for_conversation(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Vec<ChatPendingEvent>, String> {
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id)
+        .map(|slot| {
+            slot.pending_queue
+                .iter()
+                .filter(|event| event.queue_mode == ChatQueueMode::Guided)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default())
+}
+
+fn remove_queue_events_by_ids(
+    state: &AppState,
+    conversation_id: &str,
+    event_ids: &[String],
+) -> Result<usize, String> {
+    if event_ids.is_empty() {
+        return Ok(0);
+    }
+    let id_set = event_ids.iter().map(|item| item.as_str()).collect::<std::collections::HashSet<_>>();
+    let _dequeue_guard = state
+        .dequeue_lock
+        .lock()
+        .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let Some(slot) = slots.get_mut(conversation_id) else {
+        return Ok(0);
+    };
+    let before = slot.pending_queue.len();
+    slot.pending_queue.retain(|event| !id_set.contains(event.id.as_str()));
+    let removed = before.saturating_sub(slot.pending_queue.len());
+    if removed > 0 {
+        slot.last_activity_at = now_iso();
+    }
+    Ok(removed)
+}
+
+fn conversation_has_guided_queue_events(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id)
+        .map(|slot| {
+            slot.pending_queue
+                .iter()
+                .any(|event| event.queue_mode == ChatQueueMode::Guided)
+        })
+        .unwrap_or(false))
 }
 
 // ==================== 队列管理函数 ====================
@@ -632,8 +748,96 @@ async fn process_claimed_conversation_batch(
         );
     }
     emit_chat_queue_snapshot(state);
-    trigger_chat_queue_processing(state);
+    if conversation_has_guided_queue_events(state, conversation_id).unwrap_or(false) {
+        trigger_guided_queue_processing(state, conversation_id);
+    } else {
+        trigger_chat_queue_processing(state);
+    }
     result
+}
+
+async fn process_guided_queue_after_round(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let guided_events = clone_guided_queue_events_for_conversation(state, conversation_id)?;
+    if guided_events.is_empty() {
+        return Ok(false);
+    }
+    let guided_event_count = guided_events.len();
+    let started_at = std::time::Instant::now();
+    runtime_log_info(format!(
+        "[引导投送] 开始，任务=process_guided_queue_after_round，conversation_id={}，event_count={}",
+        conversation_id,
+        guided_event_count
+    ));
+    process_conversation_batch(state, conversation_id, guided_events).await?;
+    runtime_log_info(format!(
+        "[引导投送] 完成，任务=process_guided_queue_after_round，conversation_id={}，event_count={}，duration_ms={}",
+        conversation_id,
+        guided_event_count,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(true)
+}
+
+async fn process_guided_queue_when_idle(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<(), String> {
+    let should_process = {
+        let _dequeue_guard = state
+            .dequeue_lock
+            .lock()
+            .map_err(|_| "Failed to lock dequeue lock".to_string())?;
+        let mut claims = lock_conversation_processing_claims(state)?;
+        let mut slots = lock_conversation_runtime_slots(state)?;
+        let slot = conversation_slot_mut(&mut slots, conversation_id);
+        let has_guided = slot
+            .pending_queue
+            .iter()
+            .any(|event| event.queue_mode == ChatQueueMode::Guided);
+        if slot.state != MainSessionState::Idle
+            && slot.state != MainSessionState::OrganizingContext
+            || !has_guided
+            || claims.contains(conversation_id)
+            || claims.len() >= CHAT_CONCURRENCY_LIMIT
+        {
+            false
+        } else {
+            claims.insert(conversation_id.to_string());
+            slot.state = MainSessionState::OrganizingContext;
+            slot.last_activity_at = now_iso();
+            true
+        }
+    };
+    if !should_process {
+        return Ok(());
+    }
+
+    let result = process_guided_queue_after_round(state, conversation_id).await;
+    if let Err(release_err) = release_conversation_processing_claim(state, conversation_id) {
+        runtime_log_warn(format!(
+            "[引导投送] 失败，任务=release_guided_claim，conversation_id={}，error={}",
+            conversation_id, release_err
+        ));
+    }
+    emit_chat_queue_snapshot(state);
+    trigger_chat_queue_processing(state);
+    result.map(|_| ())
+}
+
+pub(crate) fn trigger_guided_queue_processing(state: &AppState, conversation_id: &str) {
+    let state_clone = state.clone();
+    let conversation_id = conversation_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = process_guided_queue_when_idle(&state_clone, &conversation_id).await {
+            runtime_log_warn(format!(
+                "[引导投送] 失败，任务=trigger_guided_queue_processing，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
+    });
 }
 
 // ==================== 状态机管理函数 ====================
@@ -813,6 +1017,10 @@ fn claim_queued_conversation_batches(
         .filter_map(|(conversation_id, slot)| {
             if slot.state != MainSessionState::Idle
                 || slot.pending_queue.is_empty()
+                || slot
+                    .pending_queue
+                    .iter()
+                    .any(|event| event.queue_mode == ChatQueueMode::Guided)
                 || claims.contains(conversation_id)
             {
                 return None;
@@ -1057,6 +1265,11 @@ async fn process_conversation_batch(
     let activated_remote_im_sources =
         collect_activated_remote_im_sources(&events, &event_activate_flags);
     let should_activate = event_activate_flags.iter().copied().any(|v| v);
+    let guided_event_ids = events
+        .iter()
+        .filter(|event| event.queue_mode == ChatQueueMode::Guided)
+        .map(|event| event.id.clone())
+        .collect::<Vec<_>>();
     let activating_runtime_context = events
         .iter()
         .zip(event_activate_flags.iter().copied())
@@ -1101,6 +1314,7 @@ async fn process_conversation_batch(
                 &first_event.session_info,
                 conversation_id,
                 activation.clone(),
+                (!guided_event_ids.is_empty()).then_some(guided_event_ids.as_slice()),
                 activating_runtime_context.clone(),
                 activated_remote_im_sources.clone(),
                 oldest_queue_created_at,
@@ -1138,6 +1352,7 @@ async fn process_conversation_batch(
                             state,
                             &first_event.session_info,
                             conversation_id,
+                            None,
                             None,
                             None,
                             follow_up_sources.clone(),
@@ -1250,6 +1465,7 @@ async fn activate_main_assistant(
     session_info: &ChatSessionInfo,
     conversation_id: &str,
     activation: Option<QueuedChatActivation>,
+    guided_event_ids: Option<&[String]>,
     runtime_context: Option<RuntimeContext>,
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
@@ -1283,6 +1499,16 @@ async fn activate_main_assistant(
         conversation_id,
         remote_im_activation_sources.clone(),
     )?;
+    if let Some(event_ids) = guided_event_ids.filter(|items| !items.is_empty()) {
+        let removed = remove_queue_events_by_ids(state, conversation_id, event_ids)?;
+        emit_chat_queue_snapshot(state);
+        runtime_log_info(format!(
+            "[引导投送] 完成，任务=remove_guided_queue_after_busy，conversation_id={}，event_count={}，removed_count={}",
+            conversation_id,
+            event_ids.len(),
+            removed
+        ));
+    }
 
     // 对 WeixinOc 渠道启动 typing 状态（对方正在输入）
     let weixin_oc_typing_sources: Vec<(String, String, WeixinOcCredentials)> = {
@@ -1443,11 +1669,13 @@ async fn activate_main_assistant(
         );
     }
 
-    // 回复完成，切换回 Idle
-    set_conversation_runtime_state(state, conversation_id, MainSessionState::Idle)?;
-
-    // 不在这里递归调用 process_chat_queue，避免 Send 问题
-    // 改为在外部调用
+    let next_state = if conversation_has_guided_queue_events(state, conversation_id).unwrap_or(false)
+    {
+        MainSessionState::OrganizingContext
+    } else {
+        MainSessionState::Idle
+    };
+    set_conversation_runtime_state(state, conversation_id, next_state)?;
 
     result
 }

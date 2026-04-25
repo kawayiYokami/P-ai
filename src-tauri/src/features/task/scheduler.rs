@@ -500,6 +500,7 @@ async fn task_dispatch_due_task(
         conversation_id: session.conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::Task,
+        queue_mode: ChatQueueMode::Normal,
         messages: vec![task_message],
         activate_assistant: true,
         session_info: ChatSessionInfo {

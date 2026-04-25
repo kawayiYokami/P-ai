@@ -5,6 +5,7 @@ import { invokeTauri } from "../../../services/tauri-api";
 export type ChatQueueEvent = {
   id: string;
   source: "user" | "task" | "delegate" | "system" | "remote_im";
+  queueMode: "normal" | "guided";
   createdAt: string;
   messagePreview: string;
   conversationId: string;
@@ -46,15 +47,28 @@ export function useChatQueue() {
     }
   }
 
-  async function removeFromQueue(eventId: string): Promise<boolean> {
+  async function recallQueueEvent(eventId: string): Promise<boolean> {
     try {
-      const removed = await invokeTauri<boolean>("remove_chat_queue_event", { eventId });
+      const removed = await invokeTauri<boolean>("recall_chat_queue_event", { eventId });
       if (removed) {
         await refreshQueue();
       }
       return removed;
     } catch (error) {
-      console.error("[CHAT-QUEUE] Failed to remove event:", error);
+      console.error("[CHAT-QUEUE] Failed to recall queue event:", error);
+      return false;
+    }
+  }
+
+  async function markGuided(eventId: string): Promise<boolean> {
+    try {
+      const updated = await invokeTauri<boolean>("mark_chat_queue_event_guided", { eventId });
+      if (updated) {
+        await refreshQueue();
+      }
+      return updated;
+    } catch (error) {
+      console.error("[CHAT-QUEUE] Failed to mark event guided:", error);
       return false;
     }
   }
@@ -100,7 +114,8 @@ export function useChatQueue() {
     polling,
     refreshQueue,
     refreshSessionState,
-    removeFromQueue,
+    recallQueueEvent,
+    markGuided,
     startPolling,
     stopPolling,
   };

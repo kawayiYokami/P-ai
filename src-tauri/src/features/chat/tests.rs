@@ -1979,6 +1979,7 @@
             conversation_id: conversation_id.to_string(),
             created_at: created_at.clone(),
             source: ChatEventSource::User,
+            queue_mode: ChatQueueMode::Normal,
             messages: vec![test_text_message("user", "hello", &created_at)],
             activate_assistant: true,
             session_info: ChatSessionInfo {

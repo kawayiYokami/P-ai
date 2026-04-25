@@ -384,6 +384,7 @@ fn append_delegate_result_message_and_emit(
                     &conversation_id,
                     None,
                     None,
+                    None,
                     Vec::new(),
                     &oldest_queue_created_at,
                 )
@@ -730,6 +731,7 @@ async fn send_chat_message(
         conversation_id: conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::User,
+        queue_mode: ChatQueueMode::Normal,
         messages: vec![user_message],
         activate_assistant: !has_user_mentions,
         session_info: ChatSessionInfo {
@@ -948,6 +950,7 @@ async fn send_user_mention_message_inner(
         conversation_id: conversation_id.clone(),
         created_at: now_iso(),
         source: ChatEventSource::User,
+        queue_mode: ChatQueueMode::Normal,
         messages: vec![user_message],
         activate_assistant: false,
         session_info: ChatSessionInfo {
@@ -1151,12 +1154,25 @@ async fn get_chat_queue_snapshot(
 }
 
 #[tauri::command]
-async fn remove_chat_queue_event(
+async fn recall_chat_queue_event(
     event_id: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    let removed = remove_from_queue(state.inner(), &event_id)?;
+    let removed = recall_queue_event(state.inner(), &event_id)?;
     Ok(removed.is_some())
+}
+
+#[tauri::command]
+async fn mark_chat_queue_event_guided(
+    event_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let conversation_id = mark_queue_event_guided(state.inner(), &event_id)?;
+    if let Some(conversation_id) = conversation_id {
+        trigger_guided_queue_processing(state.inner(), &conversation_id);
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

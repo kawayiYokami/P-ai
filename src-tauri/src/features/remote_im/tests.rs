@@ -1115,6 +1115,7 @@
             conversation_id: "conversation-a".to_string(),
             created_at: now_iso(),
             source: ChatEventSource::RemoteIm,
+            queue_mode: ChatQueueMode::Normal,
             messages: vec![event_message.clone()],
             activate_assistant: true,
             session_info: ChatSessionInfo {

@@ -989,7 +989,8 @@
     },
     "queue": {
       "recallToInput": "退回输入框",
-      "remove": "移除"
+      "guide": "引导",
+      "guiding": "引导中"
     }
     ,
     "toolNames": {

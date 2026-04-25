@@ -867,6 +867,11 @@
     "copy": "Copy",
     "regenerate": "Regenerate",
     "recall": "Recall",
+    "queue": {
+      "recallToInput": "Recall to input",
+      "guide": "Guide",
+      "guiding": "Guiding"
+    },
     "voice": "Voice {index}",
     "jumpToBottom": "Jump to bottom",
     "image": "Image {index}",

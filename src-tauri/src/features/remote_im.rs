@@ -1532,6 +1532,7 @@ fn create_pending_event(
         conversation_id,
         created_at: now_iso(),
         source: ChatEventSource::RemoteIm,
+        queue_mode: ChatQueueMode::Normal,
         messages,
         activate_assistant,
         session_info,

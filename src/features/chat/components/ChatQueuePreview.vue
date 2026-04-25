@@ -24,7 +24,7 @@
         </span>
         <span class="flex-1 truncate opacity-80">{{ event.messagePreview }}</span>
         <button
-          v-if="event.source === 'user'"
+          v-if="event.source === 'user' && event.queueMode !== 'guided'"
           class="btn btn-ghost btn-xs btn-square"
           :title="t('chat.queue.recallToInput')"
           @click="$emit('recallToInput', event)"
@@ -32,11 +32,14 @@
           <Undo2 class="h-3 w-3" />
         </button>
         <button
-          class="btn btn-ghost btn-xs btn-square"
-          :title="t('chat.queue.remove')"
-          @click="$emit('removeFromQueue', event.id)"
+          v-if="event.source === 'user'"
+          class="btn btn-ghost btn-xs"
+          :class="event.queueMode === 'guided' ? 'pointer-events-none text-primary' : ''"
+          :title="event.queueMode === 'guided' ? t('chat.queue.guiding') : t('chat.queue.guide')"
+          :disabled="event.queueMode === 'guided'"
+          @click="event.queueMode === 'guided' ? undefined : $emit('markGuided', event.id)"
         >
-          <X class="h-3 w-3" />
+          {{ event.queueMode === "guided" ? t("chat.queue.guiding") : t("chat.queue.guide") }}
         </button>
       </div>
     </div>
@@ -46,7 +49,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { X, Undo2 } from "lucide-vue-next";
+import { Undo2 } from "lucide-vue-next";
 import type { ChatQueueEvent, MainSessionState } from "../composables/use-chat-queue";
 
 const props = defineProps<{
@@ -56,7 +59,7 @@ const props = defineProps<{
 
 defineEmits<{
   (e: "recallToInput", event: ChatQueueEvent): void;
-  (e: "removeFromQueue", eventId: string): void;
+  (e: "markGuided", eventId: string): void;
 }>();
 
 const { t } = useI18n();

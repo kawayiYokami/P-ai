@@ -4,7 +4,7 @@
       :queue-events="queueEvents"
       :session-state="sessionState"
       @recall-to-input="handleRecallToInput"
-      @remove-from-queue="removeFromQueue"
+      @mark-guided="markGuided"
     />
 
     <div
@@ -381,7 +381,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const { queueEvents, sessionState, removeFromQueue } = useChatQueue();
+const { queueEvents, sessionState, recallQueueEvent, markGuided } = useChatQueue();
 
 const localChatInput = computed({
   get: () => props.chatInput,
@@ -890,11 +890,16 @@ function isMentionSelected(agentId: string): boolean {
   return selectedMentions.value.some((item) => item.agentId === agentId);
 }
 
-function handleRecallToInput(event: { source?: string; messagePreview?: string; id?: string }) {
-  if (event.source === "user") {
+function handleRecallToInput(event: {
+  source?: string;
+  messagePreview?: string;
+  id?: string;
+  queueMode?: "normal" | "guided";
+}) {
+  if (event.source === "user" && event.queueMode !== "guided") {
     localChatInput.value = event.messagePreview || "";
     if (event.id) {
-      void removeFromQueue(event.id);
+      void recallQueueEvent(event.id);
     }
   }
 }
