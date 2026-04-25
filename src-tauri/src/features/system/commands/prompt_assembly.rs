@@ -259,7 +259,7 @@ fn build_workspace_agents_md_block(conversation: &Conversation, state: &AppState
             Some(prompt_xml_block(
                 "workspace agents",
                 format!(
-                    "以下内容来自当前主工作目录根下的 AGENTS.md，请将其视为该项目开发准则。\n\n路径：{}\n\n{}",
+                    "优先级：安全与硬边界 ＞ 用户指令 ＞ 当前工作目录的 AGENTS.md ＞ 预设系统提示词 ＞ 常识与默认习惯。\n\n当前工作目录的 AGENTS.md 视为该工作上下文的局部高优先级提示词，用于覆盖助理预设的通用系统提示词、默认流程与常规输出习惯；当用户指令未明确覆盖时，应优先遵守 AGENTS.md。\n\n以下内容来自当前主工作目录根下的 AGENTS.md，请将其视为该项目开发准则。\n\n路径：{}\n\n{}",
                     agents_path.display(),
                     trimmed
                 ),
