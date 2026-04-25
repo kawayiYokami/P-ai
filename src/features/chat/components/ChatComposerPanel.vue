@@ -293,7 +293,8 @@
             {{ t("chat.plan.mode") }}
           </button>
           <button
-            class="btn btn-sm btn-circle btn-primary shrink-0"
+            class="btn btn-sm btn-circle shrink-0"
+            :class="showStopAction ? 'btn-error' : 'btn-success'"
             :disabled="frozen || busy"
             :title="showStopAction ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
             @click="showStopAction ? emit('stopChat') : handleSendChat()"

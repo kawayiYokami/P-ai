@@ -49,6 +49,7 @@ fn get_foreground_conversation_light_snapshot(
         input.agent_id.as_deref(),
         recent_limit,
     )?;
+    conversation_service().mark_conversation_read(state.inner(), &snapshot.conversation_id)?;
     runtime_log_info(format!(
         "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",
         snapshot.conversation_id,
@@ -217,7 +218,7 @@ fn clone_foreground_conversation_for_copy(
     conversation.bound_conversation_id = None;
     conversation.parent_conversation_id = Some(source.id.clone());
     conversation.child_conversation_ids = Vec::new();
-    conversation.last_read_message_id = String::new();
+    conversation.unread_count = 0;
     conversation.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
     conversation.root_conversation_id = None;
     conversation.delegate_id = None;
@@ -235,11 +236,6 @@ fn clone_foreground_conversation_for_copy(
         .messages
         .last()
         .map(|message| message.id.clone());
-    conversation.last_read_message_id = conversation
-        .messages
-        .last()
-        .map(|message| message.id.clone())
-        .unwrap_or_default();
     conversation
 }
 
@@ -377,7 +373,7 @@ fn build_branch_conversation_record_from_selection(
             .map(clone_chat_message_for_copied_conversation),
     );
     if let Some(last_message) = conversation.messages.last() {
-        conversation.last_read_message_id = last_message.id.clone();
+        conversation.unread_count = 0;
         conversation.updated_at = last_message.created_at.clone();
         conversation.last_user_at = Some(last_message.created_at.clone());
     }
@@ -825,14 +821,6 @@ fn get_active_conversation_messages(
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
     conversation_service().read_active_conversation_messages(state.inner(), &input)
-}
-
-#[tauri::command]
-fn mark_conversation_read(
-    input: MarkConversationReadInput,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    conversation_service().mark_conversation_read(state.inner(), &input.conversation_id)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1317,7 +1305,7 @@ mod unarchived_conversations_tests {
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
             fork_message_cursor: None,
-            last_read_message_id: String::new(),
+            unread_count: 0,
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
             delegate_id: None,

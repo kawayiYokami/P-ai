@@ -81,7 +81,7 @@ async fn get_prompt_preview(
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
             fork_message_cursor: None,
-            last_read_message_id: String::new(),
+            unread_count: 0,
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             root_conversation_id: None,
             delegate_id: None,

@@ -130,6 +130,29 @@ fn conversation_is_remote_im_contact(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
 }
 
+fn conversation_unread_count_for_overview(conversation: &Conversation) -> usize {
+    if conversation_is_remote_im_contact(conversation) {
+        0
+    } else {
+        conversation.unread_count
+    }
+}
+
+fn increment_conversation_unread_count(conversation: &mut Conversation, count: usize) {
+    if count == 0 || conversation_is_remote_im_contact(conversation) {
+        return;
+    }
+    conversation.unread_count = conversation.unread_count.saturating_add(count);
+}
+
+fn clear_conversation_unread_count(conversation: &mut Conversation) -> bool {
+    if conversation.unread_count == 0 {
+        return false;
+    }
+    conversation.unread_count = 0;
+    true
+}
+
 fn conversation_visible_in_foreground_lists(conversation: &Conversation) -> bool {
     !conversation_is_delegate(conversation)
         && !conversation_is_remote_im_contact(conversation)
@@ -197,7 +220,7 @@ fn build_conversation_record(
         parent_conversation_id: None,
         child_conversation_ids: Vec::new(),
         fork_message_cursor: None,
-        last_read_message_id: String::new(),
+        unread_count: 0,
         conversation_kind: conversation_kind.trim().to_string(),
         root_conversation_id,
         delegate_id,
@@ -2333,7 +2356,7 @@ fn build_prompt_with_mode(
         parent_conversation_id: conversation.parent_conversation_id.clone(),
         child_conversation_ids: conversation.child_conversation_ids.clone(),
         fork_message_cursor: conversation.fork_message_cursor.clone(),
-        last_read_message_id: conversation.last_read_message_id.clone(),
+        unread_count: conversation.unread_count,
         conversation_kind: conversation.conversation_kind.clone(),
         root_conversation_id: conversation.root_conversation_id.clone(),
         delegate_id: conversation.delegate_id.clone(),

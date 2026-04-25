@@ -37,15 +37,23 @@
           >
             <div class="flex items-center gap-2 p-2">
               <div class="shrink-0">
-                <div class="avatar">
-                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-neutral text-neutral-content">
-                    <img
-                      v-if="sideListLastSpeakerAvatarUrl(item)"
-                      :src="sideListLastSpeakerAvatarUrl(item)"
-                      :alt="sideListLastSpeakerLabel(item)"
-                      class="w-10 h-10 rounded-full object-cover"
-                    />
-                    <span v-else class="text-sm font-bold">{{ sideListLastSpeakerInitial(item) }}</span>
+                <div class="indicator">
+                  <span
+                    v-if="conversationIndicatorTone(item)"
+                    class="indicator-item indicator-top indicator-end z-10 h-2.5 w-2.5 translate-x-0.5 -translate-y-0.5 rounded-full"
+                    :class="conversationIndicatorClass(conversationIndicatorTone(item))"
+                    aria-hidden="true"
+                  ></span>
+                  <div class="avatar">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-neutral text-neutral-content">
+                      <img
+                        v-if="sideListLastSpeakerAvatarUrl(item)"
+                        :src="sideListLastSpeakerAvatarUrl(item)"
+                        :alt="sideListLastSpeakerLabel(item)"
+                        class="w-10 h-10 rounded-full object-cover"
+                      />
+                      <span v-else class="text-sm font-bold">{{ sideListLastSpeakerInitial(item) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -109,7 +117,7 @@
                     <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">{{ runtimeStateText(item.runtimeState) }}</span>
                     <span
                       v-if="unreadCountBadge(item)"
-                      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-300 px-1.5 text-[11px] font-medium text-base-content/80"
+                      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[11px] font-medium text-error-content"
                     >
                       {{ unreadCountBadge(item) }}
                     </span>
@@ -145,10 +153,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watchEffect } from "vue";
+import { computed, nextTick, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { Pin, PinOff, Search } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
+import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { formatConversationListTime } from "../utils/conversation-time";
 
 const props = defineProps<{
@@ -171,6 +180,7 @@ const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
 const conversationSearchQuery = ref("");
+const { conversationStatusById, markConversationRead } = usePipelineStatus();
 
 const conversationPreviewCache = computed(() => new Map(
   props.items.map((item) => [String(item.conversationId || "").trim(), Array.isArray(item.previewMessages) ? item.previewMessages : []]),
@@ -220,6 +230,12 @@ watchEffect(() => {
   }
 });
 
+watch(
+  () => props.activeConversationId,
+  (conversationId) => markConversationRead(conversationId),
+  { immediate: true },
+);
+
 function resetConversationTitleEdit() {
   editingConversationId.value = "";
   editingTitleDraft.value = "";
@@ -246,6 +262,21 @@ function conversationMatchesSearch(item: ChatConversationOverviewItem, query: st
 
 function isCurrentConversation(item: ChatConversationOverviewItem): boolean {
   return String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim();
+}
+
+function conversationIndicatorTone(item: ChatConversationOverviewItem): "error" | "info" | "success" | "" {
+  const conversationId = String(item.conversationId || "").trim();
+  if (!conversationId || isCurrentConversation(item)) return "";
+  const pipelineStatus = conversationStatusById.value[conversationId];
+  if (pipelineStatus === "error") return "error";
+  if (pipelineStatus === "busy") return "success";
+  return "";
+}
+
+function conversationIndicatorClass(tone: "error" | "info" | "success" | ""): string {
+  if (tone === "error") return "bg-error";
+  if (tone === "success") return "bg-success";
+  return "";
 }
 
 function isConversationDisabled(item: ChatConversationOverviewItem): boolean {

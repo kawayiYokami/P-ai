@@ -763,31 +763,6 @@ pub(super) fn read_ready_message_store_index_summary(
     }))
 }
 
-pub(super) fn read_ready_message_store_unread_count(
-    paths: &MessageStorePaths,
-    last_read_message_id: &str,
-) -> Result<Option<usize>, String> {
-    let Some(manifest) = read_message_store_manifest(&paths.manifest_file)? else {
-        return Ok(None);
-    };
-    if !manifest.should_read_jsonl() {
-        return Ok(None);
-    }
-    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
-    if !paths.index_file.exists() {
-        return Ok(None);
-    }
-    let index = read_message_store_index_file(&paths.index_file)?;
-    let anchor = last_read_message_id.trim();
-    if anchor.is_empty() {
-        return Ok(Some(index.items.len()));
-    }
-    let unread_count = find_index_item_position(&index, anchor)
-        .map(|idx| index.items.len().saturating_sub(idx + 1))
-        .unwrap_or(index.items.len());
-    Ok(Some(unread_count))
-}
-
 pub(super) fn read_ready_message_store_chat_snapshot(
     paths: &MessageStorePaths,
 ) -> Result<Option<MessageStoreChatSnapshot>, String> {
@@ -2003,7 +1978,7 @@ mod message_store_reader_tests {
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
             fork_message_cursor: None,
-            last_read_message_id: String::new(),
+            unread_count: 0,
             conversation_kind: String::new(),
             root_conversation_id: None,
             delegate_id: None,

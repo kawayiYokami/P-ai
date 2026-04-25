@@ -81,21 +81,6 @@ fn conversation_current_todo_text(conversation: &Conversation) -> Option<String>
         .filter(|value| !value.is_empty())
 }
 
-fn conversation_unread_count(conversation: &Conversation) -> usize {
-    let anchor = conversation.last_read_message_id.trim();
-    if anchor.is_empty() {
-        return conversation.messages.len();
-    }
-    let Some(anchor_index) = conversation
-        .messages
-        .iter()
-        .position(|message| message.id.trim() == anchor)
-    else {
-        return conversation.messages.len();
-    };
-    conversation.messages.len().saturating_sub(anchor_index + 1)
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DelegateConversationSummary {
@@ -306,7 +291,7 @@ fn build_unarchived_conversation_summary(
             .iter()
             .filter(|message| !is_tool_review_report_message(message))
             .count(),
-        unread_count: conversation_unread_count(conversation),
+        unread_count: conversation_unread_count_for_overview(conversation),
         agent_id: conversation.agent_id.clone(),
         department_id,
         department_name,
@@ -558,12 +543,6 @@ struct SetConversationPlanModeInput {
 struct SetConversationPlanModeOutput {
     conversation_id: String,
     plan_mode_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MarkConversationReadInput {
-    conversation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

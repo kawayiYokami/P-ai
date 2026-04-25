@@ -580,7 +580,6 @@ fn main() {
             forward_unarchived_conversation_selection,
             rename_unarchived_conversation,
             toggle_unarchived_conversation_pin,
-            mark_conversation_read,
             get_unarchived_conversation_messages,
             get_unarchived_conversation_block_page,
             get_unarchived_conversation_recent_block_messages,

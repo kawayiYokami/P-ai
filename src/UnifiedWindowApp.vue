@@ -359,7 +359,7 @@
     />
     <div
       v-if="messageStoreMigration.visible"
-      class="fixed inset-0 z-[9999] flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
+      class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
     >
       <div class="w-full max-w-2xl rounded-box border border-base-content/10 bg-base-100 p-6 shadow-2xl">
         <div class="text-xl font-semibold">会话消息仓库迁移</div>
@@ -2254,7 +2254,6 @@ function pickForegroundConversationId(candidates: UnarchivedConversationSummary[
 function clearForegroundConversation(reason: string) {
   const previousConversationId = String(currentChatConversationId.value || "").trim();
   if (!previousConversationId) return;
-  void markConversationRead(previousConversationId);
   cacheConversationMessages(previousConversationId, allMessages.value);
   currentChatConversationId.value = "";
   currentChatTodos.value = [];
@@ -2377,7 +2376,6 @@ async function sendChatFromCurrentWindow() {
 function freezeForegroundConversation(reason: string) {
   const currentConversationId = String(currentChatConversationId.value || "").trim();
   if (currentConversationId) {
-    void markConversationRead(currentConversationId);
     cacheConversationMessages(currentConversationId, allMessages.value);
   }
   chatFlow.freezeForegroundRoundState();
@@ -2566,6 +2564,81 @@ function clearConversationBadge(conversationId: string) {
   const next = { ...backgroundConversationBadgeMap.value };
   delete next[cid];
   backgroundConversationBadgeMap.value = next;
+}
+
+function clearLocalUnreadCount(conversationId: string) {
+  const cid = String(conversationId || "").trim();
+  if (!cid) return;
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== cid || Number(item.unreadCount || 0) <= 0) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      unreadCount: 0,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = nextItems;
+  }
+}
+
+function incrementLocalUnreadCount(conversationId: string, count = 1) {
+  const cid = String(conversationId || "").trim();
+  const delta = Math.max(0, Math.floor(Number(count) || 0));
+  if (!cid || delta <= 0 || cid === String(currentChatConversationId.value || "").trim()) return;
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== cid) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      unreadCount: Math.max(0, Number(item.unreadCount || 0)) + delta,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = nextItems;
+  }
+}
+
+function applyConversationOverviewAppendedMessage(
+  conversationId: string,
+  message: ChatMessage,
+  options?: { incrementUnread?: boolean },
+) {
+  const cid = String(conversationId || "").trim();
+  const messageId = String(message?.id || "").trim();
+  if (!cid || !message || !messageId || isOverviewDraftMessage(message)) return;
+  const preview = previewMessageFromChatMessage(message);
+  const messageAt = String(message.createdAt || "").trim();
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== cid) {
+      return item;
+    }
+    const existingPreviewMessages = Array.isArray(item.previewMessages) ? item.previewMessages : [];
+    if (existingPreviewMessages.some((previewItem) => String(previewItem.messageId || "").trim() === messageId)) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      messageCount: Math.max(0, Number(item.messageCount || 0)) + 1,
+      unreadCount: options?.incrementUnread
+        ? Math.max(0, Number(item.unreadCount || 0)) + 1
+        : Number(item.unreadCount || 0),
+      updatedAt: messageAt || item.updatedAt,
+      lastMessageAt: messageAt || item.lastMessageAt,
+      previewMessages: [...existingPreviewMessages, preview].slice(-2),
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = sortUnarchivedConversationOverviewItems(nextItems);
+  }
 }
 
 function setConversationBadge(conversationId: string, status: BackgroundConversationBadgeState) {
@@ -2804,6 +2877,7 @@ async function applyConversationMessagesAfterSynced(payload: ConversationMessage
     foregroundTailLatestReady.value = true;
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    clearLocalUnreadCount(conversationId);
     if (
       requestId
       && requestId === pendingManualScrollToBottomRequestId
@@ -2827,13 +2901,17 @@ function applyConversationMessageAppended(payload?: ConversationMessageAppendedP
 
   const cachedDisplay = freezeConversationMessages(conversationMessageCache.value[conversationId] || []);
   const cachedFormal = formalizeConversationMessages(cachedDisplay);
-  const nextCached = cachedFormal.some((item) => String(item?.id || "").trim() === messageId)
+  const messageAlreadyCached = cachedFormal.some((item) => String(item?.id || "").trim() === messageId);
+  const nextCached = messageAlreadyCached
     ? cachedFormal
     : [...cachedFormal, message];
   cacheConversationMessages(conversationId, nextCached);
 
   const currentConversationId = String(currentChatConversationId.value || "").trim();
   if (conversationId !== currentConversationId) {
+    if (!messageAlreadyCached) {
+      applyConversationOverviewAppendedMessage(conversationId, message, { incrementUnread: true });
+    }
     setConversationBadge(conversationId, "completed");
     return;
   }
@@ -2876,6 +2954,7 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   if (Array.isArray(snapshot.unarchivedConversations)) {
     unarchivedConversations.value = snapshot.unarchivedConversations;
   }
+  clearLocalUnreadCount(nextConversationId);
   if (nextRuntimeState === "assistant_streaming") {
     maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
   }
@@ -3084,23 +3163,6 @@ async function refreshUnarchivedConversationOverview() {
   unarchivedConversations.value = Array.isArray(items) ? items : [];
 }
 
-async function markConversationRead(conversationId?: string | null) {
-  const cid = String(conversationId || "").trim();
-  if (!cid) return;
-  try {
-    await invokeTauri("mark_conversation_read", {
-      input: {
-        conversationId: cid,
-      },
-    });
-  } catch (error) {
-    console.warn("[会话未读] 标记已读失败", {
-      conversationId: cid,
-      error,
-    });
-  }
-}
-
 async function recoverForegroundConversationFromOverview(reason: string, preferredConversationId?: string | null) {
   if (conversationForegroundSyncing.value) return;
   try {
@@ -3163,7 +3225,6 @@ async function switchUnarchivedConversation(conversationId: string) {
   try {
     conversationForegroundSyncing.value = true;
     if (previousConversationId) {
-      await markConversationRead(previousConversationId);
       cacheConversationMessages(previousConversationId, allMessages.value);
     }
     chatFlow.freezeForegroundRoundState();
@@ -3735,6 +3796,19 @@ onMounted(() => {
         : null;
       const assistantMessage = (payloadObject?.assistantMessage || null) as ChatMessage | null;
       if (payloadConversationId && payloadConversationId !== currentConversationId) {
+      const assistantMessageId = String(assistantMessage?.id || "").trim();
+      const cachedMessages = formalizeConversationMessages(conversationMessageCache.value[payloadConversationId] || []);
+      const messageAlreadyCached = !!assistantMessageId && cachedMessages.some((message) => String(message?.id || "").trim() === assistantMessageId);
+      if (assistantMessage && assistantMessageId && !messageAlreadyCached) {
+        cacheConversationMessages(payloadConversationId, [...cachedMessages, assistantMessage]);
+      }
+      if (!assistantMessageId || !messageAlreadyCached) {
+          if (assistantMessage && assistantMessageId) {
+            applyConversationOverviewAppendedMessage(payloadConversationId, assistantMessage, { incrementUnread: true });
+          } else {
+            incrementLocalUnreadCount(payloadConversationId);
+          }
+      }
         setConversationBadge(payloadConversationId, "completed");
         void chatFlow.handleExternalRoundCompleted(event.payload);
         return;

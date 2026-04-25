@@ -13,14 +13,21 @@
 
     <div v-if="viewMode === 'chat'" class="relative z-10 flex min-w-0 flex-none items-center gap-1" @mousedown.stop>
       <div v-if="!detachedChatWindow" ref="conversationListPopoverRef" class="relative">
-        <button
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="t('chat.conversationList')"
-          :disabled="sideConversationListVisible"
-          @click.stop="toggleConversationList"
-        >
-          <TextAlignJustify class="h-3.5 w-3.5" />
-        </button>
+        <div class="indicator">
+          <span
+            v-if="conversationUnreadTotal > 0"
+            class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
+            aria-hidden="true"
+          ></span>
+          <button
+            class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
+            :title="t('chat.conversationList')"
+            :disabled="sideConversationListVisible"
+            @click.stop="toggleConversationList"
+          >
+            <TextAlignJustify class="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div v-if="conversationListOpen" class="absolute left-0 top-full z-50 mt-2">
           <ChatConversationListCard
             :items="conversationItems"
@@ -329,7 +336,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
@@ -340,6 +347,7 @@ import { registerChatMarkstreamComponents } from "../../chat/markdown/register-c
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import { isDarkAppTheme } from "../composables/use-app-theme";
 import "markstream-vue/index.css";
+import { usePipelineStatus } from "../composables/use-pipeline-status";
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -362,6 +370,8 @@ const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
 enableMermaid();
 enableKatex();
 registerChatMarkstreamComponents();
+
+const { markConversationRead } = usePipelineStatus();
 
 const markstreamMarkdown = getMarkdown();
 const markdownCodeBlockProps = {
@@ -467,6 +477,10 @@ const currentConversationDepartmentName = computed(() => {
   return item?.departmentName || "";
 });
 
+const conversationUnreadTotal = computed(() =>
+  props.conversationItems.reduce((total, item) => total + Math.max(0, Number(item.unreadCount || 0)), 0),
+);
+
 const combinedTitle = computed(() => {
   const parts: string[] = [];
   const title = currentConversationTitle.value;
@@ -483,6 +497,12 @@ const combinedTitle = computed(() => {
 const combinedTitleTooltip = computed(() => {
   return combinedTitle.value || props.currentPersonaName;
 });
+
+watch(
+  () => props.activeConversationId,
+  (conversationId) => markConversationRead(conversationId),
+  { immediate: true },
+);
 const conversationListPopoverRef = ref<HTMLElement | null>(null);
 const configSearchPopoverRef = ref<HTMLElement | null>(null);
 const configSearchInputRef = ref<HTMLInputElement | null>(null);

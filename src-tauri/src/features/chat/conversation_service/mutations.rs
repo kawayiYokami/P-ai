@@ -532,6 +532,7 @@ impl ConversationService {
             conversation.messages.push(message.clone());
             conversation.updated_at = message.created_at.clone();
             conversation.last_assistant_at = Some(message.created_at.clone());
+            increment_conversation_unread_count(conversation, 1);
             Ok(())
         })
     }
@@ -557,16 +558,10 @@ impl ConversationService {
                 return Ok(());
             }
         };
-        let next_last_read_message_id = conversation
-            .messages
-            .last()
-            .map(|message| message.id.trim().to_string())
-            .unwrap_or_default();
-        if conversation.last_read_message_id.trim() == next_last_read_message_id {
+        if !clear_conversation_unread_count(&mut conversation) {
             drop(guard);
             return Ok(());
         }
-        conversation.last_read_message_id = next_last_read_message_id;
         state_schedule_conversation_persist(state, &conversation, false)?;
         drop(guard);
         Ok(())
@@ -853,8 +848,8 @@ impl ConversationService {
         );
         target_conversation.updated_at = now.clone();
         target_conversation.status = "active".to_string();
+        increment_conversation_unread_count(&mut target_conversation, selected_messages.len());
         if let Some(last_message) = target_conversation.messages.last() {
-            target_conversation.last_read_message_id = last_message.id.clone();
             if last_message.role.trim().eq_ignore_ascii_case("assistant") {
                 target_conversation.last_assistant_at = Some(now.clone());
             } else if last_message.role.trim().eq_ignore_ascii_case("user") {
@@ -1342,7 +1337,7 @@ fn build_branch_conversation_record_from_selection_runtime(
             .map(clone_chat_message_for_copied_conversation),
     );
     if let Some(last_message) = conversation.messages.last() {
-        conversation.last_read_message_id = last_message.id.clone();
+        conversation.unread_count = 0;
         conversation.updated_at = last_message.created_at.clone();
         conversation.last_user_at = Some(last_message.created_at.clone());
     }

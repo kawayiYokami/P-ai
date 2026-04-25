@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（chat-runtime-status-and-unread-indicators）：聊天调度状态改为按会话广播工作中/错误状态，侧边栏头像使用 DaisyUI 角标显示工作中绿点与错误红点，成功后自动清除；标题栏会话列表按钮改为未读红点提示，未读数从旧 `last_read_message_id` 游标推导改为 `unread_count` 计数器，联系人会话不参与未读统计，前台拉取最新消息成功即清零
 - 优化（chat-single-user-flush-fast-path）：`history_flushed` 只包含单条本地用户正式消息时，前端直接用正式消息替换乐观草稿，不再进入全量消息合并路径，降低发送后“草稿变正式消息”的显示延迟
 - 修复（remote-im-media-conversation-scoped-storage）：远程 IM 入站图片/音频在接收边界即外置化到 `llm-workspace/downloads/<conversation_id>/`，消息正文只保留 `@download:` 引用；消息块迁移/写入前增加残留 base64 附件清洗兜底，旧引用不搬迁，新落盘不再混入全局媒体池
 - 功能（conversation-block-message-store-migration）：会话消息存储新增目录型 JSONL 仓库与启动期迁移门禁，底层 shard 读写在保持业务调用方不感知的前提下支持 `Conversation -> ConversationBlock -> Message` 三层布局；迁移生成 `blocks/*.jsonl` 与最小 `messages.idx.json`，索引仅保留 `messageId / blockId / offset / byteLen`，联系人会话按压缩边界或本地 04:00 日界线切块，旧 block 自动瘦身工具/MCP/运行态挂件但保留文本和外置/URL 媒体引用
