@@ -2951,10 +2951,10 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   foregroundTailLatestReady.value = true;
   cacheConversationMessages(nextConversationId, nextMessages);
   clearConversationBadge(nextConversationId);
-  clearLocalUnreadCount(nextConversationId);
   if (Array.isArray(snapshot.unarchivedConversations)) {
     unarchivedConversations.value = snapshot.unarchivedConversations;
   }
+  clearLocalUnreadCount(nextConversationId);
   if (nextRuntimeState === "assistant_streaming") {
     maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
   }
