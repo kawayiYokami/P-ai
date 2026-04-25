@@ -89,7 +89,7 @@
 
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
-            <span>{{ t("appearance.brightness") }}</span>
+            <span>{{ brightnessLabel }}</span>
             <span class="font-mono text-xs text-base-content/65">{{ props.controls.brightness }}</span>
           </div>
           <input
@@ -224,6 +224,9 @@ const sizePresets: GeneratedUiSizePreset[] = ["compact", "default", "comfortable
 
 const previewStyle = computed(() => generatedThemeTokensToCssVariables(props.tokens));
 const sizePresetLabel = computed(() => t(`appearance.sizePresets.${props.controls.uiSizePreset}`));
+const brightnessLabel = computed(() =>
+  props.controls.mode === "dark" ? t("appearance.darkness") : t("appearance.brightness"),
+);
 
 function patchControls(patch: Partial<GeneratedThemeControls>) {
   emit("updateControls", patch);

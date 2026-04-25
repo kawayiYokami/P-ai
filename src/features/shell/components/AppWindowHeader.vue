@@ -338,6 +338,7 @@ import type { ChatConversationOverviewItem } from "../../../types/app";
 import ChatConversationListCard from "../../chat/components/ChatConversationListCard.vue";
 import { registerChatMarkstreamComponents } from "../../chat/markdown/register-chat-markstream";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
+import { isDarkAppTheme } from "../composables/use-app-theme";
 import "markstream-vue/index.css";
 
 const RING_RADIUS = 14;
@@ -501,7 +502,7 @@ const changelogLoaded = ref(false);
 const changelogNodes = computed(() =>
   parseMarkdownToStructure(changelogMarkdown.value || "", markstreamMarkdown, { final: true }),
 );
-const markdownIsDark = computed(() => ["dark", "night", "black", "business", "dracula", "dim", "forest", "synthwave", "generated-dark"].includes(String(props.currentTheme || "").toLowerCase()));
+const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
 function loadRecentConversationTopics() {
   try {
