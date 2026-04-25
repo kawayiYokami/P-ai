@@ -1754,14 +1754,18 @@ function historyFlushedMessageKind(message?: ChatMessage | null): string {
   return String(messageMeta.kind || meta.messageKind || "").trim();
 }
 
-function applySingleOwnUserHistoryFlushFastPath(messages: ChatMessage[]): boolean {
-  if (messages.length !== 1) return false;
+type SingleOwnUserHistoryFlushFastPathResult = {
+  messageId: string;
+};
+
+function applySingleOwnUserHistoryFlushFastPath(messages: ChatMessage[]): SingleOwnUserHistoryFlushFastPathResult | null {
+  if (messages.length !== 1) return null;
   const committedMessage = messages[0];
-  if (!isLocalOwnUserMessage(committedMessage)) return false;
-  if (historyFlushedMessageKind(committedMessage) === "summary_context_seed") return false;
+  if (!isLocalOwnUserMessage(committedMessage)) return null;
+  if (historyFlushedMessageKind(committedMessage) === "summary_context_seed") return null;
 
   const draftIndex = allMessages.value.findIndex((message) => isOptimisticOwnUserDraft(message));
-  if (draftIndex < 0) return false;
+  if (draftIndex < 0) return null;
 
   const committedId = String(committedMessage.id || "").trim();
   if (committedId) {
@@ -1771,13 +1775,13 @@ function applySingleOwnUserHistoryFlushFastPath(messages: ChatMessage[]): boolea
     if (existingIndex >= 0) {
       allMessages.value.splice(draftIndex, 1);
       foregroundTailLatestReady.value = true;
-      return true;
+      return { messageId: committedId };
     }
   }
 
   allMessages.value.splice(draftIndex, 1, committedMessage);
   foregroundTailLatestReady.value = true;
-  return true;
+  return { messageId: committedId };
 }
 
 function updatePersonaEditorIdWithNotice(value: string) {
@@ -4131,8 +4135,8 @@ const chatFlow = useChatFlow({
     // 激活助理的批次也只做去重合并，避免清空重建打断滚动与分页状态。
     const queueMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     if (queueMessages.length > 0) {
-      const fastPathApplied = applySingleOwnUserHistoryFlushFastPath(queueMessages);
-      if (fastPathApplied) {
+      const fastPathResult = applySingleOwnUserHistoryFlushFastPath(queueMessages);
+      if (fastPathResult) {
         if (suppressNextOwnMessageAlignFromHistoryFlushed > 0) {
           suppressNextOwnMessageAlignFromHistoryFlushed -= 1;
         } else {
@@ -4141,7 +4145,7 @@ const chatFlow = useChatFlow({
         console.warn("[聊天追踪][历史刷写处理] 单条用户消息快路径完成", {
           windowLabel: tauriWindowLabel.value,
           activateAssistant,
-          messageId: String(queueMessages[0]?.id || "").trim(),
+          messageId: fastPathResult.messageId,
           finalMessageCount: allMessages.value.length,
         });
         cacheConversationMessages(
