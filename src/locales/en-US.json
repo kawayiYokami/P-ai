@@ -868,6 +868,7 @@
     "regenerate": "Regenerate",
     "recall": "Recall",
     "queue": {
+      "queued": "Queued",
       "recallToInput": "Recall to input",
       "guide": "Guide",
       "guiding": "Guiding"

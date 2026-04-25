@@ -1,15 +1,17 @@
 <template>
-  <div v-if="queueEvents.length > 0" class="border-t border-base-300 bg-base-100/50 p-2">
-    <div class="text-[11px] opacity-60 mb-1.5 flex items-center gap-2">
-      <span>队列中 ({{ queueEvents.length }})</span>
-      <span v-if="sessionState !== 'idle'" class="badge badge-xs badge-warning">{{ sessionStateText }}</span>
-    </div>
+  <div v-if="queueEvents.length > 0" class="w-full py-2">
     <div class="space-y-1">
       <div
         v-for="event in queueEvents"
         :key="event.id"
         class="flex items-center gap-2 rounded bg-base-200/60 px-2 py-1.5 text-xs"
       >
+        <span
+          class="badge badge-xs shrink-0"
+          :class="event.queueMode === 'guided' ? 'badge-primary' : 'badge-ghost'"
+        >
+          {{ event.queueMode === "guided" ? t("chat.queue.guiding") : t("chat.queue.queued") }}
+        </span>
         <span
           class="badge badge-xs"
           :class="{
@@ -47,7 +49,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { Undo2 } from "lucide-vue-next";
 import type { ChatQueueEvent, MainSessionState } from "../composables/use-chat-queue";
@@ -63,17 +64,6 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
-
-const sessionStateText = computed(() => {
-  switch (props.sessionState) {
-    case "assistant_streaming":
-      return "助理回复中";
-    case "organizing_context":
-      return "整理上下文";
-    default:
-      return "空闲";
-  }
-});
 
 function sourceText(source: string): string {
   switch (source) {

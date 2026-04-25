@@ -988,6 +988,7 @@
       "loadFailed": "工具审查加载失败：{err}"
     },
     "queue": {
+      "queued": "排队",
       "recallToInput": "退回输入框",
       "guide": "引导",
       "guiding": "引导中"
