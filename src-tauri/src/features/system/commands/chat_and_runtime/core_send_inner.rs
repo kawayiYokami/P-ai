@@ -163,6 +163,7 @@ fn append_user_message_to_conversation(
     conversation.messages.push(user_message);
     conversation.updated_at = now.to_string();
     conversation.last_user_at = Some(now.to_string());
+    increment_conversation_unread_count(&mut conversation, 1);
     conversation
 }
 
@@ -1062,8 +1063,26 @@ async fn send_chat_message_inner(
         };
         title
     };
-    let pipeline_request_id_for_chat_log = trace_id.clone();
-    let conversation_id_for_chat_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
+    let conversation_id_for_work_status = input
+        .session
+        .as_ref()
+        .and_then(|s| s.conversation_id.clone())
+        .unwrap_or_default();
+    let request_id_for_work_status = trace_id.clone();
+    let emit_conversation_work_status = |status: &str| {
+        let conversation_id = conversation_id_for_work_status.trim();
+        if conversation_id.is_empty() {
+            return;
+        }
+        if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
+            let _ = app_handle.emit("conversation_work_status", serde_json::json!({
+                "conversationId": conversation_id,
+                "requestId": request_id_for_work_status,
+                "status": status
+            }));
+        }
+    };
+    emit_conversation_work_status("working");
     let log_chat_stage = |stage: &str| {
         if !should_record_chat_stage(stage) {
             return;
@@ -1082,17 +1101,6 @@ async fn send_chat_message_inner(
                 elapsed_ms,
                 since_prev_ms,
             });
-
-            if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
-                let _ = app_handle.emit("pipeline_stage", serde_json::json!({
-                    "stage": stage,
-                    "label": describe_chat_stage(stage),
-                    "elapsed_ms": elapsed_ms,
-                    "conversation_id": conversation_id_for_chat_log.clone(),
-                    "request_id": pipeline_request_id_for_chat_log.clone(),
-                    "status": "busy"
-                }));
-            }
         }
     };
     let flush_chat_timeline = |reason: &str| {
@@ -1189,7 +1197,7 @@ async fn send_chat_message_inner(
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
             fork_message_cursor: None,
-            last_read_message_id: String::new(),
+            unread_count: 0,
             conversation_kind: String::new(),
             root_conversation_id: None,
             delegate_id: None,
@@ -1298,7 +1306,7 @@ async fn send_chat_message_inner(
                 parent_conversation_id: None,
                 child_conversation_ids: Vec::new(),
                 fork_message_cursor: None,
-                last_read_message_id: String::new(),
+                unread_count: 0,
                 conversation_kind: String::new(),
                 root_conversation_id: None,
                 delegate_id: None,
@@ -1591,10 +1599,6 @@ async fn send_chat_message_inner(
     let chat_session_key_for_log = chat_session_key.clone();
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();
-    let conversation_id_for_run_log = input.session.as_ref().and_then(|s| s.conversation_id.clone()).unwrap_or_default();
-    let conversation_id_for_finish_log = conversation_id_for_run_log.clone();
-    let pipeline_request_id_for_run_log = trace_id.clone();
-    let pipeline_request_id_for_finish_log = trace_id.clone();
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
     let run = async move {
@@ -1617,17 +1621,6 @@ async fn send_chat_message_inner(
                 elapsed_ms,
                 since_prev_ms,
             });
-
-            if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
-                let _ = app_handle.emit("pipeline_stage", serde_json::json!({
-                    "stage": stage,
-                    "label": describe_chat_stage(stage),
-                    "elapsed_ms": elapsed_ms,
-                    "conversation_id": conversation_id_for_run_log.clone(),
-                    "request_id": pipeline_request_id_for_run_log.clone(),
-                    "status": "busy"
-                }));
-            }
         }
     };
     log_run_stage("run.begin");
@@ -2735,6 +2728,7 @@ async fn send_chat_message_inner(
                         mcp_call: None,
                     };
                     conversation.messages.push(assistant_message.clone());
+                    increment_conversation_unread_count(&mut conversation, 1);
                     persisted_assistant_message = Some(assistant_message);
                     conversation.updated_at = now.clone();
                     conversation.last_assistant_at = Some(now);
@@ -2769,6 +2763,7 @@ async fn send_chat_message_inner(
                             mcp_call: None,
                         };
                         conversation.messages.push(assistant_message.clone());
+                        increment_conversation_unread_count(&mut conversation, 1);
                         persisted_assistant_message = Some(assistant_message);
                         conversation.updated_at = now.clone();
                         conversation.last_assistant_at = Some(now);
@@ -2815,27 +2810,10 @@ async fn send_chat_message_inner(
     };
 
     let result = futures_util::future::Abortable::new(run, abort_registration).await;
-    let finish_status = match &result {
-        Ok(Ok(_)) => "idle",
+    emit_conversation_work_status(match &result {
+        Ok(Ok(_)) | Err(_) => "completed",
         Ok(Err(_)) => "error",
-        Err(_) => "idle",
-    };
-    {
-        let elapsed_ms = chat_started_at
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
-        if let Some(app_handle) = state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
-            let _ = app_handle.emit("pipeline_stage", serde_json::json!({
-                "stage": "send_chat_message_inner.finish",
-                "label": if finish_status == "error" { "请求失败" } else { "发送消息结束" },
-                "elapsed_ms": elapsed_ms,
-                "conversation_id": conversation_id_for_finish_log.clone(),
-                "request_id": pipeline_request_id_for_finish_log.clone(),
-                "status": finish_status
-            }));
-        }
-    }
+    });
     flush_chat_timeline("send_chat_message_inner.finish");
     {
         let mut inflight = state

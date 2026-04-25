@@ -497,7 +497,7 @@ mod jsonl_snapshot_conversation_block_tests {
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
             fork_message_cursor: None,
-            last_read_message_id: String::new(),
+            unread_count: 0,
             conversation_kind: String::new(),
             root_conversation_id: None,
             delegate_id: None,

@@ -13,14 +13,21 @@
 
     <div v-if="viewMode === 'chat'" class="relative z-10 flex min-w-0 flex-none items-center gap-1" @mousedown.stop>
       <div v-if="!detachedChatWindow" ref="conversationListPopoverRef" class="relative">
-        <button
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="t('chat.conversationList')"
-          :disabled="sideConversationListVisible"
-          @click.stop="toggleConversationList"
-        >
-          <TextAlignJustify class="h-3.5 w-3.5" />
-        </button>
+        <div class="indicator">
+          <span
+            v-if="conversationUnreadTotal > 0"
+            class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
+            aria-hidden="true"
+          ></span>
+          <button
+            class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
+            :title="t('chat.conversationList')"
+            :disabled="sideConversationListVisible"
+            @click.stop="toggleConversationList"
+          >
+            <TextAlignJustify class="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div v-if="conversationListOpen" class="absolute left-0 top-full z-50 mt-2">
           <ChatConversationListCard
             :items="conversationItems"
@@ -56,7 +63,7 @@
       </button>
 
       <div
-        class="relative inline-flex h-8 w-8 items-center justify-center text-base-content/70"
+        class="inline-flex h-8 w-8 items-center justify-center text-base-content/70"
         :title="`当前上下文已使用 ${normalizedChatUsagePercent}%`"
       >
         <svg
@@ -69,7 +76,7 @@
             r="14"
             fill="none"
             stroke="currentColor"
-            stroke-width="3.5"
+            stroke-width="4"
             class="opacity-20"
           />
           <circle
@@ -78,35 +85,13 @@
             r="14"
             fill="none"
             stroke="currentColor"
-            stroke-width="3.5"
+            stroke-width="4"
             stroke-linecap="round"
             :stroke-dasharray="circumference"
             :stroke-dashoffset="strokeDashoffset"
           />
         </svg>
-        <span
-          v-if="viewMode === 'chat'"
-          class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-          :title="pipelineLabel || '空闲'"
-        >
-          <span class="relative flex h-2.5 w-2.5">
-            <span
-              v-if="pipelineIsBusy"
-              class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-90"
-              :class="pipelineStatus === 'error' ? 'bg-error' : 'bg-success'"
-            ></span>
-            <span
-              class="relative inline-flex h-2.5 w-2.5 rounded-full"
-              :class="{
-                'bg-warning': pipelineStatus === 'warning',
-                'bg-success': pipelineStatus === 'idle' || pipelineStatus === 'busy',
-                'bg-error': pipelineStatus === 'error'
-              }"
-            ></span>
-          </span>
-        </span>
       </div>
-
     </div>
 
     <div
@@ -143,7 +128,7 @@
       >
         <span
           v-if="hasAvailableUpdate && !checkingUpdate"
-          class="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-error"
+          class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-error"
           aria-hidden="true"
         ></span>
         <span v-if="checkingUpdate" class="loading loading-spinner loading-xs"></span>
@@ -351,7 +336,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
@@ -386,7 +371,7 @@ enableMermaid();
 enableKatex();
 registerChatMarkstreamComponents();
 
-const { status: pipelineStatus, label: pipelineLabel, isBusy: pipelineIsBusy } = usePipelineStatus();
+const { markConversationRead } = usePipelineStatus();
 
 const markstreamMarkdown = getMarkdown();
 const markdownCodeBlockProps = {
@@ -492,6 +477,10 @@ const currentConversationDepartmentName = computed(() => {
   return item?.departmentName || "";
 });
 
+const conversationUnreadTotal = computed(() =>
+  props.conversationItems.reduce((total, item) => total + Math.max(0, Number(item.unreadCount || 0)), 0),
+);
+
 const combinedTitle = computed(() => {
   const parts: string[] = [];
   const title = currentConversationTitle.value;
@@ -508,6 +497,12 @@ const combinedTitle = computed(() => {
 const combinedTitleTooltip = computed(() => {
   return combinedTitle.value || props.currentPersonaName;
 });
+
+watch(
+  () => props.activeConversationId,
+  (conversationId) => markConversationRead(conversationId),
+  { immediate: true },
+);
 const conversationListPopoverRef = ref<HTMLElement | null>(null);
 const configSearchPopoverRef = ref<HTMLElement | null>(null);
 const configSearchInputRef = ref<HTMLInputElement | null>(null);

@@ -117,7 +117,7 @@ struct Conversation {
     #[serde(default)]
     fork_message_cursor: Option<String>,
     #[serde(default)]
-    last_read_message_id: String,
+    unread_count: usize,
     #[serde(default)]
     conversation_kind: String,
     #[serde(default)]

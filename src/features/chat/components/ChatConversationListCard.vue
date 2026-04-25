@@ -115,7 +115,7 @@
                     </span>
                     <span
                       v-if="unreadCountBadge(item)"
-                      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-300 px-1.5 text-[11px] font-medium text-base-content/80"
+                      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[11px] font-medium text-error-content"
                     >
                       {{ unreadCountBadge(item) }}
                     </span>

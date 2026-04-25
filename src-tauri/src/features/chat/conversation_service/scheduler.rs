@@ -161,6 +161,7 @@ fn append_prepared_messages_to_conversation(
             _ => {}
         }
         conversation.messages.push(persisted);
+        increment_conversation_unread_count(conversation, 1);
         persisted_batch_messages.push(persisted_for_event);
     }
 }
