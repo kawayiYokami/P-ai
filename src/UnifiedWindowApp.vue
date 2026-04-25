@@ -1748,6 +1748,38 @@ function isOptimisticOwnUserDraft(message?: ChatMessage | null): boolean {
   return meta._optimistic === true && isLocalOwnUserMessage(message);
 }
 
+function historyFlushedMessageKind(message?: ChatMessage | null): string {
+  const meta = (message?.providerMeta || {}) as Record<string, unknown>;
+  const messageMeta = ((meta.message_meta || meta.messageMeta || {}) as Record<string, unknown>);
+  return String(messageMeta.kind || meta.messageKind || "").trim();
+}
+
+function applySingleOwnUserHistoryFlushFastPath(messages: ChatMessage[]): boolean {
+  if (messages.length !== 1) return false;
+  const committedMessage = messages[0];
+  if (!isLocalOwnUserMessage(committedMessage)) return false;
+  if (historyFlushedMessageKind(committedMessage) === "summary_context_seed") return false;
+
+  const draftIndex = allMessages.value.findIndex((message) => isOptimisticOwnUserDraft(message));
+  if (draftIndex < 0) return false;
+
+  const committedId = String(committedMessage.id || "").trim();
+  if (committedId) {
+    const existingIndex = allMessages.value.findIndex(
+      (message, index) => index !== draftIndex && String(message.id || "").trim() === committedId,
+    );
+    if (existingIndex >= 0) {
+      allMessages.value.splice(draftIndex, 1);
+      foregroundTailLatestReady.value = true;
+      return true;
+    }
+  }
+
+  allMessages.value.splice(draftIndex, 1, committedMessage);
+  foregroundTailLatestReady.value = true;
+  return true;
+}
+
 function updatePersonaEditorIdWithNotice(value: string) {
   const nextId = String(value || "").trim();
   if (!nextId || nextId === personaEditorId.value) return;
@@ -4099,6 +4131,31 @@ const chatFlow = useChatFlow({
     // 激活助理的批次也只做去重合并，避免清空重建打断滚动与分页状态。
     const queueMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     if (queueMessages.length > 0) {
+      const fastPathApplied = applySingleOwnUserHistoryFlushFastPath(queueMessages);
+      if (fastPathApplied) {
+        if (suppressNextOwnMessageAlignFromHistoryFlushed > 0) {
+          suppressNextOwnMessageAlignFromHistoryFlushed -= 1;
+        } else {
+          latestOwnMessageAlignRequest.value += 1;
+        }
+        console.warn("[聊天追踪][历史刷写处理] 单条用户消息快路径完成", {
+          windowLabel: tauriWindowLabel.value,
+          activateAssistant,
+          messageId: String(queueMessages[0]?.id || "").trim(),
+          finalMessageCount: allMessages.value.length,
+        });
+        cacheConversationMessages(
+          flushedConversationId || String(currentChatConversationId.value || "").trim(),
+          allMessages.value,
+        );
+        console.warn("[聊天追踪][历史刷写处理] 完成", {
+          windowLabel: tauriWindowLabel.value,
+          flushedConversationId: String(currentChatConversationId.value || "").trim(),
+          finalMessageCount: allMessages.value.length,
+        });
+        return;
+      }
+
       const currentMessages = [...allMessages.value];
       const dedup = new Set(
         currentMessages
