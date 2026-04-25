@@ -79,6 +79,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       return;
     }
 
+    const sourceConversationId = currentConversationIdOrNull();
     options.setStatus("");
     options.setChatError("");
     if (action.lockForeground) {
@@ -94,18 +95,18 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
             session: {
               apiConfigId,
               agentId,
-              conversationId: currentConversationIdOrNull(),
+              conversationId: sourceConversationId,
             },
             targetConversationId: normalizedTargetConversationId || null,
           }
           : {
             apiConfigId,
             agentId,
-            conversationId: currentConversationIdOrNull(),
+            conversationId: sourceConversationId,
           },
       });
       const activeConversationId = String(result.activeConversationId || "").trim();
-      if (activeConversationId && options.currentConversationId) {
+      if (action.lockForeground && activeConversationId && options.currentConversationId) {
         const previousConversationId = String(options.currentConversationId.value || "").trim();
         console.info("[CHAT] conversation switched", {
           previousConversationId,
@@ -133,7 +134,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       if (options.refreshUnarchivedConversations) {
         await options.refreshUnarchivedConversations();
       }
-      await loadAllMessages();
+      await loadAllMessages(action.lockForeground ? undefined : sourceConversationId);
     } catch (e) {
       const errText = String(e ?? "");
       if (errText.includes("活动对话已变化")) {
@@ -177,14 +178,15 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     });
   }
 
-  async function loadAllMessages() {
+  async function loadAllMessages(targetConversationId?: string | null) {
     if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
     const startedAt = options.perfNow();
     try {
+      const conversationId = String(targetConversationId || currentConversationIdOrNull() || "").trim() || null;
       const snapshot = await invokeTauri<{ messages: ChatMessage[] }>("get_foreground_conversation_light_snapshot", {
         input: {
           agentId: options.assistantDepartmentAgentId.value,
-          conversationId: currentConversationIdOrNull(),
+          conversationId,
           limit: FOREGROUND_SNAPSHOT_RECENT_LIMIT,
         },
       });

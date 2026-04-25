@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（manual-compaction-should-not-switch-foreground-conversation）：手动压缩沿用对话维护链路时，不再误消费归档语义下的 `activeConversationId` 切换前台会话；压缩完成后的消息刷新固定回到发起压缩的原会话，避免手动压缩后被错误跳回主会话
 ## 发布：v0.9.47
 
 - 修复（foreground-snapshot-readback-sync）：前台轻量快照在标记会话已读后，立即回填该会话最新的运行态与 Todo 真值；前端清除会话角标时也同步把未归档列表中的 `unreadCount` 归零，避免切入会话后红点已清但列表运行态或未读数仍短暂残留旧值
