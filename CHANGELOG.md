@@ -2,6 +2,8 @@
 
 ## 进行中
 
+## 发布：v0.9.47
+
 - 修复（foreground-snapshot-readback-sync）：前台轻量快照在标记会话已读后，立即回填该会话最新的运行态与 Todo 真值；前端清除会话角标时也同步把未归档列表中的 `unreadCount` 归零，避免切入会话后红点已清但列表运行态或未读数仍短暂残留旧值
 - 修复（chat-stop-follows-round-completed-source-of-truth）：聊天停止链路收口为“后端持久化停止结果并主动发出 round_completed，前端按普通完成事件统一收尾”的单一真源；前端 stop 成功后不再本地重复 finalize 或额外 reload，避免停止成功与外部完成事件并发时出现双收尾、状态闪烁或草稿被提前清空的问题
 - 优化（terminal-exec-response-slimming-and-chat-stream-debug-gate）：终端执行结果收口为前端当前真实使用的最小返回字段，不再重复携带 shell 路径、会话目录和审查上下文等大块调试信息；同时前台聊天流式重绑相关日志改为默认关闭的调试开关，减少正常使用时的控制台噪音，保留排查时按需开启的能力
@@ -13,6 +15,8 @@
 - 优化（chat-todo-floating-intent-label-and-report-closure-guide）：聊天窗口顶部悬浮待办条改为显示“{人格名} 打算{当前待办}”，直接暴露当前人格准备推进的下一步，降低用户把阶段汇报误判为卡住的概率；同时 `todo` 工具指南补充“最后一条通常应为向用户汇报结果的收尾步骤、汇报前必须先把已完成步骤和收尾待办划为 completed、阶段进展不要伪装成最终完成”的约束，推动 todo 状态与汇报时机保持闭合
 - 修复（chat-unread-backend-truth-source）：未归档会话未读数改由后端基于 `active_chat_view_bindings` 统一判定与维护；只要任一活跃聊天窗口正在查看目标会话，消息落库、助手追加与历史刷写等链路就不再继续累计未读，并在命中活跃视图时清理残留未读；前端移除本地 unread 自增/清零推测逻辑，改为只消费后端返回的 overview/snapshot 真值，修复当前窗口或独立聊天窗口正在阅读时仍被错误增加未读的问题
 - 修复（terminal-approval-smart-review-allow-pass-through）：终端审查链路改为收缩本地 Git 硬拦截范围，普通 `git commit/pull/fetch/merge/rebase/checkout/switch/restore/stash/apply` 不再在本地规则层直接拒绝；`approval` 目录下的 `shell_exec` 智能审查提示词补齐“白名单外但明显无副作用”判定方法，测试/检查/编译校验命令与仅输出到终端的 `curl/wget/Invoke-WebRequest` 可由模型直接返回 `allow=true` 放行，而写文件、下载落盘、重定向写文件、管道执行脚本与无法确认副作用的命令返回 `allow=false`；同时终端后处理改为在 `approval` 下尊重模型 `allow=true` 结果，避免模型已判安全后仍再次弹用户审批
+- 发布（release-0.9.47）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.47`，纳入本轮会话内终端审批、流式停止收口、未读真值同步、副手部门启动自检与终端执行返回瘦身等更新
+
 
 ## 发布：v0.9.46
 
