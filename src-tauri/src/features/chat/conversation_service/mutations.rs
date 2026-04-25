@@ -532,7 +532,7 @@ impl ConversationService {
             conversation.messages.push(message.clone());
             conversation.updated_at = message.created_at.clone();
             conversation.last_assistant_at = Some(message.created_at.clone());
-            increment_conversation_unread_count(conversation, 1);
+            self.increment_conversation_unread_count_if_background(state, conversation, 1);
             Ok(())
         })
     }

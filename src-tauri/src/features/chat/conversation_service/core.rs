@@ -1,4 +1,41 @@
 impl ConversationService {
+    fn conversation_has_active_chat_view(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> bool {
+        let target = conversation_id.trim();
+        if target.is_empty() {
+            return false;
+        }
+        state
+            .active_chat_view_bindings
+            .lock()
+            .map(|bindings| {
+                bindings.values().any(|binding| {
+                    let bound = binding.conversation_id.trim();
+                    !bound.is_empty() && bound != "*" && bound == target
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn increment_conversation_unread_count_if_background(
+        &self,
+        state: &AppState,
+        conversation: &mut Conversation,
+        count: usize,
+    ) {
+        if count == 0 {
+            return;
+        }
+        if self.conversation_has_active_chat_view(state, &conversation.id) {
+            clear_conversation_unread_count(conversation);
+            return;
+        }
+        increment_conversation_unread_count(conversation, count);
+    }
+
     fn remote_im_runtime_state_should_cache_blocks(
         &self,
         runtime_state: &RemoteImContactRuntimeState,

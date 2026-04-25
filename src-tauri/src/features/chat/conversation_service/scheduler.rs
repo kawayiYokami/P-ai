@@ -34,6 +34,8 @@ impl ConversationService {
 
         let last_archive_summary = scheduler_last_archive_summary_cached(state)?;
         let persisted_batch_messages = write_persisted_message_batch(
+            self,
+            state,
             &mut conversation,
             conversation_id,
             events,
@@ -81,6 +83,8 @@ fn scheduler_last_archive_summary_cached(state: &AppState) -> Result<Option<Stri
 }
 
 fn write_persisted_message_batch(
+    service: &ConversationService,
+    state: &AppState,
     conversation: &mut Conversation,
     conversation_id: &str,
     events: &[ChatPendingEvent],
@@ -116,6 +120,8 @@ fn write_persisted_message_batch(
 
     for (event, prepared_messages) in events.iter().zip(prepared_batches.into_iter()) {
         append_prepared_messages_to_conversation(
+            service,
+            state,
             conversation,
             conversation_id,
             event,
@@ -128,6 +134,8 @@ fn write_persisted_message_batch(
 }
 
 fn append_prepared_messages_to_conversation(
+    service: &ConversationService,
+    state: &AppState,
     conversation: &mut Conversation,
     conversation_id: &str,
     event: &ChatPendingEvent,
@@ -161,7 +169,7 @@ fn append_prepared_messages_to_conversation(
             _ => {}
         }
         conversation.messages.push(persisted);
-        increment_conversation_unread_count(conversation, 1);
+        service.increment_conversation_unread_count_if_background(state, conversation, 1);
         persisted_batch_messages.push(persisted_for_event);
     }
 }

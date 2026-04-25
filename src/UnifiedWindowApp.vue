@@ -2567,49 +2567,9 @@ function clearConversationBadge(conversationId: string) {
   backgroundConversationBadgeMap.value = next;
 }
 
-function clearLocalUnreadCount(conversationId: string) {
-  const cid = String(conversationId || "").trim();
-  if (!cid) return;
-  let changed = false;
-  const nextItems = unarchivedConversations.value.map((item) => {
-    if (String(item.conversationId || "").trim() !== cid || Number(item.unreadCount || 0) <= 0) {
-      return item;
-    }
-    changed = true;
-    return {
-      ...item,
-      unreadCount: 0,
-    };
-  });
-  if (changed) {
-    unarchivedConversations.value = nextItems;
-  }
-}
-
-function incrementLocalUnreadCount(conversationId: string, count = 1) {
-  const cid = String(conversationId || "").trim();
-  const delta = Math.max(0, Math.floor(Number(count) || 0));
-  if (!cid || delta <= 0 || cid === String(currentChatConversationId.value || "").trim()) return;
-  let changed = false;
-  const nextItems = unarchivedConversations.value.map((item) => {
-    if (String(item.conversationId || "").trim() !== cid) {
-      return item;
-    }
-    changed = true;
-    return {
-      ...item,
-      unreadCount: Math.max(0, Number(item.unreadCount || 0)) + delta,
-    };
-  });
-  if (changed) {
-    unarchivedConversations.value = nextItems;
-  }
-}
-
 function applyConversationOverviewAppendedMessage(
   conversationId: string,
   message: ChatMessage,
-  options?: { incrementUnread?: boolean },
 ) {
   const cid = String(conversationId || "").trim();
   const messageId = String(message?.id || "").trim();
@@ -2629,9 +2589,7 @@ function applyConversationOverviewAppendedMessage(
     return {
       ...item,
       messageCount: Math.max(0, Number(item.messageCount || 0)) + 1,
-      unreadCount: options?.incrementUnread
-        ? Math.max(0, Number(item.unreadCount || 0)) + 1
-        : Number(item.unreadCount || 0),
+      unreadCount: Number(item.unreadCount || 0),
       updatedAt: messageAt || item.updatedAt,
       lastMessageAt: messageAt || item.lastMessageAt,
       previewMessages: [...existingPreviewMessages, preview].slice(-2),
@@ -2878,7 +2836,6 @@ async function applyConversationMessagesAfterSynced(payload: ConversationMessage
     foregroundTailLatestReady.value = true;
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    clearLocalUnreadCount(conversationId);
     if (
       requestId
       && requestId === pendingManualScrollToBottomRequestId
@@ -2911,7 +2868,7 @@ function applyConversationMessageAppended(payload?: ConversationMessageAppendedP
   const currentConversationId = String(currentChatConversationId.value || "").trim();
   if (conversationId !== currentConversationId) {
     if (!messageAlreadyCached) {
-      applyConversationOverviewAppendedMessage(conversationId, message, { incrementUnread: true });
+      applyConversationOverviewAppendedMessage(conversationId, message);
     }
     setConversationBadge(conversationId, "completed");
     return;
@@ -2955,7 +2912,6 @@ function applyConversationSnapshot(snapshot: SwitchConversationSnapshot) {
   if (Array.isArray(snapshot.unarchivedConversations)) {
     unarchivedConversations.value = snapshot.unarchivedConversations;
   }
-  clearLocalUnreadCount(nextConversationId);
   if (nextRuntimeState === "assistant_streaming") {
     maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
   }
@@ -3812,9 +3768,7 @@ onMounted(() => {
       }
       if (!assistantMessageId || !messageAlreadyCached) {
           if (assistantMessage && assistantMessageId) {
-            applyConversationOverviewAppendedMessage(payloadConversationId, assistantMessage, { incrementUnread: true });
-          } else {
-            incrementLocalUnreadCount(payloadConversationId);
+            applyConversationOverviewAppendedMessage(payloadConversationId, assistantMessage);
           }
       }
         setConversationBadge(payloadConversationId, "completed");

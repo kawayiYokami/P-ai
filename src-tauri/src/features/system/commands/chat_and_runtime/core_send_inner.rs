@@ -156,6 +156,7 @@ fn write_retrieved_memory_ids_into_provider_meta(
 }
 
 fn append_user_message_to_conversation(
+    state: &AppState,
     mut conversation: Conversation,
     user_message: ChatMessage,
     now: &str,
@@ -163,7 +164,11 @@ fn append_user_message_to_conversation(
     conversation.messages.push(user_message);
     conversation.updated_at = now.to_string();
     conversation.last_user_at = Some(now.to_string());
-    increment_conversation_unread_count(&mut conversation, 1);
+    conversation_service().increment_conversation_unread_count_if_background(
+        state,
+        &mut conversation,
+        1,
+    );
     conversation
 }
 
@@ -1984,6 +1989,7 @@ async fn send_chat_message_inner(
                 mcp_call: None,
             };
             let updated_conversation = append_user_message_to_conversation(
+                &state,
                 snapshot.storage_conversation_before.clone(),
                 user_message,
                 &now,
