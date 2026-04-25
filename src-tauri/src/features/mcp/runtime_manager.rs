@@ -1,8 +1,136 @@
 type DynamicMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
 
+struct McpConnectedClient {
+    client: DynamicMcpClient,
+    process_tree_guard: Option<McpProcessTreeGuard>,
+}
+
 struct CachedMcpClient {
     definition_json: String,
     client: DynamicMcpClient,
+    process_tree_guard: Option<McpProcessTreeGuard>,
+}
+
+#[cfg(target_os = "windows")]
+struct McpProcessTreeGuard(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(not(target_os = "windows"))]
+struct McpProcessTreeGuard;
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for McpProcessTreeGuard {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for McpProcessTreeGuard {}
+
+#[cfg(target_os = "windows")]
+impl Drop for McpProcessTreeGuard {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+
+        if !self.0.is_null() {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn mcp_create_windows_job_kill_on_close(pid: u32) -> Result<McpProcessTreeGuard, String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        SetInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    };
+
+    struct ProcessHandleGuard(HANDLE);
+    impl Drop for ProcessHandleGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    let _ = CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    if job.is_null() {
+        return Err("CreateJobObjectW failed".to_string());
+    }
+    let job_guard = McpProcessTreeGuard(job);
+
+    let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    let set_ok = unsafe {
+        SetInformationJobObject(
+            job_guard.0,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+    if set_ok == 0 {
+        return Err("SetInformationJobObject failed".to_string());
+    }
+
+    let process = unsafe {
+        OpenProcess(
+            PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    if process.is_null() {
+        return Err(format!("OpenProcess failed for pid={pid}"));
+    }
+    let process_guard = ProcessHandleGuard(process);
+
+    let assign_ok = unsafe { AssignProcessToJobObject(job_guard.0, process_guard.0) };
+    if assign_ok == 0 {
+        return Err(format!("AssignProcessToJobObject failed for pid={pid}"));
+    }
+
+    drop(process_guard);
+    Ok(job_guard)
+}
+
+#[cfg(target_os = "windows")]
+fn mcp_try_attach_windows_process_tree_guard(
+    transport: &rmcp::transport::TokioChildProcess,
+    parsed: &ParsedMcpServerDefinition,
+) -> Option<McpProcessTreeGuard> {
+    let Some(pid) = transport.id() else {
+        eprintln!(
+            "[MCP] Windows 进程树托管跳过：未取得子进程 pid，command={:?}",
+            parsed.command
+        );
+        return None;
+    };
+
+    match mcp_create_windows_job_kill_on_close(pid) {
+        Ok(guard) => Some(guard),
+        Err(err) => {
+            eprintln!(
+                "[MCP] Windows 进程树托管失败：pid={}，command={:?}，error={}",
+                pid, parsed.command, err
+            );
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn mcp_try_attach_windows_process_tree_guard(
+    _transport: &rmcp::transport::TokioChildProcess,
+    _parsed: &ParsedMcpServerDefinition,
+) -> Option<McpProcessTreeGuard> {
+    None
 }
 
 #[derive(Clone)]
@@ -569,7 +697,7 @@ fn mcp_connect_stdio_command(parsed: &ParsedMcpServerDefinition) -> Result<tokio
     Ok(cmd)
 }
 
-async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<DynamicMcpClient, String> {
+async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<McpConnectedClient, String> {
     match parsed.transport {
         McpTransportKind::Stdio => {
             let cmd = mcp_connect_stdio_command(parsed)?;
@@ -577,6 +705,7 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
                 .stderr(std::process::Stdio::piped())
                 .spawn()
                 .map_err(|err| format!("Start MCP stdio child process failed: {err}"))?;
+            let process_tree_guard = mcp_try_attach_windows_process_tree_guard(&transport, parsed);
 
             let stderr_cache = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<u8>::new()));
             if let Some(mut stderr_pipe) = stderr_opt {
@@ -603,7 +732,10 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
             }
 
             match ().serve(transport).await {
-                Ok(client) => Ok(client),
+                Ok(client) => Ok(McpConnectedClient {
+                    client,
+                    process_tree_guard,
+                }),
                 Err(err) => {
                     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
                     let stderr_text = {
@@ -680,6 +812,10 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<Dynami
                 rmcp::transport::StreamableHttpClientTransport::with_client(custom_client, config);
             ().serve(transport)
                 .await
+                .map(|client| McpConnectedClient {
+                    client,
+                    process_tree_guard: None,
+                })
                 .map_err(|err| format!("Connect MCP streamable HTTP server failed: {err}"))
         }
     }
@@ -697,38 +833,51 @@ async fn mcp_get_or_connect_client(server: &McpServerConfig) -> Result<(), Strin
     }
 
     let parsed = parse_mcp_server_definition_from_config(server)?;
-    let client = mcp_connect_client(&parsed).await?;
-    let mut old_to_cancel: Option<DynamicMcpClient> = None;
+    let connected = mcp_connect_client(&parsed).await?;
+    let mut old_cached: Option<CachedMcpClient> = None;
 
     let cache = mcp_client_cache();
     let mut guard = cache.lock().await;
     if let Some(old) = guard.remove(&server.id) {
-        old_to_cancel = Some(old.client);
+        old_cached = Some(old);
     }
     guard.insert(
         server.id.clone(),
         CachedMcpClient {
             definition_json: server.definition_json.clone(),
-            client,
+            client: connected.client,
+            process_tree_guard: connected.process_tree_guard,
         },
     );
     drop(guard);
-    if let Some(old) = old_to_cancel {
-        let _ = old.cancel().await;
+    if let Some(old) = old_cached {
+        let CachedMcpClient {
+            client,
+            process_tree_guard,
+            ..
+        } = old;
+        let _ = client.cancel().await;
+        drop(process_tree_guard);
     }
     Ok(())
 }
 
 async fn mcp_disconnect_cached_client(server_id: &str) {
-    let mut old_to_cancel: Option<DynamicMcpClient> = None;
+    let mut old_cached: Option<CachedMcpClient> = None;
     let cache = mcp_client_cache();
     let mut guard = cache.lock().await;
     if let Some(old) = guard.remove(server_id) {
-        old_to_cancel = Some(old.client);
+        old_cached = Some(old);
     }
     drop(guard);
-    if let Some(old) = old_to_cancel {
-        let _ = old.cancel().await;
+    if let Some(old) = old_cached {
+        let CachedMcpClient {
+            client,
+            process_tree_guard,
+            ..
+        } = old;
+        let _ = client.cancel().await;
+        drop(process_tree_guard);
     }
 }
 

@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（mcp-windows-process-tree-cleanup）：Windows 下 stdio MCP 连接新增 Job Object 进程树托管，应用退出、断开连接或异常崩溃后会随句柄关闭一起回收整棵 MCP 子进程树，避免 `cmd /C -> npx/node` 链残留后台驻留
+
 ## 发布：v0.9.45
 
 - 功能（deepseek-kimi-protocol-and-reasoning-roundtrip）：API 供应商新增 `DeepSeek / Kimi` 协议选项与常见供应商预设，按 OpenAI-compatible 链路接入聊天、工具调用、视觉描述、模型列表刷新、推理网关与部门模型过滤；DeepSeek/Kimi 工具调用续轮会捕获并回传 assistant `reasoning_content`，即使为空也保留字段，避免工具调用后的 thinking-mode 上下文丢失
