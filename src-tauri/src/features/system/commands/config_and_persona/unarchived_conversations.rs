@@ -43,13 +43,20 @@ fn get_foreground_conversation_light_snapshot(
         .limit
         .unwrap_or(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT)
         .clamp(1, 50);
-    let snapshot = conversation_service().read_foreground_snapshot(
+    let mut snapshot = conversation_service().read_foreground_snapshot(
         state.inner(),
         input.conversation_id.as_deref(),
         input.agent_id.as_deref(),
         recent_limit,
     )?;
-    conversation_service().mark_conversation_read(state.inner(), &snapshot.conversation_id)?;
+    if let Some(conversation) = conversation_service()
+        .mark_conversation_read(state.inner(), &snapshot.conversation_id)?
+        .conversation
+    {
+        snapshot.runtime_state = unarchived_conversation_runtime_state(state.inner(), &conversation.id);
+        snapshot.current_todo = conversation_current_todo_text(&conversation);
+        snapshot.current_todos = conversation.current_todos;
+    }
     runtime_log_info(format!(
         "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",
         snapshot.conversation_id,

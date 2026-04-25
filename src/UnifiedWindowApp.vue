@@ -2563,10 +2563,26 @@ function inferHasMoreHistoryFromSnapshot(messages: ChatMessage[]): boolean {
 
 function clearConversationBadge(conversationId: string) {
   const cid = String(conversationId || "").trim();
-  if (!cid || !backgroundConversationBadgeMap.value[cid]) return;
-  const next = { ...backgroundConversationBadgeMap.value };
-  delete next[cid];
-  backgroundConversationBadgeMap.value = next;
+  if (!cid) return;
+  const hasBackgroundBadge = !!backgroundConversationBadgeMap.value[cid];
+  if (hasBackgroundBadge) {
+    const next = { ...backgroundConversationBadgeMap.value };
+    delete next[cid];
+    backgroundConversationBadgeMap.value = next;
+  }
+  let changed = false;
+  const nextItems = unarchivedConversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== cid) return item;
+    if (Math.max(0, Number(item.unreadCount || 0)) <= 0) return item;
+    changed = true;
+    return {
+      ...item,
+      unreadCount: 0,
+    };
+  });
+  if (changed) {
+    unarchivedConversations.value = nextItems;
+  }
 }
 
 function applyConversationOverviewAppendedMessage(

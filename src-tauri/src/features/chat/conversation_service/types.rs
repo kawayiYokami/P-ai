@@ -80,6 +80,10 @@ struct SwitchActiveConversationSnapshotMutationResult {
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
 }
 
+struct MarkConversationReadResult {
+    conversation: Option<Conversation>,
+}
+
 struct RewindConversationMutationResult {
     conversation_id: String,
     removed_count: usize,

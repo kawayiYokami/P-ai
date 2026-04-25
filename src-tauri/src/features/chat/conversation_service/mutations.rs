@@ -47,7 +47,7 @@ impl ConversationService {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let (target_conversation, created_new_conversation) =
+        let (mut target_conversation, created_new_conversation) =
             if let Some(conversation_id) = requested_conversation_id {
                 let conversation = state_read_conversation_cached(state, conversation_id)
                     .ok()
@@ -95,8 +95,11 @@ impl ConversationService {
             };
         let target_conversation_id = target_conversation.id.clone();
         ensure_unarchived_conversation_not_organizing(state, &target_conversation_id)?;
+        clear_conversation_unread_count(&mut target_conversation);
         if created_new_conversation {
             state_schedule_conversation_persist(state, &target_conversation, true)?;
+        } else {
+            state_schedule_conversation_persist(state, &target_conversation, false)?;
         }
         if runtime.main_conversation_id.as_deref().map(str::trim)
             != Some(target_conversation_id.as_str())
@@ -538,10 +541,16 @@ impl ConversationService {
     }
 
 
-    fn mark_conversation_read(&self, state: &AppState, conversation_id: &str) -> Result<(), String> {
+    fn mark_conversation_read(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Result<MarkConversationReadResult, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
-            return Ok(());
+            return Ok(MarkConversationReadResult {
+                conversation: None,
+            });
         }
         let guard = state
             .conversation_lock
@@ -555,16 +564,23 @@ impl ConversationService {
                     normalized_conversation_id, err
                 ));
                 drop(guard);
-                return Ok(());
+                return Ok(MarkConversationReadResult {
+                    conversation: None,
+                });
             }
         };
         if !clear_conversation_unread_count(&mut conversation) {
             drop(guard);
-            return Ok(());
+            return Ok(MarkConversationReadResult {
+                conversation: Some(conversation),
+            });
         }
         state_schedule_conversation_persist(state, &conversation, false)?;
+        let result_conversation = conversation.clone();
         drop(guard);
-        Ok(())
+        Ok(MarkConversationReadResult {
+            conversation: Some(result_conversation),
+        })
     }
 
     fn rename_unarchived_conversation(

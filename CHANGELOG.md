@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（foreground-snapshot-readback-sync）：前台轻量快照在标记会话已读后，立即回填该会话最新的运行态与 Todo 真值；前端清除会话角标时也同步把未归档列表中的 `unreadCount` 归零，避免切入会话后红点已清但列表运行态或未读数仍短暂残留旧值
 - 修复（chat-stop-follows-round-completed-source-of-truth）：聊天停止链路收口为“后端持久化停止结果并主动发出 round_completed，前端按普通完成事件统一收尾”的单一真源；前端 stop 成功后不再本地重复 finalize 或额外 reload，避免停止成功与外部完成事件并发时出现双收尾、状态闪烁或草稿被提前清空的问题
 - 优化（terminal-exec-response-slimming-and-chat-stream-debug-gate）：终端执行结果收口为前端当前真实使用的最小返回字段，不再重复携带 shell 路径、会话目录和审查上下文等大块调试信息；同时前台聊天流式重绑相关日志改为默认关闭的调试开关，减少正常使用时的控制台噪音，保留排查时按需开启的能力
 - 修复（startup-deputy-department-agent-self-check）：启动期新增副手部门人格自检；若内置副手部门或副手部门被错误写成默认人格，会在启动时自动修正回副手人格并写回配置，避免聊天发送阶段因为“部门未分配该人格”直接报错；同时发送链路补充更明确的中文错误提示，直接指出异常部门与人格，方便用户回到设置页修正
