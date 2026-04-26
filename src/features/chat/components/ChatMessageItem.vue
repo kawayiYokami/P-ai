@@ -351,6 +351,17 @@
             </div>
           </div>
           <div
+            v-else
+            class="chat-bubble self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble ecall-assistant-loading-bubble max-w-full"
+          >
+            <span class="ecall-assistant-loading-dots" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            <span class="sr-only">{{ streamingHeaderStatus || t("chat.statusWaitingReply") }}</span>
+          </div>
+          <div
             :class="[
               'chat-footer ecall-message-footer flex h-6 items-center gap-1.5 transition-opacity',
               selectionModeEnabled
@@ -1330,5 +1341,47 @@ function openResolvedImagePreview(
   display: block;
   width: 100%;
   max-width: none;
+}
+
+.ecall-assistant-loading-bubble {
+  min-width: 3.25rem;
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.9rem;
+}
+
+.ecall-assistant-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.ecall-assistant-loading-dots span {
+  width: 0.36rem;
+  height: 0.36rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-base-content) 62%, transparent);
+  animation: ecall-assistant-loading-dot 1.1s ease-in-out infinite;
+}
+
+.ecall-assistant-loading-dots span:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.ecall-assistant-loading-dots span:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes ecall-assistant-loading-dot {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-0.16rem);
+  }
 }
 </style>
