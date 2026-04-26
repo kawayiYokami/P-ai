@@ -987,6 +987,8 @@
         "generateReviewReport": "Generate review report",
         "viewReviewReport": "View review report",
         "generatingReviewReport": "Generating review report...",
+        "copyReport": "Copy",
+        "attachReport": "Attach to input",
         "reportUnavailable": "No review report is available yet.",
         "regenerateReport": "Regenerate report",
         "reportTitle": "Final submission review",

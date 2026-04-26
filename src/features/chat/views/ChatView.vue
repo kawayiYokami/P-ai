@@ -423,6 +423,8 @@
         @review-item="runToolReviewForCall"
         @review-batch="runToolReviewForBatch"
         @submit-batch="submitToolReviewBatch"
+        @copy-report="copyToolReviewReport"
+        @attach-report="$emit('attachToolReviewReport', $event)"
       />
     </div>
   </div>
@@ -770,6 +772,7 @@ const emit = defineEmits<{
   (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
+  (e: "attachToolReviewReport", reportText: string): void;
   (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
@@ -1598,6 +1601,16 @@ async function copySelectedMessages() {
       ...payload,
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+}
+
+async function copyToolReviewReport(reportText: string) {
+  const text = String(reportText || "").trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // 剪贴板失败不阻断报告查看。
   }
 }
 

@@ -982,6 +982,8 @@
         "generateReviewReport": "生成审查报告",
         "viewReviewReport": "查看审查报告",
         "generatingReviewReport": "正在生成审查报告...",
+        "copyReport": "复制",
+        "attachReport": "附加到输入面板",
         "reportUnavailable": "当前还没有审查报告。",
         "regenerateReport": "重新生成审查报告",
         "reportTitle": "最终提交审查",

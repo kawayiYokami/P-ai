@@ -195,6 +195,7 @@
         @selection-action-branch="onBranchConversationFromSelection($event)"
         @selection-action-forward="onForwardConversationFromSelection($event)"
         @selection-action-share="openSelectionShareDialog($event)"
+        @attach-tool-review-report="attachToolReviewReport"
         @lock-workspace="onLockChatWorkspace"
         @open-supervision-task="openSupervisionTaskDialog"
         @detach-conversation="handleDetachConversation"
@@ -428,6 +429,7 @@ const props = defineProps<{
   checkingUpdate: boolean;
   hasAvailableUpdate: boolean;
   setStatus: (text: string) => void;
+  attachToolReviewReport: (reportText: string) => void;
   userAlias: string;
   selectedPersonaName: string;
   userAvatarUrl: string;

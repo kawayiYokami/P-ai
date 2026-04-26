@@ -52,6 +52,20 @@ export function useChatMedia(options: UseChatMediaOptions) {
     return !!apiConfig.enableImage || options.hasVisionFallback.value;
   }
 
+  async function queueTextAttachment(fileName: string, text: string, mime = "text/markdown") {
+    const normalizedText = String(text || "");
+    if (!normalizedText.trim()) return;
+    const bytesBase64 = btoa(unescape(encodeURIComponent(normalizedText)));
+    const queued = await invokeTauri<QueuedLocalFileResult>("queue_inline_file_attachment", {
+      input: {
+        fileName: String(fileName || "").trim() || "attachment.md",
+        mime,
+        bytesBase64,
+      } as QueueInlineFileAttachmentInput,
+    });
+    applyQueuedAttachmentResult(queued, options.activeChatApiConfig.value || ({ enableImage: false } as ApiConfigItem));
+  }
+
   function classifyFileMime(
     mime: string,
     apiConfig: ApiConfigItem,
@@ -416,6 +430,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
     onDragOver,
     onDrop,
     onNativeFileDrop,
+    queueTextAttachment,
     removeClipboardImage,
     startHotkeyRecordTest,
     stopHotkeyRecordTest,

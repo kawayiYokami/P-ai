@@ -73,9 +73,11 @@
         <button
           type="button"
           class="btn btn-sm w-full"
+          :disabled="submitting"
           @click="handleReportAction"
         >
-          {{ t("chat.toolReview.viewReviewReport") }}
+          <span v-if="submitting" class="loading loading-spinner loading-xs"></span>
+          {{ reportActionLabel }}
         </button>
       </div>
     </div>
@@ -114,7 +116,25 @@
           :typewriter="false"
         />
       </div>
-      <div class="flex items-center justify-end gap-3 border-t border-base-300 px-4 py-3">
+      <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
+        <div class="flex items-center gap-3">
+          <button
+            v-if="currentBatch?.report"
+            type="button"
+            class="btn btn-sm"
+            @click="emit('copyReport', currentBatch.report.reportText)"
+          >
+            {{ t("chat.toolReview.copyReport") }}
+          </button>
+          <button
+            v-if="currentBatch?.report"
+            type="button"
+            class="btn btn-sm"
+            @click="emit('attachReport', currentBatch.report.reportText)"
+          >
+            {{ t("chat.toolReview.attachReport") }}
+          </button>
+        </div>
         <button
           v-if="currentBatch?.report"
           type="button"
@@ -193,10 +213,13 @@ const emit = defineEmits<{
   (e: "reviewItem", callId: string): void;
   (e: "reviewBatch", batchKey: string): void;
   (e: "submitBatch", batchKey: string): void;
+  (e: "copyReport", reportText: string): void;
+  (e: "attachReport", reportText: string): void;
 }>();
 
 const { t } = useI18n();
 const reportDialogOpen = ref(false);
+const pendingReportDialogBatchKey = ref("");
 const rootAttrs = useAttrs();
 
 const currentBatchIndex = computed(() => {
@@ -233,6 +256,13 @@ const batchReviewing = computed(() =>
 const submitting = computed(() =>
   !!currentBatch.value && props.submittingBatchKey === currentBatch.value.batchKey
 );
+
+const reportActionLabel = computed(() => {
+  if (submitting.value) return t("chat.toolReview.generatingReviewReport");
+  return currentBatch.value?.report
+    ? t("chat.toolReview.viewReviewReport")
+    : t("chat.toolReview.generateReviewReport");
+});
 
 type ToolReviewGroup = {
   key: string;
@@ -398,12 +428,24 @@ watch(() => props.currentBatchKey, () => {
   reportDialogOpen.value = false;
 });
 
+watch(
+  () => currentBatch.value?.report?.generatedAt || "",
+  (generatedAt) => {
+    if (!generatedAt || !currentBatch.value) return;
+    if (pendingReportDialogBatchKey.value !== currentBatch.value.batchKey) return;
+    pendingReportDialogBatchKey.value = "";
+    reportDialogOpen.value = true;
+  },
+);
+
 function handleReportAction() {
   if (!currentBatch.value) return;
-  reportDialogOpen.value = true;
-  if (!currentBatch.value.report) {
-    emit("submitBatch", currentBatch.value.batchKey);
+  if (currentBatch.value.report) {
+    reportDialogOpen.value = true;
+    return;
   }
+  pendingReportDialogBatchKey.value = currentBatch.value.batchKey;
+  emit("submitBatch", currentBatch.value.batchKey);
 }
 
 function closeReportDialog() {

@@ -981,6 +981,8 @@
         "generateReviewReport": "生成審查報告",
         "viewReviewReport": "查看審查報告",
         "generatingReviewReport": "正在生成審查報告...",
+        "copyReport": "複製",
+        "attachReport": "附加到輸入面板",
         "reportUnavailable": "目前還沒有審查報告。",
         "regenerateReport": "重新產生審查報告",
         "reportTitle": "最終提交審查",

@@ -202,6 +202,7 @@
       :set-memory-dialog-ref="setMemoryDialogRef"
       :set-prompt-preview-dialog-ref="setPromptPreviewDialogRef"
       :set-status="setStatus"
+      :attach-tool-review-report="attachToolReviewReport"
       :update-config-tab="(value) => { configTab = value; }"
       :set-ui-language="setUiLanguage"
       :update-persona-editor-id="updatePersonaEditorIdWithNotice"
@@ -1251,6 +1252,7 @@ const onPaste = chatMedia.onPaste;
 const onDragOver = chatMedia.onDragOver;
 const onDrop = chatMedia.onDrop;
 const onNativeFileDrop = chatMedia.onNativeFileDrop;
+const queueTextAttachment = chatMedia.queueTextAttachment;
 const removeClipboardImage = chatMedia.removeClipboardImage;
 const startHotkeyRecordTest = chatMedia.startHotkeyRecordTest;
 const stopHotkeyRecordTest = chatMedia.stopHotkeyRecordTest;
@@ -1263,6 +1265,15 @@ const { removeQueuedAttachmentNotice, pickChatAttachments } = useChatAttachmentP
   onNativeFileDrop,
   setStatusError,
 });
+
+async function attachToolReviewReport(reportText: string) {
+  try {
+    await queueTextAttachment("tool-review-report.md", reportText, "text/markdown");
+    status.value = "已附加审查报告";
+  } catch (error) {
+    setStatusError("status.pasteImageReadFailed", error);
+  }
+}
 const recordHotkey = useRecordHotkey({
   isActive: () => viewMode.value === "chat",
   getRecordHotkey: () => config.recordHotkey,
