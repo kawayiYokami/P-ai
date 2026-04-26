@@ -79,6 +79,9 @@ struct AppState {
     hidden_skill_snapshot_cache: Arc<Mutex<String>>,
     preferred_release_source: Arc<Mutex<String>>,
     migration_preview_dirs: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    /// 当前活跃的委托线程 conversation_id 集合。
+    /// 工具审批链路通过查表判断当前是否应跳过弹窗（有委托活跃 → 不弹窗，默认拒绝）。
+    delegate_active_ids: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -303,6 +306,7 @@ impl AppState {
             hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
             migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         })
     }
 }

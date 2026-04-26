@@ -147,6 +147,38 @@ fn emit_agent_work_signal(
         .map_err(|err| format!("Emit agent work signal failed: {err}"))
 }
 
+/// 委托线程进入时将 conversation_id 插入全局活跃表，离开时自动移除。
+/// 工具审批链路通过查表判断当前是否应跳过弹窗（表非空 → 不弹窗，默认拒绝）。
+struct NoApprovalDialogGuard<'a> {
+    state: &'a AppState,
+    conversation_id: String,
+}
+
+impl<'a> NoApprovalDialogGuard<'a> {
+    fn enter(state: &'a AppState, conversation_id: String) -> Self {
+        let mut ids = state
+            .delegate_active_ids
+            .lock()
+            .expect("delegate_active_ids poisoned");
+        ids.insert(conversation_id.clone());
+        Self {
+            state,
+            conversation_id,
+        }
+    }
+}
+
+impl<'a> Drop for NoApprovalDialogGuard<'a> {
+    fn drop(&mut self) {
+        let mut ids = self
+            .state
+            .delegate_active_ids
+            .lock()
+            .expect("delegate_active_ids poisoned");
+        ids.remove(&self.conversation_id);
+    }
+}
+
 async fn delegate_execute_agent_run(
     app_state: &AppState,
     delegate: &DelegateEntry,
@@ -199,6 +231,7 @@ async fn delegate_execute_agent_run(
         trigger_only: false,
     };
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));
+    let _guard = NoApprovalDialogGuard::enter(app_state, delegate_conversation_id.to_string());
     send_chat_message_inner(request, app_state, &noop_channel).await
 }
 

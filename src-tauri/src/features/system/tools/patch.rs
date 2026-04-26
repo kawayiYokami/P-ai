@@ -1047,6 +1047,22 @@ async fn builtin_apply_patch(
                         if !review.review_opinion.is_empty() {
                             lines.push(format!("审查意见: {}", review.review_opinion));
                         }
+                        if !state
+                            .delegate_active_ids
+                            .lock()
+                            .map(|ids| ids.is_empty())
+                            .unwrap_or(false)
+                        {
+                            return Ok(serde_json::json!({
+                                "ok": false,
+                                "approved": false,
+                                "blockedReason": "delegate_denied_ai_reviewed_patch",
+                                "message": "子代理工具调用被自动拒绝（智能审查不通过）。",
+                                "toolReview": smart_review_history.clone(),
+                                "sessionId": normalized_session,
+                                "cwd": terminal_path_for_user(&cwd),
+                            }));
+                        }
                         let approved = match terminal_request_user_approval(
                             state,
                             "工具智能审查",
@@ -1097,6 +1113,22 @@ async fn builtin_apply_patch(
                         "modelName": model_name,
                         "rawContent": raw_json,
                     }));
+                    if !state
+                        .delegate_active_ids
+                        .lock()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(false)
+                    {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "delegate_denied_ai_review_raw_patch",
+                            "message": "子代理工具调用被自动拒绝（智能审查返回了不符合约定的结果）。",
+                            "toolReview": smart_review_history.clone(),
+                            "sessionId": normalized_session,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
                     let approved = match terminal_request_user_approval(
                         state,
                         "工具智能审查",
@@ -1174,6 +1206,21 @@ async fn builtin_apply_patch(
                         lines.push(format!("- {}", terminal_path_for_user(path)));
                     }
                 }
+                if !state
+                    .delegate_active_ids
+                    .lock()
+                    .map(|ids| ids.is_empty())
+                    .unwrap_or(false)
+                {
+                    return Ok(serde_json::json!({
+                        "ok": false,
+                        "approved": false,
+                        "blockedReason": "delegate_denied_apply_patch",
+                        "message": "子代理工具调用被自动拒绝（补丁执行需要审批）。",
+                        "sessionId": normalized_session,
+                        "cwd": terminal_path_for_user(&cwd),
+                    }));
+                }
                 let approved = match terminal_request_user_approval(
                     state,
                     "补丁执行审批",
@@ -1212,6 +1259,21 @@ async fn builtin_apply_patch(
             }
             ApplyPatchSafetyCheck::AutoApprove => {
                 if let Some(notice) = &smart_review_unavailable_notice {
+                    if !state
+                        .delegate_active_ids
+                        .lock()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(false)
+                    {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "delegate_denied_apply_patch_after_review_fallback",
+                            "message": "子代理工具调用被自动拒绝（审查模型不可用，降级后仍需审批）。",
+                            "sessionId": normalized_session,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
                     let approved = match terminal_request_user_approval(
                         state,
                         "补丁执行审批",

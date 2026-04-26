@@ -936,6 +936,24 @@ async fn builtin_shell_exec(
                         "modelName": model_name,
                         "rawContent": raw_json,
                     }));
+                    if !state
+                        .delegate_active_ids
+                        .lock()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(false)
+                    {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "delegate_denied_ai_review_raw_json_command",
+                            "message": "子代理工具调用被自动拒绝（智能审查返回了不符合约定的结果）。",
+                            "toolReview": smart_review_history.clone(),
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                        }));
+                    }
                     let approved = match terminal_request_user_approval(
                         state,
                         "工具智能审查",
@@ -1005,6 +1023,24 @@ async fn builtin_shell_exec(
             let mut lines = vec!["智能审查建议先由你确认后再执行。".to_string()];
             if !review.review_opinion.is_empty() {
                 lines.push(format!("审查意见: {}", review.review_opinion));
+            }
+            if !state
+                .delegate_active_ids
+                .lock()
+                .map(|ids| ids.is_empty())
+                .unwrap_or(false)
+            {
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "approved": false,
+                    "blockedReason": "delegate_denied_ai_reviewed_command",
+                    "message": "子代理工具调用被自动拒绝（智能审查不通过）。",
+                    "toolReview": smart_review_history.clone(),
+                    "sessionId": normalized_session,
+                    "rootPath": session_root_text,
+                    "workspacePath": workspace_path_text,
+                    "cwd": terminal_path_for_user(&cwd),
+                }));
             }
             let approved = match terminal_request_user_approval(
                 state,
@@ -1078,6 +1114,24 @@ async fn builtin_shell_exec(
                         terminal_path_for_user(&cwd)
                     );
                     let summary = format!("该命令将创建或改写 {} 个新路径。", count);
+                    if !state
+                        .delegate_active_ids
+                        .lock()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(false)
+                    {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "delegate_denied_write_risk_command",
+                            "message": "子代理工具调用被自动拒绝（存在写入风险且无审查模型）。",
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                            "command": cmd,
+                        }));
+                    }
                     let approved = match terminal_request_user_approval(
                         state,
                         "终端执行审批",
@@ -1135,6 +1189,24 @@ async fn builtin_shell_exec(
                         lines.push(format!("... 其余 {} 项已省略", paths.len() - 8));
                     }
                     let summary = format!("该命令将修改或删除 {} 个已有路径。", paths.len());
+                    if !state
+                        .delegate_active_ids
+                        .lock()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(false)
+                    {
+                        return Ok(serde_json::json!({
+                            "ok": false,
+                            "approved": false,
+                            "blockedReason": "delegate_denied_write_risk_command",
+                            "message": "子代理工具调用被自动拒绝（存在写入风险）。",
+                            "sessionId": normalized_session,
+                            "rootPath": session_root_text,
+                            "workspacePath": workspace_path_text,
+                            "cwd": terminal_path_for_user(&cwd),
+                            "command": cmd,
+                        }));
+                    }
                     let approved = match terminal_request_user_approval(
                         state,
                         "终端执行审批",
