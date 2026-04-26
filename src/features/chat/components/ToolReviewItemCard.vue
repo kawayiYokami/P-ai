@@ -7,7 +7,7 @@
           <div class="truncate text-sm">{{ title }}</div>
         </div>
         <div
-          class="badge badge-sm"
+          class="badge badge-sm min-w-14 shrink-0 justify-center whitespace-nowrap"
           :class="item.hasReview ? 'badge-primary' : 'badge-warning'"
         >
           {{ item.hasReview ? t("chat.toolReview.evaluated") : t("chat.toolReview.unevaluated") }}
@@ -85,10 +85,19 @@ const title = computed(() => {
     return String(props.item.command || "").trim() || t("chat.toolReview.terminalCommand");
   }
   if (props.item.toolName === "apply_patch") {
-    return patchOperationLabel(props.item.patchOperation);
+    const fileName = patchFileName();
+    const operation = patchOperationLabel(props.item.patchOperation);
+    return fileName ? `${operation} ${fileName}` : operation;
   }
   return props.item.toolName;
 });
+
+function patchFileName() {
+  const paths = Array.isArray(props.item.affectedPaths) ? props.item.affectedPaths : [];
+  if (paths.length !== 1) return "";
+  const normalized = String(paths[0] || "").replace(/\\/g, "/").trim();
+  return normalized.split("/").filter(Boolean).pop() || "";
+}
 
 function patchOperationLabel(operation?: string) {
   if (operation === "add") return t("chat.toolReview.patchOperationAdd");
