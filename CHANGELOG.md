@@ -3,6 +3,7 @@
 ## 进行中
 
 - 优化（chat-round-started-event-boundary）：聊天流式事件新增 `round_started` 作为助理轮次启动信号，`history_flushed` 收口为只表达“消息已落入正式历史”，前端不再依赖历史刷写事件推进等待态；同时抽取外部聊天事件 payload 序列化辅助函数并补充失败日志，避免 JSON 序列化异常被静默吞掉
+- 修复（guided-queue-after-tool-loop-close）：引导消息检查点移动到工具执行完成后的续调度分叉；命中引导时先闭合当前工具轮次并保留 assistant/tool 历史，再由外层引导队列插入消息并重开调度，避免在助理激活前提前消费引导消息或伪造助手文本污染历史
 
 ## 发布：v0.9.48
 

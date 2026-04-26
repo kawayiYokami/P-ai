@@ -1285,6 +1285,7 @@
                 conversation_id: "conversation-a".to_string(),
                 created_at: created_at.clone(),
                 source: ChatEventSource::RemoteIm,
+                queue_mode: ChatQueueMode::Normal,
                 messages: vec![test_text_message("user", "来自张三的第一条消息", &created_at)],
                 activate_assistant: true,
                 session_info: ChatSessionInfo {
@@ -1299,6 +1300,7 @@
                 conversation_id: "conversation-a".to_string(),
                 created_at: created_at.clone(),
                 source: ChatEventSource::RemoteIm,
+                queue_mode: ChatQueueMode::Normal,
                 messages: vec![test_text_message("user", "来自张三的第二条消息", &created_at)],
                 activate_assistant: true,
                 session_info: ChatSessionInfo {
@@ -1313,6 +1315,7 @@
                 conversation_id: "conversation-a".to_string(),
                 created_at: created_at.clone(),
                 source: ChatEventSource::RemoteIm,
+                queue_mode: ChatQueueMode::Normal,
                 messages: vec![test_text_message("user", "来自李四的消息", &created_at)],
                 activate_assistant: true,
                 session_info: ChatSessionInfo {
@@ -1327,6 +1330,7 @@
                 conversation_id: "conversation-a".to_string(),
                 created_at,
                 source: ChatEventSource::User,
+                queue_mode: ChatQueueMode::Normal,
                 messages: vec![test_text_message("user", "普通用户消息", &now_iso())],
                 activate_assistant: true,
                 session_info: ChatSessionInfo {

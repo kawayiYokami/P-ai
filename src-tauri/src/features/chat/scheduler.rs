@@ -425,6 +425,19 @@ fn conversation_has_guided_queue_events(
         .unwrap_or(false))
 }
 
+fn tool_loop_should_close_for_guided_queue(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+) -> bool {
+    let Some(state) = state else {
+        return false;
+    };
+    let Some(context) = context else {
+        return false;
+    };
+    conversation_has_guided_queue_events(state, &context.conversation_id).unwrap_or(false)
+}
+
 // ==================== 队列管理函数 ====================
 
 pub(crate) fn ingress_chat_event(

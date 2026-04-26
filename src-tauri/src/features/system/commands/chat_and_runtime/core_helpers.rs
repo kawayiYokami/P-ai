@@ -137,6 +137,7 @@ fn model_reply_has_visible_content(reply: &ModelReply) -> bool {
         || !reply.reasoning_standard.trim().is_empty()
         || !reply.reasoning_inline.trim().is_empty()
         || reply.assistant_provider_meta.is_some()
+        || !reply.tool_history_events.is_empty()
         || reply.suppress_assistant_message
 }
 

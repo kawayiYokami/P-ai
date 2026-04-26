@@ -130,6 +130,24 @@ fn append_tool_loop_transient_history_to_prepared(
     normalize_prepared_history_messages_in_place(prepared);
 }
 
+fn tool_loop_guided_close_reply(
+    reasoning_standard: String,
+    tool_history_events: Vec<Value>,
+    trusted_input_tokens: Option<u64>,
+) -> ModelReply {
+    ModelReply {
+        assistant_text: String::new(),
+        reasoning_standard,
+        reasoning_inline: String::new(),
+        assistant_provider_meta: Some(serde_json::json!({
+            "dispatchCloseReason": "guided_queue_ready"
+        })),
+        tool_history_events,
+        suppress_assistant_message: false,
+        trusted_input_tokens,
+    }
+}
+
 fn send_text_delta_event(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     text: &str,
@@ -1065,6 +1083,18 @@ async fn run_genai_tool_loop(
                 &tool_history_events,
             );
 
+            if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
+                runtime_log_info(format!(
+                    "[引导投送] 工具轮次完成后闭合当前调度: session={}, tool_name={}",
+                    chat_session_key, tool_name
+                ));
+                return Ok(tool_loop_guided_close_reply(
+                    full_reasoning_standard,
+                    tool_history_events,
+                    trusted_input_tokens,
+                ));
+            }
+
             if organize_context_succeeded(&tool_name, &tool_result_text) {
                 return Ok(ModelReply {
                     assistant_text: String::new(),
@@ -1513,6 +1543,18 @@ async fn run_genai_tool_loop_non_stream(
                 "content": history_content
             }));
 
+            if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
+                runtime_log_info(format!(
+                    "[引导投送] 工具轮次完成后闭合当前非流式调度: session={}, tool_name={}",
+                    chat_session_key, tool_name
+                ));
+                return Ok(tool_loop_guided_close_reply(
+                    full_reasoning_standard,
+                    tool_history_events,
+                    trusted_input_tokens,
+                ));
+            }
+
             if organize_context_succeeded(&tool_name, &tool_result_text) {
                 return Ok(ModelReply {
                     assistant_text: String::new(),
@@ -1802,6 +1844,25 @@ mod tool_loop_tests {
         assert!(history_content.contains("absolute_path_not_granted"));
         assert!(history_content.contains("已配置工作目录"));
         assert!(!history_content.contains("本轮调度已终止"));
+    }
+
+    #[test]
+    fn guided_close_reply_should_be_visible_model_reply_with_tool_history() {
+        let reply = tool_loop_guided_close_reply(
+            String::new(),
+            vec![serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "{\"ok\":true}"
+            })],
+            Some(12),
+        );
+
+        assert!(model_reply_has_visible_content(&reply));
+        assert!(reply.assistant_text.is_empty());
+        assert_eq!(reply.tool_history_events.len(), 1);
+        assert_eq!(reply.trusted_input_tokens, Some(12));
+        assert!(reply.assistant_provider_meta.is_some());
     }
 
     #[test]
