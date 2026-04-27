@@ -464,7 +464,7 @@ fn remote_im_prepare_enqueue_runtime_state(
                 )
             } else if runtime.work_state == RemoteImWorkState::Busy {
                 runtime.has_pending = true;
-                (true, "present + busy，新消息标记待办".to_string())
+                (false, "present + busy，新消息标记待办，等待当前轮次收尾续跑".to_string())
             } else {
                 (true, "present + idle，等待本轮调度".to_string())
             }

@@ -857,6 +857,41 @@
     }
 
     #[test]
+    fn remote_im_prepare_enqueue_runtime_state_should_mark_pending_without_activation_when_busy() {
+        let state = remote_im_test_state();
+        let contact = remote_im_test_contact("contact-a", "conversation-a");
+
+        {
+            let mut runtime_states =
+                lock_remote_im_contact_runtime_states(&state).expect("lock runtime states");
+            runtime_states.insert(
+                "contact-a".to_string(),
+                RemoteImContactRuntimeState {
+                    presence_state: RemoteImPresenceState::Present,
+                    work_state: RemoteImWorkState::Busy,
+                    has_pending: false,
+                    last_success_reply_at: Some(now_iso()),
+                    needs_boundary: false,
+                    consecutive_no_reply_count: 0,
+                },
+            );
+        }
+
+        let (activate_assistant, reason) =
+            remote_im_prepare_enqueue_runtime_state(&state, &contact, "请补充这条信息")
+                .expect("prepare runtime state");
+
+        assert!(!activate_assistant);
+        assert!(reason.contains("待办"));
+        let runtime_states =
+            lock_remote_im_contact_runtime_states(&state).expect("lock runtime states");
+        let runtime = runtime_states.get("contact-a").expect("runtime exists");
+        assert_eq!(runtime.presence_state, RemoteImPresenceState::Present);
+        assert_eq!(runtime.work_state, RemoteImWorkState::Busy);
+        assert!(runtime.has_pending);
+    }
+
+    #[test]
     fn remote_im_finalize_round_completion_should_leave_after_patience_exhausted() {
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-a", "conversation-a");
