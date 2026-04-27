@@ -69,11 +69,8 @@
             暂无审查报告
           </div>
         </div>
-        <div v-else class="flex min-h-0 flex-1 flex-col overflow-y-auto py-2">
-          <section v-for="report in pagedReports" :key="report.id" class="flex flex-col gap-2">
-            <div class="px-4 text-xs font-medium text-base-content/60">
-              {{ formatReportScope(report.scope) }}
-            </div>
+        <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
+          <section v-for="report in pagedReports" :key="report.id">
             <details class="collapse collapse-arrow w-full rounded-box border border-base-300 bg-base-200">
               <summary class="collapse-title min-h-0 px-3 py-3 pr-10">
                 <div class="flex items-center justify-between gap-3">
