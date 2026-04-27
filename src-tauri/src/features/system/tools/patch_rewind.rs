@@ -4,7 +4,6 @@
 struct RewindApplyPatchRecord {
     tool_call_id: String,
     input: String,
-    session_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +30,6 @@ fn parse_apply_patch_tool_args(raw_args: &str) -> Option<ApplyPatchToolArgs> {
     if trimmed.starts_with("*** Begin Patch") {
         return Some(ApplyPatchToolArgs {
             input: trimmed.to_string(),
-            session_id: None,
         });
     }
     None
@@ -46,7 +44,7 @@ fn apply_patch_tool_result_is_success(content: &str) -> bool {
 }
 
 fn collect_rewind_apply_patch_records(removed_messages: &[ChatMessage]) -> Vec<RewindApplyPatchRecord> {
-    let mut pending = std::collections::HashMap::<String, (String, Option<String>)>::new();
+    let mut pending = std::collections::HashMap::<String, String>::new();
     let mut out = Vec::<RewindApplyPatchRecord>::new();
     for message in removed_messages {
         let Some(events) = message.tool_call.as_ref() else {
@@ -89,7 +87,7 @@ fn collect_rewind_apply_patch_records(removed_messages: &[ChatMessage]) -> Vec<R
                     if args.input.trim().is_empty() {
                         continue;
                     }
-                    pending.insert(call_id, (args.input, args.session_id));
+                    pending.insert(call_id, args.input);
                 }
                 continue;
             }
@@ -104,7 +102,7 @@ fn collect_rewind_apply_patch_records(removed_messages: &[ChatMessage]) -> Vec<R
                 if call_id.is_empty() {
                     continue;
                 }
-                let Some((input, session_id)) = pending.remove(&call_id) else {
+                let Some(input) = pending.remove(&call_id) else {
                     continue;
                 };
                 let content = event
@@ -118,7 +116,6 @@ fn collect_rewind_apply_patch_records(removed_messages: &[ChatMessage]) -> Vec<R
                 out.push(RewindApplyPatchRecord {
                     tool_call_id: call_id,
                     input,
-                    session_id,
                 });
             }
         }
@@ -257,7 +254,7 @@ fn try_undo_apply_patch_from_removed_messages(
     }
     let mut undone_count = 0usize;
     for record in records.iter().rev() {
-        let session = normalize_terminal_tool_session_id(record.session_id.as_deref().unwrap_or(""));
+        let session = normalize_terminal_tool_session_id("");
         let cwd = resolve_terminal_cwd(state, &session, None).map_err(|err| {
             format!("撤回失败：解析补丁工作目录失败（tool_call_id={}）: {err}", record.tool_call_id)
         })?;
@@ -321,8 +318,7 @@ mod rewind_apply_patch_tests {
         let base = make_temp_dir("rewind-collect");
         let add_path = base.join("a.txt");
         let args = json!({
-            "input": format!("*** Begin Patch\n*** Add File: {}\n+hello\n*** End Patch", add_path.to_string_lossy()),
-            "sessionId": "s1"
+            "input": format!("*** Begin Patch\n*** Add File: {}\n+hello\n*** End Patch", add_path.to_string_lossy())
         })
         .to_string();
         let events = vec![

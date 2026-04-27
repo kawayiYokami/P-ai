@@ -159,6 +159,22 @@ fn terminal_git_read_only_subcommand(subcommand: &str) -> bool {
     matches!(subcommand, "status" | "diff" | "show" | "log")
 }
 
+fn terminal_check_command_is_read_only(base_cmd: &str, args: &[String]) -> bool {
+    match base_cmd {
+        "pnpm" | "pnpm.cmd" | "npm" | "npm.cmd" | "yarn" | "yarn.cmd" => args
+            .iter()
+            .map(|arg| terminal_unquote_token(arg).to_ascii_lowercase())
+            .any(|arg| matches!(arg.as_str(), "typecheck" | "check" | "test")),
+        "cargo" | "cargo.exe" => args
+            .first()
+            .map(|arg| terminal_unquote_token(arg).to_ascii_lowercase())
+            .map(|arg| matches!(arg.as_str(), "check" | "test"))
+            .unwrap_or(false),
+        "vue-tsc" | "vue-tsc.cmd" | "tsc" | "tsc.cmd" => true,
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct TerminalSmartReviewReply {
     #[serde(default)]
@@ -346,6 +362,10 @@ fn terminal_command_is_read_whitelist(
 
     let family = terminal_shell_family(shell_kind);
     for simple in terminal_split_simple_commands(command) {
+        let arg_start_idx = match family {
+            TerminalShellFamily::PowerShell => 1,
+            TerminalShellFamily::Posix | TerminalShellFamily::Other => terminal_skip_bash_wrappers(&simple.argv) + 1,
+        };
         let base_cmd = match family {
             TerminalShellFamily::PowerShell => {
                 let Some(first) = simple.argv.first() else {
@@ -392,6 +412,7 @@ fn terminal_command_is_read_whitelist(
                         | "findstr"
                         | "where"
                 ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+                    || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
             }
             TerminalShellFamily::Posix | TerminalShellFamily::Other => {
                 matches!(
@@ -414,6 +435,7 @@ fn terminal_command_is_read_whitelist(
                         | "which"
                         | "where"
                 ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+                    || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
             }
         };
 
@@ -1878,6 +1900,21 @@ mod terminal_exec_tests {
         let cwd = PathBuf::from("E:\\github\\easy_call_ai");
         let command =
             r#"Set-Location 'E:/github/easy_call_ai'; rg -n "codex|status" src src-tauri README.md"#;
+        let analysis = terminal_analyze_command(&cwd, command, "powershell7");
+
+        assert_eq!(analysis.write_risk, TerminalWriteRisk::None);
+        assert!(analysis.has_directory_change);
+        assert!(terminal_command_is_read_whitelist(
+            command,
+            "powershell7",
+            &analysis
+        ));
+    }
+
+    #[test]
+    fn powershell_set_location_then_pnpm_typecheck_should_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = r#"Set-Location 'E:/github/easy_call_ai'; pnpm typecheck"#;
         let analysis = terminal_analyze_command(&cwd, command, "powershell7");
 
         assert_eq!(analysis.write_risk, TerminalWriteRisk::None);

@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（terminal-current-session-and-check-whitelist）：终端与补丁工具移除对外 `session_id` 入参，统一使用当前聊天会话绑定的工作区，避免模型自造会话 ID 后绕开会话级 full_access 配置退回系统工作区；同时将 `pnpm typecheck`、`cargo check/test`、`vue-tsc`、`tsc` 等只读校验命令纳入本地读取白名单。
 - 修复（chat-message-list-edge-padding）：聊天消息列表去掉横向滚动容器内边距，仅保留纵向间距，避免头像被列表 padding 与消息行 padding 叠加推离窗口边缘。
 - 功能（tool-review-code-review-reports）：代码审查链路接入独立委托会话与每会话审查报告 JSONL 流；报告生成先落 `pending` 草稿，再更新为 `success` / `failed`，前端侧边栏拆分“工具解释 / 审查报告”并支持原始 JSON 解析渲染 Findings、风险等级彩色点、勾选复制/附加与报告重新生成。
 - 重构（delegate-approval-guard-hashset）：委托线程工具审批免弹窗机制从 `AtomicBool` 改为 `HashSet<String>`（存委托 conversation_id）。进入时 insert、离开时 remove，审批链路通过 `!table.is_empty()` 判断是否有活跃委托，消除并发竞态（A 离开误将 B 的标记抹掉）。

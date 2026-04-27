@@ -376,7 +376,6 @@ impl RuntimeToolMetadata for BuiltinTerminalExecTool {
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["run", "list", "close"], "default": "run" },
-                "session_id": { "type": "string", "description": "可选 shell 会话 ID；默认使用当前聊天会话" },
                 "command": { "type": "string", "description": "action=run 时要执行的 shell 命令" },
                 "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 20000, "description": "命令超时时间，单位毫秒" }
               },
@@ -398,12 +397,6 @@ impl RuntimeJsonTool for BuiltinTerminalExecTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=exec args={}",
             debug_value_snippet(&args_json, 240)
         ));
-        let resolved_session_id = args
-            .session_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .unwrap_or(&self.session_id);
         let resolved_action = args
             .action
             .as_deref()
@@ -418,7 +411,7 @@ impl RuntimeJsonTool for BuiltinTerminalExecTool {
         }
         let result = builtin_shell_exec(
             &self.app_state,
-            resolved_session_id,
+            &self.session_id,
             resolved_action,
             resolved_command,
             args.timeout_ms,
@@ -469,7 +462,6 @@ impl RuntimeToolMetadata for BuiltinApplyPatchTool {
               "type": "object",
               "properties": {
                 "input": { "type": "string", "description": "完整补丁文本；必须以 *** Begin Patch 开始并以 *** End Patch 结束" },
-                "session_id": { "type": "string", "description": "可选工具会话 ID；默认使用当前聊天会话" }
               },
               "required": ["input"],
               "additionalProperties": false
@@ -490,13 +482,7 @@ impl RuntimeJsonTool for BuiltinApplyPatchTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=apply_patch args={}",
             debug_value_snippet(&args_json, 240)
         ));
-        let resolved_session_id = args
-            .session_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .unwrap_or(&self.session_id);
-        let result = builtin_apply_patch(&self.app_state, resolved_session_id, &args.input)
+        let result = builtin_apply_patch(&self.app_state, &self.session_id, &args.input)
             .await
             .map_err(ToolInvokeError::from);
         match &result {

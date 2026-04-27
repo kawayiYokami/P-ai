@@ -9,8 +9,6 @@ enum ApplyPatchSafetyCheck {
 #[serde(rename_all = "camelCase")]
 struct ApplyPatchToolArgs {
     input: String,
-    #[serde(default)]
-    session_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -36,8 +36,6 @@ struct TerminalExecToolArgs {
     #[serde(default)]
     action: Option<String>,
     #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
     command: Option<String>,
     #[serde(default)]
     timeout_ms: Option<u64>,
