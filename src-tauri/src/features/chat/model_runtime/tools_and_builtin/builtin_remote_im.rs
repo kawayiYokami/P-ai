@@ -284,12 +284,40 @@ fn contact_tool_target_conversation_id(session_id: &str) -> Result<String, Strin
     conversation_id.ok_or_else(|| "联系人专用工具缺少 conversation_id，无法定位当前联系人".to_string())
 }
 
-fn remote_im_current_contact_context_from_session(
+fn remote_im_bound_contact_context_from_runtime(
     state: &AppState,
     session_id: &str,
-) -> Result<(Conversation, RemoteImChannelConfig, RemoteImContact), String> {
+) -> Result<(RemoteImChannelConfig, RemoteImContact), String> {
     let conversation_id = contact_tool_target_conversation_id(session_id)?;
-    conversation_service().read_remote_im_contact_session_context(state, &conversation_id)
+    let activation_sources = get_conversation_remote_im_activation_sources(state, &conversation_id)?;
+    let bound_source = resolve_bound_remote_im_activation_source(&activation_sources)
+        .ok_or_else(|| "当前轮次未绑定联系人，无法调用联系人专用工具".to_string())?;
+    let config = state_read_config_cached(state)?;
+    let runtime = state_read_runtime_state_cached(state)?;
+    let contact = runtime
+        .remote_im_contacts
+        .iter()
+        .find(|contact| {
+            contact.channel_id == bound_source.channel_id
+                && contact.remote_contact_type == bound_source.remote_contact_type
+                && contact.remote_contact_id == bound_source.remote_contact_id
+        })
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "未找到当前轮次绑定的联系人: channel_id={}, contact_type={}, contact_id={}",
+                bound_source.channel_id,
+                bound_source.remote_contact_type,
+                bound_source.remote_contact_id
+            )
+        })?;
+    let channel = remote_im_channel_by_id(&config, &contact.channel_id)
+        .cloned()
+        .ok_or_else(|| format!("远程 IM 渠道不存在: {}", contact.channel_id))?;
+    if !channel.enabled {
+        return Err(format!("远程 IM 渠道未启用: {}", contact.channel_id));
+    }
+    Ok((channel, contact))
 }
 
 async fn builtin_contact_reply(
@@ -301,8 +329,7 @@ async fn builtin_contact_reply(
     if text.is_empty() {
         return Err("contact_reply.text 不能为空".to_string());
     }
-    let (_conversation, channel, contact) =
-        remote_im_current_contact_context_from_session(state, session_id)?;
+    let (channel, contact) = remote_im_bound_contact_context_from_runtime(state, session_id)?;
     if !contact.allow_send {
         return Err("当前联系人不允许发送消息".to_string());
     }
@@ -328,8 +355,7 @@ async fn builtin_contact_send_files(
     if file_paths.is_empty() {
         return Err("contact_send_files.file_paths 不能为空".to_string());
     }
-    let (_conversation, channel, contact) =
-        remote_im_current_contact_context_from_session(state, session_id)?;
+    let (channel, contact) = remote_im_bound_contact_context_from_runtime(state, session_id)?;
     if !contact.allow_send {
         return Err("当前联系人不允许发送消息".to_string());
     }

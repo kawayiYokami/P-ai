@@ -98,27 +98,28 @@ const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_GUIDE: &str = r#"行为准则
 如果你判断本轮不应该对外回复，请使用 `contact_no_reply`，并在 `reason` 中简要记录原因，供后续轮次参考。
 
 额外规则：
-- 这三个工具都只作用于“当前联系人”，你不能自行选择其他联系人、渠道或目标。
+- 这三个工具都只作用于“本轮绑定联系人”，你不能自行选择其他联系人、渠道或目标。
 - `contact_reply` 与 `contact_send_files` 只是中途动作，不会取消本轮结束后的自动最终回复。
-- 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给当前联系人。
+- 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给本轮绑定联系人。
+- 发送文件时，不要把本地路径或文件链接直接写进正文；应把真实本地文件路径放进 `contact_send_files.file_paths`。
 - 不要直接输出给联系人的回复正文来替代这些工具。
 
 联系人专用工具可用：`contact_reply`、`contact_send_files`、`contact_no_reply`。"#;
 
 const CONTACT_REPLY_TOOL_DESCRIPTION: &str =
-    "联系人专用即时回复工具。立刻给当前联系人发一句话，适合复杂任务开始前先确认已收到、先安抚一句或同步处理中状态。它不会取消本轮结束后的自动最终回复。";
+    "联系人专用即时回复工具。立刻给本轮绑定联系人发一句话，适合复杂任务开始前先确认已收到、先安抚一句或同步处理中状态。它不会取消本轮结束后的自动最终回复。";
 
 const CONTACT_REPLY_TOOL_TEXT_DESCRIPTION: &str =
-    "要立刻发给当前联系人的文本内容。";
+    "要立刻发给本轮绑定联系人的文本内容。";
 
 const CONTACT_SEND_FILES_TOOL_DESCRIPTION: &str =
-    "联系人专用附件发送工具。立刻把文件发给当前联系人；图片按图片发送，其他文件按附件发送。它不会取消本轮结束后的自动最终回复。";
+    "联系人专用附件发送工具。立刻把文件发给本轮绑定联系人；图片按图片发送，其他文件按附件发送。它不会取消本轮结束后的自动最终回复。";
 
 const CONTACT_SEND_FILES_TOOL_FILE_PATHS_DESCRIPTION: &str =
-    "要发送给当前联系人的文件路径列表。";
+    "要发送给本轮绑定联系人的文件路径列表。必须传真实本地文件路径，不要传正文里的文件链接。";
 
 const CONTACT_NO_REPLY_TOOL_DESCRIPTION: &str =
-    "联系人专用静默决策工具。声明本轮结束时不要自动向当前联系人发送最终回复，并可记录本轮不回复的原因供后续轮次参考。";
+    "联系人专用静默决策工具。声明本轮结束时不要自动向本轮绑定联系人发送最终回复，并可记录本轮不回复的原因供后续轮次参考。";
 
 const CONTACT_NO_REPLY_TOOL_REASON_DESCRIPTION: &str =
     "本轮决定不回复的简短原因。只做内部记录，不会发给联系人。";

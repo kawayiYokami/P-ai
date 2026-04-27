@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（remote-im-bound-contact-round-routing）：远程联系人轮次新增“本轮绑定联系人”运行时语义；联系人工具注入改为只看本轮是否已绑定唯一联系人，不再依赖联系人会话；`contact_reply` / `contact_send_files` 改为按当前轮次绑定联系人解析目标；轮末自动外发与提示词说明统一收口到“本轮绑定联系人”，并补强 `contact_send_files.file_paths` 必须传真实本地文件路径的约束；压缩续跑与 follow-up 路径同步继承该绑定联系人。
+
 ## 发布：v0.9.52
 
 - 发布（release-0.9.52）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.52`，纳入本轮未归档会话索引同步、message store 新格式写入收口、chat_index 脏数据清理、新建会话概览推送与远程联系人忙碌待办状态修复。

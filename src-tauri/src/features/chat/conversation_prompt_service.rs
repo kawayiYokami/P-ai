@@ -477,6 +477,7 @@ impl ConversationPromptService {
         user_profile_memory_block: Option<&str>,
         terminal_block: Option<&str>,
         system_preamble_blocks: &[String],
+        chat_overrides: Option<&ChatPromptOverrides>,
     ) -> ConversationPromptSnapshot {
         let department_snapshot = get_or_build_department_system_prompt_snapshot(
             state,
@@ -499,15 +500,21 @@ impl ConversationPromptService {
                 tool_rule_blocks.push(meme_block.trim().to_string());
             }
         }
-        if conversation_is_remote_im_contact(conversation) {
+        if conversation_is_remote_im_contact(conversation)
+            || chat_overrides
+                .and_then(|overrides| {
+                    resolve_bound_remote_im_activation_source(&overrides.remote_im_activation_sources)
+                })
+                .is_some()
+        {
             tool_rule_blocks.push(prompt_xml_block(
                 "contact tools rule",
-                "联系人专用工具仅对当前联系人生效。\n\
+                "联系人专用工具仅对本轮绑定联系人生效。\n\
                  1. 若需要先回应一句“收到、我先看一下、稍后回复”，请使用 `contact_reply`。\n\
-                 2. 若需要发送图片或文件，请使用 `contact_send_files`。\n\
+                 2. 若需要发送图片或文件，请使用 `contact_send_files`。发送文件时，应把真实本地文件路径放进 `contact_send_files.file_paths`，不要把本地路径或文件链接直接写进正文。\n\
                  3. 若判断本轮结束时不应自动向联系人发送最终回复，请使用 `contact_no_reply`，并在 `reason` 中简要记录原因。\n\
                  4. `contact_reply` 与 `contact_send_files` 是中途动作，不会取消本轮结束后的自动最终回复。\n\
-                 5. 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给当前联系人。",
+                 5. 如果你没有调用 `contact_no_reply`，系统会在本轮结束后，自动把最终 assistant 回复发给本轮绑定联系人。",
             ));
         }
         let (tool_rule_extra_blocks, runtime_extra_blocks, im_extra_blocks) =
@@ -839,6 +846,7 @@ impl ConversationPromptService {
             user_profile_memory_block,
             terminal_block.as_deref(),
             &system_preamble_blocks,
+            Some(overrides),
         );
         let prompt_text = flatten_system_prompt_blocks(&vec![
             snapshot.department_prompt.clone(),

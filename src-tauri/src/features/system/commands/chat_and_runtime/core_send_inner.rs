@@ -314,7 +314,7 @@ fn build_remote_im_activation_runtime_block(
         .join("\n");
     let block = match (ui_language.trim(), sources.len()) {
         ("en-US", 1) => format!(
-            "This round was activated by exactly one remote IM source.\n{}\nIf you do not call `contact_no_reply`, the system may automatically send your final assistant reply to the current contact at the end of this round.\nUse `contact_reply` for an immediate short acknowledgement, and `contact_send_files` when you need to send files or images first.",
+            "This round was activated by exactly one remote IM source, and this round is now bound to that current contact.\n{}\nIf you do not call `contact_no_reply`, the system may automatically send your final assistant reply to the bound current contact at the end of this round.\nUse `contact_reply` for an immediate short acknowledgement, and `contact_send_files` when you need to send files or images first. When sending files, pass real local file paths in `contact_send_files.file_paths` instead of pasting file links into your reply body.",
             source_lines
         ),
         ("en-US", _) => format!(
@@ -322,7 +322,7 @@ fn build_remote_im_activation_runtime_block(
             source_lines
         ),
         ("zh-TW", 1) => format!(
-            "本輪由唯一一個遠端 IM 來源啟動。\n{}\n若你未呼叫 `contact_no_reply`，系統可能會在本輪結束後自動將最終回覆發送給目前聯絡人。\n若你只是要先回一句、告知正在處理，請使用 `contact_reply`；若要先發圖片或檔案，請使用 `contact_send_files`。",
+            "本輪由唯一一個遠端 IM 來源啟動，且本輪已綁定該目前聯絡人。\n{}\n若你未呼叫 `contact_no_reply`，系統可能會在本輪結束後自動將最終回覆發送給本輪綁定聯絡人。\n若你只是要先回一句、告知正在處理，請使用 `contact_reply`；若要先發圖片或檔案，請使用 `contact_send_files`。傳送檔案時，應把真實本機檔案路徑放進 `contact_send_files.file_paths`，不要把檔案連結直接貼在正文裡。",
             source_lines
         ),
         ("zh-TW", _) => format!(
@@ -330,7 +330,7 @@ fn build_remote_im_activation_runtime_block(
             source_lines
         ),
         (_, 1) => format!(
-            "本轮由唯一一个远程 IM 来源激活。\n{}\n如果你没有调用 `contact_no_reply`，系统可能会在本轮结束后自动将最终回复发送给当前联系人。\n如果你只是要先回一句、告知正在处理，请使用 `contact_reply`；如果要先发图片或文件，请使用 `contact_send_files`。",
+            "本轮由唯一一个远程 IM 来源激活，且本轮已绑定该当前联系人。\n{}\n如果你没有调用 `contact_no_reply`，系统可能会在本轮结束后自动将最终回复发送给本轮绑定联系人。\n如果你只是要先回一句、告知正在处理，请使用 `contact_reply`；如果要先发图片或文件，请使用 `contact_send_files`。发送文件时，应把真实本地文件路径放进 `contact_send_files.file_paths`，不要把文件链接直接贴进正文。",
             source_lines
         ),
         _ => format!(
@@ -362,6 +362,15 @@ fn resolve_remote_im_auto_send_target(
         return Ok(None);
     }
     Ok(activation_sources.first().cloned())
+}
+
+fn effective_bound_remote_im_activation_source(
+    runtime_context: Option<&RuntimeContext>,
+    activation_sources: &[RemoteImActivationSource],
+) -> Option<RemoteImActivationSource> {
+    runtime_context
+        .and_then(|context| context.bound_remote_im_activation_source.clone())
+        .or_else(|| resolve_bound_remote_im_activation_source(activation_sources))
 }
 
 fn remote_im_trim_conversation_for_qa_mode(conversation: &Conversation) -> Conversation {
@@ -961,6 +970,10 @@ async fn send_chat_message_inner(
         .map(|ms| ms.min(i128::from(u64::MAX)) as u64);
     let _session_for_log = input.session.clone();
     let remote_im_activation_sources = input.remote_im_activation_sources.clone();
+    if runtime_context.bound_remote_im_activation_source.is_none() {
+        runtime_context.bound_remote_im_activation_source =
+            effective_bound_remote_im_activation_source(None, &remote_im_activation_sources);
+    }
 
     let chat_started_at = std::time::Instant::now();
     let stage_timeline = std::sync::Arc::new(std::sync::Mutex::new(Vec::<LlmRoundLogStage>::new()));
@@ -2686,7 +2699,13 @@ async fn send_chat_message_inner(
         remote_im_extract_reply_decision_from_tool_history(&tool_history_events);
     let pending_remote_im_auto_send_target = resolve_remote_im_auto_send_target(
         &assistant_text,
-        &remote_im_activation_sources,
+        effective_bound_remote_im_activation_source(
+            Some(&runtime_context),
+            &remote_im_activation_sources,
+        )
+        .as_ref()
+        .map(std::slice::from_ref)
+        .unwrap_or(&[]),
         remote_im_reply_decision.as_ref(),
     )?;
     if let Some(target) = pending_remote_im_auto_send_target.as_ref() {

@@ -170,6 +170,8 @@ struct RuntimeContext {
     dispatch_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trusted_prompt_usage: Option<TrustedPromptUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bound_remote_im_activation_source: Option<RemoteImActivationSource>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

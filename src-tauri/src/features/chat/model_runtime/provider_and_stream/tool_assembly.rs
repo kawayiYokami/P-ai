@@ -51,6 +51,22 @@ fn tool_session_is_remote_im_contact_conversation(
         .unwrap_or(false)
 }
 
+fn tool_session_has_bound_remote_im_contact(
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> bool {
+    let Some(state) = app_state else {
+        return false;
+    };
+    let Some((_, conversation_id)) = tool_session_id.split_once("::") else {
+        return false;
+    };
+    get_conversation_remote_im_activation_sources(state, conversation_id)
+        .ok()
+        .and_then(|sources| resolve_bound_remote_im_activation_source(&sources))
+        .is_some()
+}
+
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -65,6 +81,8 @@ async fn assemble_runtime_tools(
     let department_reason = |tool_id: &str| tool_restricted_by_department(current_department, tool_id);
     let is_remote_im_contact_conversation =
         tool_session_is_remote_im_contact_conversation(app_state, tool_session_id);
+    let has_bound_remote_im_contact =
+        tool_session_has_bound_remote_im_contact(app_state, tool_session_id);
     let is_local_conversation = !is_remote_im_contact_conversation;
     let tools_globally_enabled = selected_api.enable_tools;
     let has_fetch = tool_enabled(selected_api, agent, current_department, "fetch");
@@ -84,9 +102,9 @@ async fn assemble_runtime_tools(
     let has_todo = tools_globally_enabled;
     let has_delegate_base = tool_enabled(selected_api, agent, current_department, "delegate");
     let has_meme = tool_enabled(selected_api, agent, current_department, "meme");
-    let has_contact_reply = tools_globally_enabled && is_remote_im_contact_conversation;
-    let has_contact_send_files = tools_globally_enabled && is_remote_im_contact_conversation;
-    let has_contact_no_reply = tools_globally_enabled && is_remote_im_contact_conversation;
+    let has_contact_reply = tools_globally_enabled && has_bound_remote_im_contact;
+    let has_contact_send_files = tools_globally_enabled && has_bound_remote_im_contact;
+    let has_contact_no_reply = tools_globally_enabled && has_bound_remote_im_contact;
     let delegate_runtime_reason = if has_delegate_base {
         delegate_tool_runtime_disabled_reason(app_state, tool_session_id)
     } else {
@@ -470,7 +488,7 @@ async fn assemble_runtime_tools(
             if !tools_globally_enabled {
                 Some("当前模型未启用工具调用。".to_string())
             } else {
-                Some("contact_reply 仅在联系人会话中可用。".to_string())
+                Some("contact_reply 仅在本轮已绑定联系人时可用。".to_string())
             },
         ));
     }
@@ -499,7 +517,7 @@ async fn assemble_runtime_tools(
             if !tools_globally_enabled {
                 Some("当前模型未启用工具调用。".to_string())
             } else {
-                Some("contact_send_files 仅在联系人会话中可用。".to_string())
+                Some("contact_send_files 仅在本轮已绑定联系人时可用。".to_string())
             },
         ));
     }
@@ -522,7 +540,7 @@ async fn assemble_runtime_tools(
             if !tools_globally_enabled {
                 Some("当前模型未启用工具调用。".to_string())
             } else {
-                Some("contact_no_reply 仅在联系人会话中可用。".to_string())
+                Some("contact_no_reply 仅在本轮已绑定联系人时可用。".to_string())
             },
         ));
     }

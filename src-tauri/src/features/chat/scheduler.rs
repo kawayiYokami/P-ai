@@ -966,6 +966,15 @@ fn remote_im_activation_source_from_sender(
     }
 }
 
+pub(crate) fn resolve_bound_remote_im_activation_source(
+    sources: &[RemoteImActivationSource],
+) -> Option<RemoteImActivationSource> {
+    if sources.len() == 1 {
+        return sources.first().cloned();
+    }
+    None
+}
+
 pub(crate) fn set_conversation_remote_im_activation_sources(
     state: &AppState,
     conversation_id: &str,
@@ -976,6 +985,21 @@ pub(crate) fn set_conversation_remote_im_activation_sources(
     slot.active_remote_im_activation_sources = sources;
     slot.last_activity_at = now_iso();
     Ok(())
+}
+
+pub(crate) fn get_conversation_remote_im_activation_sources(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Vec<RemoteImActivationSource>, String> {
+    let normalized_conversation_id = conversation_id.trim();
+    if normalized_conversation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(normalized_conversation_id)
+        .map(|slot| slot.active_remote_im_activation_sources.clone())
+        .unwrap_or_default())
 }
 
 pub(crate) fn set_conversation_plan_mode_enabled(
@@ -1569,6 +1593,10 @@ async fn activate_main_assistant(
     oldest_queue_created_at: &str,
 ) -> Result<ActivatedAssistantResult, String> {
     let mut runtime_context = runtime_context.unwrap_or_default();
+    if runtime_context.bound_remote_im_activation_source.is_none() {
+        runtime_context.bound_remote_im_activation_source =
+            resolve_bound_remote_im_activation_source(&remote_im_activation_sources);
+    }
     let activation_trace_id = activation
         .as_ref()
         .map(|item| format!("queue-{}", item.event_id));

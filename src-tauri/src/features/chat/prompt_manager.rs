@@ -277,7 +277,7 @@ fn build_conversation_environment_prompt_snapshot_uncached(
     if conversation_is_remote_im_contact(conversation) {
         im_rule_blocks.push(prompt_xml_block(
             "remote im contact rules",
-            "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n联系人专用工具只会作用于当前联系人：提前回应请使用 `contact_reply`，发送附件请使用 `contact_send_files`，若本轮不应自动回复请使用 `contact_no_reply`。",
+            "联系人是特殊用户，不是当前聊天窗口中的直接用户。\n他们的消息来自远程接口接入，应视为独立的外部用户。\n不要把联系人和当前用户混为一谈，也不要混淆回复目标。\n联系人专用工具只会作用于当前轮次绑定联系人：提前回应请使用 `contact_reply`，发送附件请使用 `contact_send_files`，若本轮不应自动回复请使用 `contact_no_reply`。",
         ));
     }
     im_rule_blocks.extend(

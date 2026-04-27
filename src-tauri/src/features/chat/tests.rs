@@ -93,6 +93,7 @@
             None,
             None,
             &[],
+            None,
         );
         let second = conversation_prompt_service().build_prompt_snapshot(
             None,
@@ -106,6 +107,7 @@
             None,
             None,
             &[],
+            None,
         );
 
         assert_eq!(first.revisions, second.revisions);
@@ -144,6 +146,7 @@
             None,
             None,
             &[],
+            None,
         );
 
         let mut with_conversation_side_blocks = conv.clone();
@@ -175,6 +178,7 @@
             None,
             None,
             &[],
+            None,
         );
 
         assert_eq!(baseline.revisions.prompt_revision, mutated.revisions.prompt_revision);
@@ -1250,6 +1254,34 @@
         )
         .expect("no_reply should suppress auto send");
         assert!(no_reply_target.is_none());
+    }
+
+    #[test]
+    fn resolve_bound_remote_im_activation_source_should_only_bind_single_source() {
+        let single_source = RemoteImActivationSource {
+            channel_id: "remote-im-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+        };
+
+        assert_eq!(
+            resolve_bound_remote_im_activation_source(std::slice::from_ref(&single_source)),
+            Some(single_source.clone())
+        );
+        assert!(resolve_bound_remote_im_activation_source(&[]).is_none());
+        assert!(resolve_bound_remote_im_activation_source(&[
+            single_source,
+            RemoteImActivationSource {
+                channel_id: "remote-im-b".to_string(),
+                platform: RemoteImPlatform::Dingtalk,
+                remote_contact_type: "private".to_string(),
+                remote_contact_id: "contact-b".to_string(),
+                remote_contact_name: "李四".to_string(),
+            }
+        ])
+        .is_none());
     }
 
     #[test]
