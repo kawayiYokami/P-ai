@@ -30,7 +30,7 @@
 
         <div
           ref="scrollContainer"
-          class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-3 scrollbar-gutter-stable"
+          class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3 scrollbar-gutter-stable"
           :class="chatting || frozen || conversationBusy ? 'pointer-events-auto' : ''"
           :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
           @scroll="onConversationScroll"
