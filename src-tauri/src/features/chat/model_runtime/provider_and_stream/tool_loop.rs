@@ -80,6 +80,7 @@ fn register_tool_repeat_attempt(
 #[derive(Debug, Clone)]
 struct ToolLoopAutoCompactionContext {
     conversation_id: String,
+    data_path: PathBuf,
     request_id: Option<String>,
     prompt_mode: PromptBuildMode,
     agent: AgentProfile,
@@ -160,6 +161,7 @@ fn send_text_delta_event(
         delta: text.to_string(),
         kind: None,
         request_id: None,
+        activation_id: None,
         phase_id: None,
         reason: None,
         tool_name: None,
@@ -316,6 +318,7 @@ fn json_string_field(value: &Value, keys: &[&str]) -> Option<String> {
 
 struct TerminalToolResultMessage {
     assistant_text: String,
+    completion_text: Option<String>,
     provider_meta: Option<Value>,
 }
 
@@ -381,7 +384,8 @@ fn terminal_plan_result(
     let context = args_value
         .as_ref()
         .and_then(|value| json_string_field(value, &["context"]))
-        .or_else(|| result_value.as_ref().and_then(|value| json_string_field(value, &["context"])))?;
+        .or_else(|| result_value.as_ref().and_then(|value| json_string_field(value, &["context"])))
+        .unwrap_or_else(|| "计划已完成。".to_string());
 
     let message_kind = match normalized_action.as_str() {
         "present" => "plan_present",
@@ -391,6 +395,11 @@ fn terminal_plan_result(
 
     Some(TerminalToolResultMessage {
         assistant_text: String::new(),
+        completion_text: if normalized_action == "complete" {
+            Some(context.clone())
+        } else {
+            None
+        },
         provider_meta: Some(serde_json::json!({
             "messageKind": message_kind,
             "planCard": {
@@ -647,6 +656,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         delta: String::new(),
         kind: Some("tool_status".to_string()),
         request_id: None,
+        activation_id: None,
         phase_id: None,
         reason: None,
         tool_name: Some("archive".to_string()),
@@ -673,6 +683,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
                 delta: String::new(),
                 kind: Some("tool_status".to_string()),
                 request_id: None,
+                activation_id: None,
                 phase_id: None,
                 reason: None,
                 tool_name: Some("archive".to_string()),
@@ -711,6 +722,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         delta: String::new(),
         kind: Some("tool_status".to_string()),
         request_id: None,
+        activation_id: None,
         phase_id: None,
         reason: None,
         tool_name: Some("archive".to_string()),
@@ -844,6 +856,7 @@ async fn run_genai_tool_loop(
                                 delta: reasoning.content,
                                 kind: Some("reasoning_standard".to_string()),
                                 request_id: None,
+                                activation_id: None,
                                 phase_id: None,
                                 reason: None,
                                 tool_name: None,
@@ -1124,6 +1137,27 @@ async fn run_genai_tool_loop(
                 });
             }
             if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
+                if plan_result
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("messageKind"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    == Some("plan_complete")
+                {
+                    if let Some(context) = auto_compaction_context {
+                        if let Err(err) = message_store::active_plan_complete_latest_in_progress(
+                            &context.data_path,
+                            &context.conversation_id,
+                            plan_result.completion_text.as_deref(),
+                        ) {
+                            runtime_log_warn(format!(
+                                "[计划] 完成状态写入失败 conversation_id={} error={}",
+                                context.conversation_id, err
+                            ));
+                        }
+                    }
+                }
                 return Ok(ModelReply {
                     assistant_text: plan_result.assistant_text.clone(),
                     final_response_text: plan_result.assistant_text,
@@ -1269,6 +1303,7 @@ async fn execute_genai_non_stream_round(
             delta: turn_reasoning.clone(),
             kind: Some("reasoning_standard".to_string()),
             request_id: None,
+            activation_id: None,
             phase_id: None,
             reason: None,
             tool_name: None,
@@ -1590,6 +1625,27 @@ async fn run_genai_tool_loop_non_stream(
                 });
             }
             if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
+                if plan_result
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("messageKind"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    == Some("plan_complete")
+                {
+                    if let Some(context) = auto_compaction_context {
+                        if let Err(err) = message_store::active_plan_complete_latest_in_progress(
+                            &context.data_path,
+                            &context.conversation_id,
+                            plan_result.completion_text.as_deref(),
+                        ) {
+                            runtime_log_warn(format!(
+                                "[计划] 完成状态写入失败 conversation_id={} error={}",
+                                context.conversation_id, err
+                            ));
+                        }
+                    }
+                }
                 return Ok(ModelReply {
                     assistant_text: plan_result.assistant_text.clone(),
                     final_response_text: plan_result.assistant_text,

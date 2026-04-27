@@ -6,7 +6,7 @@ pub(crate) fn plan_tool_description() -> String {
         "- 当计划执行完成后，用 complete 向用户汇报结果。",
         "参数：",
         "- action: present | complete",
-        "- context: 计划内容或完成汇报",
+        "- context: action=present 时为计划内容，必须提供；action=complete 时为完成说明，可省略。",
         "使用规则：",
         "- 只有当目标明确、约束明确、相关现状已调查充分，并且不存在会明显改变计划骨架的关键疑问时，才能调用 present。",
         "- 如果仍有关键疑问，优先继续调查；调查后仍无法消除时，再向用户提出最少必要的问题。",
@@ -23,9 +23,14 @@ pub(crate) fn builtin_plan(args: PlanToolArgs) -> Result<Value, String> {
         return Err("plan.action 必须是 present 或 complete".to_string());
     }
     let context = args.context.trim().to_string();
-    if context.is_empty() {
+    if action == "present" && context.is_empty() {
         return Err("plan.context 不能为空".to_string());
     }
+    let context = if action == "complete" && context.is_empty() {
+        "计划已完成。".to_string()
+    } else {
+        context
+    };
     Ok(serde_json::json!({
         "action": action,
         "context": context,

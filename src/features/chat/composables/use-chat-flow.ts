@@ -12,6 +12,7 @@ export type AssistantDeltaEvent = {
   delta?: string;
   kind?: string;
   requestId?: string;
+  activationId?: string;
   phaseId?: string;
   reason?: string;
   toolName?: string;
@@ -30,10 +31,17 @@ type HistoryFlushedPayload = {
 
 type RoundStartedPayload = {
   conversationId: string;
+  activationId?: string;
+  requestId?: string;
+  reason?: string;
+  departmentId?: string;
+  agentId?: string;
 };
 
 type RoundCompletedPayload = {
   conversationId: string;
+  activationId?: string;
+  requestId?: string;
   assistantText: string;
   reasoningStandard?: string;
   reasoningInline?: string;
@@ -43,6 +51,8 @@ type RoundCompletedPayload = {
 
 type RoundFailedPayload = {
   conversationId?: string;
+  activationId?: string;
+  requestId?: string;
   error: string;
 };
 
@@ -174,9 +184,11 @@ type SendChatOverrides = {
   displayText?: string;
   extraTextBlocks?: string[];
   skipInstructionPrompts?: boolean;
+  suppressInitialReload?: boolean;
 };
 
 type ConversationStreamCache = {
+  activationId?: string;
   assistantText: string;
   reasoningStandard: string;
   reasoningInline: string;
@@ -196,6 +208,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
   let pendingTerminalEvent: PendingTerminalEvent | null = null;
   let deferredRoundCompletion: DeferredRoundCompletion | null = null;
+  let activeActivationId = "";
   let queuedStreamingState: {
     assistantText: string;
     reasoningStandard: string;
@@ -226,6 +239,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const parsed = JSON.parse(text) as Record<string, unknown>;
       return {
         conversationId: String(parsed.conversationId || "").trim(),
+        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
+        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
+        reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+        departmentId: typeof parsed.departmentId === "string" ? parsed.departmentId : undefined,
+        agentId: typeof parsed.agentId === "string" ? parsed.agentId : undefined,
       };
     } catch {
       return {
@@ -255,6 +273,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   function emptyConversationStreamCache(): ConversationStreamCache {
     return {
+      activationId: "",
       assistantText: "",
       reasoningStandard: "",
       reasoningInline: "",
@@ -287,6 +306,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const cache = conversationStreamCache.get(cid);
     if (!cache) return null;
     return {
+      activationId: String(cache.activationId || "").trim(),
       assistantText: cache.assistantText,
       reasoningStandard: cache.reasoningStandard,
       reasoningInline: cache.reasoningInline,
@@ -307,6 +327,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const next = updater(readConversationStreamCache(cid) || emptyConversationStreamCache());
     conversationStreamCache.set(cid, {
       ...next,
+      activationId: String(next.activationId || "").trim(),
       streamToolCalls: Array.isArray(next.streamToolCalls) ? next.streamToolCalls.map((item) => ({ ...item })) : [],
     });
   }
@@ -317,11 +338,24 @@ export function useChatFlow(options: UseChatFlowOptions) {
     conversationStreamCache.delete(cid);
   }
 
+  function sameActivationId(left?: string | null, right?: string | null): boolean {
+    const normalizedLeft = String(left || "").trim();
+    const normalizedRight = String(right || "").trim();
+    return !!normalizedLeft && !!normalizedRight && normalizedLeft === normalizedRight;
+  }
+
+  function payloadMatchesActiveActivation(payload: { activationId?: string; requestId?: string } | null | undefined): boolean {
+    if (!activeActivationId) return true;
+    const payloadActivationId = String(payload?.activationId || payload?.requestId || "").trim();
+    return !payloadActivationId || payloadActivationId === activeActivationId;
+  }
+
   function syncCurrentDisplayStateToConversationStreamCache(conversationId?: string | null) {
     const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
     if (!cid) return;
     writeConversationStreamCache(cid, () => ({
       assistantText: String(options.latestAssistantText.value || ""),
+      activationId: activeActivationId,
       reasoningStandard: String(options.latestReasoningStandardText.value || ""),
       reasoningInline: String(options.latestReasoningInlineText.value || ""),
       toolStatusText: String(options.toolStatusText.value || ""),
@@ -337,6 +371,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function applyConversationStreamCacheToDisplay(conversationId?: string | null): boolean {
     const cache = readConversationStreamCache(conversationId);
     if (!cache) return false;
+    if (activeActivationId && cache.activationId && cache.activationId !== activeActivationId) {
+      return false;
+    }
     if (cache.assistantText || !options.latestAssistantText.value) {
       options.latestAssistantText.value = cache.assistantText;
     }
@@ -374,6 +411,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     writeConversationStreamCache(cid, (current) => {
       const next: ConversationStreamCache = {
         ...current,
+        activationId: String(parsed.activationId || parsed.requestId || current.activationId || activeActivationId || "").trim(),
         streamToolCalls: current.streamToolCalls.map((item) => ({ ...item })),
       };
       const delta = readDeltaMessage(parsed);
@@ -464,6 +502,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const parsed = JSON.parse(text) as Record<string, unknown>;
       return {
         conversationId: String(parsed.conversationId || "").trim(),
+        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
+        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
         assistantText: String(parsed.assistantText || ""),
         reasoningStandard: typeof parsed.reasoningStandard === "string" ? parsed.reasoningStandard : undefined,
         reasoningInline: typeof parsed.reasoningInline === "string" ? parsed.reasoningInline : undefined,
@@ -482,6 +522,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const parsed = JSON.parse(text) as Record<string, unknown>;
       return {
         conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : undefined,
+        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
+        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
         error: String(parsed.error || ""),
       };
     } catch {
@@ -505,6 +547,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       delta: typeof m.delta === "string" ? m.delta : undefined,
       kind: typeof m.kind === "string" ? m.kind : undefined,
       requestId: typeof m.requestId === "string" ? m.requestId : undefined,
+      activationId: typeof m.activationId === "string" ? m.activationId : undefined,
       phaseId: typeof m.phaseId === "string" ? m.phaseId : undefined,
       reason: typeof m.reason === "string" ? m.reason : undefined,
       toolName: typeof m.toolName === "string" ? m.toolName : undefined,
@@ -851,6 +894,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.allMessages.value = options.allMessages.value.filter((m) => m.id !== draftId);
   }
 
+  function removeAssistantDrafts() {
+    options.allMessages.value = options.allMessages.value.filter((message) => {
+      const messageId = String(message?.id || "").trim();
+      return !messageId.startsWith(DRAFT_ASSISTANT_ID_PREFIX);
+    });
+  }
+
   function finalizeDraft(draftId: string, finalMessage?: ChatMessage) {
     if (!draftId) return;
     const current = options.allMessages.value;
@@ -922,10 +972,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
     updateDraftText(draftId);
     finalizeDraft(draftId, result.assistantMessage);
+    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+    activeActivationId = "";
     setRound({ phase: "idle" });
     options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
   }
 
   async function finalizeQueuedRoundWithoutDraft(
@@ -943,11 +994,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     pendingTerminalEvent = null;
     deferredRoundCompletion = null;
     queuedStreamingState = null;
+    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+    activeActivationId = "";
     options.chatErrorText.value = "";
     setRound({ phase: "idle" });
     options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
     await options.onReloadMessages();
   }
 
@@ -958,6 +1010,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     pendingTerminalEvent = null;
     deferredRoundCompletion = null;
     queuedStreamingState = null;
+    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+    activeActivationId = "";
     options.latestAssistantText.value = "";
     options.latestReasoningStandardText.value = "";
     options.latestReasoningInlineText.value = "";
@@ -972,7 +1026,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     setRound({ phase: "idle" });
     options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
     await options.onReloadMessages();
   }
 
@@ -1004,6 +1057,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function clearForegroundRoundState() {
     ++generation;
     sendChatActiveGen = 0;
+    activeActivationId = "";
     deferredRoundCompletion = null;
     if (pendingUserDraftId) {
       removeDraft(pendingUserDraftId);
@@ -1019,6 +1073,29 @@ export function useChatFlow(options: UseChatFlowOptions) {
     reasoningStartedAtMs.value = 0;
     resetDisplayState();
     options.chatErrorText.value = "";
+  }
+
+  function clearForegroundRuntimeState() {
+    ++generation;
+    const conversationId = options.getConversationId ? options.getConversationId() : "";
+    sendChatActiveGen = 0;
+    boundDisplayGeneration = 0;
+    historyFlushedReceivedGen = 0;
+    activeActivationId = "";
+    pendingTerminalEvent = null;
+    deferredRoundCompletion = null;
+    queuedStreamingState = null;
+    if (pendingUserDraftId) {
+      removeDraft(pendingUserDraftId);
+    }
+    removeAssistantDrafts();
+    setRound({ phase: "idle" });
+    activeHistoryMessageCount = 0;
+    options.chatting.value = false;
+    reasoningStartedAtMs.value = 0;
+    resetDisplayState();
+    options.chatErrorText.value = "";
+    clearConversationStreamCache(conversationId);
   }
 
   function readMessagePlainText(message?: ChatMessage): string {
@@ -1052,6 +1129,37 @@ export function useChatFlow(options: UseChatFlowOptions) {
     resetDisplayState();
     options.chatErrorText.value = "";
     clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+  }
+
+  function beginAssistantActivationFromEvent(payload: RoundStartedPayload): number {
+    const payloadConversationId = normalizeConversationId(payload.conversationId);
+    const currentConversationId = normalizeConversationId(options.getConversationId ? options.getConversationId() : "");
+    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return 0;
+    }
+    const nextActivationId = String(payload.activationId || payload.requestId || "").trim();
+    const cid = payloadConversationId || currentConversationId;
+    if (activeActivationId && nextActivationId && activeActivationId === nextActivationId && round.phase !== "idle") {
+      return round.gen;
+    }
+    if (cid) clearConversationStreamCache(cid);
+    activeActivationId = nextActivationId;
+    let gen = round.phase === "queued" ? round.gen : sendChatActiveGen;
+    if (!gen) {
+      gen = ++generation;
+      boundDisplayGeneration = gen;
+      pendingTerminalEvent = null;
+      deferredRoundCompletion = null;
+      queuedStreamingState = null;
+      removeAssistantDrafts();
+      resetDisplayState();
+      activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
+      setRound({ phase: "queued", gen }, "waiting");
+    }
+    options.chatting.value = true;
+    updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusWaitingReply"));
+    frontendRoundPhase.value = "waiting";
+    return gen;
   }
 
   function applyQueuedStreamingStateIfNeeded(draftId: string) {
@@ -1295,6 +1403,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       return;
     }
     updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusWaitingReply"));
+    options.chatting.value = true;
     frontendRoundPhase.value = "waiting";
   }
 
@@ -1325,6 +1434,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     sendStartedAtMsByGen.delete(gen);
     if (isChatAbortedByUser(error)) {
       if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
+        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+        activeActivationId = "";
         setRound({ phase: "idle" });
         options.chatting.value = false;
         reasoningStartedAtMs.value = 0;
@@ -1338,6 +1449,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (round.phase !== "streaming" || round.gen !== gen) return;
     const { draftId } = round;
     deferredRoundCompletion = null;
+    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+    activeActivationId = "";
 
     options.latestAssistantText.value = "";
     options.latestReasoningStandardText.value = "";
@@ -1392,6 +1505,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
             assistantMessage: p?.assistantMessage,
           },
         };
+        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+        activeActivationId = "";
         return;
       }
       void handleRoundCompleted(currentGen, {
@@ -1410,6 +1525,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
           gen: currentGen,
           error: p?.error || parsed.message || JSON.stringify(parsed),
         };
+        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+        activeActivationId = "";
         return;
       }
       void handleRoundFailed(currentGen, p?.error || parsed.message || JSON.stringify(parsed));
@@ -1507,6 +1624,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let boundConversationInitialized = false;
   let boundDisplayGeneration = 0;
   let boundDeltaChannel: Channel<AssistantDeltaEvent> | null = null;
+
+  function hasActiveBoundDeltaChannel(conversationId?: string | null): boolean {
+    if (!boundDeltaChannel || !boundConversationInitialized) return false;
+    const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
+    const boundCid = normalizeConversationId(boundConversationId);
+    return !!cid && !!boundCid && cid === boundCid;
+  }
 
   async function bindActiveConversationStream(conversationId: string, force = false) {
     if (!options.invokeBindActiveChatViewStream) return;
@@ -1616,7 +1740,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
       return;
     }
-    const gen = round.phase === "queued" ? round.gen : sendChatActiveGen;
+    const gen = beginAssistantActivationFromEvent(parsed);
     if (!gen) return;
     await markRoundStarted(gen);
   }
@@ -1631,9 +1755,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
       clearConversationStreamCache(payloadConversationId);
       return;
     }
-    if (round.phase !== "streaming") {
+    if (!payloadMatchesActiveActivation(parsed)) {
+      clearConversationStreamCache(payloadConversationId || currentConversationId);
+      return;
+    }
+    if (round.phase !== "streaming" && round.phase !== "queued") {
       options.chatting.value = false;
       reasoningStartedAtMs.value = 0;
+      clearConversationStreamCache(payloadConversationId || currentConversationId);
+      activeActivationId = "";
       await options.onReloadMessages();
       return;
     }
@@ -1654,12 +1784,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
       clearConversationStreamCache(payloadConversationId);
       return;
     }
-    if (round.phase !== "streaming") {
+    if (!payloadMatchesActiveActivation(parsed)) {
+      clearConversationStreamCache(payloadConversationId || currentConversationId);
+      return;
+    }
+    if (round.phase !== "streaming" && round.phase !== "queued") {
       options.latestAssistantText.value = "";
       options.latestReasoningStandardText.value = "";
       options.latestReasoningInlineText.value = "";
       options.chatting.value = false;
       reasoningStartedAtMs.value = 0;
+      clearConversationStreamCache(payloadConversationId || currentConversationId);
+      activeActivationId = "";
       // 记录非流式阶段的轮次失败错误，包含上下文和错误详情
       const errorDetail = parsed?.error || raw || String(raw);
       const errorObj = typeof errorDetail === "string" ? (
@@ -1676,7 +1812,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
         "[聊天流程] 非流式轮次失败",
         {
           roundPhase: round.phase,
-          roundGen: round.phase === "idle" ? null : round.gen,
+          roundGen: null,
           error: errorObj,
           rawPayload: raw,
         }
@@ -1694,10 +1830,17 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const payloadConversationId = String(rawObj?.conversationId || "").trim();
     const parsed = readAssistantEvent(rawObj?.event ?? payload);
     const cacheConversationId = payloadConversationId || currentConversationId;
+    const eventActivationId = String(parsed.activationId || parsed.requestId || "").trim();
+    if (activeActivationId && eventActivationId && eventActivationId !== activeActivationId) {
+      return;
+    }
     if (cacheConversationId) {
       applyAssistantEventToConversationStreamCache(cacheConversationId, parsed);
     }
     if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
+      return;
+    }
+    if (parsed.kind !== "tool_status" && assistantEventHasVisibleProgress(parsed) && hasActiveBoundDeltaChannel(cacheConversationId)) {
       return;
     }
     const shouldProjectFromAppEvent =
@@ -1736,6 +1879,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       }
       return;
     }
+    handleStreamingEvent(currentGen, parsed);
   }
 
   // =========================================================================
@@ -1773,6 +1917,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const hasForegroundRoundInFlight = options.chatting.value || round.phase !== "idle";
     if (!hasForegroundRoundInFlight) {
       clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+      activeActivationId = "";
       options.toolStatusText.value = "";
       options.toolStatusState.value = "";
       if (options.streamToolCalls) options.streamToolCalls.value = [];
@@ -1915,7 +2060,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
         setRound({ phase: "idle" });
         options.chatting.value = false;
         reasoningStartedAtMs.value = 0;
-        await options.onReloadMessages();
+        if (!overrides?.suppressInitialReload) {
+          await options.onReloadMessages();
+        }
       }
     }
   }
@@ -1942,6 +2089,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       sendStartedAtMsByGen.delete(round.gen);
       ++generation;
       sendChatActiveGen = 0;
+      activeActivationId = "";
       pendingTerminalEvent = null;
       deferredRoundCompletion = null;
       removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
@@ -1954,6 +2102,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       options.toolStatusState.value = "";
       options.toolStatusText.value = "";
       clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
+      activeActivationId = "";
       // 本地立即停的同时，异步通知后端中断正在排队/执行中的请求。
       if (stopSession && options.invokeStopChatMessage) {
         void options
@@ -1994,6 +2143,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     ++generation;
     sendChatActiveGen = 0;
     deferredRoundCompletion = null;
+    activeActivationId = "";
     if (pendingUserDraftId) {
       removeDraft(pendingUserDraftId);
     }
@@ -2013,6 +2163,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     sendChat,
     stopChat,
     clearForegroundRoundState,
+    clearForegroundRuntimeState,
     freezeForegroundRoundState,
     resumeForegroundStreamingRound: ensureForegroundStreamingRound,
     bindActiveConversationStream,

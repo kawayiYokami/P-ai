@@ -69,7 +69,7 @@ async fn builtin_organize_context(
         (selected_api, resolved_api, source, effective_agent_id)
     };
 
-    let result = run_context_compaction_pipeline(
+    let mut result = run_context_compaction_pipeline(
         app_state,
         &selected_api,
         &resolved_api,
@@ -79,7 +79,8 @@ async fn builtin_organize_context(
         "ORGANIZE-CONTEXT",
     )
     .await?;
-    trigger_chat_queue_processing(app_state);
+    enqueue_context_compaction_followup(app_state, &source, &effective_agent_id)?;
+    result.compaction_message = None;
     serde_json::to_value(result)
         .map(|value| {
             let mut obj = serde_json::Map::new();

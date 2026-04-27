@@ -730,6 +730,7 @@ let messageStoreMigrationProgressUnlisten: UnlistenFn | null = null;
 const chatting = ref(false);
 const forcingArchive = ref(false);
 const compactingConversation = ref(false);
+const suppressNextCompactionReload = ref(false);
 const conversationBusy = computed(() => forcingArchive.value || compactingConversation.value);
 const branchingConversation = ref(false);
 const forwardingConversationSelection = ref(false);
@@ -2110,6 +2111,7 @@ const chatRuntime = useChatRuntime({
   chatting,
   forcingArchive,
   compactingConversation,
+  suppressNextCompactionReload,
   allMessages,
   refreshUnarchivedConversations: refreshChatUnarchivedConversations,
   perfNow,
@@ -4379,8 +4381,15 @@ const { handleConfirmPlan } = useConfirmPlan({
   forcingArchive,
   compactingConversation,
   setConversationPlanMode,
-  forceCompactNow,
-  sendChat: sendChatFromCurrentWindow,
+  clearForegroundRuntimeState: chatFlow.clearForegroundRuntimeState,
+  confirmPlanAndContinue: ({ conversationId, planMessageId, departmentId, agentId }) => invokeTauri<void>("confirm_plan_and_continue", {
+    input: {
+      conversationId,
+      planMessageId,
+      departmentId: departmentId || null,
+      agentId: agentId || null,
+    },
+  }),
 });
 
 watch(
@@ -4491,6 +4500,7 @@ const {
   deleteUnarchivedConversationFromArchives,
   sendChat: sendChatFromCurrentWindow,
   stopChat: chatFlow.stopChat,
+  clearForegroundRuntimeState: chatFlow.clearForegroundRuntimeState,
   setStatusError,
   setChatErrorText: (text: string) => {
     chatErrorText.value = text;

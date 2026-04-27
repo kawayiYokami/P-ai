@@ -1,9 +1,4 @@
-import { nextTick, type Ref } from "vue";
-import { invokeTauri } from "../../../services/tauri-api";
-
-type ForceCompactionPreviewResult = {
-  canCompact: boolean;
-};
+import type { Ref } from "vue";
 
 type ConfirmPlanSessionContext = {
   messageId: string;
@@ -22,11 +17,12 @@ type UseConfirmPlanOptions = {
   forcingArchive: Ref<boolean>;
   compactingConversation: Ref<boolean>;
   setConversationPlanMode: (conversationId: string, value: boolean) => Promise<boolean>;
-  forceCompactNow: () => Promise<void>;
-  sendChat: (input: {
-    text: string;
-    displayText: string;
-    skipInstructionPrompts?: boolean;
+  clearForegroundRuntimeState: () => void;
+  confirmPlanAndContinue: (input: {
+    conversationId: string;
+    planMessageId: string;
+    departmentId?: string;
+    agentId?: string;
   }) => Promise<void>;
 };
 
@@ -59,40 +55,26 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
       || options.forcingArchive.value
       || options.compactingConversation.value
     ) return;
+    options.clearForegroundRuntimeState();
     const planModeDisabled = await options.setConversationPlanMode(session.conversationId, false);
     if (!planModeDisabled) return;
     if (!isConfirmPlanSessionStillCurrent(session)) return;
 
-    if (session.apiConfigId && session.agentId) {
-      try {
-        const preview = await invokeTauri<ForceCompactionPreviewResult>("preview_force_compact_current", {
-          input: {
-            apiConfigId: session.apiConfigId,
-            agentId: session.agentId,
-            departmentId: session.departmentId || null,
-            conversationId: session.conversationId,
-          },
-        });
-        if (!isConfirmPlanSessionStillCurrent(session)) return;
-        if (preview?.canCompact) {
-          await options.forceCompactNow();
-          if (!isConfirmPlanSessionStillCurrent(session)) return;
-        }
-      } catch (error) {
-        console.warn("[计划模式] 确认执行前压缩跳过", {
-          messageId: session.messageId,
-          error,
-        });
-      }
+    try {
+      await options.confirmPlanAndContinue({
+        conversationId: session.conversationId,
+        planMessageId: session.messageId,
+        departmentId: session.departmentId || undefined,
+        agentId: session.agentId || undefined,
+      });
+    } catch (error) {
+      console.warn("[计划模式] 确认并继续执行失败", {
+        messageId: session.messageId,
+        error: error instanceof Error
+          ? { message: error.message, stack: error.stack }
+          : error,
+      });
     }
-
-    await nextTick();
-    if (!isConfirmPlanSessionStillCurrent(session)) return;
-    await options.sendChat({
-      text: "我同意，并执行计划。",
-      displayText: "我同意，并执行计划。",
-      skipInstructionPrompts: true,
-    });
   }
 
   return {

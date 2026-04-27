@@ -110,6 +110,13 @@ struct QueuedChatActivation {
     event_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct ActivatedAssistantResult {
+    result: SendChatResult,
+    activation_id: String,
+    request_id: String,
+}
+
 pub(crate) enum ChatEventIngress {
     Direct(ChatPendingEvent),
     Queued { event_id: String },
@@ -770,6 +777,24 @@ async fn process_claimed_conversation_batch(
     result
 }
 
+fn resolve_activation_reason(runtime_context: &RuntimeContext) -> String {
+    let dispatch_reason = runtime_context
+        .dispatch_reason
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
+    match dispatch_reason {
+        "user_send" => "user_send",
+        "task_due" => "task_due",
+        "remote_im_followup" => "remote_im_followup",
+        "context_compaction_followup" => "context_compaction_followup",
+        "guided_queue" => "guided_queue",
+        "delegate_continue" => "delegate_continue",
+        _ => "queue_dispatch",
+    }
+    .to_string()
+}
+
 async fn process_guided_queue_after_round(
     state: &AppState,
     conversation_id: &str,
@@ -1323,7 +1348,14 @@ async fn process_conversation_batch(
             // 同一批里可能有多个激活请求，但前台主助理轮次只能有一个。
             // 因此这里只保留最后一个激活请求作为实际流式绑定对象。
             let activation = activations.pop();
-            emit_round_started_event(state, conversation_id);
+            let main_request_id = runtime_context_request_id_or_new(
+                activating_runtime_context.as_ref(),
+                activation
+                    .as_ref()
+                    .map(|item| format!("queue-{}", item.event_id))
+                    .as_deref(),
+                "queue",
+            );
             match activate_main_assistant(
                 state,
                 &first_event.session_info,
@@ -1336,7 +1368,8 @@ async fn process_conversation_batch(
             )
             .await
             {
-                Ok(result) => {
+                Ok(activated) => {
+                    let result = activated.result;
                     let mut follow_up_sources = match remote_im_finalize_round_completion(
                         state,
                         &activated_remote_im_sources,
@@ -1354,10 +1387,27 @@ async fn process_conversation_batch(
                             Vec::new()
                         }
                     };
-                    emit_round_completed_event(state, conversation_id, &result);
+                    emit_round_completed_event(
+                        state,
+                        conversation_id,
+                        &result,
+                        Some(activated.activation_id.as_str()),
+                        Some(activated.request_id.as_str()),
+                    );
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                     while !follow_up_sources.is_empty() {
                         let follow_up_started_at = now_iso();
+                        let mut follow_up_context =
+                            runtime_context_new("remote_im", "remote_im_followup");
+                        follow_up_context.request_id = Some(format!(
+                            "remote-im-follow-up-{}",
+                            Uuid::new_v4()
+                        ));
+                        let follow_up_request_id = runtime_context_request_id_or_new(
+                            Some(&follow_up_context),
+                            None,
+                            "queue",
+                        );
                         eprintln!(
                             "[远程联系人状态机] 待办续跑 开始: conversation_id={}, source_count={}",
                             conversation_id,
@@ -1369,13 +1419,14 @@ async fn process_conversation_batch(
                             conversation_id,
                             None,
                             None,
-                            None,
+                            Some(follow_up_context),
                             follow_up_sources.clone(),
                             &follow_up_started_at,
                         )
                         .await
                         {
-                            Ok(follow_up_result) => {
+                            Ok(follow_up_activated) => {
+                                let follow_up_result = follow_up_activated.result;
                                 follow_up_sources = match remote_im_finalize_round_completion(
                                     state,
                                     &follow_up_sources,
@@ -1397,10 +1448,18 @@ async fn process_conversation_batch(
                                     state,
                                     conversation_id,
                                     &follow_up_result,
+                                    Some(follow_up_activated.activation_id.as_str()),
+                                    Some(follow_up_activated.request_id.as_str()),
                                 );
                             }
                             Err(err) => {
-                                emit_round_failed_event(state, conversation_id, &err);
+                                emit_round_failed_event(
+                                    state,
+                                    conversation_id,
+                                    &err,
+                                    Some(follow_up_request_id.as_str()),
+                                    Some(follow_up_request_id.as_str()),
+                                );
                                 if let Err(finalize_err) = remote_im_finalize_round_completion(
                                     state,
                                     &follow_up_sources,
@@ -1437,7 +1496,13 @@ async fn process_conversation_batch(
                         }
                         return Ok(());
                     }
-                    emit_round_failed_event(state, conversation_id, &err);
+                    emit_round_failed_event(
+                        state,
+                        conversation_id,
+                        &err,
+                        Some(main_request_id.as_str()),
+                        Some(main_request_id.as_str()),
+                    );
                     complete_pending_chat_events_with_error(state, &event_ids, &err)?;
                     if let Err(finalize_err) = remote_im_finalize_round_completion(
                         state,
@@ -1502,7 +1567,7 @@ async fn activate_main_assistant(
     runtime_context: Option<RuntimeContext>,
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
-) -> Result<SendChatResult, String> {
+) -> Result<ActivatedAssistantResult, String> {
     let mut runtime_context = runtime_context.unwrap_or_default();
     let activation_trace_id = activation
         .as_ref()
@@ -1524,6 +1589,17 @@ async fn activate_main_assistant(
     if runtime_context.executor_department_id.is_none() {
         runtime_context.executor_department_id = Some(session_info.department_id.clone());
     }
+    let activation_id = trace_id.clone();
+    let activation_reason = resolve_activation_reason(&runtime_context);
+    emit_round_started_event(
+        state,
+        conversation_id,
+        activation_id.as_str(),
+        trace_id.as_str(),
+        activation_reason.as_str(),
+        session_info.department_id.as_str(),
+        session_info.agent_id.as_str(),
+    );
 
     // 设置状态为 AssistantStreaming
     set_conversation_runtime_state(state, conversation_id, MainSessionState::AssistantStreaming)?;
@@ -1600,7 +1676,7 @@ async fn activate_main_assistant(
             provider_meta: None,
         },
         speaker_agent_id: None,
-        trace_id: Some(trace_id),
+        trace_id: Some(trace_id.clone()),
         oldest_queue_created_at: Some(oldest_queue_created_at.to_string()),
         remote_im_activation_sources,
         runtime_context: Some(runtime_context),
@@ -1710,7 +1786,11 @@ async fn activate_main_assistant(
     };
     set_conversation_runtime_state(state, conversation_id, next_state)?;
 
-    result
+    result.map(|result| ActivatedAssistantResult {
+        result,
+        activation_id,
+        request_id: trace_id,
+    })
 }
 
 fn latest_user_text_from_events(events: &[ChatPendingEvent]) -> String {
@@ -1758,7 +1838,15 @@ fn emit_history_flushed_event(
     }
 }
 
-fn emit_round_started_event(state: &AppState, conversation_id: &str) {
+fn emit_round_started_event(
+    state: &AppState,
+    conversation_id: &str,
+    activation_id: &str,
+    request_id: &str,
+    reason: &str,
+    department_id: &str,
+    agent_id: &str,
+) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1772,6 +1860,11 @@ fn emit_round_started_event(state: &AppState, conversation_id: &str) {
     };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
+        "activationId": activation_id,
+        "requestId": request_id,
+        "reason": reason,
+        "departmentId": department_id,
+        "agentId": agent_id,
     });
     match app_handle.emit(CHAT_ROUND_STARTED_EVENT, payload) {
         Ok(_) => {}
@@ -1782,7 +1875,13 @@ fn emit_round_started_event(state: &AppState, conversation_id: &str) {
     }
 }
 
-fn emit_round_completed_event(state: &AppState, conversation_id: &str, result: &SendChatResult) {
+fn emit_round_completed_event(
+    state: &AppState,
+    conversation_id: &str,
+    result: &SendChatResult,
+    activation_id: Option<&str>,
+    request_id: Option<&str>,
+) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1796,6 +1895,8 @@ fn emit_round_completed_event(state: &AppState, conversation_id: &str, result: &
     };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
+        "activationId": activation_id.map(str::trim).filter(|value| !value.is_empty()),
+        "requestId": request_id.map(str::trim).filter(|value| !value.is_empty()),
         "assistantText": result.assistant_text,
         "reasoningStandard": result.reasoning_standard,
         "reasoningInline": result.reasoning_inline,
@@ -1844,7 +1945,13 @@ fn emit_stop_chat_round_completed_event(
     }
 }
 
-fn emit_round_failed_event(state: &AppState, conversation_id: &str, error_text: &str) {
+fn emit_round_failed_event(
+    state: &AppState,
+    conversation_id: &str,
+    error_text: &str,
+    activation_id: Option<&str>,
+    request_id: Option<&str>,
+) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -1858,6 +1965,8 @@ fn emit_round_failed_event(state: &AppState, conversation_id: &str, error_text: 
     };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
+        "activationId": activation_id.map(str::trim).filter(|value| !value.is_empty()),
+        "requestId": request_id.map(str::trim).filter(|value| !value.is_empty()),
         "error": error_text,
     });
     match app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload) {

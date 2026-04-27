@@ -2194,6 +2194,7 @@ async fn send_chat_message_inner(
         } else {
             Some(ToolLoopAutoCompactionContext {
                 conversation_id: conversation.id.clone(),
+                data_path: state.data_path.clone(),
                 request_id: runtime_context
                     .request_id
                     .as_deref()
@@ -2311,6 +2312,7 @@ async fn send_chat_message_inner(
                     delta: "".to_string(),
                     kind: Some("tool_status".to_string()),
                     request_id: None,
+                    activation_id: runtime_context.request_id.clone(),
                     phase_id: None,
                     reason: None,
                     tool_name: Some("archive".to_string()),
@@ -2347,6 +2349,7 @@ async fn send_chat_message_inner(
                             delta: "".to_string(),
                             kind: Some("tool_status".to_string()),
                             request_id: None,
+                            activation_id: runtime_context.request_id.clone(),
                             phase_id: None,
                             reason: None,
                             tool_name: Some("archive".to_string()),
@@ -2382,6 +2385,7 @@ async fn send_chat_message_inner(
                             delta: "".to_string(),
                             kind: Some("tool_status".to_string()),
                             request_id: None,
+                            activation_id: runtime_context.request_id.clone(),
                             phase_id: None,
                             reason: None,
                             tool_name: Some("archive".to_string()),
@@ -2620,6 +2624,7 @@ async fn send_chat_message_inner(
                     delta: "".to_string(),
                     kind: Some("tool_status".to_string()),
                     request_id: None,
+                    activation_id: runtime_context.request_id.clone(),
                     phase_id: None,
                     reason: None,
                     tool_name: None,
@@ -2648,6 +2653,7 @@ async fn send_chat_message_inner(
                 delta: "".to_string(),
                 kind: Some("tool_status".to_string()),
                 request_id: None,
+                activation_id: runtime_context.request_id.clone(),
                 phase_id: None,
                 reason: None,
                 tool_name: None,

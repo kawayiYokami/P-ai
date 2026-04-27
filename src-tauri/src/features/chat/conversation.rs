@@ -2463,13 +2463,31 @@ fn build_prompt_with_mode(
         log_stage("prepare_context.prompt_conversation_payload_ready");
     }
 
+    let mut latest_user_extra_blocks = conversation_payload.latest_user_extra_blocks;
+    if let Some(path) = data_path {
+        match message_store::active_plan_prompt_block(path, &conversation.id) {
+            Ok(Some(active_plan_block)) => {
+                latest_user_extra_blocks.push(active_plan_block);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[提示词] active_plan_prompt_block 读取失败: conversation_id={}, data_path={}, error={:?}",
+                    conversation.id,
+                    path.display(),
+                    err
+                ));
+            }
+        }
+    }
+
     PreparedPrompt {
         preamble,
         history_messages: conversation_payload.history_messages,
         latest_user_text: conversation_payload.latest_user_text,
         latest_user_meta_text: conversation_payload.latest_user_meta_text,
-        latest_user_extra_text: conversation_payload.latest_user_extra_blocks.join("\n\n"),
-        latest_user_extra_blocks: conversation_payload.latest_user_extra_blocks,
+        latest_user_extra_text: latest_user_extra_blocks.join("\n\n"),
+        latest_user_extra_blocks,
         latest_images: conversation_payload.latest_images,
         latest_audios: conversation_payload.latest_audios,
     }

@@ -170,5 +170,6 @@ struct TaskToolArgsWire {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct PlanToolArgs {
     action: String,
+    #[serde(default)]
     context: String,
 }

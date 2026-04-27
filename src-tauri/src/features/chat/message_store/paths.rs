@@ -1,6 +1,7 @@
 pub(super) const MESSAGE_STORE_MANIFEST_FILE_NAME: &str = "manifest.json";
 pub(super) const MESSAGE_STORE_META_FILE_NAME: &str = "meta.json";
 pub(super) const MESSAGE_STORE_MESSAGES_FILE_NAME: &str = "messages.jsonl";
+pub(super) const MESSAGE_STORE_ACTIVE_PLANS_FILE_NAME: &str = "active_plans.jsonl";
 pub(super) const MESSAGE_STORE_INDEX_FILE_NAME: &str = "messages.idx.json";
 pub(super) const MESSAGE_STORE_BLOCKS_DIR_NAME: &str = "blocks";
 const MESSAGE_STORE_BLOBS_DIR_NAME: &str = "blobs";
@@ -14,6 +15,7 @@ pub(super) struct MessageStorePaths {
     manifest_file: PathBuf,
     meta_file: PathBuf,
     messages_file: PathBuf,
+    active_plans_file: PathBuf,
     index_file: PathBuf,
     blocks_dir: PathBuf,
     blobs_dir: PathBuf,
@@ -40,6 +42,7 @@ pub(super) fn message_store_paths(
         manifest_file: shard_dir.join(MESSAGE_STORE_MANIFEST_FILE_NAME),
         meta_file: shard_dir.join(MESSAGE_STORE_META_FILE_NAME),
         messages_file: shard_dir.join(MESSAGE_STORE_MESSAGES_FILE_NAME),
+        active_plans_file: shard_dir.join(MESSAGE_STORE_ACTIVE_PLANS_FILE_NAME),
         index_file: shard_dir.join(MESSAGE_STORE_INDEX_FILE_NAME),
         blocks_dir: shard_dir.join(MESSAGE_STORE_BLOCKS_DIR_NAME),
         blobs_dir: shard_dir.join(MESSAGE_STORE_BLOBS_DIR_NAME),

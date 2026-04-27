@@ -561,9 +561,9 @@ impl RuntimeToolMetadata for BuiltinPlanTool {
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["present", "complete"] },
-                "context": { "type": "string", "description": "当 action=present 时表示计划内容；当 action=complete 时表示完成汇报" }
+                "context": { "type": "string", "description": "当 action=present 时表示计划内容；当 action=complete 时表示完成说明，可省略" }
               },
-              "required": ["action", "context"],
+              "required": ["action"],
               "additionalProperties": false
             }),
         )

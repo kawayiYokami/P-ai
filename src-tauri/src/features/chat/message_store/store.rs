@@ -2644,6 +2644,7 @@ mod message_store_reader_tests {
             manifest_file: outside_dir.join("manifest.json"),
             meta_file: outside_dir.join("meta.json"),
             messages_file: outside_dir.join("messages.jsonl"),
+            active_plans_file: outside_dir.join("active_plans.jsonl"),
             index_file: outside_dir.join("messages.idx.json"),
             blocks_dir: outside_dir.join("blocks"),
             blobs_dir: outside_dir.join("blobs"),

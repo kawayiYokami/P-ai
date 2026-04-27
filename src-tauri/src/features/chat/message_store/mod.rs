@@ -8,6 +8,7 @@ mod message_store {
     include!("manifest.rs");
     include!("meta.rs");
     include!("index.rs");
+    include!("active_plan.rs");
     include!("jsonl_snapshot.rs");
     include!("verification.rs");
     include!("store.rs");

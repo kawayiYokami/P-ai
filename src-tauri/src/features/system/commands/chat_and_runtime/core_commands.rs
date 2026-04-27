@@ -97,6 +97,216 @@ fn build_user_message_provider_meta(
     Some(Value::Object(root))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfirmPlanAndContinueInput {
+    conversation_id: String,
+    plan_message_id: String,
+    #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+fn plan_context_from_message_provider_meta(message: &ChatMessage) -> Option<String> {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("planCard"))
+        .and_then(Value::as_object)
+        .and_then(|card| card.get("context"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+#[tauri::command]
+async fn confirm_plan_and_continue(
+    input: ConfirmPlanAndContinueInput,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let plan_message_id = input.plan_message_id.trim();
+    if plan_message_id.is_empty() {
+        return Err("planMessageId is required.".to_string());
+    }
+    let plan_message = conversation_service().read_message_by_id(
+        state.inner(),
+        conversation_id,
+        plan_message_id,
+    )?;
+    let plan_context = plan_context_from_message_provider_meta(&plan_message)
+        .ok_or_else(|| "指定消息不是可执行计划。".to_string())?;
+    message_store::active_plan_append_in_progress(
+        &state.inner().data_path,
+        conversation_id,
+        plan_message_id,
+        &plan_context,
+    )?;
+    let conversation = state_read_conversation_cached(state.inner(), conversation_id)?;
+    let requested_agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| conversation.agent_id.trim().to_string());
+    if requested_agent_id.is_empty() {
+        return Err("缺少人格 ID，无法继续执行计划。".to_string());
+    }
+    let requested_department_id = input
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let department_id = conversation.department_id.trim();
+            (!department_id.is_empty()).then(|| department_id.to_string())
+        });
+    let (selected_api, resolved_api, department_id, agent_id) = {
+        let app_config = state_read_config_cached(state.inner())?;
+        let department = requested_department_id
+            .as_deref()
+            .and_then(|department_id| department_by_id(&app_config, department_id))
+            .or_else(|| department_for_agent_id(&app_config, &requested_agent_id))
+            .or_else(|| department_by_id(&app_config, ASSISTANT_DEPARTMENT_ID))
+            .ok_or_else(|| "找不到可用于继续执行计划的部门。".to_string())?;
+        let api_config_id = department_primary_api_config_id(department);
+        if api_config_id.trim().is_empty() {
+            return Err(format!("部门模型未配置: {}", department.id));
+        }
+        let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id.as_str()))
+            .ok_or_else(|| format!("模型配置不存在: {api_config_id}"))?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        (
+            selected_api,
+            resolved_api,
+            department.id.clone(),
+            requested_agent_id,
+        )
+    };
+    let continue_event_id = format!("confirm-plan-continue-{}", Uuid::new_v4());
+    let preview = build_force_compaction_preview_result(state.inner(), &selected_api, &conversation)?;
+    if preview.can_compact {
+        dispatch_assistant_delta_to_active_view(
+            state.inner(),
+            conversation_id,
+            &AssistantDeltaEvent {
+                delta: String::new(),
+                kind: Some("tool_status".to_string()),
+                request_id: Some(continue_event_id.clone()),
+                activation_id: Some(continue_event_id.clone()),
+                phase_id: None,
+                reason: Some("confirm_plan_before_continue".to_string()),
+                tool_name: Some("archive".to_string()),
+                tool_status: Some("running".to_string()),
+                tool_args: None,
+                message: Some("正在执行上下文压缩...".to_string()),
+            },
+        );
+        let compaction_result = run_context_compaction_pipeline(
+            state.inner(),
+            &selected_api,
+            &resolved_api,
+            &conversation,
+            &agent_id,
+            "confirm_plan_before_continue",
+            "COMPACTION-CONFIRM-PLAN",
+        )
+        .await;
+        match compaction_result {
+            Ok(result) => {
+                let message = result
+                    .warning
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|warning| format!("已完成压缩（降级总结）：{warning}"))
+                    .unwrap_or_else(|| {
+                        format!("已完成压缩，更新记忆 {} 条。", result.merged_memories)
+                    });
+                dispatch_assistant_delta_to_active_view(
+                    state.inner(),
+                    conversation_id,
+                    &AssistantDeltaEvent {
+                        delta: String::new(),
+                        kind: Some("tool_status".to_string()),
+                        request_id: Some(continue_event_id.clone()),
+                        activation_id: Some(continue_event_id.clone()),
+                        phase_id: None,
+                        reason: Some("confirm_plan_before_continue".to_string()),
+                        tool_name: Some("archive".to_string()),
+                        tool_status: Some("done".to_string()),
+                        tool_args: None,
+                        message: Some(message),
+                    },
+                );
+            }
+            Err(err) => {
+                dispatch_assistant_delta_to_active_view(
+                    state.inner(),
+                    conversation_id,
+                    &AssistantDeltaEvent {
+                        delta: String::new(),
+                        kind: Some("tool_status".to_string()),
+                        request_id: Some(continue_event_id.clone()),
+                        activation_id: Some(continue_event_id.clone()),
+                        phase_id: None,
+                        reason: Some("confirm_plan_before_continue".to_string()),
+                        tool_name: Some("archive".to_string()),
+                        tool_status: Some("failed".to_string()),
+                        tool_args: None,
+                        message: Some(format!("上下文压缩失败: {err}")),
+                    },
+                );
+                return Err(err);
+            }
+        }
+    }
+    let mut runtime_context = runtime_context_new("plan_confirm", "context_compaction_followup");
+    runtime_context.request_id = Some(continue_event_id.clone());
+    runtime_context.dispatch_id = Some(continue_event_id.clone());
+    runtime_context.origin_conversation_id = Some(conversation_id.to_string());
+    runtime_context.target_conversation_id = Some(conversation_id.to_string());
+    runtime_context.root_conversation_id = Some(conversation_id.to_string());
+    runtime_context.executor_agent_id = Some(agent_id.clone());
+    runtime_context.executor_department_id = Some(department_id.clone());
+    runtime_context.model_config_id = Some(selected_api.id.clone());
+    let event = ChatPendingEvent {
+        id: continue_event_id,
+        conversation_id: conversation_id.to_string(),
+        created_at: now_iso(),
+        source: ChatEventSource::System,
+        queue_mode: ChatQueueMode::Normal,
+        messages: Vec::new(),
+        activate_assistant: true,
+        session_info: ChatSessionInfo {
+            department_id,
+            agent_id,
+        },
+        runtime_context: Some(runtime_context),
+        sender_info: None,
+    };
+    match ingress_chat_event(state.inner(), event)? {
+        ChatEventIngress::Direct(event) => {
+            trigger_chat_event_after_ingress(state.inner(), ChatEventIngress::Direct(event));
+        }
+        ChatEventIngress::Queued { event_id } => {
+            runtime_log_info(format!(
+                "[计划] 确认后继续执行已入队 conversation_id={} event_id={}",
+                conversation_id, event_id
+            ));
+        }
+    }
+    trigger_chat_queue_processing(state.inner());
+    Ok(true)
+}
+
 #[derive(Debug, Clone)]
 struct UserMentionPlan {
     root_conversation_id: String,
@@ -378,13 +588,15 @@ fn append_delegate_result_message_and_emit(
             let conversation_id = conversation_id.to_string();
             async move {
                 let oldest_queue_created_at = now_iso();
+                let mut runtime_context = runtime_context_new("delegate_result", "delegate_continue");
+                runtime_context.request_id = Some(format!("delegate-continue-{}", Uuid::new_v4()));
                 if let Err(err) = activate_main_assistant(
                     &state,
                     &session_info,
                     &conversation_id,
                     None,
                     None,
-                    None,
+                    Some(runtime_context),
                     Vec::new(),
                     &oldest_queue_created_at,
                 )

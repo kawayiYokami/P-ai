@@ -35,6 +35,7 @@ type UseChatRewindActionsOptions = {
   extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   requestRecallMode: (payload: { turnId: string }) => Promise<RecallConfirmMode>;
   stopChat: () => Promise<void> | void;
+  clearForegroundRuntimeState: () => void;
 };
 
 export function useChatRewindActions(options: UseChatRewindActionsOptions) {
@@ -237,6 +238,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     const mode = await options.requestRecallMode({ turnId: payload.turnId });
     console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
     if (mode === "cancel") return;
+    options.clearForegroundRuntimeState();
     options.setChatErrorText("");
     await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, mode === "with_patch");
@@ -262,6 +264,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
 
   async function handleRegenerateTurn(payload: { turnId: string }) {
     if (options.forcingArchive.value || options.compactingConversation.value) return;
+    options.clearForegroundRuntimeState();
     await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
     if (!recalledUserMessage) return;

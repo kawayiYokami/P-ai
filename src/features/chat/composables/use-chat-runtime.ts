@@ -11,6 +11,7 @@ type ForceArchiveResult = {
   archived: boolean;
   archiveId?: string | null;
   activeConversationId?: string | null;
+  compactionMessage?: ChatMessage | null;
   summary: string;
   mergedMemories: number;
   warning?: string | null;
@@ -29,6 +30,7 @@ type UseChatRuntimeOptions = {
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   compactingConversation: Ref<boolean>;
+  suppressNextCompactionReload?: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
   refreshUnarchivedConversations?: () => Promise<void>;
   perfNow: () => number;
@@ -133,6 +135,16 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       }
       if (options.refreshUnarchivedConversations) {
         await options.refreshUnarchivedConversations();
+      }
+      if (!action.lockForeground && result.compactionMessage) {
+        const messageId = String(result.compactionMessage.id || "").trim();
+        if (messageId && !options.allMessages.value.some((message) => String(message.id || "").trim() === messageId)) {
+          options.allMessages.value = [...options.allMessages.value, result.compactionMessage];
+        }
+        if (options.suppressNextCompactionReload) {
+          options.suppressNextCompactionReload.value = true;
+        }
+        return;
       }
       await loadAllMessages(action.lockForeground ? undefined : sourceConversationId);
     } catch (e) {

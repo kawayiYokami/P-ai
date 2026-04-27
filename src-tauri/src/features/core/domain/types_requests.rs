@@ -363,6 +363,8 @@ struct AssistantDeltaEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    activation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     phase_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,

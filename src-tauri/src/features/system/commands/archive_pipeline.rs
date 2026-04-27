@@ -223,6 +223,8 @@ struct ForceArchiveResult {
     archive_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     active_conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compaction_message: Option<ChatMessage>,
     summary: String,
     merged_memories: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -235,6 +237,70 @@ struct ForceArchiveResult {
     memory_feedback: Option<MemoryArchiveFeedbackReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     merge_groups: Option<usize>,
+}
+
+fn build_context_compaction_followup_runtime_context() -> RuntimeContext {
+    let mut runtime_context = runtime_context_new(
+        "context_compaction",
+        "context_compaction_followup",
+    );
+    runtime_context.request_id = Some(format!(
+        "context-compaction-followup-{}",
+        Uuid::new_v4()
+    ));
+    runtime_context
+}
+
+fn context_compaction_followup_department_id(
+    state: &AppState,
+    source: &Conversation,
+    effective_agent_id: &str,
+) -> Result<String, String> {
+    let department_id = source.department_id.trim();
+    if !department_id.is_empty() {
+        return Ok(department_id.to_string());
+    }
+    Ok(department_for_agent_id(&state_read_config_cached(state)?, effective_agent_id)
+        .map(|department| department.id.clone())
+        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string()))
+}
+
+fn enqueue_context_compaction_followup(
+    state: &AppState,
+    source: &Conversation,
+    effective_agent_id: &str,
+) -> Result<(), String> {
+    if conversation_has_guided_queue_events(state, &source.id).unwrap_or(false) {
+        return Ok(());
+    }
+    let followup_event = ChatPendingEvent {
+        id: format!("context-compaction-followup-{}", Uuid::new_v4()),
+        conversation_id: source.id.clone(),
+        created_at: now_iso(),
+        source: ChatEventSource::System,
+        queue_mode: ChatQueueMode::Normal,
+        messages: Vec::new(),
+        activate_assistant: true,
+        session_info: ChatSessionInfo {
+            department_id: context_compaction_followup_department_id(state, source, effective_agent_id)?,
+            agent_id: effective_agent_id.to_string(),
+        },
+        runtime_context: Some(build_context_compaction_followup_runtime_context()),
+        sender_info: None,
+    };
+    match ingress_chat_event(state, followup_event)? {
+        ChatEventIngress::Direct(event) => {
+            trigger_chat_event_after_ingress(state, ChatEventIngress::Direct(event));
+        }
+        ChatEventIngress::Queued { event_id } => {
+            runtime_log_info(format!(
+                "[上下文整理] 完成后续激活已入队 conversation_id={} event_id={}",
+                source.id, event_id
+            ));
+        }
+    }
+    trigger_chat_queue_processing(state);
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1022,56 +1088,6 @@ fn build_compaction_message(
     }
 }
 
-fn plan_message_kind_for_archive(message: &ChatMessage) -> Option<String> {
-    message
-        .provider_meta
-        .as_ref()
-        .and_then(|meta| {
-            meta.get("message_meta")
-                .and_then(Value::as_object)
-                .and_then(|value| value.get("kind"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        })
-        .or_else(|| {
-            message
-                .provider_meta
-                .as_ref()
-                .and_then(|meta| meta.get("messageKind"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        })
-}
-
-fn pending_plan_context_for_compaction(messages: &[ChatMessage]) -> Option<String> {
-    for message in messages.iter().rev() {
-        match plan_message_kind_for_archive(message).as_deref() {
-            Some("plan_complete") => return None,
-            Some("plan_present") => {
-                let context = message
-                    .provider_meta
-                    .as_ref()
-                    .and_then(|meta| meta.get("planCard"))
-                    .and_then(Value::as_object)
-                    .and_then(|card| card.get("context"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned);
-                if context.is_some() {
-                    return context;
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
 fn normalize_multiline_block(input: &str) -> String {
     input
         .lines()
@@ -1380,6 +1396,7 @@ async fn force_archive_current(
         archived: false,
         archive_id: None,
         active_conversation_id: Some(active_conversation_id),
+        compaction_message: None,
         summary: String::new(),
         merged_memories: 0,
         warning: None,
@@ -1596,6 +1613,7 @@ async fn run_context_compaction_pipeline_inner(
             archived: false,
             archive_id: None,
             active_conversation_id: Some(source.id.clone()),
+            compaction_message: None,
             summary: "当前对话为空，无需整理。".to_string(),
             merged_memories: 0,
             warning: None,
@@ -1623,6 +1641,7 @@ async fn run_context_compaction_pipeline_inner(
             archived: false,
             archive_id: None,
             active_conversation_id: Some(active_conversation_id),
+            compaction_message: None,
             summary: String::new(),
             merged_memories: 0,
             warning: None,
@@ -1663,17 +1682,14 @@ async fn run_context_compaction_pipeline_inner(
         &deduped_recall,
         &summary_draft,
     )?;
-    let summary_with_pending_plan =
-        if let Some(plan_context) = pending_plan_context_for_compaction(&source.messages) {
-            let plan_block = format!("未完成计划：\n{}", clean_text(plan_context.trim()));
-            if summary_draft.summary.trim().is_empty() {
-                plan_block
-            } else {
-                format!("{}\n\n{}", summary_draft.summary.trim(), plan_block)
-            }
-        } else {
-            summary_draft.summary.clone()
-        };
+    let summary_with_pending_plan = match message_store::active_plan_prompt_block(
+        &state.data_path,
+        &source.id,
+    )? {
+        Some(plan_block) if summary_draft.summary.trim().is_empty() => plan_block,
+        Some(plan_block) => format!("{}\n\n{}", summary_draft.summary.trim(), plan_block),
+        None => summary_draft.summary.clone(),
+    };
     let user_profile_snapshot =
         if conversation_is_delegate(source) || conversation_is_remote_im_contact(source) {
             None
@@ -1739,6 +1755,7 @@ async fn run_context_compaction_pipeline_inner(
         archived: false,
         archive_id: None,
         active_conversation_id,
+        compaction_message: Some(compression_message),
         summary: summary_draft.summary,
         merged_memories: applied_report.merged_memories,
         warning: compaction_warning,
@@ -1785,6 +1802,7 @@ async fn run_archive_pipeline_inner(
             archived: false,
             archive_id: None,
             active_conversation_id: Some(active_conversation_id),
+            compaction_message: None,
             summary: String::new(),
             merged_memories: 0,
             warning: None,
@@ -1815,6 +1833,7 @@ async fn run_archive_pipeline_inner(
             archived: false,
             archive_id: None,
             active_conversation_id: Some(active_conversation_id),
+            compaction_message: None,
             summary: String::new(),
             merged_memories: 0,
             warning: None,
@@ -1847,6 +1866,7 @@ async fn run_archive_pipeline_inner(
             archived: false,
             archive_id: None,
             active_conversation_id: Some(active_conversation_id),
+            compaction_message: None,
             summary: String::new(),
             merged_memories: 0,
             warning: None,
@@ -1996,6 +2016,7 @@ async fn run_archive_pipeline_inner(
         archived: true,
         archive_id: Some(archive_id),
         active_conversation_id: Some(active_conversation_id),
+        compaction_message: None,
         summary: summary_draft.summary,
         merged_memories: applied_report.merged_memories,
         warning: archive_warning,
