@@ -403,6 +403,7 @@
       </div>
 
       <ToolReviewSidebar
+        ref="toolReviewSidebarRef"
         v-if="toolReviewPanelOpen"
         class="w-104 max-w-[42vw] shrink-0 border-l border-base-300 bg-base-100 pt-2"
         :batches="toolReviewBatches"
@@ -414,6 +415,8 @@
         :submitting-batch-key="toolReviewSubmittingBatchKey"
         :error-text="toolReviewErrorText"
         :report-error-text="toolReviewReportErrorText"
+        :reports="toolReviewReports"
+        :current-report-id="toolReviewCurrentReportId"
         :markdown-is-dark="markdownIsDark"
         :current-workspace-name="currentWorkspaceName"
         :current-workspace-root-path="currentWorkspaceRootPath"
@@ -423,6 +426,11 @@
         @review-item="runToolReviewForCall"
         @review-batch="runToolReviewForBatch"
         @submit-batch="submitToolReviewBatch"
+        @submit-batch-selection="handleSubmitBatchSelection"
+        @pick-commit-review="handlePickCommitReview"
+        @review-code="handleToolReviewCode"
+        @retry-report="handleRetryToolReviewReport"
+        @delete-report="handleDeleteToolReviewReport"
         @copy-report="copyToolReviewReport"
         @attach-report="$emit('attachToolReviewReport', $event)"
       />
@@ -450,7 +458,7 @@ import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTask
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
-import { useChatToolReview } from "../composables/use-chat-tool-review";
+import { useChatToolReview, type ToolReviewCodeReviewScope, type ToolReviewCommitOption, type ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 
@@ -556,6 +564,142 @@ function isOrganizeContextToolCall(call: { name: string; argsText: string; statu
   const name = String(call.name || "").trim().toLowerCase();
   if (name === "organize_context" || name === "archive") return true;
   return false;
+}
+
+async function handlePickCommitReview(page = 1) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId) return;
+  toolReviewSidebarRef.value?.setCommitOptions([], true, 0, page, 30);
+  try {
+    const result = await listToolReviewCommitOptions(conversationId, page, 30);
+    toolReviewSidebarRef.value?.setCommitOptions(result.commits, false, result.total, result.page, result.pageSize);
+  } catch (error) {
+    const detail = error instanceof Error ? String(error.message || "").trim() : String(error);
+    toolReviewErrorText.value = t("chat.toolReview.loadFailed", { err: detail || "Unknown error" });
+    toolReviewSidebarRef.value?.setCommitOptions([], false, 0, page, 30);
+  }
+}
+
+async function handleDeleteToolReviewReport(report: ToolReviewReportRecord) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  const reportId = String(report.id || "").trim();
+  if (!conversationId || !reportId) return;
+  try {
+    await deleteToolReviewReport({
+      conversationId,
+      reportId,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? String(error.message || "").trim() : String(error);
+    console.error("[工具审查][前端] 删除审查报告失败", {
+      conversationId,
+      reportId,
+      error,
+    });
+    toolReviewErrorText.value = t("chat.toolReview.loadFailed", { err: detail || "删除审查报告失败" });
+  }
+}
+
+async function handleSubmitBatchSelection(batchKeys: string[]) {
+  const reversedBatches = [...toolReviewBatches.value].reverse();
+  for (const batchKey of batchKeys) {
+    const normalizedBatchKey = String(batchKey || "").trim();
+    if (!normalizedBatchKey) continue;
+    const selectionIndex = reversedBatches.findIndex((batch) => String(batch.batchKey || "").trim() === normalizedBatchKey);
+    if (selectionIndex < 0) {
+      toolReviewErrorText.value = `未找到对应批次，无法发起审查任务：${normalizedBatchKey}`;
+      continue;
+    }
+    console.info("[工具审查][前端] 批次选择提交", {
+      conversationId: String(props.activeConversationId || "").trim(),
+      batchKey: normalizedBatchKey,
+      batchNumber: selectionIndex + 1,
+    });
+    await submitToolReviewBatch(selectionIndex + 1);
+  }
+}
+
+function handleToolReviewCode(scope: ToolReviewCodeReviewScope, target?: string) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  const normalizedTarget = String(target || "").trim();
+  if (!conversationId) {
+    toolReviewErrorText.value = "当前没有活跃会话，无法发起审查任务。";
+    return;
+  }
+  console.info("[工具审查][前端] 发起代码审查任务", {
+    conversationId,
+    scope,
+    target: normalizedTarget,
+  });
+  void submitToolReviewCode({
+    conversationId,
+    scope,
+    target: normalizedTarget || undefined,
+    apiConfigId: String(props.selectedChatModelId || "").trim() || undefined,
+  });
+}
+
+async function handleRetryToolReviewReport(report: ToolReviewReportRecord) {
+  const scope = String(report.scope || "").trim() as ToolReviewCodeReviewScope | "batch";
+  const target = String(report.target || "").trim();
+  const conversationId = String(props.activeConversationId || "").trim();
+  const reportId = String(report.id || "").trim();
+  if (!conversationId || !reportId) {
+    toolReviewErrorText.value = "当前没有活跃会话，无法重新生成审查任务。";
+    return;
+  }
+  try {
+    await deleteToolReviewReport({
+      conversationId,
+      reportId,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? String(error.message || "").trim() : String(error);
+    console.error("[工具审查][前端] 删除旧审查报告失败，取消重新生成", {
+      conversationId,
+      reportId,
+      scope,
+      target,
+      error,
+    });
+    toolReviewErrorText.value = t("chat.toolReview.loadFailed", { err: detail || "删除旧审查报告失败" });
+    return;
+  }
+  if (scope === "batch") {
+    const matched = /^第\s*(\d+)\s*批$/.exec(target);
+    if (!matched) {
+      toolReviewErrorText.value = `无法识别批次审查目标：${target || "空"}`;
+      return;
+    }
+    const batchNumber = Number(matched[1]);
+    if (!Number.isFinite(batchNumber) || batchNumber <= 0) {
+      toolReviewErrorText.value = `无效批次序号：${target}`;
+      return;
+    }
+    console.info("[工具审查][前端] 重新生成批次审查", {
+      conversationId,
+      reportId,
+      batchNumber,
+    });
+    void submitToolReviewBatch(batchNumber);
+    return;
+  }
+  if (scope === "commit" || scope === "main" || scope === "uncommitted" || scope === "custom") {
+    console.info("[工具审查][前端] 重新生成代码审查", {
+      conversationId,
+      reportId,
+      scope,
+      target,
+    });
+    void submitToolReviewCode({
+      conversationId,
+      scope,
+      target: target || undefined,
+      apiConfigId: String(props.selectedChatModelId || "").trim() || undefined,
+    });
+    return;
+  }
+  toolReviewErrorText.value = `不支持重新生成该审查范围：${scope || "空"}`;
 }
 
 function handleViewApprovalDetail() {
@@ -782,6 +926,7 @@ const emit = defineEmits<{
   (e: "denyTerminalApproval", requestId: string): void;
 }>();
 const { t } = useI18n();
+const toolReviewSidebarRef = ref<ComponentPublicInstance<{ setCommitOptions: (items: ToolReviewCommitOption[], loading?: boolean, total?: number, page?: number, pageSize?: number) => void }> | null>(null);
 
 function handleDetachConversationRequest() {
   console.info("[独立聊天窗口][前端链路] ChatView 收到 detachConversation，继续派发到窗口容器", {
@@ -1280,13 +1425,19 @@ const {
   toolReviewSubmittingBatchKey,
   toolReviewErrorText,
   toolReviewReportErrorText,
+  toolReviewReports,
+  toolReviewCurrentReportId,
   toggleToolReviewPanel,
   refreshToolReviewBatches,
+  refreshToolReviewReports,
   setToolReviewCurrentBatchKey,
   loadToolReviewItemDetail,
   runToolReviewForCall,
   runToolReviewForBatch,
   submitToolReviewBatch,
+  submitToolReviewCode,
+  deleteToolReviewReport,
+  listToolReviewCommitOptions,
 } = useChatToolReview({
   activeConversationId: toRef(props, "activeConversationId"),
   selectedChatModelId: toRef(props, "selectedChatModelId"),

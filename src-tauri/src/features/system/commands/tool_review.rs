@@ -4,6 +4,182 @@ struct ToolReviewConversationInput {
     conversation_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolReviewCommitPageInput {
+    conversation_id: String,
+    page: usize,
+    page_size: usize,
+}
+
+fn tool_review_delegate_background(scope: &str, target: Option<&str>) -> String {
+    let mut lines = vec![format!("审查范围：{}", scope.trim())];
+    if let Some(target) = target.map(str::trim).filter(|value| !value.is_empty()) {
+        lines.push(format!("范围参数：{}", target));
+    }
+    lines.push("请你将以上选择内容视为审查目标，在当前工作区自行决定需要读取的只读 git 信息，再按 skill 输出 JSON。".to_string());
+    lines.join("\n")
+}
+
+#[tauri::command]
+async fn list_tool_review_commit_options(
+    input: ToolReviewCommitPageInput,
+    state: State<'_, AppState>,
+) -> Result<ListToolReviewCommitOptionsOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    let page = input.page.max(1);
+    let page_size = input.page_size.clamp(1, 100);
+    runtime_log_info(format!(
+        "[工具审查][commit列表] 开始 conversation_id={} page={} page_size={}",
+        conversation_id, page, page_size
+    ));
+    if conversation_id.is_empty() {
+        runtime_log_info("[工具审查][commit列表] 跳过 conversation_id 为空".to_string());
+        return Ok(ListToolReviewCommitOptionsOutput { total: 0, page, page_size, commits: Vec::new() });
+    }
+    let conversation = with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+        Ok(conversation.clone())
+    })
+    .map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][commit列表] 读取会话失败 conversation_id={} err={}",
+            conversation_id, err
+        ));
+        err
+    })?;
+    let (total, commits) = tool_review_list_commit_options_internal(state.inner(), &conversation, page, page_size)
+        .await
+        .map_err(|err| {
+            runtime_log_error(format!(
+                "[工具审查][commit列表] 获取失败 conversation_id={} err={}",
+                conversation_id, err
+            ));
+            err
+        })?;
+    runtime_log_info(format!(
+        "[工具审查][commit列表] 完成 conversation_id={} total={} count={}",
+        conversation_id,
+        total,
+        commits.len()
+    ));
+    Ok(ListToolReviewCommitOptionsOutput { total, page, page_size, commits })
+}
+
+async fn tool_review_list_commit_options_internal(
+    state: &AppState,
+    conversation: &Conversation,
+    page: usize,
+    page_size: usize,
+) -> Result<(usize, Vec<ToolReviewCommitOption>), String> {
+    let workspace_path = terminal_default_workspace_for_conversation_resolved(
+        state,
+        Some(conversation),
+    )
+    .map(|workspace| workspace.path)
+    .map_err(|err| format!("当前会话缺少可用主工作区，无法读取 commit 列表：{}", err))?;
+    let workspace_text = workspace_path.to_string_lossy().to_string();
+    let total_command = "git rev-list --count HEAD";
+    runtime_log_info(format!(
+        "[工具审查][commit列表] 执行 git conversation_id={} cwd={} command={}",
+        conversation.id,
+        workspace_text,
+        total_command
+    ));
+    let total_output = tool_review_exec_git_readonly(
+        state,
+        &conversation.id,
+        &workspace_path,
+        total_command,
+        120_000,
+    )
+    .await
+    .map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][commit列表] git失败 conversation_id={} cwd={} command={} err={}",
+            conversation.id,
+            workspace_text,
+            total_command,
+            err
+        ));
+        err
+    })?;
+    let total = total_output.trim().parse::<usize>().map_err(|err| {
+        format!("无法解析 commit 总数：{}", err)
+    })?;
+    let offset = page.saturating_sub(1).saturating_mul(page_size);
+    let command = format!("git log --skip {} -n {} --pretty=format:%H%x1f%h%x1f%s%x1f%cI", offset, page_size);
+    runtime_log_info(format!(
+        "[工具审查][commit列表] 执行 git conversation_id={} cwd={} command={}",
+        conversation.id,
+        workspace_text,
+        command
+    ));
+    let output = tool_review_exec_git_readonly(
+        state,
+        &conversation.id,
+        &workspace_path,
+        &command,
+        120_000,
+    )
+    .await
+    .map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][commit列表] git失败 conversation_id={} cwd={} command={} err={}",
+            conversation.id,
+            workspace_text,
+            command,
+            err
+        ));
+        err
+    })?;
+    runtime_log_info(format!(
+        "[工具审查][commit列表] git完成 conversation_id={} cwd={} stdout_lines={}",
+        conversation.id,
+        workspace_text,
+        output.lines().count()
+    ));
+    Ok((
+        total,
+        output
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\u{1f}');
+                let hash = parts.next()?.trim();
+                let short_hash = parts.next()?.trim();
+                let subject = parts.next()?.trim();
+                let author_time = parts.next()?.trim();
+                if hash.is_empty() || short_hash.is_empty() || subject.is_empty() {
+                    return None;
+                }
+                Some(ToolReviewCommitOption {
+                    hash: hash.to_string(),
+                    short_hash: short_hash.to_string(),
+                    subject: subject.to_string(),
+                    author_time: author_time.to_string(),
+                })
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolReviewCommitOption {
+    hash: String,
+    short_hash: String,
+    subject: String,
+    author_time: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListToolReviewCommitOptionsOutput {
+    total: usize,
+    page: usize,
+    page_size: usize,
+    commits: Vec<ToolReviewCommitOption>,
+}
+
 fn tool_review_command_for_item(item: &ToolReviewCollectedItem) -> Option<String> {
     item.result_value
         .as_ref()
@@ -117,14 +293,32 @@ struct ToolReviewCallInput {
 #[serde(rename_all = "camelCase")]
 struct ToolReviewBatchActionInput {
     conversation_id: String,
-    batch_key: String,
+    batch_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolReviewCodeReviewInput {
+    conversation_id: String,
+    scope: String,
+    #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    api_config_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteToolReviewReportInput {
+    conversation_id: String,
+    report_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubmitToolReviewBatchInput {
     conversation_id: String,
-    batch_key: String,
+    batch_number: usize,
     #[serde(default)]
     api_config_id: Option<String>,
 }
@@ -157,12 +351,20 @@ struct ToolReviewItemSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ToolReviewReportSummary {
-    batch_key: String,
-    reviewed_tool_call_ids: Vec<String>,
+struct ToolReviewReportRecord {
+    id: String,
+    conversation_id: String,
+    #[serde(default)]
+    title: String,
+    status: String,
+    scope: String,
+    target: String,
+    workspace_path: String,
+    created_at: String,
+    updated_at: String,
     report_text: String,
-    source_tool_count: usize,
-    generated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,11 +372,10 @@ struct ToolReviewReportSummary {
 struct ToolReviewBatchSummary {
     batch_key: String,
     user_message_id: String,
+    user_message_text: String,
     item_count: usize,
     unreviewed_count: usize,
     items: Vec<ToolReviewItemSummary>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    report: Option<ToolReviewReportSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,9 +412,13 @@ struct RunToolReviewBatchOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubmitToolReviewBatchOutput {
-    batch_key: String,
-    report: ToolReviewReportSummary,
-    report_message_id: String,
+    report: ToolReviewReportRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListToolReviewReportsOutput {
+    reports: Vec<ToolReviewReportRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -234,8 +439,28 @@ struct ToolReviewCollectedItem {
 struct ToolReviewCollectedBatch {
     batch_key: String,
     user_message_id: String,
+    user_message_text: String,
     items: Vec<ToolReviewCollectedItem>,
-    report: Option<ToolReviewReportSummary>,
+}
+
+fn tool_review_user_message_text(message: &ChatMessage) -> String {
+    let text = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text } => Some(text.trim()),
+            _ => None,
+        })
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        "（空白用户消息）".to_string()
+    } else {
+        text
+    }
 }
 
 fn tool_review_json_string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -277,6 +502,23 @@ fn tool_review_value_to_stored_review(raw: &Value) -> Option<ToolReviewStoredRev
     })
 }
 
+#[tauri::command]
+fn delete_tool_review_report(
+    input: DeleteToolReviewReportInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conversation_id = input.conversation_id.trim();
+    let report_id = input.report_id.trim();
+    if conversation_id.is_empty() || report_id.is_empty() {
+        return Err("conversationId 和 reportId 不能为空。".to_string());
+    }
+    with_tool_review_conversation(state.inner(), conversation_id, |_conversation| {
+        tool_review_delete_report_record(&state.data_path, conversation_id, report_id)
+    })?;
+    emit_tool_review_reports_updated(state.inner(), conversation_id, report_id, "deleted");
+    Ok(())
+}
+
 fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, String) {
     match item.tool_name.as_str() {
         "apply_patch" => {
@@ -297,7 +539,7 @@ fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, Stri
     }
 }
 
-fn tool_review_report_from_message(message: &ChatMessage) -> Option<ToolReviewReportSummary> {
+fn tool_review_report_from_message(message: &ChatMessage) -> Option<ToolReviewReportRecord> {
     if !is_tool_review_report_message(message) {
         return None;
     }
@@ -315,32 +557,18 @@ fn tool_review_report_from_message(message: &ChatMessage) -> Option<ToolReviewRe
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| render_message_content_for_model(message).trim().to_string());
-    Some(ToolReviewReportSummary {
-        batch_key,
-        reviewed_tool_call_ids: meta
-            .get("reviewedToolCallIds")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default(),
+    Some(ToolReviewReportRecord {
+        id: message.id.clone(),
+        conversation_id: String::new(),
+        title: String::new(),
+        status: "success".to_string(),
+        scope: "batch".to_string(),
+        target: batch_key.clone(),
+        workspace_path: String::new(),
+        created_at: message.created_at.clone(),
+        updated_at: message.created_at.clone(),
         report_text,
-        source_tool_count: meta
-            .get("sourceToolCount")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize,
-        generated_at: meta
-            .get("generatedAt")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string(),
+        error_text: None,
     })
 }
 
@@ -351,11 +579,9 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
     let mut batches = Vec::<ToolReviewCollectedBatch>::new();
     let mut batch_index_by_key = std::collections::HashMap::<String, usize>::new();
     let mut pending_calls = std::collections::HashMap::<String, (usize, usize)>::new();
-    let mut reports = std::collections::HashMap::<String, ToolReviewReportSummary>::new();
 
     for message in &conversation.messages {
-        if let Some(report) = tool_review_report_from_message(message) {
-            reports.insert(report.batch_key.clone(), report);
+        if is_tool_review_report_message(message) {
             continue;
         }
         if message.role.trim().eq_ignore_ascii_case("user") {
@@ -368,8 +594,8 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
                 batches.push(ToolReviewCollectedBatch {
                     batch_key: batch_key.clone(),
                     user_message_id: message.id.clone(),
+                    user_message_text: tool_review_user_message_text(message),
                     items: Vec::new(),
-                    report: None,
                 });
             }
             continue;
@@ -446,20 +672,37 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
         }
     }
 
-    for batch in batches.iter_mut() {
-        batch.report = reports.get(&batch.batch_key).cloned();
-    }
-
     batches
         .into_iter()
         .filter(|batch| !batch.items.is_empty())
         .collect()
 }
 
+fn tool_review_find_batch_by_index(
+    conversation: &Conversation,
+    batch_index: usize,
+) -> Result<(usize, ToolReviewCollectedBatch), String> {
+    let batches = collect_tool_review_batches_internal(conversation);
+    let total = batches.len();
+    if total == 0 {
+        return Err("当前会话没有可审查的工具批次。".to_string());
+    }
+    if batch_index >= total {
+        return Err(format!("批次索引超出范围：batch_index={} total={}", batch_index, total));
+    }
+    let display_number = total - batch_index;
+    let batch = batches
+        .get(batch_index)
+        .cloned()
+        .ok_or_else(|| format!("未找到批次：batch_index={}", batch_index))?;
+    Ok((display_number, batch))
+}
+
 fn tool_review_batch_summary_from_collected(batch: &ToolReviewCollectedBatch) -> ToolReviewBatchSummary {
     ToolReviewBatchSummary {
         batch_key: batch.batch_key.clone(),
         user_message_id: batch.user_message_id.clone(),
+        user_message_text: batch.user_message_text.clone(),
         item_count: batch.items.len(),
         unreviewed_count: batch
             .items
@@ -491,7 +734,6 @@ fn tool_review_batch_summary_from_collected(batch: &ToolReviewCollectedBatch) ->
                 },
             })
             .collect(),
-        report: batch.report.clone(),
     }
 }
 
@@ -881,91 +1123,419 @@ fn tool_review_submission_user_prompt(
     )
 }
 
-fn tool_review_report_insert_index(
-    conversation: &Conversation,
-    batch: &ToolReviewCollectedBatch,
-) -> usize {
-    tool_review_last_related_message_index(conversation, batch)
-        .map(|index| index.saturating_add(1))
-        .unwrap_or(conversation.messages.len())
+fn tool_review_parse_scope(raw: &str) -> Result<&'static str, String> {
+    match raw.trim() {
+        "uncommitted" => Ok("uncommitted"),
+        "main" => Ok("main"),
+        "commit" => Ok("commit"),
+        "custom" => Ok("custom"),
+        other => Err(format!("不支持的代码审查范围：{other}")),
+    }
 }
 
-fn tool_review_upsert_report_message(
-    conversation: &mut Conversation,
-    batch: &ToolReviewCollectedBatch,
-    report_text: &str,
-) -> (ToolReviewReportSummary, String) {
-    let generated_at = now_iso();
-    let reviewed_tool_call_ids = batch
-        .items
-        .iter()
-        .map(|item| item.call_id.clone())
-        .collect::<Vec<_>>();
-    let report = ToolReviewReportSummary {
-        batch_key: batch.batch_key.clone(),
-        reviewed_tool_call_ids: reviewed_tool_call_ids.clone(),
-        report_text: report_text.trim().to_string(),
-        source_tool_count: batch.items.len(),
-        generated_at: generated_at.clone(),
+fn tool_review_find_skill_by_name(
+    state: &AppState,
+    skill_name: &str,
+) -> Result<SkillSummaryItem, String> {
+    let (skills, _errors) = load_workspace_skill_summaries_with_errors(state)?;
+    skills
+        .into_iter()
+        .find(|item| item.name.trim() == skill_name)
+        .ok_or_else(|| format!("未找到 skill：{skill_name}"))
+}
+
+async fn tool_review_exec_git_readonly(
+    state: &AppState,
+    conversation_id: &str,
+    cwd: &Path,
+    command: &str,
+    timeout_ms: u64,
+) -> Result<String, String> {
+    let runtime_shell = terminal_shell_for_state(state);
+    let session_id = format!("tool-review-code::{}", conversation_id.trim());
+    let execution = if terminal_live_session_supported(&runtime_shell) {
+        terminal_live_exec_command(state, &session_id, cwd, command, timeout_ms).await
+    } else {
+        sandbox_execute_command(state, &session_id, command, cwd, timeout_ms).await
+    }?;
+    let stdout = terminal_decode_output_bytes(&execution.stdout);
+    let stderr = terminal_decode_output_bytes(&execution.stderr);
+    if !execution.ok {
+        let detail = if stderr.trim().is_empty() { stdout.trim() } else { stderr.trim() };
+        return Err(format!("git 命令失败：{}", detail));
+    }
+    Ok(stdout)
+}
+
+fn tool_review_reports_root(data_path: &PathBuf) -> PathBuf {
+    app_root_from_data_path(data_path).join("tool-review-reports")
+}
+
+fn tool_review_validate_conversation_id(conversation_id: &str) -> Result<String, String> {
+    let normalized = conversation_id.trim();
+    if normalized.is_empty() {
+        return Err("会话 ID 为空，无法定位审查报告存储。".to_string());
+    }
+    if normalized.contains('/') || normalized.contains('\\') || normalized.contains("..") {
+        return Err(format!("非法会话 ID：{}", normalized));
+    }
+    Ok(normalized.to_string())
+}
+
+fn tool_review_reports_file_path(data_path: &PathBuf, conversation_id: &str) -> Result<PathBuf, String> {
+    let normalized = tool_review_validate_conversation_id(conversation_id)?;
+    Ok(tool_review_reports_root(data_path)
+        .join(normalized)
+        .join("reports.jsonl"))
+}
+
+fn tool_review_write_text_atomic(path: &PathBuf, body: &str, label: &str) -> Result<(), String> {
+    ensure_parent_dir(path)?;
+    let file_name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .ok_or_else(|| format!("Invalid {label} file path"))?;
+    let tmp = path.with_file_name(format!("{file_name}.tmp"));
+    fs::write(&tmp, body.as_bytes()).map_err(|err| format!("Write temp {label} failed: {err}"))?;
+    if let Err(rename_err) = fs::rename(&tmp, path) {
+        fs::copy(&tmp, path).map_err(|copy_err| {
+            format!("Finalize {label} failed (rename: {rename_err}; copy: {copy_err})")
+        })?;
+        let _ = fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+fn emit_tool_review_reports_updated(state: &AppState, conversation_id: &str, report_id: &str, status: &str) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
     };
-    let provider_meta = serde_json::json!({
-        "messageKind": "tool_review_report",
-        "message_meta": {
-            "kind": "tool_review_report",
-        },
-        "batchKey": report.batch_key,
-        "reviewedToolCallIds": report.reviewed_tool_call_ids,
-        "reportText": report.report_text,
-        "sourceToolCount": report.source_tool_count,
-        "generatedAt": report.generated_at,
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "reportId": report_id,
+        "status": status,
     });
-      let mut matching_indexes = conversation
-          .messages
-          .iter()
-          .enumerate()
-          .filter_map(|(index, message)| {
-              let matches_batch = is_tool_review_report_message(message)
-                  && message
-                      .provider_meta
-                      .as_ref()
-                      .and_then(|meta| meta.get("batchKey"))
-                      .and_then(Value::as_str)
-                      .map(str::trim)
-                      == Some(batch.batch_key.as_str());
-              if matches_batch { Some(index) } else { None }
-          })
-          .collect::<Vec<_>>();
-      if let Some(primary_index) = matching_indexes.first().copied() {
-          for duplicate_index in matching_indexes.drain(1..).rev() {
-              conversation.messages.remove(duplicate_index);
-          }
-          if let Some(existing) = conversation.messages.get_mut(primary_index) {
-              existing.created_at = generated_at.clone();
-              existing.parts = vec![MessagePart::Text {
-                  text: report_text.trim().to_string(),
-              }];
-              existing.provider_meta = Some(provider_meta);
-              return (report, existing.id.clone());
-          }
-      }
-      let insert_index = tool_review_report_insert_index(conversation, batch)
-          .min(conversation.messages.len());
-      let report_message = ChatMessage {
-          id: Uuid::new_v4().to_string(),
-          role: "assistant".to_string(),
-          created_at: generated_at.clone(),
-          speaker_agent_id: Some(conversation.agent_id.clone()),
-          parts: vec![MessagePart::Text {
-            text: report_text.trim().to_string(),
-        }],
-          extra_text_blocks: Vec::new(),
-          provider_meta: Some(provider_meta),
-          tool_call: None,
-          mcp_call: None,
-      };
-      let report_message_id = report_message.id.clone();
-      conversation.messages.insert(insert_index, report_message);
-    (report, report_message_id)
+    runtime_log_info(format!(
+        "[工具审查][事件] 推送 reports-updated conversation_id={} report_id={} status={}",
+        conversation_id, report_id, status
+    ));
+    let _ = app_handle.emit("easy-call:tool-review-reports-updated", payload);
+}
+
+fn tool_review_read_report_records(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<Vec<ToolReviewReportRecord>, String> {
+    let path = tool_review_reports_file_path(data_path, conversation_id)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&path)
+        .map_err(|err| format!("读取审查报告文件失败，path={}，error={err}", path.display()))?;
+    let mut out = Vec::<ToolReviewReportRecord>::new();
+    for (index, line) in raw.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let record = serde_json::from_str::<ToolReviewReportRecord>(trimmed).map_err(|err| {
+            format!(
+                "解析审查报告记录失败，path={}，line={}，error={err}",
+                path.display(),
+                index + 1
+            )
+        })?;
+        out.push(record);
+    }
+    Ok(out)
+}
+
+fn tool_review_write_report_records(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    records: &[ToolReviewReportRecord],
+) -> Result<(), String> {
+    let path = tool_review_reports_file_path(data_path, conversation_id)?;
+    let mut body = String::new();
+    for record in records {
+        body.push_str(
+            &serde_json::to_string(record)
+                .map_err(|err| format!("序列化审查报告记录失败：{err}"))?,
+        );
+        body.push('\n');
+    }
+    tool_review_write_text_atomic(&path, &body, "tool review reports jsonl")
+}
+
+fn tool_review_list_reports_newest_first(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<Vec<ToolReviewReportRecord>, String> {
+    let mut records = tool_review_read_report_records(data_path, conversation_id)?;
+    records.reverse();
+    Ok(records)
+}
+
+fn tool_review_batch_number_target(batch_number: usize) -> String {
+    format!("第 {} 批", batch_number)
+}
+
+fn tool_review_find_batch_by_number(
+    conversation: &Conversation,
+    batch_number: usize,
+) -> Result<(usize, ToolReviewCollectedBatch), String> {
+    let batches = collect_tool_review_batches_internal(conversation);
+    let total = batches.len();
+    if total == 0 {
+        return Err("当前会话没有可审查的工具批次。".to_string());
+    }
+    if batch_number == 0 || batch_number > total {
+        return Err(format!("批次序号超出范围：batch_number={} total={}", batch_number, total));
+    }
+    let batch_index = total - batch_number;
+    let batch = batches
+        .get(batch_index)
+        .cloned()
+        .ok_or_else(|| format!("未找到批次：batch_number={}", batch_number))?;
+    Ok((batch_number, batch))
+}
+
+fn tool_review_create_pending_report(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    scope: &str,
+    target: &str,
+    workspace_path: &str,
+) -> Result<ToolReviewReportRecord, String> {
+    let mut records = tool_review_read_report_records(data_path, conversation_id)?;
+    let now = now_iso();
+    let record = ToolReviewReportRecord {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.trim().to_string(),
+        title: String::new(),
+        status: "pending".to_string(),
+        scope: scope.trim().to_string(),
+        target: target.trim().to_string(),
+        workspace_path: workspace_path.trim().to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+        report_text: String::new(),
+        error_text: None,
+    };
+    records.push(record.clone());
+    tool_review_write_report_records(data_path, conversation_id, &records)?;
+    Ok(record)
+}
+
+fn tool_review_update_report_record(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    report_id: &str,
+    status: &str,
+    title: Option<&str>,
+    report_text: Option<&str>,
+    error_text: Option<&str>,
+) -> Result<ToolReviewReportRecord, String> {
+    let mut records = tool_review_read_report_records(data_path, conversation_id)?;
+    let target_id = report_id.trim();
+    let position = records
+        .iter()
+        .position(|item| item.id.trim() == target_id)
+        .ok_or_else(|| format!("未找到审查报告记录：{}", target_id))?;
+    let updated_at = now_iso();
+    {
+        let item = &mut records[position];
+        item.status = status.trim().to_string();
+        item.updated_at = updated_at;
+        if let Some(value) = title.map(str::trim).filter(|value| !value.is_empty()) {
+            item.title = value.chars().take(20).collect::<String>();
+        }
+        if let Some(text) = report_text {
+            item.report_text = text.trim().to_string();
+        }
+        item.error_text = error_text
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+    }
+    let updated = records[position].clone();
+    tool_review_write_report_records(data_path, conversation_id, &records)?;
+    Ok(updated)
+}
+
+fn tool_review_delete_report_record(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    report_id: &str,
+) -> Result<(), String> {
+    let mut records = tool_review_read_report_records(data_path, conversation_id)?;
+    let target_id = report_id.trim();
+    let before_len = records.len();
+    records.retain(|item| item.id.trim() != target_id);
+    if records.len() == before_len {
+        return Err(format!("未找到审查报告记录：{}", target_id));
+    }
+    tool_review_write_report_records(data_path, conversation_id, &records)
+}
+
+fn tool_review_migrate_legacy_reports_after_message_store(
+    data_path: &PathBuf,
+    conversation: &mut Conversation,
+) -> Result<bool, String> {
+    let conversation_id = conversation.id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let legacy_reports = conversation
+        .messages
+        .iter()
+        .filter_map(tool_review_report_from_message)
+        .collect::<Vec<_>>();
+    if legacy_reports.is_empty() {
+        return Ok(false);
+    }
+    let mut existing = tool_review_read_report_records(data_path, conversation_id)?;
+    let mut changed = false;
+    for legacy in legacy_reports {
+        let duplicate = existing.iter().any(|item| {
+            item.status == "success"
+                && item.scope == legacy.scope
+                && item.target == legacy.target
+                && item.report_text.trim() == legacy.report_text.trim()
+        });
+        if duplicate {
+            continue;
+        }
+        existing.push(ToolReviewReportRecord {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.to_string(),
+            title: String::new(),
+            status: "success".to_string(),
+            scope: legacy.scope,
+            target: legacy.target,
+            workspace_path: legacy.workspace_path,
+            created_at: legacy.created_at,
+            updated_at: legacy.updated_at,
+            report_text: legacy.report_text,
+            error_text: None,
+        });
+        changed = true;
+    }
+    if !changed {
+        return Ok(false);
+    }
+    tool_review_write_report_records(data_path, conversation_id, &existing)?;
+    let verified = tool_review_read_report_records(data_path, conversation_id)?;
+    if verified.len() < existing.len() {
+        return Err(format!(
+            "审查报告迁移校验失败，conversation_id={}，expected={}，actual={}",
+            conversation_id,
+            existing.len(),
+            verified.len()
+        ));
+    }
+    let before_len = conversation.messages.len();
+    conversation
+        .messages
+        .retain(|message| !is_tool_review_report_message(message));
+    Ok(conversation.messages.len() != before_len)
+}
+
+fn tool_review_scope_instruction(scope: &str) -> &'static str {
+    match scope {
+        "uncommitted" => "请审查当前工作区未提交改动。",
+        "main" => "请审查当前工作区相对主分支的改动。",
+        "commit" => "请审查指定 commit 的改动。",
+        "custom" => "请审查指定自定义范围的改动。",
+        _ => "请审查当前代码改动。",
+    }
+}
+
+fn tool_review_render_delegate_instruction(
+    scope: &str,
+    target: Option<&str>,
+    workspace_path: &str,
+    skill: &SkillSummaryItem,
+) -> String {
+    let target_text = target
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("\n\n范围参数：{}", value))
+        .unwrap_or_default();
+    format!(
+        "{}\n\n当前工作区：{}{}\n\n请严格遵守以下 skill：{}\n\n{}",
+        tool_review_scope_instruction(scope),
+        workspace_path.trim(),
+        target_text,
+        skill.path.trim(),
+        skill.content.trim(),
+    )
+}
+
+fn tool_review_extract_json_object(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        return Some(trimmed);
+    }
+    let starts = trimmed
+        .char_indices()
+        .filter_map(|(index, ch)| (ch == '{').then_some(index))
+        .collect::<Vec<_>>();
+    for start in starts.into_iter().rev() {
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (offset, ch) in trimmed[start..].char_indices() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match ch {
+                '"' => in_string = true,
+                '{' => depth += 1,
+                '}' => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        let end = start + offset + ch.len_utf8();
+                        return trimmed.get(start..end);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+fn tool_review_title_from_json_value(value: &Value) -> String {
+    value
+        .get("review_title")
+        .or_else(|| value.get("reviewTitle"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| text.chars().take(20).collect::<String>())
+        .unwrap_or_default()
+}
+
+fn tool_review_title_from_json_text(raw: &str) -> String {
+    tool_review_extract_json_object(raw)
+        .and_then(|json_text| serde_json::from_str::<Value>(json_text).ok())
+        .map(|value| tool_review_title_from_json_value(&value))
+        .unwrap_or_default()
 }
 
 fn with_tool_review_conversation<T>(
@@ -982,6 +1552,22 @@ fn with_tool_review_conversation<T>(
         normalized_conversation_id,
         reader,
     )
+}
+
+#[tauri::command]
+fn list_tool_review_reports(
+    input: ToolReviewConversationInput,
+    state: State<'_, AppState>,
+) -> Result<ListToolReviewReportsOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(ListToolReviewReportsOutput { reports: Vec::new() });
+    }
+    with_tool_review_conversation(state.inner(), conversation_id, |_conversation| {
+        Ok(ListToolReviewReportsOutput {
+            reports: tool_review_list_reports_newest_first(&state.data_path, conversation_id)?,
+        })
+    })
 }
 
 #[tauri::command]
@@ -1075,24 +1661,20 @@ async fn run_tool_review_for_batch(
     state: State<'_, AppState>,
 ) -> Result<RunToolReviewBatchOutput, String> {
     let conversation_id = input.conversation_id.trim();
-    let batch_key = input.batch_key.trim();
-    if conversation_id.is_empty() || batch_key.is_empty() {
-        return Err("conversationId 和 batchKey 不能为空。".to_string());
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空。".to_string());
     }
     let conversation = with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
         Ok(conversation.clone())
     })?;
-    let batch = collect_tool_review_batches_internal(&conversation)
-        .into_iter()
-        .find(|item| item.batch_key == batch_key)
-        .ok_or_else(|| format!("Tool review batch not found: {batch_key}"))?;
+    let (_batch_number, batch) = tool_review_find_batch_by_index(&conversation, input.batch_index)?;
     let mut reviewed_call_ids = Vec::<String>::new();
     for item in batch.items.iter().filter(|item| item.review_value.is_none()) {
         tool_review_run_for_call_internal(state.inner(), conversation_id, &item.call_id).await?;
         reviewed_call_ids.push(item.call_id.clone());
     }
     Ok(RunToolReviewBatchOutput {
-        batch_key: batch_key.to_string(),
+        batch_key: batch.batch_key,
         reviewed_call_ids,
     })
 }
@@ -1103,84 +1685,486 @@ async fn submit_tool_review_batch(
     state: State<'_, AppState>,
 ) -> Result<SubmitToolReviewBatchOutput, String> {
     let conversation_id = input.conversation_id.trim();
-    let batch_key = input.batch_key.trim();
-    if conversation_id.is_empty() || batch_key.is_empty() {
-        return Err("conversationId 和 batchKey 不能为空。".to_string());
+    let batch_number = input.batch_number;
+    runtime_log_info(format!(
+        "[工具审查][后端] 收到 submit_tool_review_batch conversation_id={} batch_number={}",
+        conversation_id, batch_number
+    ));
+    if conversation_id.is_empty() || batch_number == 0 {
+        return Err("conversationId 和 batchNumber 不能为空。".to_string());
     }
 
-    let conversation = with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+    let app_state = state.inner().clone();
+    let conversation = with_tool_review_conversation(&app_state, conversation_id, |conversation| {
         Ok(conversation.clone())
     })?;
-    let batch_to_review = collect_tool_review_batches_internal(&conversation)
-        .into_iter()
-        .find(|item| item.batch_key == batch_key)
-        .ok_or_else(|| format!("Tool review batch not found: {batch_key}"))?;
+    let (resolved_batch_number, batch_to_review) = tool_review_find_batch_by_number(&conversation, batch_number)?;
     for item in batch_to_review.items.iter().filter(|item| item.review_value.is_none()) {
-        tool_review_run_for_call_internal(state.inner(), conversation_id, &item.call_id).await?;
+        tool_review_run_for_call_internal(&app_state, conversation_id, &item.call_id).await?;
     }
 
-    let conversation = with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+    let conversation = with_tool_review_conversation(&app_state, conversation_id, |conversation| {
         Ok(conversation.clone())
     })?;
-    let batch = collect_tool_review_batches_internal(&conversation)
-        .into_iter()
-        .find(|item| item.batch_key == batch_key)
-        .ok_or_else(|| format!("Tool review batch not found: {batch_key}"))?;
+    let (_, batch) = tool_review_find_batch_by_number(&conversation, resolved_batch_number)?;
+    let workspace_path = terminal_default_workspace_for_conversation_resolved(
+        &app_state,
+        Some(&conversation),
+    )
+    .map(|workspace| workspace.path)
+    .map_err(|err| format!("当前会话缺少可用主工作区，无法生成批次审查报告：{}", err))?;
+    let workspace_text = workspace_path.to_string_lossy().to_string();
+    let report_target = tool_review_batch_number_target(resolved_batch_number);
+    let pending_report = tool_review_create_pending_report(
+        &app_state.data_path,
+        conversation_id,
+        "batch",
+        &report_target,
+        &workspace_text,
+    )?;
+    runtime_log_info(format!(
+        "[工具审查][后端] 已创建批次审查记录 conversation_id={} batch_number={} report_id={} target={}",
+        conversation_id, resolved_batch_number, pending_report.id, report_target
+    ));
+    emit_tool_review_reports_updated(&app_state, conversation_id, &pending_report.id, "pending");
 
-    let app_config = state_read_config_cached(&state)?;
-    let requested_api_config_id = input
-        .api_config_id
+    let conversation_id_owned = conversation_id.to_string();
+    let report_id = pending_report.id.clone();
+    tauri::async_runtime::spawn(async move {
+        runtime_log_info(format!(
+            "[工具审查][后端] 开始批次审查子任务 conversation_id={} batch_number={} report_id={}",
+            conversation_id_owned, resolved_batch_number, report_id
+        ));
+        let app_config = match state_read_config_cached(&app_state) {
+            Ok(config) => config,
+            Err(err) => {
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 读取配置失败 conversation_id={} batch_number={} report_id={} err={}",
+                    conversation_id_owned, resolved_batch_number, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let requested_api_config_id = input
+            .api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let selected_api = match resolve_selected_api_config(&app_config, requested_api_config_id)
+            .or_else(|| resolve_selected_api_config(&app_config, None))
+        {
+            Some(api) => api,
+            None => {
+                let err = "当前会话模型不可用。".to_string();
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 选择模型失败 conversation_id={} batch_number={} report_id={} err={}",
+                    conversation_id_owned, resolved_batch_number, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let resolved_api = match resolve_api_config(&app_config, Some(&selected_api.id)) {
+            Ok(api) => api,
+            Err(err) => {
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 解析模型配置失败 conversation_id={} batch_number={} report_id={} err={}",
+                    conversation_id_owned, resolved_batch_number, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let prepared = conversation_prompt_service().build_tool_review_submission_prepared_prompt(
+            &app_config.ui_language,
+            &batch,
+            &tool_review_collect_recent_context(&conversation, &batch, 20_000),
+            &tool_review_latest_unfinished_plan(&conversation),
+        );
+        let review_submit_execution = invoke_model_with_policy(
+            &resolved_api,
+            &selected_api.model,
+            prepared,
+            CallPolicy {
+                scene: "Tool review submit",
+                timeout_secs: Some(600),
+                json_only: false,
+            },
+            Some(&app_state),
+        )
+        .await;
+        push_model_call_log_parts(Some(&app_state), &review_submit_execution);
+        let reply = match review_submit_execution.result {
+            Ok(reply) => reply,
+            Err(err) => {
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 批次审查失败 conversation_id={} batch_number={} report_id={} err={}",
+                    conversation_id_owned, resolved_batch_number, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let report_text = reply.assistant_text.trim().to_string();
+        if report_text.is_empty() {
+            let err = "最终提交审查未返回内容。".to_string();
+            let _ = tool_review_update_report_record(
+                &app_state.data_path,
+                &conversation_id_owned,
+                &report_id,
+                "failed",
+                None,
+                None,
+                Some(&err),
+            );
+            runtime_log_error(format!(
+                "[工具审查][后端] 批次审查返回空内容 conversation_id={} batch_number={} report_id={}",
+                conversation_id_owned, resolved_batch_number, report_id
+            ));
+            emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+            return;
+        }
+        match tool_review_update_report_record(
+            &app_state.data_path,
+            &conversation_id_owned,
+            &report_id,
+            "success",
+            None,
+            Some(&report_text),
+            None,
+        ) {
+            Ok(_) => {
+                runtime_log_info(format!(
+                    "[工具审查][后端] 批次审查完成 conversation_id={} batch_number={} report_id={}",
+                    conversation_id_owned, resolved_batch_number, report_id
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "success");
+            }
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[工具审查][后端] 批次审查结果落盘失败 conversation_id={} batch_number={} report_id={} err={}",
+                    conversation_id_owned, resolved_batch_number, report_id, err
+                ));
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+            }
+        }
+    });
+
+    Ok(SubmitToolReviewBatchOutput { report: pending_report })
+}
+
+#[tauri::command]
+async fn submit_tool_review_code(
+    input: ToolReviewCodeReviewInput,
+    state: State<'_, AppState>,
+) -> Result<SubmitToolReviewBatchOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    runtime_log_info(format!(
+        "[工具审查][后端] 收到 submit_tool_review_code conversation_id={} scope={} target={}",
+        conversation_id,
+        input.scope.trim(),
+        input.target.as_deref().unwrap_or("").trim()
+    ));
+    if conversation_id.is_empty() {
+        runtime_log_error("[工具审查][后端] submit_tool_review_code 失败 conversationId 为空".to_string());
+        return Err("conversationId 不能为空。".to_string());
+    }
+    let scope = tool_review_parse_scope(&input.scope).map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][后端] 解析审查范围失败 conversation_id={} raw_scope={} err={}",
+            conversation_id,
+            input.scope.trim(),
+            err
+        ));
+        err
+    })?;
+    runtime_log_info(format!(
+        "[工具审查][后端] 审查范围解析完成 conversation_id={} scope={}",
+        conversation_id, scope
+    ));
+    let target = input
+        .target
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let selected_api = resolve_selected_api_config(&app_config, requested_api_config_id)
-        .or_else(|| resolve_selected_api_config(&app_config, None))
-        .ok_or_else(|| "当前会话模型不可用。".to_string())?;
-    let resolved_api = resolve_api_config(&app_config, Some(&selected_api.id))?;
-    let prepared = conversation_prompt_service().build_tool_review_submission_prepared_prompt(
-        &app_config.ui_language,
-        &batch,
-        &tool_review_collect_recent_context(&conversation, &batch, 20_000),
-        &tool_review_latest_unfinished_plan(&conversation),
-    );
-    let review_submit_execution = invoke_model_with_policy(
-        &resolved_api,
-        &selected_api.model,
-        prepared,
-        CallPolicy {
-            scene: "Tool review submit",
-            timeout_secs: Some(600),
-            json_only: false,
-        },
-        Some(state.inner()),
-    )
-    .await;
-    push_model_call_log_parts(Some(state.inner()), &review_submit_execution);
-    let reply = review_submit_execution.result?;
-    let report_text = reply.assistant_text.trim().to_string();
-    if report_text.is_empty() {
-        return Err("最终提交审查未返回内容。".to_string());
-    }
 
-    let (report, report_message_id) = conversation_service().update_unarchived_conversation_by_id(
-        state.inner(),
-        conversation_id,
-        |conversation| {
-            let refreshed_batch = collect_tool_review_batches_internal(conversation)
-                .into_iter()
-                .find(|item| item.batch_key == batch_key)
-                .ok_or_else(|| format!("Tool review batch not found: {batch_key}"))?;
-            Ok(tool_review_upsert_report_message(
-                conversation,
-                &refreshed_batch,
-                &report_text,
-            ))
-        },
-    )?;
-
-    Ok(SubmitToolReviewBatchOutput {
-        batch_key: batch_key.to_string(),
-        report,
-        report_message_id,
+    let app_state = state.inner().clone();
+    let conversation = with_tool_review_conversation(&app_state, conversation_id, |conversation| {
+        Ok(conversation.clone())
     })
+    .map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][后端] 读取会话失败 conversation_id={} err={}",
+            conversation_id, err
+        ));
+        err
+    })?;
+    runtime_log_info(format!(
+        "[工具审查][后端] 会话读取完成 conversation_id={} message_count={}",
+        conversation_id,
+        conversation.messages.len()
+    ));
+
+    let workspace_path = terminal_default_workspace_for_conversation_resolved(
+        &app_state,
+        Some(&conversation),
+    )
+    .map(|workspace| workspace.path)
+    .map_err(|err| {
+        let detail = format!("当前会话缺少可用主工作区，无法发起代码审查：{}", err);
+        runtime_log_error(format!(
+            "[工具审查][后端] 解析工作区失败 conversation_id={} err={}",
+            conversation_id, detail
+        ));
+        detail
+    })?;
+    let workspace_text = workspace_path.to_string_lossy().to_string();
+    runtime_log_info(format!(
+        "[工具审查][后端] 工作区解析完成 conversation_id={} workspace_path={}",
+        conversation_id, workspace_text
+    ));
+    let target_text = target.unwrap_or_default().to_string();
+    let source_agent_id = if conversation.agent_id.trim().is_empty() {
+        DEFAULT_AGENT_ID.to_string()
+    } else {
+        conversation.agent_id.trim().to_string()
+    };
+    let target_department_id = if conversation.department_id.trim().is_empty() {
+        ASSISTANT_DEPARTMENT_ID.to_string()
+    } else {
+        conversation.department_id.trim().to_string()
+    };
+    let pending_report = tool_review_create_pending_report(
+        &app_state.data_path,
+        conversation_id,
+        scope,
+        &target_text,
+        &workspace_text,
+    )
+    .map_err(|err| {
+        runtime_log_error(format!(
+            "[工具审查][后端] 创建代码审查记录失败 conversation_id={} scope={} target={} err={}",
+            conversation_id, scope, target_text, err
+        ));
+        err
+    })?;
+    runtime_log_info(format!(
+        "[工具审查][后端] 已创建代码审查记录 conversation_id={} scope={} report_id={} target={}",
+        conversation_id, scope, pending_report.id, target_text
+    ));
+    emit_tool_review_reports_updated(&app_state, conversation_id, &pending_report.id, "pending");
+
+    let conversation_id_owned = conversation_id.to_string();
+    let report_id = pending_report.id.clone();
+    let scope_owned = scope.to_string();
+    let target_owned = if target_text.trim().is_empty() { None } else { Some(target_text.clone()) };
+    let source_agent_id_owned = source_agent_id.clone();
+    let target_department_id_owned = target_department_id.clone();
+    tauri::async_runtime::spawn(async move {
+        runtime_log_info(format!(
+            "[工具审查][后端] 开始代码审查子任务 conversation_id={} scope={} report_id={} target={}",
+            conversation_id_owned,
+            scope_owned,
+            report_id,
+            target_owned.as_deref().unwrap_or("")
+        ));
+        let skill = match tool_review_find_skill_by_name(&app_state, "code-review") {
+            Ok(skill) => skill,
+            Err(err) => {
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 读取 code-review skill 失败 conversation_id={} scope={} report_id={} err={}",
+                    conversation_id_owned, scope_owned, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let instruction = tool_review_render_delegate_instruction(
+            &scope_owned,
+            target_owned.as_deref(),
+            &workspace_text,
+            &skill,
+        );
+        let delegate_args = DelegateToolArgs {
+            department_id: target_department_id_owned.clone(),
+            mode: Some("sync".to_string()),
+            task_name: Some("代码审查".to_string()),
+            instruction,
+            background: Some(tool_review_delegate_background(&scope_owned, target_owned.as_deref())),
+            specific_goal: Some("输出符合协议的代码审查 JSON".to_string()),
+            deliverable_requirement: Some("仅返回纯 JSON，不要包 markdown。".to_string()),
+            notify_assistant_when_done: false,
+        };
+        let session_id = format!("{}::{}", source_agent_id_owned, conversation_id_owned);
+        runtime_log_info(format!(
+            "[工具审查][后端] 发起代码审查委托 conversation_id={} scope={} report_id={} session_id={} source_agent_id={} target_department_id={}",
+            conversation_id_owned,
+            scope_owned,
+            report_id,
+            session_id,
+            source_agent_id_owned,
+            target_department_id_owned
+        ));
+        let delegate_result = match builtin_delegate(&app_state, &session_id, delegate_args).await {
+            Ok(result) => result,
+            Err(err) => {
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 代码审查委托失败 conversation_id={} scope={} report_id={} err={}",
+                    conversation_id_owned, scope_owned, report_id, err
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let ok = delegate_result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        if !ok {
+            let reason = delegate_result
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("代码审查委托失败")
+                .to_string();
+            let _ = tool_review_update_report_record(
+                &app_state.data_path,
+                &conversation_id_owned,
+                &report_id,
+                "failed",
+                None,
+                None,
+                Some(&reason),
+            );
+            runtime_log_error(format!(
+                "[工具审查][后端] 代码审查委托返回失败 conversation_id={} scope={} report_id={} reason={}",
+                conversation_id_owned, scope_owned, report_id, reason
+            ));
+            emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+            return;
+        }
+        let assistant_text = match delegate_result
+            .get("assistantText")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(text) => text.to_string(),
+            None => {
+                let err = "副手未返回代码审查结果。".to_string();
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                runtime_log_error(format!(
+                    "[工具审查][后端] 代码审查结果缺失 conversation_id={} scope={} report_id={}",
+                    conversation_id_owned, scope_owned, report_id
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+                return;
+            }
+        };
+        let report_text = assistant_text.trim().to_string();
+        let report_title = tool_review_title_from_json_text(&report_text);
+        match tool_review_update_report_record(
+            &app_state.data_path,
+            &conversation_id_owned,
+            &report_id,
+            "success",
+            Some(&report_title),
+            Some(&report_text),
+            None,
+        ) {
+            Ok(_) => {
+                runtime_log_info(format!(
+                    "[工具审查][后端] 代码审查完成 conversation_id={} scope={} report_id={}",
+                    conversation_id_owned, scope_owned, report_id
+                ));
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "success");
+            }
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[工具审查][后端] 代码审查结果落盘失败 conversation_id={} scope={} report_id={} err={}",
+                    conversation_id_owned, scope_owned, report_id, err
+                ));
+                let _ = tool_review_update_report_record(
+                    &app_state.data_path,
+                    &conversation_id_owned,
+                    &report_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err),
+                );
+                emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
+            }
+        }
+    });
+
+    Ok(SubmitToolReviewBatchOutput { report: pending_report })
 }

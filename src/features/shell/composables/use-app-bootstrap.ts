@@ -51,6 +51,7 @@ type AppBootstrapOptions = {
   onAgentWorkStarted?: (payload: AgentWorkSignalPayload) => void;
   onAgentWorkStopped?: (payload: AgentWorkSignalPayload) => void;
   onRecordHotkeyProbe?: (payload: { state: "pressed" | "released"; seq: number }) => void;
+  onToolReviewReportsUpdated?: (payload: { conversationId?: string; reportId?: string; status?: string }) => void;
 };
 
 export function useAppBootstrap(options: AppBootstrapOptions) {
@@ -134,6 +135,14 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
           const seq = Number.isFinite(seqRaw) && seqRaw > 0 ? Math.floor(seqRaw) : 0;
           options.onRecordHotkeyProbe?.({ state: text, seq });
         }),
+      );
+      unlisteners.push(
+        await listen<{ conversationId?: string; reportId?: string; status?: string }>(
+          "easy-call:tool-review-reports-updated",
+          (event) => {
+            options.onToolReviewReportsUpdated?.(event.payload || {});
+          },
+        ),
       );
     } catch (error) {
       unmount();

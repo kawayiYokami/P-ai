@@ -123,10 +123,6 @@
             </div>
           </div>
         </div>
-        <span
-          v-if="persona.hasBackgroundTask"
-          class="absolute right-0.5 top-0.5 inline-block h-2.5 w-2.5 rounded-full bg-error ring-2 ring-base-100"
-        ></span>
       </button>
     </div>
   </div>

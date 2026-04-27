@@ -99,7 +99,8 @@ where
         }
     }
     Ok(ModelReply {
-        assistant_text,
+        assistant_text: assistant_text.clone(),
+        final_response_text: assistant_text,
         reasoning_standard,
         reasoning_inline: String::new(),
         assistant_provider_meta: None,

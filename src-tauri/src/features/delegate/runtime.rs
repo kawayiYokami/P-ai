@@ -75,6 +75,7 @@ fn delegate_runtime_thread_create(
         parent_chat_session_key,
     );
     let thread_id = thread.delegate_id.clone();
+    delegate_conversation_store_write(&app_state.data_path, &thread.conversation)?;
     let mut guard = app_state
         .delegate_runtime_threads
         .lock()
@@ -92,6 +93,17 @@ fn delegate_runtime_thread_get(
         .lock()
         .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
     Ok(guard.get(delegate_id.trim()).cloned())
+}
+
+fn delegate_runtime_thread_apply_persisted_conversation(
+    mut thread: DelegateRuntimeThread,
+    app_state: &AppState,
+) -> Result<DelegateRuntimeThread, String> {
+    if let Some(conversation) = delegate_conversation_store_read(&app_state.data_path, &thread.delegate_id)?
+    {
+        thread.conversation = conversation;
+    }
+    Ok(thread)
 }
 
 fn delegate_runtime_thread_modify<T, F>(
@@ -117,7 +129,11 @@ fn delegate_runtime_thread_list(app_state: &AppState) -> Result<Vec<DelegateRunt
         .delegate_runtime_threads
         .lock()
         .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
-    Ok(guard.values().cloned().collect::<Vec<_>>())
+    guard
+        .values()
+        .cloned()
+        .map(|thread| delegate_runtime_thread_apply_persisted_conversation(thread, app_state))
+        .collect()
 }
 
 fn delegate_recent_thread_list(app_state: &AppState) -> Result<Vec<DelegateRuntimeThread>, String> {
@@ -125,7 +141,11 @@ fn delegate_recent_thread_list(app_state: &AppState) -> Result<Vec<DelegateRunti
         .delegate_recent_threads
         .lock()
         .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
-    Ok(guard.iter().cloned().collect::<Vec<_>>())
+    guard
+        .iter()
+        .cloned()
+        .map(|thread| delegate_runtime_thread_apply_persisted_conversation(thread, app_state))
+        .collect()
 }
 
 fn delegate_runtime_thread_archive(
@@ -145,6 +165,9 @@ fn delegate_runtime_thread_archive(
         return Ok(());
     };
     thread.archived_at = Some(archived_at.to_string());
+    thread.conversation.archived_at = Some(archived_at.to_string());
+    thread.conversation.updated_at = archived_at.to_string();
+    delegate_conversation_store_write(&app_state.data_path, &thread.conversation)?;
     recent.retain(|item| item.delegate_id != thread.delegate_id);
     recent.push_front(thread);
     while recent.len() > DELEGATE_RECENT_THREAD_LIMIT {
@@ -158,22 +181,48 @@ fn delegate_runtime_thread_get_any(
     delegate_id: &str,
 ) -> Result<Option<DelegateRuntimeThread>, String> {
     if let Some(thread) = delegate_runtime_thread_get(app_state, delegate_id)? {
-        return Ok(Some(thread));
+        return delegate_runtime_thread_apply_persisted_conversation(thread, app_state).map(Some);
     }
-    let recent = app_state
-        .delegate_recent_threads
-        .lock()
-        .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
-    Ok(recent
-        .iter()
-        .find(|thread| thread.delegate_id == delegate_id.trim())
-        .cloned())
+    let recent_thread = {
+        let recent = app_state
+            .delegate_recent_threads
+            .lock()
+            .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
+        recent
+            .iter()
+            .find(|thread| thread.delegate_id == delegate_id.trim())
+            .cloned()
+    };
+    if let Some(thread) = recent_thread {
+        return delegate_runtime_thread_apply_persisted_conversation(thread, app_state).map(Some);
+    }
+    if let Some(conversation) = delegate_conversation_store_read(&app_state.data_path, delegate_id)? {
+        let root_conversation_id = conversation.root_conversation_id.clone().unwrap_or_default();
+        let delegate_id = conversation
+            .delegate_id
+            .clone()
+            .unwrap_or_else(|| conversation.id.clone());
+        return Ok(Some(DelegateRuntimeThread {
+            delegate_id,
+            root_conversation_id,
+            target_agent_id: conversation.agent_id.clone(),
+            title: conversation.title.clone(),
+            call_stack: Vec::new(),
+            parent_chat_session_key: None,
+            archived_at: conversation.archived_at.clone(),
+            conversation,
+        }));
+    }
+    Ok(None)
 }
 
 fn delegate_runtime_thread_conversation_get(
     app_state: &AppState,
     delegate_id: &str,
 ) -> Result<Option<Conversation>, String> {
+    if let Some(conversation) = delegate_conversation_store_read(&app_state.data_path, delegate_id)? {
+        return Ok(Some(conversation));
+    }
     Ok(
         delegate_runtime_thread_get(app_state, delegate_id)?
             .map(|thread| thread.conversation),
@@ -195,8 +244,29 @@ fn delegate_runtime_thread_conversation_update(
     delegate_id: &str,
     conversation: Conversation,
 ) -> Result<(), String> {
-    delegate_runtime_thread_modify(app_state, delegate_id, move |thread| {
+    delegate_conversation_store_write(&app_state.data_path, &conversation)?;
+    let mut active = app_state
+        .delegate_runtime_threads
+        .lock()
+        .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
+    if let Some(thread) = active.get_mut(delegate_id.trim()) {
         thread.conversation = conversation;
-        Ok(())
-    })
+        return Ok(());
+    }
+    drop(active);
+    let mut recent = app_state
+        .delegate_recent_threads
+        .lock()
+        .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
+    if let Some(thread) = recent
+        .iter_mut()
+        .find(|thread| thread.delegate_id == delegate_id.trim())
+    {
+        thread.conversation = conversation;
+    }
+    Ok(())
+}
+
+fn delegate_persisted_conversation_list(app_state: &AppState) -> Result<Vec<Conversation>, String> {
+    delegate_conversation_store_list(&app_state.data_path)
 }

@@ -862,12 +862,21 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     let merged_archives = migrate_app_data_archives_into_conversations(path, &mut parsed)?;
     let migrated = migrate_app_data_inline_media_to_refs(path, &mut parsed);
     let main_conversation_marker_changed = normalize_main_conversation_marker(&mut parsed, "");
+    let mut tool_review_reports_migrated = false;
+    for conversation in parsed.conversations.iter_mut() {
+        let store_paths = message_store::message_store_paths(path, &conversation.id)?;
+        let _ = message_store::resume_jsonl_snapshot_migration(&store_paths, conversation)?;
+        if tool_review_migrate_legacy_reports_after_message_store(path, conversation)? {
+            tool_review_reports_migrated = true;
+        }
+    }
     if conversation_metadata_filled
         || builtin_agents_filled
         || message_speaker_filled
         || avatar_paths_migrated
         || merged_archives
         || migrated
+        || tool_review_reports_migrated
         || main_conversation_marker_changed
         || !app_layout_exists(path)
     {

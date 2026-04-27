@@ -1274,6 +1274,66 @@ async fn send_chat_message_inner(
         selected_api: &ApiConfig,
         effective_agent_id: &str,
     | -> Result<Option<ConversationPrepareSnapshot>, String> {
+        if runtime_conversation_id_for_prepare.as_deref() == Some(requested_conversation_id) {
+            let runtime_state = state_read_runtime_state_cached(state)?;
+            let chat_index = state_read_chat_index_cached(state)?;
+            let mut data = AppData::default();
+            data.agents = runtime_agents.to_vec();
+            data.assistant_department_agent_id = runtime_state.assistant_department_agent_id.clone();
+            data.user_alias = runtime_state.user_alias.clone();
+            data.response_style_id = runtime_state.response_style_id.clone();
+            data.pdf_read_mode = runtime_state.pdf_read_mode.clone();
+            data.background_voice_screenshot_keywords =
+                runtime_state.background_voice_screenshot_keywords.clone();
+            data.background_voice_screenshot_mode =
+                runtime_state.background_voice_screenshot_mode.clone();
+            data.instruction_presets = runtime_state.instruction_presets.clone();
+            data.main_conversation_id = runtime_state.main_conversation_id.clone();
+            data.pinned_conversation_ids = runtime_state.pinned_conversation_ids.clone();
+            data.remote_im_contacts = runtime_state.remote_im_contacts.clone();
+            data.remote_im_contact_checkpoints = runtime_state.remote_im_contact_checkpoints.clone();
+            if let Some(summary_item) = chat_index
+                .conversations
+                .iter()
+                .rev()
+                .find(|item| !item.summary.trim().is_empty())
+            {
+                data.conversations.push(Conversation {
+                    id: summary_item.id.clone(),
+                    title: String::new(),
+                    agent_id: String::new(),
+                    department_id: String::new(),
+                    bound_conversation_id: None,
+                    parent_conversation_id: None,
+                    child_conversation_ids: Vec::new(),
+                    fork_message_cursor: None,
+                    unread_count: 0,
+                    conversation_kind: String::new(),
+                    root_conversation_id: None,
+                    delegate_id: None,
+                    created_at: summary_item.updated_at.clone(),
+                    updated_at: summary_item.updated_at.clone(),
+                    last_user_at: None,
+                    last_assistant_at: None,
+                    status: summary_item.status.clone(),
+                    summary: summary_item.summary.clone(),
+                    user_profile_snapshot: String::new(),
+                    shell_workspace_path: None,
+                    shell_workspaces: Vec::new(),
+                    archived_at: summary_item.archived_at.clone(),
+                    messages: Vec::new(),
+                    current_todos: Vec::new(),
+                    memory_recall_table: Vec::new(),
+                    plan_mode_enabled: false,
+                });
+            }
+            return build_prepare_snapshot_read_only(
+                &data,
+                runtime_agents,
+                selected_api,
+                effective_agent_id,
+            );
+        }
         let requested_conversation = state_read_conversation_cached(state, requested_conversation_id)?;
         if !requested_conversation.summary.trim().is_empty() {
             return Ok(None);
@@ -1974,13 +2034,18 @@ async fn send_chat_message_inner(
             log_run_stage("prepare_context.memory_recall_done");
             let now = now_iso();
             let user_message_id = Uuid::new_v4().to_string();
-            if let Some(record) = tauri::async_runtime::block_on(
-                git_ghost_snapshot::create_main_workspace_git_ghost_snapshot_record(
-                    &state,
-                    &snapshot.storage_conversation_before,
-                    &user_message_id,
-                ),
-            ) {
+            let git_ghost_snapshot_record = if snapshot.is_runtime_conversation {
+                None
+            } else {
+                tauri::async_runtime::block_on(
+                    git_ghost_snapshot::create_main_workspace_git_ghost_snapshot_record(
+                        &state,
+                        &snapshot.storage_conversation_before,
+                        &user_message_id,
+                    ),
+                )
+            };
+            if let Some(record) = git_ghost_snapshot_record {
                 if let Err(err) = git_ghost_snapshot::write_git_snapshot_record_into_provider_meta(
                     &mut user_provider_meta,
                     &record,
@@ -2813,6 +2878,7 @@ async fn send_chat_message_inner(
             conversation_id,
             latest_user_text,
             assistant_text,
+            final_response_text: model_reply.final_response_text,
             reasoning_standard,
             reasoning_inline,
             archived_before_send: archived_before_send_any,

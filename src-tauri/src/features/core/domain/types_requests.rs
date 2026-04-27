@@ -91,6 +91,8 @@ struct SendChatResult {
     conversation_id: String,
     latest_user_text: String,
     assistant_text: String,
+    #[serde(default)]
+    final_response_text: String,
     reasoning_standard: String,
     reasoning_inline: String,
     archived_before_send: bool,

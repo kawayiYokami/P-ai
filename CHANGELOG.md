@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 功能（tool-review-code-review-reports）：代码审查链路接入独立委托会话与每会话审查报告 JSONL 流；报告生成先落 `pending` 草稿，再更新为 `success` / `failed`，前端侧边栏拆分“工具解释 / 审查报告”并支持原始 JSON 解析渲染 Findings、风险等级彩色点、勾选复制/附加与报告重新生成。
 - 重构（delegate-approval-guard-hashset）：委托线程工具审批免弹窗机制从 `AtomicBool` 改为 `HashSet<String>`（存委托 conversation_id）。进入时 insert、离开时 remove，审批链路通过 `!table.is_empty()` 判断是否有活跃委托，消除并发竞态（A 离开误将 B 的标记抹掉）。
 - 文档（readme-rewrite）：重写 README.md，突出项目世界领先设计与独立开发背景。新增 Release badge、双语 punchline、组织系统说明与关键数据（1698 提交/98 版本/50+ 计划），将能力跃迁拆为六大深度小节（工具治理、部门委派、长期记忆、工作区感知、远程 IM、高并发架构），重构典型工作流为日常/开发/长期/远程四场景，并补充对比表与快速开始。
 

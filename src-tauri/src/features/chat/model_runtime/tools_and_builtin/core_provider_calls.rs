@@ -1,6 +1,7 @@
 #[derive(Debug, Clone)]
 struct ModelReply {
     assistant_text: String,
+    final_response_text: String,
     reasoning_standard: String,
     reasoning_inline: String,
     assistant_provider_meta: Option<Value>,
@@ -594,7 +595,8 @@ async fn call_model_openai_non_stream(
         .and_then(|value| u64::try_from(value).ok())
         .filter(|value| *value > 0);
     Ok(ModelReply {
-        assistant_text,
+        assistant_text: assistant_text.clone(),
+        final_response_text: assistant_text,
         reasoning_standard,
         reasoning_inline: String::new(),
         assistant_provider_meta: None,
@@ -641,8 +643,10 @@ async fn call_model_openai_responses_non_stream(
         .exec_chat(service_target, request, Some(&options))
         .await
         .map_err(|err| format!("genai responses non-stream failed: {err}"))?;
+    let assistant_text = response.content.into_texts().join("\n");
     Ok(ModelReply {
-        assistant_text: response.content.into_texts().join("\n"),
+        assistant_text: assistant_text.clone(),
+        final_response_text: assistant_text,
         reasoning_standard: response.reasoning_content.unwrap_or_default(),
         reasoning_inline: String::new(),
         assistant_provider_meta: None,
@@ -736,8 +740,10 @@ async fn call_model_gemini(
         .exec_chat(service_target, request, Some(&options))
         .await
         .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
+    let assistant_text = response.content.into_texts().join("\n");
     Ok(ModelReply {
-        assistant_text: response.content.into_texts().join("\n"),
+        assistant_text: assistant_text.clone(),
+        final_response_text: assistant_text,
         reasoning_standard: response.reasoning_content.unwrap_or_default(),
         reasoning_inline: String::new(),
         assistant_provider_meta: None,
@@ -831,8 +837,10 @@ async fn call_model_anthropic_non_stream(
         .exec_chat(service_target, request, Some(&options))
         .await
         .map_err(|err| format!("genai anthropic non-stream failed: {err}"))?;
+    let assistant_text = response.content.into_texts().join("\n");
     Ok(ModelReply {
-        assistant_text: response.content.into_texts().join("\n"),
+        assistant_text: assistant_text.clone(),
+        final_response_text: assistant_text,
         reasoning_standard: response.reasoning_content.unwrap_or_default(),
         reasoning_inline: String::new(),
         assistant_provider_meta: None,

@@ -1468,6 +1468,7 @@ async fn process_conversation_batch(
                 conversation_id: conversation_id.to_string(),
                 latest_user_text,
                 assistant_text: String::new(),
+                final_response_text: String::new(),
                 reasoning_standard: String::new(),
                 reasoning_inline: String::new(),
                 archived_before_send: false,

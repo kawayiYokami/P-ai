@@ -126,18 +126,18 @@ fn check_and_push_call_stack(
     source_department_id: &str,
     target_department_id: &str,
 ) -> Result<Vec<String>, String> {
-    if source_department_id == target_department_id {
-        return Err("不能把委托发送给当前部门自己".to_string());
-    }
     let mut call_stack = current_thread
         .map(|thread| thread.call_stack.clone())
         .unwrap_or_else(|| vec![source_department_id.to_string()]);
-    if call_stack.iter().any(|item| item == target_department_id) {
+    let same_department = source_department_id == target_department_id;
+    if !same_department && call_stack.iter().any(|item| item == target_department_id) {
         return Err(format!(
             "目标部门已在当前调用链中，departmentId={target_department_id}"
         ));
     }
-    call_stack.push(target_department_id.to_string());
+    if !same_department {
+        call_stack.push(target_department_id.to_string());
+    }
     Ok(call_stack)
 }
 
@@ -448,7 +448,7 @@ async fn delegate_execute_sync(
             "status": "委托完成",
             "delegate": delegate,
             "conversationId": preflight.root_conversation_id,
-            "assistantText": run.assistant_text,
+            "assistantText": if run.final_response_text.trim().is_empty() { run.assistant_text } else { run.final_response_text },
             "reasoningStandard": run.reasoning_standard,
             "targetAgentId": preflight.target_agent_id,
         })),

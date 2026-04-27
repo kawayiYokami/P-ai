@@ -566,10 +566,36 @@ fn list_delegate_conversations(
 ) -> Result<Vec<DelegateConversationSummary>, String> {
     let mut threads = delegate_runtime_thread_list(state.inner())?;
     threads.extend(delegate_recent_thread_list(state.inner())?);
+    let mut seen_ids = std::collections::HashSet::<String>::new();
     let mut summaries = threads
         .iter()
-        .map(delegate_conversation_summary_from_runtime_thread)
+        .filter_map(|thread| {
+            seen_ids.insert(thread.delegate_id.clone()).then(|| {
+                delegate_conversation_summary_from_runtime_thread(thread)
+            })
+        })
         .collect::<Vec<_>>();
+    for conversation in delegate_persisted_conversation_list(state.inner())? {
+        let delegate_id = conversation
+            .delegate_id
+            .clone()
+            .unwrap_or_else(|| conversation.id.clone());
+        if !seen_ids.insert(delegate_id.clone()) {
+            continue;
+        }
+        let last_message_at = conversation.messages.last().map(|message| message.created_at.clone());
+        summaries.push(DelegateConversationSummary {
+            conversation_id: conversation.id.clone(),
+            title: conversation_preview_title(&conversation),
+            updated_at: conversation.updated_at.clone(),
+            last_message_at,
+            message_count: conversation.messages.len(),
+            agent_id: conversation.agent_id.clone(),
+            delegate_id: Some(delegate_id),
+            root_conversation_id: conversation.root_conversation_id.clone(),
+            archived_at: conversation.archived_at.clone(),
+        });
+    }
     summaries.sort_by(|a, b| {
         let bk = b
             .archived_at

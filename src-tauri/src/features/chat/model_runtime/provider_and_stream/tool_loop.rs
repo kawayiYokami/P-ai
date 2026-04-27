@@ -137,6 +137,7 @@ fn tool_loop_guided_close_reply(
 ) -> ModelReply {
     ModelReply {
         assistant_text: String::new(),
+        final_response_text: String::new(),
         reasoning_standard,
         reasoning_inline: String::new(),
         assistant_provider_meta: Some(serde_json::json!({
@@ -938,6 +939,7 @@ async fn run_genai_tool_loop(
         if turn_tool_calls.is_empty() {
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
+                final_response_text: turn_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 assistant_provider_meta: None,
@@ -1098,6 +1100,7 @@ async fn run_genai_tool_loop(
             if organize_context_succeeded(&tool_name, &tool_result_text) {
                 return Ok(ModelReply {
                     assistant_text: String::new(),
+                    final_response_text: String::new(),
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: None,
@@ -1110,7 +1113,8 @@ async fn run_genai_tool_loop(
                 terminal_task_complete_result(&tool_name, &tool_args, &tool_result)
             {
                 return Ok(ModelReply {
-                    assistant_text: final_text,
+                    assistant_text: final_text.clone(),
+                    final_response_text: final_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: None,
@@ -1121,7 +1125,8 @@ async fn run_genai_tool_loop(
             }
             if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
                 return Ok(ModelReply {
-                    assistant_text: plan_result.assistant_text,
+                    assistant_text: plan_result.assistant_text.clone(),
+                    final_response_text: plan_result.assistant_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: plan_result.provider_meta,
@@ -1202,7 +1207,8 @@ async fn run_genai_tool_loop(
                 full_assistant_text.clone()
             };
             return Ok(ModelReply {
-                assistant_text: final_text,
+                assistant_text: final_text.clone(),
+                final_response_text: final_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 assistant_provider_meta: None,
@@ -1222,6 +1228,7 @@ async fn run_genai_tool_loop(
     );
     Ok(ModelReply {
         assistant_text: full_assistant_text,
+        final_response_text: String::new(),
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
         assistant_provider_meta: None,
@@ -1404,6 +1411,7 @@ async fn run_genai_tool_loop_non_stream(
         if turn_tool_calls.is_empty() {
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
+                final_response_text: turn_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 assistant_provider_meta: None,
@@ -1558,6 +1566,7 @@ async fn run_genai_tool_loop_non_stream(
             if organize_context_succeeded(&tool_name, &tool_result_text) {
                 return Ok(ModelReply {
                     assistant_text: String::new(),
+                    final_response_text: String::new(),
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: None,
@@ -1570,7 +1579,8 @@ async fn run_genai_tool_loop_non_stream(
                 terminal_task_complete_result(&tool_name, &tool_args, &tool_result)
             {
                 return Ok(ModelReply {
-                    assistant_text: final_text,
+                    assistant_text: final_text.clone(),
+                    final_response_text: final_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: None,
@@ -1581,7 +1591,8 @@ async fn run_genai_tool_loop_non_stream(
             }
             if let Some(plan_result) = terminal_plan_result(&tool_name, &tool_args, &tool_result) {
                 return Ok(ModelReply {
-                    assistant_text: plan_result.assistant_text,
+                    assistant_text: plan_result.assistant_text.clone(),
+                    final_response_text: plan_result.assistant_text,
                     reasoning_standard: full_reasoning_standard,
                     reasoning_inline: String::new(),
                     assistant_provider_meta: plan_result.provider_meta,
@@ -1657,7 +1668,8 @@ async fn run_genai_tool_loop_non_stream(
                 full_assistant_text.clone()
             };
             return Ok(ModelReply {
-                assistant_text: final_text,
+                assistant_text: final_text.clone(),
+                final_response_text: final_text,
                 reasoning_standard: full_reasoning_standard,
                 reasoning_inline: String::new(),
                 assistant_provider_meta: None,
@@ -1677,6 +1689,7 @@ async fn run_genai_tool_loop_non_stream(
     );
     Ok(ModelReply {
         assistant_text: full_assistant_text,
+        final_response_text: String::new(),
         reasoning_standard: full_reasoning_standard,
         reasoning_inline: String::new(),
         assistant_provider_meta: None,

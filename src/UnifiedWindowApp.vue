@@ -3662,6 +3662,12 @@ const appBootstrap = useAppBootstrap({
         }))
       : [];
   },
+  onToolReviewReportsUpdated: (payload) => {
+    const payloadConversationId = String(payload?.conversationId || "").trim();
+    const currentConversationId = String(currentChatConversationId.value || "").trim();
+    if (!payloadConversationId || payloadConversationId !== currentConversationId) return;
+    toolReviewRefreshTick.value += 1;
+  },
   onRecordHotkeyProbe: ({ state, seq }) => {
     if (seq > 0) {
       if (seq <= recordHotkeyProbeLastSeq.value) return;
