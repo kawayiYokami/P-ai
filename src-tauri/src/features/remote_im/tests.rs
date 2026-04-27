@@ -12,7 +12,7 @@
             show_tool_calls: false,
             allow_send_files: false,
         };
-        let mut data = AppData::default();
+        let mut runtime = RuntimeStateFile::default();
         let input = RemoteImEnqueueInput {
             channel_id: "c1".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -46,9 +46,9 @@
             },
         };
         let now = now_iso();
-        let contact_id = remote_im_upsert_contact_for_inbound(&mut data, &channel, &input, &now);
-        assert_eq!(data.remote_im_contacts.len(), 1);
-        let contact = data
+        let contact_id = remote_im_upsert_contact_for_inbound(&mut runtime, &channel, &input, &now);
+        assert_eq!(runtime.remote_im_contacts.len(), 1);
+        let contact = runtime
             .remote_im_contacts
             .iter()
             .find(|item| item.id == contact_id)
@@ -61,9 +61,9 @@
 
         // 第二次入队应复用同一联系人
         let now2 = now_iso();
-        let contact_id_2 = remote_im_upsert_contact_for_inbound(&mut data, &channel, &input, &now2);
+        let contact_id_2 = remote_im_upsert_contact_for_inbound(&mut runtime, &channel, &input, &now2);
         assert_eq!(contact_id, contact_id_2);
-        assert_eq!(data.remote_im_contacts.len(), 1);
+        assert_eq!(runtime.remote_im_contacts.len(), 1);
     }
 
     #[test]
@@ -87,9 +87,10 @@
 
     #[test]
     fn resolve_conversation_id_should_route_remote_im_to_main_conversation() {
-        let mut data = AppData::default();
-        data.main_conversation_id = Some("conversation-main".to_string());
-        data.conversations = vec![
+        let state = remote_im_test_state();
+        let mut runtime = RuntimeStateFile::default();
+        runtime.main_conversation_id = Some("conversation-main".to_string());
+        let conversations = vec![
             Conversation {
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
@@ -204,18 +205,26 @@
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
         };
+        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        for conversation in &conversations {
+            state_write_conversation_cached(&state, conversation).expect("write conversation");
+        }
+
         let config = AppConfig::default();
         let (_, _, conversation_id) =
-            resolve_contact_session_target(&config, &mut data, &mut contact).expect("resolve route");
+            resolve_contact_session_target(&state, &config, &mut runtime, &mut contact)
+                .expect("resolve route");
 
         assert_eq!(conversation_id, "conversation-main");
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
     fn remote_im_should_still_route_to_main_after_user_switches_to_sub_conversation() {
-        let mut data = AppData::default();
-        data.main_conversation_id = Some("conversation-main".to_string());
-        data.conversations = vec![
+        let state = remote_im_test_state();
+        let mut runtime = RuntimeStateFile::default();
+        runtime.main_conversation_id = Some("conversation-main".to_string());
+        let conversations = vec![
             Conversation {
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
@@ -330,19 +339,26 @@
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
         };
+        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        for conversation in &conversations {
+            state_write_conversation_cached(&state, conversation).expect("write conversation");
+        }
+
         let config = AppConfig::default();
         let (_, _, conversation_id) =
-            resolve_contact_session_target(&config, &mut data, &mut contact).expect("resolve route");
+            resolve_contact_session_target(&state, &config, &mut runtime, &mut contact)
+                .expect("resolve route");
 
         assert_eq!(conversation_id, "conversation-main");
-        assert_eq!(data.main_conversation_id.as_deref(), Some("conversation-main"));
+        assert_eq!(runtime.main_conversation_id.as_deref(), Some("conversation-main"));
         assert_eq!(
-            data.conversations
+            conversations
                 .iter()
                 .find(|item| item.id == "conversation-sub")
                 .map(|item| item.status.as_str()),
             Some("active")
         );
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
