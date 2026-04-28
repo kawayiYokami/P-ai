@@ -23,6 +23,21 @@ fn register_inflight_tool_abort_handle(
     Ok(())
 }
 
+fn register_inflight_compaction_abort_handle(
+    state: &AppState,
+    chat_key: &str,
+    handle: AbortHandle,
+) -> Result<(), String> {
+    let mut inflight = state
+        .inflight_compaction_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight compaction abort handles".to_string())?;
+    if let Some(previous) = inflight.insert(chat_key.to_string(), handle) {
+        previous.abort();
+    }
+    Ok(())
+}
+
 fn reset_inflight_completed_tool_history(state: &AppState, chat_key: &str) -> Result<(), String> {
     let mut inflight = state
         .inflight_completed_tool_history
@@ -74,11 +89,33 @@ fn clear_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<
     Ok(())
 }
 
+fn clear_inflight_compaction_abort_handle(state: &AppState, chat_key: &str) -> Result<(), String> {
+    let mut inflight = state
+        .inflight_compaction_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight compaction abort handles".to_string())?;
+    inflight.remove(chat_key);
+    Ok(())
+}
+
 fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<bool, String> {
     let mut inflight = state
         .inflight_tool_abort_handles
         .lock()
         .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
+    if let Some(handle) = inflight.remove(chat_key) {
+        handle.abort();
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+fn abort_inflight_compaction_abort_handle(state: &AppState, chat_key: &str) -> Result<bool, String> {
+    let mut inflight = state
+        .inflight_compaction_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight compaction abort handles".to_string())?;
     if let Some(handle) = inflight.remove(chat_key) {
         handle.abort();
         Ok(true)
@@ -118,7 +155,8 @@ fn abort_delegate_runtime_descendants_by_parent_session(
             }
         };
         let aborted_tool = abort_inflight_tool_abort_handle(state, &child_chat_key)?;
-        if aborted_chat || aborted_tool {
+        let aborted_compaction = abort_inflight_compaction_abort_handle(state, &child_chat_key)?;
+        if aborted_chat || aborted_tool || aborted_compaction {
             aborted_count += 1;
             eprintln!(
                 "[聊天] 已中止同步委托子会话: parent_session={}, child_session={}, delegate_id={}",
@@ -155,4 +193,3 @@ fn effective_prompt_tokens_from_provider(
     }
     (provider, "provider")
 }
-

@@ -1687,6 +1687,7 @@ async fn send_chat_message_inner(
     }
     reset_inflight_completed_tool_history(state, &chat_key)?;
     let _ = abort_inflight_tool_abort_handle(state, &chat_key);
+    let _ = abort_inflight_compaction_abort_handle(state, &chat_key);
 
     let chat_session_key = chat_key.clone();
     let chat_session_key_for_log = chat_session_key.clone();
@@ -2965,6 +2966,12 @@ async fn send_chat_message_inner(
     if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
         eprintln!(
             "[聊天] 清理进行中工具中断句柄失败 (session={}): {}",
+            chat_key, err
+        );
+    }
+    if let Err(err) = clear_inflight_compaction_abort_handle(state, &chat_key) {
+        eprintln!(
+            "[聊天] 清理进行中压缩中断句柄失败 (session={}): {}",
             chat_key, err
         );
     }

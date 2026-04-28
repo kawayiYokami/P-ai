@@ -1315,9 +1315,10 @@ async fn stop_chat_message(
         }
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
+    let aborted_compaction = abort_inflight_compaction_abort_handle(state.inner(), &chat_key)?;
     let aborted_delegate_children =
         abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
-    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    let aborted = aborted_chat || aborted_tool || aborted_compaction || aborted_delegate_children > 0;
     if aborted_delegate_children > 0 {
         eprintln!(
             "[聊天] 停止请求已级联到同步委托子会话: session={}, child_count={}",
@@ -1459,6 +1460,7 @@ async fn interrupt_conversation_runtime(
         }
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
+    let aborted_compaction = abort_inflight_compaction_abort_handle(state.inner(), &chat_key)?;
     let aborted_delegate_children =
         abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
     let cleared_queue_count = clear_conversation_queue(
@@ -1470,7 +1472,7 @@ async fn interrupt_conversation_runtime(
     let _ = set_conversation_runtime_state(state.inner(), &conversation_id, MainSessionState::Idle);
     let _ = set_conversation_remote_im_activation_sources(state.inner(), &conversation_id, Vec::new());
 
-    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    let aborted = aborted_chat || aborted_tool || aborted_compaction || aborted_delegate_children > 0;
     eprintln!(
         "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
         conversation_id,

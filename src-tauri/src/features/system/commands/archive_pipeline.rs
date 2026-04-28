@@ -1029,6 +1029,88 @@ fn delete_main_conversation_and_activate_latest(
     conversation_service().delete_main_conversation_and_activate_latest(state, selected_api, source)
 }
 
+struct ConversationRuntimeStateGuard<'a> {
+    state: &'a AppState,
+    conversation_id: String,
+    active: bool,
+}
+
+impl<'a> ConversationRuntimeStateGuard<'a> {
+    fn organizing_context(state: &'a AppState, conversation_id: &str) -> Result<Self, String> {
+        set_conversation_runtime_state(
+            state,
+            conversation_id,
+            MainSessionState::OrganizingContext,
+        )?;
+        Ok(Self {
+            state,
+            conversation_id: conversation_id.trim().to_string(),
+            active: true,
+        })
+    }
+
+    fn finish(mut self) -> Result<(), String> {
+        self.active = false;
+        set_conversation_runtime_state(
+            self.state,
+            &self.conversation_id,
+            MainSessionState::Idle,
+        )
+    }
+}
+
+impl Drop for ConversationRuntimeStateGuard<'_> {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        if let Err(err) = set_conversation_runtime_state(
+            self.state,
+            &self.conversation_id,
+            MainSessionState::Idle,
+        ) {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] 警告: 中断后状态恢复失败, conversation_id={}, error={}",
+                self.conversation_id, err
+            );
+        } else {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] 会话整理流程已中止，状态已恢复: conversation_id={}",
+                self.conversation_id
+            );
+        }
+    }
+}
+
+async fn run_compaction_with_user_abort<F, T>(
+    state: &AppState,
+    chat_key: &str,
+    future: F,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    register_inflight_compaction_abort_handle(state, chat_key, abort_handle)?;
+    let result = futures_util::future::Abortable::new(future, abort_registration).await;
+    if let Err(err) = clear_inflight_compaction_abort_handle(state, chat_key) {
+        eprintln!(
+            "[ARCHIVE-PIPELINE] 清理进行中压缩中断句柄失败: session={}, error={}",
+            chat_key, err
+        );
+    }
+    match result {
+        Ok(inner) => inner,
+        Err(_) => {
+            eprintln!(
+                "[ARCHIVE-PIPELINE] 收到停止请求，立即中止上下文整理: session={}",
+                chat_key
+            );
+            Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
+        }
+    }
+}
+
 fn build_compaction_message(
     summary: &str,
     compaction_reason: &str,
@@ -1522,35 +1604,38 @@ pub(crate) async fn run_archive_pipeline(
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
+    let chat_key = inflight_chat_key(effective_agent_id, Some(&source.id));
 
     // 设置状态为 OrganizingContext（仅影响所属会话）
-    set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
+    let runtime_state_guard = ConversationRuntimeStateGuard::organizing_context(state, &source.id)?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=archive_pipeline, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
     );
 
     // 确保在所有退出路径都恢复状态
-    let result = run_archive_pipeline_inner(
+    let result = run_compaction_with_user_abort(
         state,
-        selected_api,
-        resolved_api,
-        source,
-        effective_agent_id,
-        prepared_active_conversation_id,
-        target_conversation_id,
-        archive_reason,
-        trace_tag,
-        started_at,
-        &trace_id,
+        &chat_key,
+        run_archive_pipeline_inner(
+            state,
+            selected_api,
+            resolved_api,
+            source,
+            effective_agent_id,
+            prepared_active_conversation_id,
+            target_conversation_id,
+            archive_reason,
+            trace_tag,
+            started_at,
+            &trace_id,
+        ),
     )
     .await;
 
     // 归档完成，切换回 Idle（即使内部失败也要恢复状态）
     let elapsed_ms = started_at.elapsed().as_millis();
-    if let Err(state_err) =
-        set_conversation_runtime_state(state, &source.id, MainSessionState::Idle)
-    {
+    if let Err(state_err) = runtime_state_guard.finish() {
         eprintln!(
             "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
             trace_id, elapsed_ms, state_err
@@ -1578,30 +1663,33 @@ pub(crate) async fn run_context_compaction_pipeline(
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
+    let chat_key = inflight_chat_key(effective_agent_id, Some(&source.id));
 
-    set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
+    let runtime_state_guard = ConversationRuntimeStateGuard::organizing_context(state, &source.id)?;
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
     );
 
-    let result = run_context_compaction_pipeline_inner(
+    let result = run_compaction_with_user_abort(
         state,
-        selected_api,
-        resolved_api,
-        source,
-        effective_agent_id,
-        compaction_reason,
-        trace_tag,
-        started_at,
-        &trace_id,
+        &chat_key,
+        run_context_compaction_pipeline_inner(
+            state,
+            selected_api,
+            resolved_api,
+            source,
+            effective_agent_id,
+            compaction_reason,
+            trace_tag,
+            started_at,
+            &trace_id,
+        ),
     )
     .await;
 
     let elapsed_ms = started_at.elapsed().as_millis();
-    if let Err(state_err) =
-        set_conversation_runtime_state(state, &source.id, MainSessionState::Idle)
-    {
+    if let Err(state_err) = runtime_state_guard.finish() {
         eprintln!(
             "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
             trace_id, elapsed_ms, state_err
