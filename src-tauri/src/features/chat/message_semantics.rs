@@ -213,7 +213,6 @@ fn build_prepared_history_messages_from_tool_history(
     view: MessageToolHistoryView,
 ) -> Vec<PreparedHistoryMessage> {
     let mut history_messages = Vec::<PreparedHistoryMessage>::new();
-    let reasoning_fallback = message_reasoning_standard_fallback(message);
     for event in normalize_message_tool_history_events(message, view) {
         if event.role == "assistant" {
             let tool_calls = event
@@ -221,16 +220,6 @@ fn build_prepared_history_messages_from_tool_history(
                 .iter()
                 .filter_map(normalized_tool_call_to_history_value)
                 .collect::<Vec<_>>();
-            let reasoning_content = event
-                .reasoning_content
-                .clone()
-                .or_else(|| {
-                    if tool_calls.is_empty() {
-                        None
-                    } else {
-                        reasoning_fallback.clone()
-                    }
-                });
             history_messages.push(PreparedHistoryMessage {
                 role: "assistant".to_string(),
                 text: event.text,
@@ -240,9 +229,9 @@ fn build_prepared_history_messages_from_tool_history(
                 audios: Vec::new(),
                 tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
                 tool_call_id: None,
-                // DeepSeek/Kimi 等协议要求 assistant tool_calls 的 reasoning_content
-                // 在后续所有工具调用上下文中原样回传；这里禁止清洗、合并或省略。
-                reasoning_content,
+                // tool-call 级 reasoning_content 必须只来自对应事件本身；
+                // 禁止用整轮 reasoningStandard 兜底，否则会把累计思维链错误回灌到每一次工具调用。
+                reasoning_content: event.reasoning_content.clone(),
             });
             continue;
         }
@@ -451,7 +440,7 @@ mod message_semantics_tests {
     }
 
     #[test]
-    fn build_prepared_history_messages_from_tool_history_should_fallback_to_provider_meta_reasoning() {
+    fn build_prepared_history_messages_from_tool_history_should_not_fallback_to_provider_meta_reasoning() {
         let now = now_iso();
         let mut assistant = test_message("assistant", "我查好了", &now);
         assistant.provider_meta = Some(serde_json::json!({
@@ -484,23 +473,21 @@ mod message_semantics_tests {
 
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].role, "assistant");
-        assert_eq!(
-            history[0].reasoning_content.as_deref(),
-            Some("先搜索版本，再确认发布时间")
-        );
+        assert_eq!(history[0].reasoning_content, None);
     }
 
     #[test]
-    fn build_prepared_history_messages_from_tool_history_should_preserve_explicit_empty_reasoning() {
+    fn build_prepared_history_messages_from_tool_history_should_preserve_event_level_reasoning_per_tool_call() {
         let now = now_iso();
         let mut assistant = test_message("assistant", "我查好了", &now);
         assistant.provider_meta = Some(serde_json::json!({
-            "reasoningStandard": ""
+            "reasoningStandard": "整轮累计思考，不应回灌到每个工具调用"
         }));
         assistant.tool_call = Some(vec![
             serde_json::json!({
                 "role": "assistant",
                 "content": Value::Null,
+                "reasoning_content": "第一次工具思考",
                 "tool_calls": [{
                     "id": "fc_1",
                     "type": "function",
@@ -515,6 +502,24 @@ mod message_semantics_tests {
                 "tool_call_id": "fc_1",
                 "content": "{\"ok\":true}"
             }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "reasoning_content": "第二次工具思考",
+                "tool_calls": [{
+                    "id": "fc_2",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_2",
+                "content": "{\"ok\":true}"
+            }),
         ]);
 
         let history = build_prepared_history_messages_from_tool_history(
@@ -522,9 +527,11 @@ mod message_semantics_tests {
             MessageToolHistoryView::PromptReplay,
         );
 
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 4);
         assert_eq!(history[0].role, "assistant");
-        assert_eq!(history[0].reasoning_content.as_deref(), Some(""));
+        assert_eq!(history[0].reasoning_content.as_deref(), Some("第一次工具思考"));
+        assert_eq!(history[2].role, "assistant");
+        assert_eq!(history[2].reasoning_content.as_deref(), Some("第二次工具思考"));
     }
 
     #[test]

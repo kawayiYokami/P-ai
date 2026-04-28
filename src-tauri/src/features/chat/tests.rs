@@ -719,6 +719,162 @@
     }
 
     #[test]
+    fn prepared_prompt_to_messages_json_should_keep_reasoning_for_four_tool_rounds_in_order() {
+        let prepared = PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "user".to_string(),
+                    text: "继续完成任务".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "read_file", "arguments": "{\"path\":\"a.md\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("第1轮思考".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"step\":1}".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_2",
+                        "type": "function",
+                        "function": { "name": "grep", "arguments": "{\"pattern\":\"quest\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("第2轮思考".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"step\":2}".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_2".to_string()),
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_3",
+                        "type": "function",
+                        "function": { "name": "http", "arguments": "{\"url\":\"/quests\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("第3轮思考".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"step\":3}".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_3".to_string()),
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "call_4",
+                        "type": "function",
+                        "function": { "name": "write_file", "arguments": "{\"path\":\"out.md\"}" }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: Some("第4轮思考".to_string()),
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "{\"ok\":true,\"step\":4}".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("call_4".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续下一步".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = prepared_prompt_to_messages_json(&prepared);
+        let assistant_tool_reasonings = messages
+            .iter()
+            .filter(|message| {
+                message.get("role").and_then(Value::as_str) == Some("assistant")
+                    && message.get("tool_calls").and_then(Value::as_array).is_some()
+            })
+            .map(|message| {
+                message
+                    .get("reasoning_content")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            assistant_tool_reasonings,
+            vec![
+                "第1轮思考".to_string(),
+                "第2轮思考".to_string(),
+                "第3轮思考".to_string(),
+                "第4轮思考".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn prepared_prompt_to_messages_json_should_keep_reasoning_for_plain_assistant_messages() {
         let prepared = PreparedPrompt {
             preamble: "sys".to_string(),
@@ -788,6 +944,132 @@
                 message.role == "assistant"
                     && message.text == "这是最终回复"
                     && message.reasoning_content.as_deref() == Some("先分析用户问题，再整理答案")
+            })
+        );
+    }
+
+    #[test]
+    fn build_prompt_should_replay_clean_tool_reasoning_chain_on_new_dispatch() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut assistant = test_text_message("assistant", "我已经完成了工具阶段", &now);
+        assistant.speaker_agent_id = Some(agent.id.clone());
+        assistant.provider_meta = Some(serde_json::json!({
+            "reasoningStandard": "整轮累计思考A。整轮累计思考A。整轮累计思考A。"
+        }));
+        assistant.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "reasoning_content": "第1次请求返回的思考",
+                "tool_calls": [{
+                    "id": "fc_1",
+                    "type": "function",
+                    "function": { "name": "read_file", "arguments": "{\"path\":\"a.md\"}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_1",
+                "content": "{\"ok\":true,\"step\":1}"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "reasoning_content": "第2次请求返回的思考",
+                "tool_calls": [{
+                    "id": "fc_2",
+                    "type": "function",
+                    "function": { "name": "grep", "arguments": "{\"pattern\":\"quest\"}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_2",
+                "content": "{\"ok\":true,\"step\":2}"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "reasoning_content": "第3次请求返回的思考",
+                "tool_calls": [{
+                    "id": "fc_3",
+                    "type": "function",
+                    "function": { "name": "http", "arguments": "{\"url\":\"/quests\"}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_3",
+                "content": "{\"ok\":true,\"step\":3}"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "reasoning_content": "第4次请求返回的思考",
+                "tool_calls": [{
+                    "id": "fc_4",
+                    "type": "function",
+                    "function": { "name": "write_file", "arguments": "{\"path\":\"out.md\"}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_4",
+                "content": "{\"ok\":true,\"step\":4}"
+            }),
+        ]);
+        let messages = vec![
+            test_text_message("user", "先帮我查 quest API", &now),
+            assistant,
+            test_text_message("user", "现在继续下一次调度", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        let tool_reasonings = prepared
+            .history_messages
+            .iter()
+            .filter(|message| {
+                message.role == "assistant"
+                    && message
+                        .tool_calls
+                        .as_ref()
+                        .map(|calls| !calls.is_empty())
+                        .unwrap_or(false)
+            })
+            .map(|message| message.reasoning_content.clone().unwrap_or_default())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tool_reasonings,
+            vec![
+                "第1次请求返回的思考".to_string(),
+                "第2次请求返回的思考".to_string(),
+                "第3次请求返回的思考".to_string(),
+                "第4次请求返回的思考".to_string(),
+            ]
+        );
+        assert!(tool_reasonings.iter().all(|value| value != "整轮累计思考A。整轮累计思考A。整轮累计思考A。"));
+        assert!(
+            prepared.history_messages.iter().any(|message| {
+                message.role == "assistant"
+                    && message.text == "我已经完成了工具阶段"
+                    && message.reasoning_content.as_deref() == Some("整轮累计思考A。整轮累计思考A。整轮累计思考A。")
             })
         );
     }
