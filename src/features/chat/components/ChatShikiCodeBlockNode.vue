@@ -133,8 +133,8 @@ onBeforeUnmount(() => {
 
 .ecall-shiki-codeblock-dark {
   --code-fg: #e5e7eb;
-  --code-action-fg: #475569;
-  --code-action-hover-fg: #0f172a;
+  --code-action-fg: color-mix(in oklab, var(--color-base-content) 62%, transparent);
+  --code-action-hover-fg: var(--color-base-content);
   --code-line-number: #64748b;
   --vscode-editor-foreground: #e5e7eb;
   --vscode-foreground: #e5e7eb;
@@ -147,12 +147,12 @@ onBeforeUnmount(() => {
 .ecall-shiki-codeblock-dark :deep(.code-header-caption),
 .ecall-shiki-codeblock-dark :deep(.code-header-actions),
 .ecall-shiki-codeblock-dark :deep(.code-block-header .icon-slot) {
-  color: #475569 !important;
+  color: var(--code-action-fg) !important;
 }
 
 .ecall-shiki-codeblock-dark :deep(.code-block-header button:hover),
 .ecall-shiki-codeblock-dark :deep(.code-block-header [role="button"]:hover) {
-  color: #0f172a !important;
+  color: var(--code-action-hover-fg) !important;
 }
 
 .ecall-shiki-codeblock-dark :deep(.code-block-container),
