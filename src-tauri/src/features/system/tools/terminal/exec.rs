@@ -133,6 +133,227 @@ fn terminal_workspace_access_rank(access: &str) -> i32 {
     }
 }
 
+fn terminal_output_only_command_is_read_only(base_cmd: &str) -> bool {
+    matches!(
+        base_cmd,
+        "echo"
+            | "printf"
+            | "true"
+            | "false"
+            | "date"
+            | "whoami"
+            | "hostname"
+            | "uname"
+            | "clear"
+            | "cls"
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalReadWhitelistSimpleCommand {
+    command: String,
+    allowed: bool,
+    reason: String,
+}
+
+fn terminal_simple_command_text(simple: &TerminalSimpleCommand) -> String {
+    let mut parts = simple.argv.clone();
+    for redirection in &simple.output_redirections {
+        let operator = if redirection.append { ">>" } else { ">" };
+        parts.push(format!("{operator}{}", redirection.target));
+    }
+    parts.join(" ")
+}
+
+fn terminal_read_whitelist_base_command(simple: &TerminalSimpleCommand, family: TerminalShellFamily) -> Option<(String, usize)> {
+    match family {
+        TerminalShellFamily::PowerShell => {
+            let first = simple.argv.first()?;
+            Some((
+                terminal_powershell_alias_base(&terminal_unquote_token(first).to_ascii_lowercase())
+                    .to_string(),
+                1usize,
+            ))
+        }
+        TerminalShellFamily::Posix | TerminalShellFamily::Other => {
+            let start_idx = terminal_skip_bash_wrappers(&simple.argv);
+            let first = simple.argv.get(start_idx)?;
+            Some((terminal_unquote_token(first).to_ascii_lowercase(), start_idx + 1))
+        }
+    }
+}
+
+fn terminal_simple_command_read_whitelist_allowed(
+    simple: &TerminalSimpleCommand,
+    family: TerminalShellFamily,
+) -> bool {
+    let Some((base_cmd, arg_start_idx)) = terminal_read_whitelist_base_command(simple, family) else {
+        return false;
+    };
+    let second = simple
+        .argv
+        .get(arg_start_idx)
+        .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
+        .unwrap_or_default();
+
+    match family {
+        TerminalShellFamily::PowerShell => {
+            matches!(
+                base_cmd.as_str(),
+                "set-location"
+                    | "get-childitem"
+                    | "get-content"
+                    | "select-string"
+                    | "select-object"
+                    | "where-object"
+                    | "sort-object"
+                    | "measure-object"
+                    | "get-item"
+                    | "test-path"
+                    | "resolve-path"
+                    | "get-location"
+                    | "pwd"
+                    | "rg"
+                    | "findstr"
+                    | "where"
+            ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+                || terminal_output_only_command_is_read_only(base_cmd.as_str())
+                || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
+        }
+        TerminalShellFamily::Posix | TerminalShellFamily::Other => {
+            matches!(
+                base_cmd.as_str(),
+                "pwd"
+                    | "cd"
+                    | "chdir"
+                    | "ls"
+                    | "dir"
+                    | "cat"
+                    | "type"
+                    | "head"
+                    | "tail"
+                    | "sort"
+                    | "uniq"
+                    | "wc"
+                    | "find"
+                    | "rg"
+                    | "grep"
+                    | "findstr"
+                    | "stat"
+                    | "which"
+                    | "where"
+            ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+                || terminal_output_only_command_is_read_only(base_cmd.as_str())
+                || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
+        }
+    }
+}
+
+fn terminal_read_whitelist_simple_commands(
+    command: &str,
+    shell_kind: &str,
+    analysis: &TerminalCommandAnalysis,
+) -> Vec<TerminalReadWhitelistSimpleCommand> {
+    let global_reason = if terminal_is_python_like_command(command) {
+        Some("python/py 命令不属于只读白名单".to_string())
+    } else if !matches!(analysis.write_risk, TerminalWriteRisk::None) {
+        Some("命令存在写入风险，不属于只读白名单".to_string())
+    } else if analysis.unresolved_write_targets {
+        Some("命令存在无法解析的写入目标，不属于只读白名单".to_string())
+    } else if analysis.accesses.iter().any(|item| {
+        !matches!(
+            item.intent,
+            TerminalPathIntent::Read | TerminalPathIntent::ChangeDirectory
+        )
+    }) {
+        Some("命令包含非读取路径操作，不属于只读白名单".to_string())
+    } else {
+        None
+    };
+
+    let family = terminal_shell_family(shell_kind);
+    terminal_split_simple_commands(command)
+        .into_iter()
+        .map(|simple| {
+            let command_text = terminal_simple_command_text(&simple);
+            if let Some(reason) = &global_reason {
+                return TerminalReadWhitelistSimpleCommand {
+                    command: command_text,
+                    allowed: false,
+                    reason: reason.clone(),
+                };
+            }
+            let allowed = terminal_simple_command_read_whitelist_allowed(&simple, family);
+            TerminalReadWhitelistSimpleCommand {
+                command: command_text,
+                allowed,
+                reason: if allowed {
+                    "命中只读白名单".to_string()
+                } else {
+                    "未命中只读白名单".to_string()
+                },
+            }
+        })
+        .collect()
+}
+
+fn terminal_read_whitelist_diagnostics_value(
+    command: &str,
+    shell_kind: &str,
+    analysis: &TerminalCommandAnalysis,
+) -> Value {
+    let commands = terminal_read_whitelist_simple_commands(command, shell_kind, analysis);
+    let whitelisted = commands
+        .iter()
+        .filter(|item| item.allowed)
+        .map(|item| item.command.clone())
+        .collect::<Vec<_>>();
+    let non_whitelisted = commands
+        .iter()
+        .filter(|item| !item.allowed)
+        .map(|item| serde_json::json!({
+            "command": item.command,
+            "reason": item.reason,
+        }))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "whitelistedCommands": whitelisted,
+        "nonWhitelistedCommands": non_whitelisted,
+    })
+}
+
+fn terminal_read_whitelist_diagnostics_message(
+    command: &str,
+    shell_kind: &str,
+    analysis: &TerminalCommandAnalysis,
+) -> String {
+    let commands = terminal_read_whitelist_simple_commands(command, shell_kind, analysis);
+    let whitelisted = commands
+        .iter()
+        .filter(|item| item.allowed)
+        .map(|item| format!("- {}", item.command))
+        .collect::<Vec<_>>();
+    let non_whitelisted = commands
+        .iter()
+        .filter(|item| !item.allowed)
+        .map(|item| format!("- {}：{}", item.command, item.reason))
+        .collect::<Vec<_>>();
+    let mut lines = vec!["当前路径权限为只读权限，你使用了白名单以外的指令。".to_string()];
+    lines.push("下面是非白名单指令：".to_string());
+    if non_whitelisted.is_empty() {
+        lines.push("- 无".to_string());
+    } else {
+        lines.extend(non_whitelisted);
+    }
+    lines.push("下面是白名单指令：".to_string());
+    if whitelisted.is_empty() {
+        lines.push("- 无".to_string());
+    } else {
+        lines.extend(whitelisted);
+    }
+    lines.join("\n")
+}
+
 fn terminal_strictest_workspace_access(accesses: &[String]) -> String {
     accesses
         .iter()
@@ -362,86 +583,7 @@ fn terminal_command_is_read_whitelist(
 
     let family = terminal_shell_family(shell_kind);
     for simple in terminal_split_simple_commands(command) {
-        let arg_start_idx = match family {
-            TerminalShellFamily::PowerShell => 1,
-            TerminalShellFamily::Posix | TerminalShellFamily::Other => terminal_skip_bash_wrappers(&simple.argv) + 1,
-        };
-        let base_cmd = match family {
-            TerminalShellFamily::PowerShell => {
-                let Some(first) = simple.argv.first() else {
-                    return false;
-                };
-                terminal_powershell_alias_base(
-                    &terminal_unquote_token(first).to_ascii_lowercase(),
-                )
-                .to_string()
-            }
-            TerminalShellFamily::Posix | TerminalShellFamily::Other => {
-                let start_idx = terminal_skip_bash_wrappers(&simple.argv);
-                let Some(first) = simple.argv.get(start_idx) else {
-                    return false;
-                };
-                terminal_unquote_token(first).to_ascii_lowercase()
-            }
-        };
-
-        let second = simple
-            .argv
-            .get(1)
-            .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
-            .unwrap_or_default();
-
-        let allowed = match family {
-            TerminalShellFamily::PowerShell => {
-                matches!(
-                    base_cmd.as_str(),
-                    "set-location"
-                        | "get-childitem"
-                        | "get-content"
-                        | "select-string"
-                        | "select-object"
-                        | "where-object"
-                        | "sort-object"
-                        | "measure-object"
-                        | "get-item"
-                        | "test-path"
-                        | "resolve-path"
-                        | "get-location"
-                        | "pwd"
-                        | "rg"
-                        | "findstr"
-                        | "where"
-                ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
-                    || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
-            }
-            TerminalShellFamily::Posix | TerminalShellFamily::Other => {
-                matches!(
-                    base_cmd.as_str(),
-                    "pwd"
-                        | "cd"
-                        | "chdir"
-                        | "ls"
-                        | "dir"
-                        | "cat"
-                        | "type"
-                        | "head"
-                        | "tail"
-                        | "sort"
-                        | "uniq"
-                        | "wc"
-                        | "find"
-                        | "rg"
-                        | "grep"
-                        | "findstr"
-                        | "stat"
-                        | "which"
-                        | "where"
-                ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
-                    || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
-            }
-        };
-
-        if !allowed {
+        if !terminal_simple_command_read_whitelist_allowed(&simple, family) {
             return false;
         }
     }
@@ -781,6 +923,24 @@ async fn builtin_shell_exec(
     let command_analysis = terminal_analyze_command(&cwd, cmd, &runtime_shell.kind);
     let is_read_whitelist =
         terminal_command_is_read_whitelist(cmd, &runtime_shell.kind, &command_analysis);
+    let read_whitelist_diagnostics = if is_read_whitelist {
+        None
+    } else {
+        Some(terminal_read_whitelist_diagnostics_value(
+            cmd,
+            &runtime_shell.kind,
+            &command_analysis,
+        ))
+    };
+    let read_whitelist_diagnostics_message = if is_read_whitelist {
+        None
+    } else {
+        Some(terminal_read_whitelist_diagnostics_message(
+            cmd,
+            &runtime_shell.kind,
+            &command_analysis,
+        ))
+    };
     let execution_cwd = if is_read_whitelist {
         terminal_read_whitelist_cwd_for_execution(cmd, &runtime_shell.kind, &cwd)
     } else {
@@ -853,6 +1013,9 @@ async fn builtin_shell_exec(
             .map(|item| terminal_path_for_user(&item.path))
             .collect::<Vec<_>>();
         if !absolute_unmatched_paths.is_empty() {
+            let message = read_whitelist_diagnostics_message.clone().unwrap_or_else(|| {
+                "非读取类命令不能访问未纳管的绝对路径，请改用已授权工作目录内路径。".to_string()
+            });
             let review = terminal_local_review_value(
                 &ui_language,
                 "命令试图访问未纳管的绝对路径，本地规则已直接拦截；非读取类操作只能作用于已授权工作目录。",
@@ -861,7 +1024,7 @@ async fn builtin_shell_exec(
                 "ok": false,
                 "approved": false,
                 "blockedReason": "absolute_path_not_granted",
-                "message": "非读取类命令不能访问未纳管的绝对路径，请改用已授权工作目录内路径。",
+                "message": message,
                 "toolReview": review,
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
@@ -869,6 +1032,7 @@ async fn builtin_shell_exec(
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "ungrantedPaths": absolute_unmatched_paths,
+                "readWhitelist": read_whitelist_diagnostics,
             }));
         }
     }
@@ -893,6 +1057,9 @@ async fn builtin_shell_exec(
             }));
         }
     } else if !is_read_whitelist && effective_access == SHELL_WORKSPACE_ACCESS_READ_ONLY {
+        let message = read_whitelist_diagnostics_message.clone().unwrap_or_else(|| {
+            "当前目录权限为只读，仅允许读取类白名单命令。".to_string()
+        });
         let review = terminal_local_review_value(
             &ui_language,
             "当前目录权限为只读，本地规则只允许读取类白名单命令，已直接拦截本次执行。",
@@ -901,13 +1068,14 @@ async fn builtin_shell_exec(
             "ok": false,
             "approved": false,
             "blockedReason": "read_only_workspace",
-            "message": "当前目录权限为只读，仅允许读取类白名单命令。",
+            "message": message,
             "toolReview": review,
             "rootPath": session_root_text,
             "workspacePath": workspace_path_text,
             "allowedProjectRoots": allowed_project_roots,
             "cwd": terminal_path_for_user(&cwd),
             "command": cmd,
+            "readWhitelist": read_whitelist_diagnostics,
         }));
     } else if is_write_command {
         let unmatched_write_paths = if matches!(write_risk, TerminalWriteRisk::Unknown)
@@ -1980,6 +2148,57 @@ mod terminal_exec_tests {
             "powershell7",
             &analysis
         ));
+    }
+
+    #[test]
+    fn git_bash_output_separators_should_keep_git_diff_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = "cd /e/github/easy_call_ai && git status --porcelain && printf '\\n---DIFF---\\n' && git diff HEAD --stat && printf '\\n---FULLDIFF---\\n' && git diff HEAD";
+        let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+
+        assert_eq!(analysis.write_risk, TerminalWriteRisk::None);
+        assert!(analysis.has_directory_change);
+        assert!(terminal_command_is_read_whitelist(
+            command,
+            "git-bash",
+            &analysis
+        ));
+    }
+
+    #[test]
+    fn output_only_command_with_redirection_should_not_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = "printf 'changed' > generated.txt";
+        let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+
+        assert_ne!(analysis.write_risk, TerminalWriteRisk::None);
+        assert!(!terminal_command_is_read_whitelist(
+            command,
+            "git-bash",
+            &analysis
+        ));
+    }
+
+    #[test]
+    fn read_whitelist_diagnostics_should_split_allowed_and_denied_commands() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = "git diff --stat && foo-review-helper && git status --porcelain";
+        let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+        let diagnostics = terminal_read_whitelist_diagnostics_value(command, "git-bash", &analysis);
+
+        let whitelisted = diagnostics
+            .get("whitelistedCommands")
+            .and_then(Value::as_array)
+            .expect("whitelisted commands");
+        let non_whitelisted = diagnostics
+            .get("nonWhitelistedCommands")
+            .and_then(Value::as_array)
+            .expect("non-whitelisted commands");
+        assert!(whitelisted.iter().any(|item| item.as_str() == Some("git diff --stat")));
+        assert!(whitelisted.iter().any(|item| item.as_str() == Some("git status --porcelain")));
+        assert!(non_whitelisted.iter().any(|item| {
+            item.get("command").and_then(Value::as_str) == Some("foo-review-helper")
+        }));
     }
 
     #[cfg(target_os = "windows")]

@@ -17,7 +17,7 @@ fn tool_review_delegate_background(scope: &str, target: Option<&str>) -> String 
     if let Some(target) = target.map(str::trim).filter(|value| !value.is_empty()) {
         lines.push(format!("范围参数：{}", target));
     }
-    lines.push("请你将以上选择内容视为审查目标，在当前工作区自行决定需要读取的只读 git 信息，再按 skill 输出 JSON。".to_string());
+    lines.push("请你将以上选择内容视为审查目标，在当前工作区自行决定需要读取的只读 git 信息，再按 skill 输出 JSON。没有确认到真实缺陷时，findings 必须返回空数组。".to_string());
     lines.join("\n")
 }
 
@@ -1455,6 +1455,52 @@ fn tool_review_scope_instruction(scope: &str) -> &'static str {
     }
 }
 
+fn tool_review_builtin_json_protocol() -> &'static str {
+    r#"内置审查 JSON 输出协议：
+你必须只返回纯 JSON，不要包 markdown 代码块，不要输出协议字段以外的字段。
+
+JSON 结构：
+{
+  "review_title": "10 到 20 个中文字符，描述本次审查对象",
+  "findings": [
+    {
+      "title": "一句话标题，80 字以内",
+      "body": "说明问题成因、触发条件、影响，引用文件和行号",
+      "confidence_score": 0.95,
+      "priority": 1,
+      "code_location": {
+        "absolute_file_path": "E:/project/src/foo.ts",
+        "line_range": { "start": 10, "end": 15 }
+      }
+    },
+    {
+      "title": "第二个独立缺陷标题，80 字以内",
+      "body": "如果发现多个互不依赖的真实缺陷，继续追加 finding；不要因为示例数量而合并或截断",
+      "confidence_score": 0.9,
+      "priority": 2,
+      "code_location": {
+        "absolute_file_path": "E:/project/src/bar.ts",
+        "line_range": { "start": 30, "end": 34 }
+      }
+    }
+  ],
+  "overall_correctness": "patch is correct",
+  "overall_explanation": "1 到 3 句整体判断",
+  "overall_confidence_score": 0.9
+}
+
+规则：
+- `findings` 可以为空数组，也可以包含多条。
+- 只有确认真实缺陷时才允许输出 finding；证据不足、无法判断、只是建议或担忧时，不得输出 finding。
+- 没有确认到真实缺陷时，`findings` 必须是空数组 `[]`，并在 `overall_explanation` 简要说明未发现可确认缺陷或证据不足。
+- 发现多个独立真实缺陷时必须逐条列出，不要只输出第一条，也不要把不同问题合并成一条。
+- `review_title` 必填，用 10 到 20 个中文字符概括本次审查对象，供报告列表展示。
+- `overall_correctness` 只能是 `patch is correct` 或 `patch is incorrect`。
+- `code_location` 必须落在当前 diff 范围内。
+- `confidence_score` 和 `overall_confidence_score` 取值 0 到 1。
+- 除协议字段外不要输出多余字段。"#
+}
+
 fn tool_review_render_delegate_instruction(
     scope: &str,
     target: Option<&str>,
@@ -1467,12 +1513,12 @@ fn tool_review_render_delegate_instruction(
         .map(|value| format!("\n\n范围参数：{}", value))
         .unwrap_or_default();
     format!(
-        "{}\n\n当前工作区：{}{}\n\n请严格遵守以下 skill：{}\n\n{}",
+        "{}\n\n当前工作区：{}{}\n\n请严格遵守以下 code-review skill 内容：\n\n{}\n\n{}",
         tool_review_scope_instruction(scope),
         workspace_path.trim(),
         target_text,
-        skill.path.trim(),
         skill.content.trim(),
+        tool_review_builtin_json_protocol(),
     )
 }
 

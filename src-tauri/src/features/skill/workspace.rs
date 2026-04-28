@@ -103,6 +103,11 @@ pub(crate) fn ensure_workspace_skills_layout_at_root(workspace_root: &Path) -> R
         "pai-guide",
         include_str!("../../../resources/preset-skills/pai-guide/SKILL.md"),
     )?;
+    sync_workspace_preset_skill(
+        &skills_root,
+        "code-review",
+        include_str!("../../../resources/preset-skills/code-review/SKILL.md"),
+    )?;
 
     Ok(())
 }

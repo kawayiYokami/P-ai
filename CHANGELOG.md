@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（tool-review-code-review-skill-and-terminal-read-whitelist）：内置 code-review 预设 skill 并由工具审查包装层固定注入 JSON 协议，避免用户可改 skill 破坏机器消费结构；终端只读白名单补充纯输出命令与诊断反馈，权限不足时拆分提示白名单/非白名单指令；同时收紧审查提示，未确认真实缺陷时必须返回空 findings。
 - 功能（file-reader-window）：本地代码与 Markdown 文件链接新增独立只读阅读窗口，支持多标签页、Shiki 直出高亮、行号、Markdown 渲染、地址栏面包屑与默认应用打开；文件阅读窗口拆分最小 Tauri capability，并补齐隐藏文件识别、标签缓存释放与打开失败提示。
 - 修复（chat-code-block-header-theme-color）：代码块标题栏文字与操作按钮改为使用主题文本色，避免在自定义主题下仍显示固定灰蓝色。
 - 优化（chat-conversation-list-compact-title-width）：会话列表简约模式不再在标题行显示部门/工作区标签，释放标题可用宽度，减少标题过早裁剪。
