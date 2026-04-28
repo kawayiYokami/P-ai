@@ -418,6 +418,8 @@ fn terminal_command_is_read_whitelist(
                 matches!(
                     base_cmd.as_str(),
                     "pwd"
+                        | "cd"
+                        | "chdir"
                         | "ls"
                         | "dir"
                         | "cat"
@@ -445,6 +447,58 @@ fn terminal_command_is_read_whitelist(
     }
 
     true
+}
+
+fn terminal_read_whitelist_cwd_from_command(
+    command: &str,
+    shell_kind: &str,
+    fallback_cwd: &Path,
+) -> PathBuf {
+    let family = terminal_shell_family(shell_kind);
+    let mut cwd = fallback_cwd.to_path_buf();
+    for simple in terminal_split_simple_commands(command) {
+        let (base_cmd, args_start_idx) = match family {
+            TerminalShellFamily::PowerShell => {
+                let Some(first) = simple.argv.first() else {
+                    continue;
+                };
+                (
+                    terminal_powershell_alias_base(
+                        &terminal_unquote_token(first).to_ascii_lowercase(),
+                    )
+                    .to_string(),
+                    1usize,
+                )
+            }
+            TerminalShellFamily::Posix | TerminalShellFamily::Other => {
+                let start_idx = terminal_skip_bash_wrappers(&simple.argv);
+                let Some(first) = simple.argv.get(start_idx) else {
+                    continue;
+                };
+                (terminal_unquote_token(first).to_ascii_lowercase(), start_idx + 1)
+            }
+        };
+        if !matches!(base_cmd.as_str(), "cd" | "chdir" | "set-location") {
+            continue;
+        }
+        let Some(target_raw) = simple.argv.get(args_start_idx) else {
+            continue;
+        };
+        if let Some(next_cwd) = terminal_resolve_candidate_path(&cwd, target_raw) {
+            cwd = next_cwd;
+        }
+    }
+    cwd
+}
+
+fn terminal_read_whitelist_cwd_for_execution(
+    command: &str,
+    shell_kind: &str,
+    fallback_cwd: &Path,
+) -> PathBuf {
+    terminal_read_whitelist_cwd_from_command(command, shell_kind, fallback_cwd)
+        .canonicalize()
+        .unwrap_or_else(|_| fallback_cwd.to_path_buf())
 }
 
 fn terminal_smart_review_language(ui_language: &str) -> &'static str {
@@ -731,6 +785,11 @@ async fn builtin_shell_exec(
     let command_analysis = terminal_analyze_command(&cwd, cmd, &runtime_shell.kind);
     let is_read_whitelist =
         terminal_command_is_read_whitelist(cmd, &runtime_shell.kind, &command_analysis);
+    let execution_cwd = if is_read_whitelist {
+        terminal_read_whitelist_cwd_for_execution(cmd, &runtime_shell.kind, &cwd)
+    } else {
+        cwd.clone()
+    };
     let command_paths = command_analysis.path_candidates();
     let mut unmatched_paths = Vec::<TerminalCommandPathCandidate>::new();
     let mut matched_accesses = Vec::<String>::new();
@@ -1297,9 +1356,9 @@ async fn builtin_shell_exec(
     }
 
     let execution_result = if terminal_live_session_supported(&runtime_shell) {
-        terminal_live_exec_command(state, &normalized_session, &cwd, cmd, timeout_ms).await
+        terminal_live_exec_command(state, &normalized_session, &execution_cwd, cmd, timeout_ms).await
     } else {
-        sandbox_execute_command(state, &normalized_session, cmd, &cwd, timeout_ms).await
+        sandbox_execute_command(state, &normalized_session, cmd, &execution_cwd, timeout_ms).await
     };
     let execution = match execution_result {
         Ok(execution) => execution,
@@ -1940,6 +1999,50 @@ mod terminal_exec_tests {
             "powershell7",
             &analysis
         ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn git_bash_read_whitelist_should_run_outside_authorized_roots() {
+        let Some(shell) = shell_candidate_by_kind("git-bash") else {
+            return;
+        };
+        let system_root = std::env::temp_dir().join(format!("eca-terminal-system-{}", Uuid::new_v4()));
+        let outside_root = std::env::temp_dir().join(format!("eca-terminal-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&system_root).expect("create system root");
+        fs::create_dir_all(&outside_root).expect("create outside root");
+        std::process::Command::new("git")
+            .arg("init")
+            .current_dir(&outside_root)
+            .output()
+            .expect("git init outside root");
+
+        let state = build_test_state(shell, system_root.clone());
+        configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )
+        .expect("configure workspaces");
+        let command = format!(
+            "cd '{}' && git status --porcelain && git diff --stat",
+            terminal_path_for_user(&outside_root).replace('\\', "/")
+        );
+
+        let result = builtin_shell_exec(
+            &state,
+            "git-read-outside-roots",
+            "run",
+            &command,
+            Some(8_000),
+        )
+        .await
+        .expect("run git read command outside roots");
+
+        assert_eq!(result.get("blockedReason").and_then(Value::as_str), None);
+        assert_eq!(result.get("ok").and_then(Value::as_bool), Some(true));
+        let _ = fs::remove_dir_all(&system_root);
+        let _ = fs::remove_dir_all(&outside_root);
     }
 
     #[tokio::test]

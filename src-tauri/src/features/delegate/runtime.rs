@@ -1,10 +1,10 @@
 const DELEGATE_RECENT_THREAD_LIMIT: usize = 10;
 
-fn delegate_parent_shell_workspace_path(
+fn delegate_parent_shell_workspace(
     app_state: &AppState,
     root_conversation_id: &str,
     parent_chat_session_key: Option<&str>,
-) -> Option<String> {
+) -> Option<Conversation> {
     if let Some(session_id) = parent_chat_session_key {
         if let Ok(Some(conversation)) = terminal_session_conversation(app_state, session_id) {
             if conversation
@@ -14,14 +14,20 @@ fn delegate_parent_shell_workspace_path(
                 .filter(|value| !value.is_empty())
                 .is_some()
             {
-                return conversation.shell_workspace_path.clone();
+                return Some(conversation);
             }
         }
     }
     state_read_conversation_cached(app_state, root_conversation_id)
         .ok()
-        .and_then(|conversation| conversation.shell_workspace_path.clone())
-        .filter(|value| !value.trim().is_empty())
+        .filter(|conversation| {
+            conversation
+                .shell_workspace_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some()
+        })
 }
 
 fn delegate_runtime_thread_build(
@@ -45,11 +51,14 @@ fn delegate_runtime_thread_build(
     conversation.updated_at = delegate.updated_at.clone();
     conversation.last_user_at = None;
     conversation.last_assistant_at = None;
-    conversation.shell_workspace_path = delegate_parent_shell_workspace_path(
+    if let Some(parent_workspace) = delegate_parent_shell_workspace(
         app_state,
         &delegate.conversation_id,
         parent_chat_session_key.as_deref(),
-    );
+    ) {
+        conversation.shell_workspace_path = parent_workspace.shell_workspace_path;
+        conversation.shell_workspaces = parent_workspace.shell_workspaces;
+    }
     DelegateRuntimeThread {
         delegate_id: delegate.delegate_id.clone(),
         root_conversation_id: delegate.conversation_id.clone(),
