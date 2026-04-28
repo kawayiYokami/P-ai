@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-6 pb-20 [&_div]:[transition:background-color_200ms,border-color_200ms,box-shadow_200ms,border-radius_200ms_ease-out]">
     <!-- 欢迎主卡片（全宽） -->
-        <div class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-gradient-to-bl to-50% card-sm overflow-hidden">
+        <div class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-linear-to-bl to-50% card-sm overflow-hidden">
       <div class="card-body gap-6">
         <!-- 标题区域 -->
         <div class="flex items-start justify-between">
@@ -36,7 +36,7 @@
       <div
         v-for="card in cards"
         :key="card.id"
-        class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-gradient-to-bl to-50% card-sm overflow-hidden"
+        class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-linear-to-bl to-50% card-sm overflow-hidden"
       >
         <div class="card-body gap-4">
           <!-- 标题和状态 -->
@@ -84,9 +84,6 @@
           <!-- 当前状态 -->
           <div class="rounded-box bg-base-200/30 px-3 py-2.5 text-sm">
             <div class="flex items-start gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="size-4 mt-0.5 shrink-0 opacity-50">
-                <path fill-rule="evenodd" d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0Zm-6 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM7.293 5.293a1 1 0 1 1 .99 1.667c-.459.134-.765.653-.765 1.165v.75a.75.75 0 0 0 1.5 0v-.75a2.5 2.5 0 1 0-1.725-4.332Z" clip-rule="evenodd" />
-              </svg>
               <div class="flex-1">
                 <span class="font-medium opacity-70">{{ t("config.welcome.currentState") }}</span>
                 {{ card.current }}
@@ -303,7 +300,7 @@ const cards = computed(() => {
     {
       id: "embedding",
       title: t("config.welcome.cards.embedding.title"),
-      level: "strong" as WelcomeCardLevel,
+      level: "optional" as WelcomeCardLevel,
       ok: !!embeddingModel,
       summary: t("config.welcome.cards.embedding.summary"),
       current: embeddingModel
@@ -327,7 +324,7 @@ const cards = computed(() => {
     {
       id: "memory",
       title: t("config.welcome.cards.memory.title"),
-      level: "optional" as WelcomeCardLevel,
+      level: "strong" as WelcomeCardLevel,
       ok: (!embeddingModel || embeddingBound) && (!rerankModel || rerankBound),
       summary: t("config.welcome.cards.memory.summary"),
       current: embeddingModel || rerankModel
@@ -341,7 +338,7 @@ const cards = computed(() => {
     {
       id: "persona",
       title: t("config.welcome.cards.persona.title"),
-      level: "optional" as WelcomeCardLevel,
+      level: "strong" as WelcomeCardLevel,
       ok: customPersonaCount > 1,
       summary: t("config.welcome.cards.persona.summary"),
       current: customPersonaCount > 1

@@ -164,12 +164,12 @@
       "applySuccess": "迁移导入完成，应用即将重启。"
     },
     "welcome": {
-      "title": "首次设置欢迎页",
-      "subtitle": "下面这些大卡片会直接检查你的关键配置是否完整。先补必须项，再看建议项，就能比较稳定地开始用。",
-      "askLlmHint": "如果你不知道怎么配，最简单的方法就是截图给 LLM，让它一步一步教你设置。",
+      "title": "PAI 配置仪表盘",
+      "subtitle": "红色标记的先补上，黄色的也尽量填一下，剩下的按需来就好。",
+      "askLlmHint": "不知道怎么填？截图发给任意 AI，它能带你一步步配好。",
       "requiredBadge": "必须",
-      "stronglyRecommendedBadge": "强烈建议",
-      "recommendedBadge": "建议",
+      "stronglyRecommendedBadge": "建议",
+      "recommendedBadge": "可选",
       "statusOk": "已设置",
       "statusMissing": "未设置",
       "currentState": "当前状态：",
@@ -184,96 +184,90 @@
       "cards": {
         "git": {
           "title": "Git",
-          "summary": "必须安装 Git。终端工作流、Git Bash 与很多后续开发协作都会直接依赖它。",
-          "currentOk": "已检测到 Git。",
-          "currentMissing": "还没有检测到 Git。官方安装地址：https://git-scm.com/downloads",
+          "summary": "Git 是 PAI 帮你自动跑命令、安装 Skill 的底层工具。装好之后，很多操作可以直接交给 PAI 代办。",
+          "currentOk": "已装好，没问题。",
+          "currentMissing": "还没装。点右边按钮去官网下载就行。",
           "action": "去看工具",
           "install": "安装 Git"
         },
         "node": {
           "title": "Node.js",
-          "summary": "必须安装 Node.js。前端开发、很多脚本工具以及后续安装 MCP / skill 都会用到它。",
-          "currentOk": "已检测到 Node.js。",
-          "currentMissing": "还没有检测到 Node.js。官方安装地址：https://nodejs.org/en/download",
+          "summary": "Node.js 是 Skill 和工具插件的运行环境。没有它，Skill 装不上也用不了。点右边就能装，一两分钟的事。",
+          "currentOk": "已装好，没问题。",
+          "currentMissing": "还没装。点右边按钮去官网下载，一两分钟的事。",
           "action": "去看工具",
           "install": "安装 Node.js"
         },
         "textModel": {
           "title": "可用文本模型",
-          "summary": "系统至少需要一个可用的文本模型，建议优先准备一个同时支持图片的多模态模型。",
-          "currentOkMultimodal": "已找到可用多模态文本模型：{name}",
-          "currentOk": "已找到可用文本模型：{name}。但暂时还不是多模态。",
-          "currentMissing": "还没有检测到任何可用文本模型。",
-          "howToOk": "如果你还想让截图直接发给 LLM 识图，可以再补一个开启图片能力的文本模型。",
-          "howToMissing": "去「LLM」页面新增一个配置，填好链接、API Key、模型名，并确保开启文本能力。",
+          "summary": "文本模型是 PAI 的「大脑」。有了它，PAI 才能读你的消息、思考问题、给你回复。建议顺便准备一个支持图片的多模态模型，截图也能直接发给它看。",
+          "currentOkMultimodal": "已接入 {name}，支持文字也支持识图。",
+          "currentOk": "已接入 {name}。暂时还不能识图，但不影响对话。",
+          "currentMissing": "还没接入。去 LLM 页面填个 API Key 就能用。",
           "action": "去设置 LLM"
         },
         "assistantDepartment": {
           "title": "主部门驱动模型",
-          "summary": "主部门必须绑定至少一个驱动模型，否则助理无法正常工作。",
-          "currentOk": "主部门已经绑定驱动模型链：{names}",
-          "currentMissing": "主部门还没有绑定任何可用驱动模型。",
-          "howToOk": "如果你希望更稳，可以继续在主部门里增加候选模型，失败时会按顺序往后尝试。",
-          "howToMissing": "去「部门」页面，选中主部门，然后给它添加至少一个驱动模型。",
+          "summary": "主部门是 PAI 默认的「执行小组」。给它绑上模型，PAI 就知道用谁的大脑来干活。绑多个的话，一个临时不可用还能自动换下一个。",
+          "currentOk": "已绑定：{names}",
+          "currentMissing": "还没绑定。去部门页面，选中主部门，加上一个模型就行。",
           "action": "去设置部门"
         },
         "voice": {
           "title": "语音识别",
-          "summary": "如果你想直接语音输入，这是非常值得补上的配置。",
-          "currentOk": "已找到语音识别模型：{name}",
-          "currentMissing": "还没有检测到语音识别模型。",
-          "howToOk": "现在已经可以继续补录音键、自动发送等体验项了。",
-          "howToMissing": "去「LLM」页面新增一个 STT 配置；配完后再到「对话」里选它作为语音模型。",
+          "summary": "不想打字的时候，直接说话就行。语音识别模型负责把你的语音转成文字发给 PAI。",
+          "currentOk": "已接入 {name}，可以语音输入了。",
+          "currentMissing": "还没接入。去 LLM 页面加个 STT 配置就能用。",
           "action": "去设置语音"
         },
         "embedding": {
           "title": "嵌入模型",
-          "summary": "如果你想把记忆、检索、知识召回这套能力跑顺，最好尽早准备一个嵌入模型。",
-          "currentOk": "已找到嵌入模型：{name}",
-          "currentMissing": "还没有检测到嵌入模型。",
+          "summary": "嵌入模型是记忆和知识检索的基础。想让 PAI 记住重要的事情、以后能翻出来用，就需要它。",
+          "currentOk": "已接入 {name}。",
+          "currentMissing": "还没接入。想用记忆功能的话需要先补上。",
           "action": "去设置嵌入"
         },
         "rerank": {
           "title": "重排模型",
-          "summary": "这会帮 AI 在很多资料里更稳地挑出最相关的内容，做检索和记忆时很有帮助，属于强烈建议尽早补上的配置。",
-          "currentOk": "已找到重排模型：{name}",
-          "currentMissing": "还没有检测到重排模型。",
+          "summary": "重排模型帮 PAI 在一堆资料里挑出最相关的内容。以后用记忆、做检索的时候，有它会更准。",
+          "currentOk": "已接入 {name}。",
+          "currentMissing": "还没接入。配好之后记忆和搜索能力会明显提升。",
           "action": "去设置重排"
         },
         "memory": {
           "title": "记忆功能",
-          "summary": "记忆能让 AI 更容易记住重要事情。前面准备好嵌入和重排之后，最好再来这里把它真正启用。",
-          "currentOk": "记忆功能已经准备好了。",
-          "currentMissingModel": "你还没准备好记忆用的模型，之后想用记忆时再来补就行。",
-          "currentMissingBinding": "你已经有嵌入或重排模型了，但记忆页里还没正式设置完成。",
+          "summary": "开启之后，PAI 会记住你告诉它的事情。下次聊到相关内容，它自己就能回想起来。",
+          "currentOk": "已就绪，PAI 可以记住对话了。",
+          "currentMissingModel": "嵌入和重排模型都还没配，先补上它们再开记忆。",
+          "currentMissingBinding": "模型有了，但记忆页里还没完成设置。点右边去补一下。",
           "action": "去设置记忆"
         },
         "persona": {
           "title": "人格",
-          "summary": "人格就像不同的助手风格。你可以做一个写作型、一个执行型，也可以做一个专门陪你聊天的。",
-          "currentOk": "你已经准备了 {count} 个可用人格。",
-          "currentMissing": "你现在还没有额外的人格，先用默认助理也完全可以。",
+          "summary": "人格就是不同风格的助手。你可以给它起名字、设专属头像，什么时候想加再加，不急。",
+          "currentOk": "已有 {count} 个人格。",
+          "currentMissing": "还没有，先用默认助理完全够。想加的时候再来。",
           "action": "去看人格"
         },
         "department": {
           "title": "部门",
-          "summary": "部门就像分工小组。以后你可以把收集、整理、执行这类工作拆给不同部门去做。",
-          "currentOk": "你已经准备了 {count} 个额外部门。",
-          "currentMissing": "你现在还没有额外部门，先只用主部门也没问题。",
+          "summary": "部门是分工小组，每个部门有自己的名称和工作范围。不是必须的，有需要再建。",
+          "currentOk": "已有 {count} 个部门。",
+          "currentMissing": "还没有，先用主部门完全没问题。",
           "action": "去看部门"
         },
         "skill": {
           "title": "技能",
-          "summary": "技能像是一张张小教程，告诉 AI 某件事应该怎么做。不会配置也没关系，后面慢慢加就行。",
-          "currentOk": "已检测到 {count} 个技能。",
-          "currentMissing": "还没有检测到技能，先空着也可以。",
+          "summary": "Skill 是 PAI 的「技能包」，教它怎么做某类事情。你不用自己配，告诉 PAI 你需要什么，它能帮你装。",
+          "currentOk": "已安装 {count} 个 Skill。",
+          "currentMissing": "还没装。以后需要什么能力，跟 PAI 说一声就行。",
           "action": "去看技能"
         },
         "mcp": {
           "title": "MCP",
-          "summary": "MCP 可以把更多外部能力接进来，比如连接别的服务或工具。新手可以先不碰，等需要时再加。",
-          "currentOk": "已启用 {count} 个 MCP 服务。",
-          "currentMissing": "还没有启用 MCP 服务，这不是问题。",
+          "summary": "MCP 是 PAI 的工具扩展方式。和 Skill 一样，PAI 可以自己安装、自己配置。需要新能力，跟它说就行。",
+          "currentOk": "已启用 {count} 个 MCP。",
+          "currentMissing": "还没装。以后需要扩展能力时再跟 PAI 说。",
           "action": "去看 MCP"
         }
       }

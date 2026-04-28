@@ -1,7 +1,8 @@
 # 变更日志
 
 ## 进行中
-
+ - 优化（welcome-i18n）：欢迎页文案口语化，卡片分级改为「必须/建议/可选」三级，删除当前状态问号图标。
+ 
 ## 发布：v0.9.56
 
 - 发布（release-0.9.56）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.56`，纳入本轮聊天流式切换恢复修复。
