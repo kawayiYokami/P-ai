@@ -6,6 +6,46 @@ async fn desktop_screenshot(input: ScreenshotRequest) -> Result<ScreenshotRespon
 }
 
 #[tauri::command]
+fn open_local_file_default(path: String) -> Result<(), String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(raw_path);
+    if !file_path.is_file() {
+        return Err(format!("目标文件不存在：{raw_path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+        std::process::Command::new("explorer")
+            .arg(resolved_path.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(file_path.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(file_path.as_os_str())
+            .spawn()
+            .map_err(|err| format!("打开文件失败: {err}"))?;
+        return Ok(());
+    }
+}
+
+#[tauri::command]
 async fn desktop_wait(input: WaitRequest) -> Result<WaitResponse, String> {
     run_wait_tool(input)
         .await
@@ -980,6 +1020,78 @@ fn resolve_terminal_approval(
 ) -> Result<(), String> {
     let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
     Ok(())
+}
+
+#[tauri::command]
+fn open_file_reader_window_command(app: AppHandle, path: String) -> Result<String, String> {
+    open_file_reader_window(&app, path)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileReaderFilePayload {
+    path: String,
+    name: String,
+    extension: String,
+    kind: String,
+    content: String,
+}
+
+const FILE_READER_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+fn file_reader_file_kind(extension: &str) -> &'static str {
+    match extension {
+        "md" | "markdown" | "mdx" => "markdown",
+        _ => "code",
+    }
+}
+
+#[tauri::command]
+fn read_file_reader_file(path: String) -> Result<FileReaderFilePayload, String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(raw_path);
+    if !file_path.exists() {
+        return Err(format!("文件不存在：{raw_path}"));
+    }
+    if !file_path.is_file() {
+        return Err(format!("目标不是文件：{raw_path}"));
+    }
+    let metadata = fs::metadata(&file_path).map_err(|err| format!("读取文件信息失败：{err}"))?;
+    if metadata.len() > FILE_READER_MAX_BYTES {
+        return Err(format!(
+            "文件过大，无法预览：{} bytes，当前上限 {} bytes",
+            metadata.len(),
+            FILE_READER_MAX_BYTES
+        ));
+    }
+    let content = fs::read_to_string(&file_path).map_err(|err| format!("读取文本文件失败：{err}"))?;
+    let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+    let extension = file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let name = file_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(raw_path)
+        .to_string();
+    let file_key = if extension.is_empty() {
+        name.trim().to_ascii_lowercase()
+    } else {
+        extension.clone()
+    };
+    Ok(FileReaderFilePayload {
+        path: resolved_path.to_string_lossy().replace('\\', "/"),
+        name,
+        extension: file_key.clone(),
+        kind: file_reader_file_kind(&file_key).to_string(),
+        content,
+    })
 }
 
 #[tauri::command]

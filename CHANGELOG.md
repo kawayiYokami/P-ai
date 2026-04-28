@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 功能（file-reader-window）：本地代码与 Markdown 文件链接新增独立只读阅读窗口，支持多标签页、Shiki 直出高亮、行号、Markdown 渲染、地址栏面包屑与默认应用打开；文件阅读窗口拆分最小 Tauri capability，并补齐隐藏文件识别、标签缓存释放与打开失败提示。
 - 修复（chat-code-block-header-theme-color）：代码块标题栏文字与操作按钮改为使用主题文本色，避免在自定义主题下仍显示固定灰蓝色。
 - 优化（chat-conversation-list-compact-title-width）：会话列表简约模式不再在标题行显示部门/工作区标签，释放标题可用宽度，减少标题过早裁剪。
 - 修复（tools-no-session-id-and-apply-patch-diagnostics）：工具对外返回不再暴露 `sessionId`；统一 apply_patch 格式口径，补强补丁 header、hunk 前缀、上下文不匹配与上下文多处命中的诊断反馈，并拒绝不唯一上下文以避免误改。

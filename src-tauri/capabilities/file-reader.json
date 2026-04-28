@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "file-reader-capabilities",
+  "description": "Minimal capability for the read-only file reader window",
+  "windows": ["file-reader"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-hide",
+    "dialog:allow-open"
+  ]
+}

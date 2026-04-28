@@ -3,6 +3,7 @@ use std::str::FromStr;
 const MAIN_TRAY_ID: &str = "easy-call-tray";
 const WINDOW_LAYOUTS_FILE_NAME: &str = "window_layouts.json";
 const DETACHED_CHAT_WINDOW_PREFIX: &str = "chat-detached-";
+const FILE_READER_WINDOW_LABEL: &str = "file-reader";
 
 static DETACHED_CHAT_WINDOWS: OnceLock<Mutex<std::collections::HashMap<String, String>>> =
     OnceLock::new();
@@ -68,6 +69,7 @@ fn default_window_size(label: &str) -> (u32, u32) {
         "main" => (900_u32, 900_u32),
         "chat" => (900_u32, 900_u32),
         "archives" => (900_u32, 900_u32),
+        FILE_READER_WINDOW_LABEL => (1040_u32, 760_u32),
         _ => (900_u32, 900_u32),
     }
 }
@@ -77,6 +79,7 @@ fn minimum_window_size(label: &str) -> (u32, u32) {
         "main" => (520_u32, 520_u32),
         "chat" => (520_u32, 520_u32),
         "archives" => (560_u32, 560_u32),
+        FILE_READER_WINDOW_LABEL => (720_u32, 520_u32),
         _ => (520_u32, 520_u32),
     }
 }
@@ -199,6 +202,102 @@ fn open_detached_chat_window(
     register_detached_chat_window(cid, &label)?;
     schedule_detached_chat_window_creation(app, cid.to_string(), label.clone(), window_title)?;
     Ok(label)
+}
+
+fn focus_file_reader_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(FILE_READER_WINDOW_LABEL)
+        .ok_or_else(|| "文件阅读窗口不存在".to_string())?;
+    let _ = window.unminimize();
+    let _ = window.show();
+    window
+        .set_focus()
+        .map_err(|err| format!("聚焦文件阅读窗口失败：{err}"))
+}
+
+fn emit_file_reader_open_path(app: &AppHandle, path: &str) -> Result<(), String> {
+    app.emit_to(
+        FILE_READER_WINDOW_LABEL,
+        "file-reader-open-path",
+        serde_json::json!({ "path": path }),
+    )
+    .map_err(|err| format!("投递文件阅读请求失败：{err}"))
+}
+
+fn open_file_reader_window(app: &AppHandle, path: String) -> Result<String, String> {
+    let normalized_path = path.trim().to_string();
+    if normalized_path.is_empty() {
+        return Err("path 不能为空".to_string());
+    }
+
+    if app.get_webview_window(FILE_READER_WINDOW_LABEL).is_some() {
+        focus_file_reader_window(app)?;
+        emit_file_reader_open_path(app, &normalized_path)?;
+        return Ok(FILE_READER_WINDOW_LABEL.to_string());
+    }
+
+    schedule_file_reader_window_creation(app, normalized_path)?;
+    Ok(FILE_READER_WINDOW_LABEL.to_string())
+}
+
+fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result<(), String> {
+    let app_handle = app.clone();
+    std::thread::Builder::new()
+        .name("file-reader-window-create".to_string())
+        .spawn(move || {
+            let started_at = std::time::Instant::now();
+            eprintln!("[文件阅读窗口] 开始创建窗口：window_label={}", FILE_READER_WINDOW_LABEL);
+            if app_handle.get_webview_window(FILE_READER_WINDOW_LABEL).is_some() {
+                let _ = focus_file_reader_window(&app_handle);
+                let _ = emit_file_reader_open_path(&app_handle, &path);
+                return;
+            }
+
+            let encoded_path = urlencoding::encode(&path);
+            let url = format!("file-reader.html?path={encoded_path}");
+            let window = match tauri::WebviewWindowBuilder::new(
+                &app_handle,
+                FILE_READER_WINDOW_LABEL,
+                tauri::WebviewUrl::App(url.into()),
+            )
+            .title("π师傅 - 文件阅读")
+            .inner_size(1040.0, 760.0)
+            .min_inner_size(720.0, 520.0)
+            .resizable(true)
+            .decorations(false)
+            .shadow(true)
+            .visible(false)
+            .build()
+            {
+                Ok(window) => window,
+                Err(err) => {
+                    eprintln!(
+                        "[文件阅读窗口] 创建失败：window_label={}，error={}",
+                        FILE_READER_WINDOW_LABEL,
+                        err
+                    );
+                    return;
+                }
+            };
+
+            if let Err(err) = apply_window_layout_before_show(&app_handle, FILE_READER_WINDOW_LABEL) {
+                eprintln!(
+                    "[文件阅读窗口] 应用窗口布局失败：window_label={}，error={}",
+                    FILE_READER_WINDOW_LABEL,
+                    err
+                );
+            }
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            eprintln!(
+                "[文件阅读窗口] 窗口已显示：window_label={}，elapsed_ms={}",
+                FILE_READER_WINDOW_LABEL,
+                started_at.elapsed().as_millis()
+            );
+        })
+        .map(|_| ())
+        .map_err(|err| format!("调度创建文件阅读窗口失败：{err}"))
 }
 
 fn schedule_detached_chat_window_creation(

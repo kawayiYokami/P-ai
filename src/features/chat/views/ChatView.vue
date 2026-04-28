@@ -472,6 +472,73 @@ type ChatRenderItem =
   | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number }> };
 
 const MAX_GROUP_ITEM_COUNT = 2;
+const FILE_READER_EXTENSIONS = new Set([
+  "md",
+  "markdown",
+  "mdx",
+  "ts",
+  "tsx",
+  "c",
+  "cc",
+  "cpp",
+  "cxx",
+  "h",
+  "hpp",
+  "cs",
+  "java",
+  "kt",
+  "kts",
+  "go",
+  "js",
+  "jsx",
+  "vue",
+  "rs",
+  "py",
+  "rb",
+  "php",
+  "swift",
+  "scala",
+  "dart",
+  "lua",
+  "r",
+  "m",
+  "mm",
+  "pl",
+  "pm",
+  "json",
+  "jsonc",
+  "json5",
+  "toml",
+  "yaml",
+  "yml",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "html",
+  "htm",
+  "xml",
+  "svg",
+  "sql",
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "ps1",
+  "bat",
+  "cmd",
+  "dockerfile",
+  "ini",
+  "env",
+  "gitignore",
+  "gitattributes",
+  "editorconfig",
+  "lock",
+  "csv",
+  "tsv",
+  "txt",
+  "log",
+]);
 
 const props = defineProps<{
   userAlias: string;
@@ -570,6 +637,21 @@ function isOrganizeContextToolCall(call: { name: string; argsText: string; statu
   const name = String(call.name || "").trim().toLowerCase();
   if (name === "organize_context" || name === "archive") return true;
   return false;
+}
+
+function fileExtensionFromPath(path: string): string {
+  const normalizedPath = String(path || "").trim().replace(/\\/g, "/");
+  const fileName = normalizedPath.split("/").filter(Boolean).pop() || "";
+  const normalizedFileName = fileName.startsWith(".") ? fileName.slice(1) : fileName;
+  const lowerFileName = normalizedFileName.toLowerCase();
+  if (FILE_READER_EXTENSIONS.has(lowerFileName)) return lowerFileName;
+  const dotIndex = normalizedFileName.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === normalizedFileName.length - 1) return "";
+  return normalizedFileName.slice(dotIndex + 1).toLowerCase();
+}
+
+function canOpenInFileReader(path: string): boolean {
+  return FILE_READER_EXTENSIONS.has(fileExtensionFromPath(path));
 }
 
 async function handlePickCommitReview(page = 1) {
@@ -1808,7 +1890,11 @@ async function handleAssistantLinkClick(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     try {
-      await invokeTauri("open_local_file_directory", { path: href });
+      if (canOpenInFileReader(href)) {
+        await invokeTauri("open_file_reader_window_command", { path: href });
+      } else {
+        await invokeTauri("open_local_file_directory", { path: href });
+      }
       linkOpenErrorText.value = "";
     } catch (error) {
       linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
