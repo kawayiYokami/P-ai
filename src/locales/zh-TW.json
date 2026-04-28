@@ -76,6 +76,9 @@
       "holdToRecord": "按住开始录音",
       "holdRecordButton": "按住录音",
       "playRecord": "播放录音",
+      "builtinShortcuts": "內建快捷鍵",
+      "builtinTabInstruction": "跨界指令",
+      "builtinShiftTabPlanMode": "切換計劃模式",
       "theme": "主题",
       "lightTheme": "浅色模式",
       "darkTheme": "深色模式"
