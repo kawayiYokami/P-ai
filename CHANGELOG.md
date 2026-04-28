@@ -2,6 +2,10 @@
 
 ## 进行中
 
+## 发布：v0.9.55
+
+- 发布（release-0.9.55）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.55`，纳入本轮工具审查部门选择与 JSON 兜底解析、终端 Git 只读白名单收紧、任务跳过后推进下次触发、队列去重与会话级展示、队列撤回完整原文回填、本地文件阅读窗口与聊天界面细节修复。
+
 - 修复（chat-queue-recall-full-text）：队列消息撤回回填输入框时改用后端返回的完整消息原文，不再使用 UI 裁剪后的 `messagePreview`，并保持撤回成功后才回填，避免假撤回错觉。
 - 修复（terminal-git-read-whitelist-write-flags）：终端只读白名单收紧 `git branch`、`git tag`、`git config` 参数判定，删除/移动/复制分支、删除/创建/强制标签以及写入 Git 配置等形式不再被误判为只读命令。
 - 修复（task-skip-advance-next-run）：任务调度遇到会话忙碌、队列非空、并发上限、会话不可解析或同轮同会话冲突等跳过场景时，统一走原子跳过方法，同步更新 `last_triggered_at_utc` 并写入运行日志，确保重复任务会推进下次触发时间而不是卡在已到期状态。
