@@ -25,6 +25,21 @@ struct TaskDispatchCandidate {
     session: TaskDispatchSessionResolved,
 }
 
+#[derive(Debug, Clone)]
+struct TaskDispatchSkipContext {
+    request_id: String,
+    dispatch_id: String,
+    task_goal: String,
+    conversation_id: String,
+    trigger_label: String,
+    todo_count: usize,
+    has_run_at: bool,
+    every_minutes: f64,
+    duration_ms: u128,
+    target_scope: String,
+    fallback_to_main: bool,
+}
+
 fn task_scope_for_conversation(conversation: &Conversation) -> &'static str {
     if conversation_is_remote_im_contact(conversation) {
         TASK_TARGET_SCOPE_CONTACT
@@ -223,6 +238,48 @@ fn task_dispatch_block_reason(
         return Ok(Some("chat_concurrency_limit"));
     }
     Ok(None)
+}
+
+fn task_trigger_label(task: &TaskRecordStored) -> &'static str {
+    if task.trigger.run_at_utc.is_none() {
+        "immediate"
+    } else if task.trigger.every_minutes.unwrap_or(0.0) > 0.0 {
+        "repeat"
+    } else {
+        "once"
+    }
+}
+
+fn task_dispatch_todo_count(task: &TaskRecordStored) -> usize {
+    task_legacy_todos_from_todo(&task_todo_from_legacy_fields(&task.status_summary, &task.todos)).len()
+}
+
+fn task_mark_dispatch_skipped(
+    state: &AppState,
+    task: &TaskRecordStored,
+    reason: &str,
+    context: &TaskDispatchSkipContext,
+) -> Result<(), String> {
+    task_store_mark_skipped(
+        &state.data_path,
+        &task.task_id,
+        "skipped",
+        &format!(
+            "任务已跳过，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}，reason={}",
+            context.request_id,
+            context.dispatch_id,
+            context.task_goal.trim(),
+            context.conversation_id,
+            context.trigger_label,
+            context.todo_count,
+            context.has_run_at,
+            context.every_minutes,
+            context.duration_ms,
+            context.target_scope,
+            context.fallback_to_main,
+            reason
+        ),
+    )
 }
 
 fn task_try_ingress_chat_event_direct(
@@ -511,14 +568,8 @@ async fn task_dispatch_due_task(
         sender_info: None,
     };
 
-    let trigger_label = if task.trigger.run_at_utc.is_none() {
-        "immediate"
-    } else if task.trigger.every_minutes.unwrap_or(0.0) > 0.0 {
-        "repeat"
-    } else {
-        "once"
-    };
-    let todo_count = task_legacy_todos_from_todo(&task_todo_from_legacy_fields(&task.status_summary, &task.todos)).len();
+    let trigger_label = task_trigger_label(task);
+    let todo_count = task_dispatch_todo_count(task);
     let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
 
     match task_try_ingress_chat_event_direct(state, event)? {
@@ -552,28 +603,40 @@ async fn task_dispatch_due_task(
         }
         Err(reason) => {
             let duration_ms = started_at.elapsed().as_millis();
-            task_store_insert_run_log(
-                &state.data_path,
-                &task.task_id,
-                "skipped",
-                &format!(
-                    "任务已跳过，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，everyMinutes={}，durationMs={}，targetScope={}，fallbackToMain={}，reason={}",
-                    request_id,
-                    event_id,
-                    task_goal.trim(),
-                    session.conversation_id,
-                    trigger_label,
-                    todo_count,
-                    task.trigger.run_at_utc.is_some(),
-                    task.trigger.every_minutes.unwrap_or(0.0),
-                    duration_ms,
-                    session.target_scope,
-                    session.fallback_to_main,
-                    reason
-                ),
-            )?;
+            task_mark_dispatch_skipped(state, task, reason, &TaskDispatchSkipContext {
+                request_id,
+                dispatch_id: event_id,
+                task_goal,
+                conversation_id: session.conversation_id.clone(),
+                trigger_label: trigger_label.to_string(),
+                todo_count,
+                has_run_at: task.trigger.run_at_utc.is_some(),
+                every_minutes: task.trigger.every_minutes.unwrap_or(0.0),
+                duration_ms,
+                target_scope: session.target_scope.clone(),
+                fallback_to_main: session.fallback_to_main,
+            })?;
             Ok(())
         }
+    }
+}
+
+fn task_skip_context_for_candidate_filter(
+    task: &TaskRecordStored,
+    session: &TaskDispatchSessionResolved,
+) -> TaskDispatchSkipContext {
+    TaskDispatchSkipContext {
+        request_id: "task-candidate-skip".to_string(),
+        dispatch_id: format!("task-skip-{}", Uuid::new_v4()),
+        task_goal: task_goal_from_legacy_fields(&task.title, &task.goal),
+        conversation_id: session.conversation_id.clone(),
+        trigger_label: task_trigger_label(task).to_string(),
+        todo_count: task_dispatch_todo_count(task),
+        has_run_at: task.trigger.run_at_utc.is_some(),
+        every_minutes: task.trigger.every_minutes.unwrap_or(0.0),
+        duration_ms: 0,
+        target_scope: session.target_scope.clone(),
+        fallback_to_main: session.fallback_to_main,
     }
 }
 
@@ -592,17 +655,34 @@ fn task_build_dispatch_candidates(
     let mut candidates = Vec::<TaskDispatchCandidate>::new();
     for task in due_tasks {
         let Some(session) = task_resolve_dispatch_session(state, &task)? else {
+            let fallback_session = TaskDispatchSessionResolved {
+                model_config_id: String::new(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                conversation_id: task.conversation_id.clone().unwrap_or_default(),
+                target_scope: task_target_scope_normalized(&task.target_scope).to_string(),
+                fallback_to_main: false,
+            };
+            let context = task_skip_context_for_candidate_filter(&task, &fallback_session);
+            task_mark_dispatch_skipped(state, &task, "dispatch_session_unresolved", &context)?;
             continue;
         };
-        if task_dispatch_block_reason(state, &session.conversation_id)?.is_some() {
+        if let Some(reason) = task_dispatch_block_reason(state, &session.conversation_id)? {
+            let context = task_skip_context_for_candidate_filter(&task, &session);
+            task_mark_dispatch_skipped(state, &task, reason, &context)?;
             continue;
         }
         if task_conversation_last_message_is_system_persona(state, &session.conversation_id)? {
+            let context = task_skip_context_for_candidate_filter(&task, &session);
+            task_mark_dispatch_skipped(state, &task, "last_message_is_task_trigger", &context)?;
             continue;
         }
-        if used_conversation_ids.insert(session.conversation_id.clone()) {
-            candidates.push(TaskDispatchCandidate { task, session });
+        if !used_conversation_ids.insert(session.conversation_id.clone()) {
+            let context = task_skip_context_for_candidate_filter(&task, &session);
+            task_mark_dispatch_skipped(state, &task, "same_conversation_already_selected", &context)?;
+            continue;
         }
+        candidates.push(TaskDispatchCandidate { task, session });
     }
     Ok(candidates)
 }

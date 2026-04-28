@@ -2846,38 +2846,29 @@
         set_conversation_runtime_state(&state, "conversation-main", MainSessionState::OrganizingContext)
             .expect("set busy");
 
-        let tasks = vec![TaskRecordStored {
-            task_id: "task-busy".to_string(),
+        let created = task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "busy".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "busy".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at_local: Some("2026-04-10T10:00:00+08:00".to_string()),
+                every_minutes: Some(30.0),
+                end_at_local: Some("2099-04-10T12:00:00+08:00".to_string()),
             },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        }];
+        })
+        .expect("create busy task");
+        let tasks = vec![task_store_get_task_record(&state.data_path, &created.task_id)
+            .expect("get busy task record")];
 
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
         assert!(candidates.is_empty());
+        let skipped = task_store_get_task_record(&state.data_path, &created.task_id)
+            .expect("get skipped task record");
+        assert!(skipped.last_triggered_at_utc.is_some());
     }
 
     #[test]

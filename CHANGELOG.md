@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（task-skip-advance-next-run）：任务调度遇到会话忙碌、队列非空、并发上限、会话不可解析或同轮同会话冲突等跳过场景时，统一走原子跳过方法，同步更新 `last_triggered_at_utc` 并写入运行日志，确保重复任务会推进下次触发时间而不是卡在已到期状态。
 - 修复（tool-review-department-and-json-fallback）：生成审查报告弹窗新增审查部门选择，默认当前会话部门并展示对应供应商/模型；代码审查委托按所选部门调度。终端只读 Git 白名单补齐常见读取命令并在权限拦截返回中提示只读白名单不受目录授权限制；审查报告前端解析支持从 Markdown 文本与 ```json 代码块中提取 JSON 结构化渲染。
 - 修复（chat-queue-conversation-scope-and-dedup）：聊天输入区队列展示改为只显示当前会话队列；用户消息写入 `requestId` 并在调度入队前识别同请求重复事件，避免切换/重试路径把已落地消息再次排队。
 - 修复（tool-review-code-review-skill-and-terminal-read-whitelist）：内置 code-review 预设 skill 并由工具审查包装层固定注入 JSON 协议，避免用户可改 skill 破坏机器消费结构；终端只读白名单补充纯输出命令与诊断反馈，权限不足时拆分提示白名单/非白名单指令；同时收紧审查提示，未确认真实缺陷时必须返回空 findings。

@@ -582,6 +582,44 @@ fn task_store_mark_triggered(data_path: &PathBuf, task_id: &str) -> Result<(), S
     Ok(())
 }
 
+fn task_store_mark_skipped(
+    data_path: &PathBuf,
+    task_id: &str,
+    outcome: &str,
+    note: &str,
+) -> Result<(), String> {
+    let conn = task_store_open(data_path)?;
+    let now_utc = now_utc_rfc3339();
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|err| format!("Begin task skip transaction failed: {err}"))?;
+    let result = (|| -> Result<(), String> {
+        let affected = conn.execute(
+            "UPDATE task_record SET last_triggered_at_utc = ?2, updated_at_utc = ?2 WHERE task_id = ?1",
+            params![task_id, now_utc],
+        )
+        .map_err(|err| format!("Mark task skipped failed: {err}"))?;
+        if affected == 0 {
+            return Err("Task not found".to_string());
+        }
+        conn.execute(
+            "INSERT INTO task_run_log (task_id, triggered_at_utc, outcome, note) VALUES (?1, ?2, ?3, ?4)",
+            params![task_id, now_utc, outcome, note],
+        )
+        .map_err(|err| format!("Insert task skip run log failed: {err}"))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn
+            .execute_batch("COMMIT;")
+            .map_err(|err| format!("Commit task skip transaction failed: {err}"))?,
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
 fn task_store_insert_run_log(data_path: &PathBuf, task_id: &str, outcome: &str, note: &str) -> Result<(), String> {
     let conn = task_store_open(data_path)?;
     conn.execute(

@@ -51,6 +51,62 @@
     }
 
     #[test]
+    fn task_store_mark_skipped_should_advance_next_run_atomically() {
+        let data_path = test_task_data_path("mark_skipped_advances_next_run");
+        let input = TaskCreateInput {
+            goal: "跳过后重试".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "等待空闲后继续".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at_local: Some("2026-04-10T10:00:00+08:00".to_string()),
+                every_minutes: Some(30.0),
+                end_at_local: Some("2099-04-10T12:00:00+08:00".to_string()),
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+        let before = task_store_get_task_record(&data_path, &created.task_id).expect("get before");
+        assert!(before.last_triggered_at_utc.is_none());
+        let before_run = before
+            .trigger
+            .run_at_utc
+            .as_deref()
+            .and_then(parse_rfc3339_time)
+            .expect("before run");
+        let before_next = before
+            .trigger
+            .next_run_at_utc
+            .as_deref()
+            .and_then(parse_rfc3339_time)
+            .expect("before next run");
+        assert_eq!(before_next, before_run + time::Duration::minutes(30));
+
+        task_store_mark_skipped(&data_path, &created.task_id, "skipped", "busy skip")
+            .expect("mark skipped");
+
+        let after = task_store_get_task_record(&data_path, &created.task_id).expect("get after");
+        let last = after
+            .last_triggered_at_utc
+            .as_deref()
+            .and_then(parse_rfc3339_time)
+            .expect("last triggered");
+        let next = after
+            .trigger
+            .next_run_at_utc
+            .as_deref()
+            .and_then(parse_rfc3339_time)
+            .expect("next run");
+        assert_eq!(next, last + time::Duration::minutes(30));
+        let logs = task_store_list_run_log_records(&data_path, Some(&created.task_id), 10)
+            .expect("list logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].outcome, "skipped");
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
     fn task_dispatch_conversation_should_prefer_bound_then_fallback_to_main() {
         let state = task_test_state("dispatch_prefer_bound");
         let mut runtime = RuntimeStateFile::default();
