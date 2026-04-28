@@ -76,9 +76,6 @@
                     <div v-else class="min-w-0 truncate text-sm font-medium">
                       {{ conversationDisplayTitle(item) }}
                     </div>
-                    <span v-if="compactConversationList && !isEditingTitle(item)" class="shrink-0 text-[11px] text-base-content/55">
-                      {{ workspaceDepartmentLabel(item) }}
-                    </span>
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     <span class="text-[11px] text-base-content/60">
