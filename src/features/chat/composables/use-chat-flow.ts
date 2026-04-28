@@ -1108,8 +1108,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
 
   function freezeForegroundRoundState() {
-    ++generation;
-    sendChatActiveGen = 0;
     const conversationId = options.getConversationId ? options.getConversationId() : "";
     if (round.phase === "streaming") {
       syncCurrentDisplayStateToConversationStreamCache(conversationId);
@@ -1118,17 +1116,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
       removeDraft(pendingUserDraftId);
     }
     if (round.phase === "streaming") {
-      finalizeDraft(round.draftId);
+      removeDraft(round.draftId);
     } else if (round.phase === "queued") {
       removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
     }
-    setRound({ phase: "idle" });
     activeHistoryMessageCount = 0;
-    options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
-    resetDisplayState();
+    options.latestUserText.value = "";
+    options.latestUserImages.value = [];
     options.chatErrorText.value = "";
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
   }
 
   function beginAssistantActivationFromEvent(payload: RoundStartedPayload): number {
@@ -1142,7 +1138,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (activeActivationId && nextActivationId && activeActivationId === nextActivationId && round.phase !== "idle") {
       return round.gen;
     }
-    if (cid) clearConversationStreamCache(cid);
+    if (cid && (!nextActivationId || !sameActivationId(readConversationStreamCache(cid)?.activationId, nextActivationId))) {
+      clearConversationStreamCache(cid);
+    }
     activeActivationId = nextActivationId;
     let gen = round.phase === "queued" ? round.gen : sendChatActiveGen;
     if (!gen) {
@@ -1180,6 +1178,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   function ensureForegroundStreamingRound() {
     const conversationId = options.getConversationId ? options.getConversationId() : "";
+    if (round.phase === "queued") {
+      updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`, options.t("chat.statusWaitingReply"));
+      options.chatting.value = true;
+      frontendRoundPhase.value = "waiting";
+      return round.gen;
+    }
     if (round.phase === "streaming") {
       if (!hasAssistantDraftInMessages()) {
         applyConversationStreamCacheToDisplay(conversationId);
@@ -1202,10 +1206,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
       options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
     }
     activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-    const draftId = existingDraftId || insertDraft(gen);
-    if (existingDraftId || restoredFromCache) {
-      updateDraftText(draftId);
-    }
+    const draftId = existingDraftId || insertDraft(gen, options.t("chat.statusWaitingReply"));
+    updateDraftText(draftId);
     setRound({ phase: "streaming", gen, draftId });
     options.chatting.value = true;
     applyQueuedStreamingStateIfNeeded(draftId);
