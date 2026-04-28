@@ -290,7 +290,7 @@
           <button
             class="btn btn-sm btn-circle shrink-0"
             :class="showStopAction ? 'btn-error' : 'btn-success'"
-            :disabled="frozen || busy"
+            :disabled="frozen || busy || (showStopAction && !!stopChatDisabled)"
             :title="showStopAction ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
             @click="showStopAction ? emit('stopChat') : handleSendChat()"
           >
@@ -345,6 +345,7 @@ const props = defineProps<{
   chatting: boolean;
   frontendRoundPhase?: "idle" | "queued" | "waiting" | "streaming";
   busy: boolean;
+  stopChatDisabled?: boolean;
   frozen: boolean;
   showSideConversationList: boolean;
   activeConversationId: string;

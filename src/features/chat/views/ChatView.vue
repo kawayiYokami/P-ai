@@ -343,6 +343,7 @@
             :force-archive-tip="forceArchiveTip"
             :chatting="chatting"
             :busy="conversationBusy"
+            :stop-chat-disabled="isOrganizingContextBusy"
             :frozen="frozen"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId"
