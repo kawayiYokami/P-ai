@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 优化（chat-conversation-list-compact-mode）：会话列表新增详细/简约图标切换；简约模式将首行收口为标题与工作空间，第二行仅显示最新一条消息，并隐藏原双行预览。
+
 ## 发布：v0.9.53
 
 - 发布（release-0.9.53）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.53`，纳入本轮远程联系人“本轮绑定联系人”路由统一、聊天底部工具栏左右边距修复，以及流式/忙碌期间附件粘贴与拖拽入队放开。

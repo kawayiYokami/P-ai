@@ -3,6 +3,7 @@
     <ChatConversationListHeader
       v-model:search-query="conversationSearchQuery"
       v-model:active-tab="activeConversationTab"
+      v-model:compact-list="compactConversationList"
       :search-placeholder="t('chat.conversationSearchPlaceholder')"
       :local-label="t('chat.localConversationTab')"
       :contact-label="t('chat.contactConversationTab')"
@@ -66,15 +67,18 @@
                     <button
                       v-else-if="canRenameConversation(item)"
                       type="button"
-                      class="truncate text-left text-sm font-medium hover:underline"
+                      class="min-w-0 truncate text-left text-sm font-medium hover:underline"
                       @click.stop="startConversationTitleEdit(item)"
                       @mousedown.stop
                     >
                       {{ conversationDisplayTitle(item) }}
                     </button>
-                    <div v-else class="truncate text-sm font-medium">
+                    <div v-else class="min-w-0 truncate text-sm font-medium">
                       {{ conversationDisplayTitle(item) }}
                     </div>
+                    <span v-if="compactConversationList && !isEditingTitle(item)" class="shrink-0 text-[11px] text-base-content/55">
+                      {{ workspaceDepartmentLabel(item) }}
+                    </span>
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     <span class="text-[11px] text-base-content/60">
@@ -102,8 +106,8 @@
                 </div>
 
                 <div class="mt-1 flex items-center justify-between gap-2 text-xs">
-                  <span class="min-w-0 truncate font-medium">
-                    {{ workspaceDepartmentLabel(item) }}
+                  <span class="min-w-0 truncate" :class="compactConversationList ? 'opacity-60' : 'font-medium'">
+                    {{ compactConversationList ? latestPreviewLine(item) : workspaceDepartmentLabel(item) }}
                   </span>
                   <div class="flex shrink-0 items-center gap-2">
                     <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">
@@ -120,7 +124,7 @@
               </div>
             </div>
 
-            <div class="space-y-1 px-2 pb-2">
+            <div v-if="!compactConversationList" class="space-y-1 px-2 pb-2">
               <div
                 v-for="preview in normalizedPreviewMessages(item).slice(0, 2)"
                 :key="preview.messageId"
@@ -157,6 +161,7 @@ import { formatConversationListTime } from "../utils/conversation-time";
 import ChatConversationListHeader from "./ChatConversationListHeader.vue";
 
 const CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY = "easy_call.chat_conversation_list_tab.v1";
+const CHAT_CONVERSATION_LIST_COMPACT_STORAGE_KEY = "easy_call.chat_conversation_list_compact.v1";
 
 const props = defineProps<{
   items: ChatConversationOverviewItem[];
@@ -179,6 +184,7 @@ const editingConversationId = ref("");
 const editingTitleDraft = ref("");
 const conversationSearchQuery = ref("");
 const activeConversationTab = ref<"local" | "contact">(readStoredConversationTab());
+const compactConversationList = ref(readStoredCompactConversationList());
 
 function readStoredConversationTab(): "local" | "contact" {
   if (typeof window === "undefined") return "local";
@@ -186,9 +192,15 @@ function readStoredConversationTab(): "local" | "contact" {
   return stored === "contact" ? "contact" : "local";
 }
 
+function readStoredCompactConversationList(): boolean {
+  if (typeof window === "undefined") return false;
+  return String(window.localStorage.getItem(CHAT_CONVERSATION_LIST_COMPACT_STORAGE_KEY) || "").trim() === "1";
+}
+
 watchEffect(() => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY, activeConversationTab.value);
+  window.localStorage.setItem(CHAT_CONVERSATION_LIST_COMPACT_STORAGE_KEY, compactConversationList.value ? "1" : "0");
 });
 
 const conversationPreviewCache = computed(() => new Map(
@@ -406,6 +418,13 @@ function previewText(preview: ConversationPreviewMessage): string {
   if (preview.hasAudio) return t("chat.previewAudio");
   if (preview.hasAttachment) return t("chat.previewAttachment");
   return t("chat.conversationNoPreview");
+}
+
+function latestPreviewLine(item: ChatConversationOverviewItem): string {
+  const previews = normalizedPreviewMessages(item);
+  const latestPreview = previews[previews.length - 1];
+  if (!latestPreview) return t("chat.conversationNoPreview");
+  return `${speakerLabel(latestPreview)}: ${previewText(latestPreview)}`;
 }
 
 function formatConversationTime(value?: string): string {
