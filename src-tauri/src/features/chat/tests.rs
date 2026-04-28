@@ -2364,6 +2364,25 @@
     }
 
     #[test]
+    fn queue_snapshot_should_keep_full_message_text_for_recall() {
+        let state = test_chat_runtime_state();
+        set_conversation_runtime_state(&state, "conversation-a", MainSessionState::AssistantStreaming)
+            .expect("set streaming state");
+        let long_text = "0123456789".repeat(8);
+        let created_at = now_iso();
+        let mut event = test_pending_event("conversation-a");
+        event.messages = vec![test_text_message("user", &long_text, &created_at)];
+
+        let ingress = ingress_chat_event(&state, event).expect("queue event");
+        assert!(matches!(ingress, ChatEventIngress::Queued { .. }));
+
+        let snapshot = get_queue_snapshot(&state).expect("queue snapshot");
+        assert_eq!(snapshot.len(), 1);
+        assert!(snapshot[0].message_preview.ends_with("..."));
+        assert_eq!(snapshot[0].message_text, long_text);
+    }
+
+    #[test]
     fn scheduler_should_allow_eight_conversations_and_queue_the_ninth() {
         let state = test_chat_runtime_state();
         for idx in 0..8 {

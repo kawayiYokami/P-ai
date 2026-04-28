@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（chat-queue-recall-full-text）：队列消息撤回回填输入框时改用后端返回的完整消息原文，不再使用 UI 裁剪后的 `messagePreview`，并保持撤回成功后才回填，避免假撤回错觉。
 - 修复（terminal-git-read-whitelist-write-flags）：终端只读白名单收紧 `git branch`、`git tag`、`git config` 参数判定，删除/移动/复制分支、删除/创建/强制标签以及写入 Git 配置等形式不再被误判为只读命令。
 - 修复（task-skip-advance-next-run）：任务调度遇到会话忙碌、队列非空、并发上限、会话不可解析或同轮同会话冲突等跳过场景时，统一走原子跳过方法，同步更新 `last_triggered_at_utc` 并写入运行日志，确保重复任务会推进下次触发时间而不是卡在已到期状态。
 - 修复（tool-review-department-and-json-fallback）：生成审查报告弹窗新增审查部门选择，默认当前会话部门并展示对应供应商/模型；代码审查委托按所选部门调度。终端只读 Git 白名单补齐常见读取命令并在权限拦截返回中提示只读白名单不受目录授权限制；审查报告前端解析支持从 Markdown 文本与 ```json 代码块中提取 JSON 结构化渲染。

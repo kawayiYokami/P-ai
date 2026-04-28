@@ -8,7 +8,13 @@ export type ChatQueueEvent = {
   queueMode: "normal" | "guided";
   createdAt: string;
   messagePreview: string;
+  messageText?: string;
   conversationId: string;
+};
+
+export type ChatQueueRecallResult = {
+  removed: boolean;
+  messageText: string;
 };
 
 export type MainSessionState = "idle" | "assistant_streaming" | "organizing_context";
@@ -47,16 +53,16 @@ export function useChatQueue() {
     }
   }
 
-  async function recallQueueEvent(eventId: string): Promise<boolean> {
+  async function recallQueueEvent(eventId: string): Promise<ChatQueueRecallResult> {
     try {
-      const removed = await invokeTauri<boolean>("recall_chat_queue_event", { eventId });
-      if (removed) {
+      const result = await invokeTauri<ChatQueueRecallResult>("recall_chat_queue_event", { eventId });
+      if (result?.removed) {
         await refreshQueue();
       }
-      return removed;
+      return result || { removed: false, messageText: "" };
     } catch (error) {
       console.error("[CHAT-QUEUE] Failed to recall queue event:", error);
-      return false;
+      return { removed: false, messageText: "" };
     }
   }
 

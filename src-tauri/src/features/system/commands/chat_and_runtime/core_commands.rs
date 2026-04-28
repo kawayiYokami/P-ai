@@ -1389,9 +1389,23 @@ async fn get_chat_queue_snapshot(
 async fn recall_chat_queue_event(
     event_id: String,
     state: State<'_, AppState>,
-) -> Result<bool, String> {
+) -> Result<ChatQueueRecallResult, String> {
     let removed = recall_queue_event(state.inner(), &event_id)?;
-    Ok(removed.is_some())
+    let message_text = removed
+        .as_ref()
+        .and_then(|event| {
+            event.messages.first().and_then(|msg| {
+                msg.parts.iter().find_map(|part| match part {
+                    MessagePart::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+            })
+        })
+        .unwrap_or_default();
+    Ok(ChatQueueRecallResult {
+        removed: removed.is_some(),
+        message_text,
+    })
 }
 
 #[tauri::command]

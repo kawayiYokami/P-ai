@@ -896,16 +896,19 @@ function isMentionSelected(agentId: string): boolean {
   return selectedMentions.value.some((item) => item.agentId === agentId);
 }
 
-function handleRecallToInput(event: {
+async function handleRecallToInput(event: {
   source?: string;
   messagePreview?: string;
+  messageText?: string;
   id?: string;
   queueMode?: "normal" | "guided";
 }) {
   if (event.source === "user" && event.queueMode !== "guided") {
-    localChatInput.value = event.messagePreview || "";
     if (event.id) {
-      void recallQueueEvent(event.id);
+      const result = await recallQueueEvent(event.id);
+      if (result.removed) {
+        localChatInput.value = result.messageText || event.messageText || event.messagePreview || "";
+      }
     }
   }
 }

@@ -134,7 +134,15 @@ pub(crate) struct ChatQueueEventSummary {
     pub queue_mode: ChatQueueMode,
     pub created_at: String,
     pub message_preview: String,
+    pub message_text: String,
     pub conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatQueueRecallResult {
+    pub removed: bool,
+    pub message_text: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -270,7 +278,7 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
                     message_preview.chars().take(50).collect::<String>()
                 )
             } else {
-                message_preview
+                message_preview.clone()
             };
             summaries.push(ChatQueueEventSummary {
                 id: event.id.clone(),
@@ -278,6 +286,7 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
                 queue_mode: event.queue_mode.clone(),
                 created_at: event.created_at.clone(),
                 message_preview: preview,
+                message_text: message_preview,
                 conversation_id: event.conversation_id.clone(),
             });
         }
