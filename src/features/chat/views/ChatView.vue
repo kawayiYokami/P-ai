@@ -425,6 +425,8 @@
         :current-workspace-name="currentWorkspaceName"
         :current-workspace-root-path="currentWorkspaceRootPath"
         :workspaces="workspaces"
+        :current-department-id="currentDepartmentId"
+        :department-options="createConversationDepartmentOptions"
         @select-batch="setToolReviewCurrentBatchKey"
         @load-item-detail="loadToolReviewItemDetail"
         @review-item="runToolReviewForCall"
@@ -590,6 +592,7 @@ const props = defineProps<{
   currentWorkspaceName: string;
   currentWorkspaceRootPath: string;
   workspaces: ShellWorkspace[];
+  currentDepartmentId: string;
   activeConversationId: string;
   currentTodos: ChatTodoItem[];
   supervisionActive: boolean;
@@ -614,7 +617,7 @@ const props = defineProps<{
   currentTheme: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
   conversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;
+  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
   defaultCreateConversationDepartmentId: string;
   detachedChatWindow?: boolean;
   terminalApprovals?: TerminalApprovalConversationItem[];
@@ -688,7 +691,9 @@ async function handleDeleteToolReviewReport(report: ToolReviewReportRecord) {
   }
 }
 
-async function handleSubmitBatchSelection(batchKeys: string[]) {
+async function handleSubmitBatchSelection(input: { batchKeys: string[]; departmentId: string }) {
+  const batchKeys = Array.isArray(input.batchKeys) ? input.batchKeys : [];
+  const departmentId = String(input.departmentId || props.currentDepartmentId || "").trim();
   const reversedBatches = [...toolReviewBatches.value].reverse();
   for (const batchKey of batchKeys) {
     const normalizedBatchKey = String(batchKey || "").trim();
@@ -702,27 +707,36 @@ async function handleSubmitBatchSelection(batchKeys: string[]) {
       conversationId: String(props.activeConversationId || "").trim(),
       batchKey: normalizedBatchKey,
       batchNumber: selectionIndex + 1,
+      departmentId,
     });
-    await submitToolReviewBatch(selectionIndex + 1);
+    await submitToolReviewBatch(selectionIndex + 1, departmentId);
   }
 }
 
-function handleToolReviewCode(scope: ToolReviewCodeReviewScope, target?: string) {
+function handleToolReviewCode(input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }) {
   const conversationId = String(props.activeConversationId || "").trim();
-  const normalizedTarget = String(target || "").trim();
+  const scope = input.scope;
+  const normalizedTarget = String(input.target || "").trim();
+  const departmentId = String(input.departmentId || props.currentDepartmentId || "").trim();
   if (!conversationId) {
     toolReviewErrorText.value = "当前没有活跃会话，无法发起审查任务。";
+    return;
+  }
+  if (!departmentId) {
+    toolReviewErrorText.value = "当前没有可用部门，无法发起审查任务。";
     return;
   }
   console.info("[工具审查][前端] 发起代码审查任务", {
     conversationId,
     scope,
     target: normalizedTarget,
+    departmentId,
   });
   void submitToolReviewCode({
     conversationId,
     scope,
     target: normalizedTarget || undefined,
+    departmentId,
     apiConfigId: String(props.selectedChatModelId || "").trim() || undefined,
   });
 }
@@ -769,7 +783,7 @@ async function handleRetryToolReviewReport(report: ToolReviewReportRecord) {
       reportId,
       batchNumber,
     });
-    void submitToolReviewBatch(batchNumber);
+    void submitToolReviewBatch(batchNumber, String(props.currentDepartmentId || "").trim());
     return;
   }
   if (scope === "commit" || scope === "main" || scope === "uncommitted" || scope === "custom") {
@@ -783,6 +797,7 @@ async function handleRetryToolReviewReport(report: ToolReviewReportRecord) {
       conversationId,
       scope,
       target: target || undefined,
+      departmentId: String(props.currentDepartmentId || "").trim(),
       apiConfigId: String(props.selectedChatModelId || "").trim() || undefined,
     });
     return;

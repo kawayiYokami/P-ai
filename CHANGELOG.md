@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（tool-review-department-and-json-fallback）：生成审查报告弹窗新增审查部门选择，默认当前会话部门并展示对应供应商/模型；代码审查委托按所选部门调度。终端只读 Git 白名单补齐常见读取命令并在权限拦截返回中提示只读白名单不受目录授权限制；审查报告前端解析支持从 Markdown 文本与 ```json 代码块中提取 JSON 结构化渲染。
 - 修复（chat-queue-conversation-scope-and-dedup）：聊天输入区队列展示改为只显示当前会话队列；用户消息写入 `requestId` 并在调度入队前识别同请求重复事件，避免切换/重试路径把已落地消息再次排队。
 - 修复（tool-review-code-review-skill-and-terminal-read-whitelist）：内置 code-review 预设 skill 并由工具审查包装层固定注入 JSON 协议，避免用户可改 skill 破坏机器消费结构；终端只读白名单补充纯输出命令与诊断反馈，权限不足时拆分提示白名单/非白名单指令；同时收紧审查提示，未确认真实缺陷时必须返回空 findings。
 - 功能（file-reader-window）：本地代码与 Markdown 文件链接新增独立只读阅读窗口，支持多标签页、Shiki 直出高亮、行号、Markdown 渲染、地址栏面包屑与默认应用打开；文件阅读窗口拆分最小 Tauri capability，并补齐隐藏文件识别、标签缓存释放与打开失败提示。

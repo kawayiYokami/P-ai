@@ -356,6 +356,8 @@ type ConversationDepartmentOption = {
   id: string;
   name: string;
   ownerName: string;
+  providerName?: string;
+  modelName?: string;
 };
 
 type CreateConversationInput = {

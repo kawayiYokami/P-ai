@@ -155,6 +155,7 @@
         :current-workspace-name="currentChatWorkspaceName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :workspaces="currentChatWorkspaces"
+        :current-department-id="currentChatDepartmentId"
         :active-conversation-id="currentChatConversationId"
         :current-todos="currentChatTodos"
         :supervision-active="chatSupervisionActive"
@@ -482,6 +483,7 @@ const props = defineProps<{
   currentChatWorkspaceName: string;
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaces: ShellWorkspace[];
+  currentChatDepartmentId: string;
   currentChatConversationId: string;
   currentChatTodos: ChatTodoItem[];
   chatSupervisionActive: boolean;
@@ -505,7 +507,7 @@ const props = defineProps<{
   }>;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   chatConversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string }>;
+  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
   defaultCreateConversationDepartmentId: string;
   archives: ArchiveSummary[];
   selectedArchiveId: string;

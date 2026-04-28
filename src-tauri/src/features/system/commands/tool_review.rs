@@ -304,6 +304,8 @@ struct ToolReviewCodeReviewInput {
     #[serde(default)]
     target: Option<String>,
     #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
     api_config_id: Option<String>,
 }
 
@@ -319,6 +321,8 @@ struct DeleteToolReviewReportInput {
 struct SubmitToolReviewBatchInput {
     conversation_id: String,
     batch_number: usize,
+    #[serde(default)]
+    department_id: Option<String>,
     #[serde(default)]
     api_config_id: Option<String>,
 }
@@ -1732,9 +1736,17 @@ async fn submit_tool_review_batch(
 ) -> Result<SubmitToolReviewBatchOutput, String> {
     let conversation_id = input.conversation_id.trim();
     let batch_number = input.batch_number;
+    let requested_department_id = input
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     runtime_log_info(format!(
-        "[工具审查][后端] 收到 submit_tool_review_batch conversation_id={} batch_number={}",
-        conversation_id, batch_number
+        "[工具审查][后端] 收到 submit_tool_review_batch conversation_id={} batch_number={} department_id={}",
+        conversation_id,
+        batch_number,
+        requested_department_id.as_deref().unwrap_or("")
     ));
     if conversation_id.is_empty() || batch_number == 0 {
         return Err("conversationId 和 batchNumber 不能为空。".to_string());
@@ -1776,6 +1788,7 @@ async fn submit_tool_review_batch(
 
     let conversation_id_owned = conversation_id.to_string();
     let report_id = pending_report.id.clone();
+    let requested_department_id_owned = requested_department_id.clone();
     tauri::async_runtime::spawn(async move {
         runtime_log_info(format!(
             "[工具审查][后端] 开始批次审查子任务 conversation_id={} batch_number={} report_id={}",
@@ -1801,12 +1814,26 @@ async fn submit_tool_review_batch(
                 return;
             }
         };
-        let requested_api_config_id = input
-            .api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
+        let requested_api_config_id = input.api_config_id.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        let department_api_config_id = requested_department_id_owned.as_deref().and_then(|department_id| {
+            app_config
+                .departments
+                .iter()
+                .find(|department| department.id.trim() == department_id)
+                .and_then(|department| {
+                    department
+                        .api_config_ids
+                        .iter()
+                        .map(|id| id.trim())
+                        .find(|id| !id.is_empty())
+                        .or_else(|| {
+                            let id = department.api_config_id.trim();
+                            if id.is_empty() { None } else { Some(id) }
+                        })
+                })
+        });
         let selected_api = match resolve_selected_api_config(&app_config, requested_api_config_id)
+            .or_else(|| resolve_selected_api_config(&app_config, department_api_config_id))
             .or_else(|| resolve_selected_api_config(&app_config, None))
         {
             Some(api) => api,
@@ -2021,7 +2048,14 @@ async fn submit_tool_review_code(
     } else {
         conversation.agent_id.trim().to_string()
     };
-    let target_department_id = if conversation.department_id.trim().is_empty() {
+    let requested_department_id = input
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let target_department_id = if let Some(department_id) = requested_department_id {
+        department_id.to_string()
+    } else if conversation.department_id.trim().is_empty() {
         ASSISTANT_DEPARTMENT_ID.to_string()
     } else {
         conversation.department_id.trim().to_string()

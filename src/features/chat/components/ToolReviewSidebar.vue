@@ -286,6 +286,14 @@
         <div class="text-base font-semibold">{{ t("chat.toolReview.generateReviewReport") }}</div>
       </div>
       <div class="px-5 pt-4">
+        <div class="mb-4 grid gap-1.5">
+          <div class="text-xs font-medium text-base-content/60">审查部门</div>
+          <select v-model="selectedReviewDepartmentId" class="select select-bordered select-sm w-full">
+            <option v-for="department in props.departmentOptions" :key="department.id" :value="department.id">
+              {{ departmentOptionLabel(department) }}
+            </option>
+          </select>
+        </div>
         <div role="tablist" class="tabs tabs-border">
           <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'batch' }" @click="setReviewTargetTab('batch')">{{ t("chat.toolReview.menuCurrentBatchReview") }}</button>
           <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'commit' }" @click="setReviewTargetTab('commit')">{{ t("chat.toolReview.scopeCommit") }}</button>
@@ -409,6 +417,8 @@ const props = defineProps<{
   currentWorkspaceName: string;
   currentWorkspaceRootPath: string;
   workspaces: ShellWorkspace[];
+  currentDepartmentId: string;
+  departmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
 }>();
 
 const emit = defineEmits<{
@@ -417,9 +427,9 @@ const emit = defineEmits<{
   (e: "reviewItem", callId: string): void;
   (e: "reviewBatch", batchKey: string): void;
   (e: "submitBatch", batchNumber: number): void;
-  (e: "submitBatchSelection", batchKeys: string[]): void;
+  (e: "submitBatchSelection", input: { batchKeys: string[]; departmentId: string }): void;
   (e: "pickCommitReview", page: number): void;
-  (e: "reviewCode", scope: ToolReviewCodeReviewScope, target?: string): void;
+  (e: "reviewCode", input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }): void;
   (e: "retryReport", report: ToolReviewReportRecord): void;
   (e: "deleteReport", report: ToolReviewReportRecord): void;
   (e: "copyReport", reportText: string): void;
@@ -439,6 +449,7 @@ const selectedCommitHashes = ref<string[]>([]);
 const selectedBatchKeys = ref<string[]>([]);
 const customTargetText = ref("");
 const selectedFindingIds = ref<string[]>([]);
+const selectedReviewDepartmentId = ref("");
 const reviewTargetTab = ref<"batch" | "commit" | "main" | "uncommitted" | "custom">("batch");
 const commitPage = ref(1);
 const commitPageSize = ref(30);
@@ -542,6 +553,14 @@ const currentBatchUnreviewedCount = computed(() =>
 const batchSelectionItems = computed(() =>
   [...props.batches].reverse()
 );
+
+const validReviewDepartmentId = computed(() => {
+  const selected = String(selectedReviewDepartmentId.value || "").trim();
+  if (selected && props.departmentOptions.some((item) => item.id === selected)) return selected;
+  const current = String(props.currentDepartmentId || "").trim();
+  if (current && props.departmentOptions.some((item) => item.id === current)) return current;
+  return String(props.departmentOptions[0]?.id || "").trim();
+});
 
 function sortByOrderIndex(left: ToolReviewItemSummary, right: ToolReviewItemSummary) {
   return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
@@ -683,8 +702,10 @@ type ParsedToolReviewJson = {
 function parseToolReviewJson(reportText: string): ParsedToolReviewJson | null {
   const text = String(reportText || "").trim();
   if (!text) return null;
+  const jsonText = extractToolReviewJsonText(text);
+  if (!jsonText) return null;
   try {
-    const raw = JSON.parse(text) as unknown;
+    const raw = JSON.parse(jsonText) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const record = raw as Record<string, unknown>;
     return {
@@ -694,6 +715,69 @@ function parseToolReviewJson(reportText: string): ParsedToolReviewJson | null {
   } catch {
     return null;
   }
+}
+
+function extractToolReviewJsonText(text: string): string {
+  const direct = text.trim();
+  if (!direct) return "";
+  if (direct.startsWith("{") && direct.endsWith("}")) return direct;
+  const fenced = extractFirstJsonFenceText(direct);
+  if (fenced) return fenced;
+  return extractLastJsonObjectText(direct);
+}
+
+function extractFirstJsonFenceText(text: string): string {
+  const fencePattern = /```(?:json|JSON)?\s*([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fencePattern.exec(text)) !== null) {
+    const candidate = String(match[1] || "").trim();
+    if (candidate.startsWith("{") && candidate.endsWith("}")) return candidate;
+  }
+  return "";
+}
+
+function extractLastJsonObjectText(text: string): string {
+  const starts: number[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "{") starts.push(index);
+  }
+  for (let startIndex = starts.length - 1; startIndex >= 0; startIndex -= 1) {
+    const candidate = balancedJsonObjectSlice(text, starts[startIndex]);
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
+function balancedJsonObjectSlice(text: string, start: number): string {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const ch = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      continue;
+    }
+    if (ch !== "}") continue;
+    depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1).trim();
+    if (depth < 0) return "";
+  }
+  return "";
 }
 
 function parseReportFinding(raw: unknown, index: number): ReportFindingView {
@@ -830,6 +914,28 @@ watch(
   }
 );
 
+watch(
+  () => [props.currentDepartmentId, props.departmentOptions.map((item) => item.id).join("|")],
+  () => {
+    const current = String(props.currentDepartmentId || "").trim();
+    selectedReviewDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
+      ? current
+      : String(props.departmentOptions[0]?.id || "").trim();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => reviewTargetDialogOpen.value,
+  (open) => {
+    if (!open) return;
+    const current = String(props.currentDepartmentId || "").trim();
+    selectedReviewDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
+      ? current
+      : String(props.departmentOptions[0]?.id || "").trim();
+  },
+);
+
 function handleReportAction() {
   reviewTargetDialogOpen.value = true;
 }
@@ -872,6 +978,7 @@ function requestCommitPage(page: number) {
 }
 
 const canConfirmReviewTarget = computed(() => {
+  if (!validReviewDepartmentId.value) return false;
   if (reviewTargetTab.value === "batch") return selectedBatchKeys.value.length > 0;
   if (reviewTargetTab.value === "commit") return selectedCommitHashes.value.length > 0;
   if (reviewTargetTab.value === "custom") return !!customTargetText.value.trim();
@@ -907,27 +1014,38 @@ function toggleCommitSelection(hash: string) {
 }
 
 function confirmReviewTargetSelection() {
+  const departmentId = validReviewDepartmentId.value;
+  if (!departmentId) return;
   if (reviewTargetTab.value === "batch") {
     if (selectedBatchKeys.value.length === 0) return;
-    emit("submitBatchSelection", selectedBatchKeys.value);
+    emit("submitBatchSelection", { batchKeys: selectedBatchKeys.value, departmentId });
     closeReviewTargetDialog();
     return;
   }
   if (reviewTargetTab.value === "commit") {
     if (selectedCommitHashes.value.length === 0) return;
-    emit("reviewCode", "commit", selectedCommitHashes.value.join("\n"));
+    emit("reviewCode", { scope: "commit", target: selectedCommitHashes.value.join("\n"), departmentId });
     closeReviewTargetDialog();
     return;
   }
   if (reviewTargetTab.value === "custom") {
     const target = customTargetText.value.trim();
     if (!target) return;
-    emit("reviewCode", "custom", target);
+    emit("reviewCode", { scope: "custom", target, departmentId });
     closeReviewTargetDialog();
     return;
   }
-  emit("reviewCode", reviewTargetTab.value, "");
+  emit("reviewCode", { scope: reviewTargetTab.value, target: "", departmentId });
   closeReviewTargetDialog();
+}
+
+function departmentOptionLabel(department: { id: string; name: string; ownerName: string; providerName?: string; modelName?: string }) {
+  const name = String(department.name || department.id || "").trim();
+  const ownerName = String(department.ownerName || "").trim();
+  const providerName = String(department.providerName || "").trim();
+  const modelName = String(department.modelName || "").trim();
+  const modelText = [providerName, modelName].filter(Boolean).join(" / ");
+  return [name, ownerName, modelText].filter(Boolean).join(" · ");
 }
 
 defineExpose({

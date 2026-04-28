@@ -89,6 +89,7 @@ type SubmitToolReviewCodeInput = {
   conversationId: string;
   scope: ToolReviewCodeReviewScope;
   target?: string;
+  departmentId?: string;
   apiConfigId?: string;
 };
 
@@ -218,12 +219,14 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         conversationId,
         scope,
         target: String(input.target || "").trim(),
+        departmentId: String(input.departmentId || "").trim(),
       });
       const result = await invokeTauri<SubmitToolReviewTaskOutput>("submit_tool_review_code", {
         input: {
           conversationId,
           scope,
           target: String(input.target || "").trim() || undefined,
+          departmentId: String(input.departmentId || "").trim() || undefined,
           apiConfigId: String(input.apiConfigId || options.selectedChatModelId.value || "").trim() || undefined,
         },
       });
@@ -412,7 +415,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     }
   }
 
-  async function submitToolReviewBatch(batchNumber?: number) {
+  async function submitToolReviewBatch(batchNumber?: number, departmentId?: string) {
     const normalizedBatchNumber = Number(batchNumber || 0);
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!Number.isFinite(normalizedBatchNumber) || normalizedBatchNumber <= 0 || !conversationId) return;
@@ -422,11 +425,13 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       console.info("[工具审查][前端] 调用 submit_tool_review_batch", {
         conversationId,
         batchNumber: normalizedBatchNumber,
+        departmentId: String(departmentId || "").trim(),
       });
       const result = await invokeTauri<SubmitToolReviewTaskOutput>("submit_tool_review_batch", {
         input: {
           conversationId,
           batchNumber: normalizedBatchNumber,
+          departmentId: String(departmentId || "").trim() || undefined,
           apiConfigId: String(options.selectedChatModelId.value || "").trim() || undefined,
         },
       });

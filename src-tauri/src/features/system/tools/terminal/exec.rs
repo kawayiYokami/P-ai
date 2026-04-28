@@ -354,6 +354,10 @@ fn terminal_read_whitelist_diagnostics_message(
     lines.join("\n")
 }
 
+fn terminal_read_whitelist_usage_hint() -> &'static str {
+    "只读命令白名单不受目录权限影响。若只是读取、查询、检查，请优先使用常见只读命令，例如 git status、git diff、git log、git show、git branch、git grep、rg、grep、ls、cat。"
+}
+
 fn terminal_strictest_workspace_access(accesses: &[String]) -> String {
     accesses
         .iter()
@@ -377,7 +381,25 @@ fn terminal_is_python_like_command(command: &str) -> bool {
 }
 
 fn terminal_git_read_only_subcommand(subcommand: &str) -> bool {
-    matches!(subcommand, "status" | "diff" | "show" | "log")
+    matches!(
+        subcommand,
+        "log"
+            | "show"
+            | "reflog"
+            | "diff"
+            | "status"
+            | "branch"
+            | "tag"
+            | "ls-remote"
+            | "blame"
+            | "ls-files"
+            | "grep"
+            | "config"
+            | "cat-file"
+            | "ls-tree"
+            | "merge-base"
+            | "rev-parse"
+    )
 }
 
 fn terminal_check_command_is_read_only(base_cmd: &str, args: &[String]) -> bool {
@@ -913,6 +935,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": "",
                 "command": cmd,
             }));
@@ -1001,6 +1024,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "ungrantedPaths": relative_unmatched_paths,
@@ -1029,6 +1053,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "ungrantedPaths": absolute_unmatched_paths,
@@ -1052,6 +1077,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
             }));
@@ -1073,6 +1099,7 @@ async fn builtin_shell_exec(
             "rootPath": session_root_text,
             "workspacePath": workspace_path_text,
             "allowedProjectRoots": allowed_project_roots,
+            "readWhitelistHint": terminal_read_whitelist_usage_hint(),
             "cwd": terminal_path_for_user(&cwd),
             "command": cmd,
             "readWhitelist": read_whitelist_diagnostics,
@@ -1105,6 +1132,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
                 "ungrantedPaths": unmatched_write_paths,
@@ -1125,6 +1153,7 @@ async fn builtin_shell_exec(
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "allowedProjectRoots": allowed_project_roots,
+                "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
             }));
@@ -2166,6 +2195,51 @@ mod terminal_exec_tests {
     }
 
     #[test]
+    fn git_bash_code_review_git_metadata_should_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let command = r#"cd /e/github/easy_call_ai && git merge-base HEAD main && git rev-parse --show-toplevel && git branch --show-current"#;
+        let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+
+        assert_eq!(analysis.write_risk, TerminalWriteRisk::None);
+        assert!(analysis.has_directory_change);
+        assert!(terminal_command_is_read_whitelist(
+            command,
+            "git-bash",
+            &analysis
+        ));
+    }
+
+    #[test]
+    fn common_git_read_only_commands_should_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let commands = [
+            "git log --oneline -5",
+            "git show --stat HEAD",
+            "git reflog -5",
+            "git diff --stat",
+            "git status --porcelain",
+            "git branch --all",
+            "git tag --list",
+            "git ls-remote --heads origin",
+            "git blame -- src/main.rs",
+            "git ls-files",
+            "git grep TODO",
+            "git config --get remote.origin.url",
+            "git cat-file -p HEAD",
+            "git ls-tree HEAD",
+        ];
+
+        for command in commands {
+            let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+            assert_eq!(analysis.write_risk, TerminalWriteRisk::None, "{command}");
+            assert!(
+                terminal_command_is_read_whitelist(command, "git-bash", &analysis),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn output_only_command_with_redirection_should_not_be_read_whitelist() {
         let cwd = PathBuf::from("E:\\github\\easy_call_ai");
         let command = "printf 'changed' > generated.txt";
@@ -2199,6 +2273,14 @@ mod terminal_exec_tests {
         assert!(non_whitelisted.iter().any(|item| {
             item.get("command").and_then(Value::as_str) == Some("foo-review-helper")
         }));
+    }
+
+    #[test]
+    fn read_whitelist_usage_hint_should_explain_directory_permission_bypass() {
+        let hint = terminal_read_whitelist_usage_hint();
+        assert!(hint.contains("只读命令白名单不受目录权限影响"));
+        assert!(hint.contains("git status"));
+        assert!(hint.contains("git diff"));
     }
 
     #[cfg(target_os = "windows")]

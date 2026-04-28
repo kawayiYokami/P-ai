@@ -101,6 +101,7 @@
       :current-chat-workspace-name="chatWorkspaceName"
       :current-chat-workspace-root-path="chatWorkspaceRootPath"
       :current-chat-workspaces="chatWorkspaceChoices"
+      :current-chat-department-id="currentForegroundDepartmentId"
       :user-avatar-url="userAvatarUrl"
       :selected-persona-avatar-url="currentForegroundPersonaAvatarUrl"
       :chat-persona-name-map="chatPersonaNameMap"
@@ -1831,10 +1832,14 @@ const createConversationDepartmentOptions = computed(() =>
     .map((department) => {
       const ownerId = String((department.agentIds || [])[0] || "").trim();
       const owner = personas.value.find((persona) => String(persona.id || "").trim() === ownerId) ?? null;
+      const apiConfigId = departmentPrimaryApiConfigId(department);
+      const apiConfig = config.apiConfigs.find((api) => api.id === apiConfigId) ?? null;
       return {
         id: String(department.id || "").trim(),
         name: String(department.name || "").trim() || String(department.id || "").trim(),
         ownerName: String(owner?.name || "").trim() || ownerId || "未设置负责人",
+        providerName: String(apiConfig?.name || apiConfig?.id || "").trim(),
+        modelName: String(apiConfig?.model || "").trim(),
       };
     }),
 );
