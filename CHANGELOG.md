@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（tool-review-copy-finding-location）：复制工具审查报告中的选中意见时补齐文件路径与行号，避免只复制标题和正文后缺少定位信息。
+
 ## 发布：v0.9.54
 
 - 发布（release-0.9.54）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.54`，纳入本轮会话列表简约模式、上下文压缩计划块空行修复、README 致谢与能力描述调整，以及流式期间督工入口优化。

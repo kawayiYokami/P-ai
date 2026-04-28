@@ -86,7 +86,7 @@
                 </div>
               </summary>
               <div class="collapse-content flex flex-col gap-3 px-3 pb-3">
-                <div class="whitespace-pre-wrap break-words text-sm leading-7 text-base-content/75">
+                <div class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/75">
                   {{ reportExpandedText(report) }}
                 </div>
                 <div class="flex items-center justify-between gap-3">
@@ -230,7 +230,7 @@
               </div>
             </summary>
             <div class="collapse-content flex flex-col gap-3 px-3 pb-3">
-              <div class="whitespace-pre-wrap break-words text-sm leading-7 text-base-content/80">
+              <div class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/80">
                 {{ finding.body || "暂无说明" }}
               </div>
               <div v-if="finding.location" class="rounded-box border border-base-300 bg-base-100 px-3 py-2 text-xs leading-6 text-base-content/70">
@@ -241,7 +241,7 @@
         </div>
         <pre
           v-else-if="currentReport?.status === 'success'"
-          class="whitespace-pre-wrap break-words rounded-box border border-base-300 bg-base-200 px-3 py-3 text-sm leading-7 text-base-content/80"
+          class="whitespace-pre-wrap wrap-break-word rounded-box border border-base-300 bg-base-200 px-3 py-3 text-sm leading-7 text-base-content/80"
         >{{ currentReport.reportText || "暂无审查内容" }}</pre>
         <MarkdownRender
           v-else
@@ -793,8 +793,9 @@ const selectedReportText = computed(() => {
 function formatSelectedFindingText(finding: ReportFindingView) {
   return [
     `[${finding.title}]`,
+    finding.location ? `位置：${finding.location}` : "",
     finding.body || "No description.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function formatJsonCorrectness(value: string) {
