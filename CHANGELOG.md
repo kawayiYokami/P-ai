@@ -4,6 +4,10 @@
  - 优化（chat-tool-timeline-summary）：聊天消息工具 timeline 改为左侧显示序号与工具名，右侧仅显示极简关键参数；内置工具按类型提取用户最关心的信息，`apply_patch` 仅显示修改类型与路径，避免原始 JSON 和补丁正文撑开消息。
  - 优化（welcome-i18n）：欢迎页文案口语化，卡片分级改为「必须/建议/可选」三级，删除当前状态问号图标。
  
+## 发布：v0.9.57
+
+- 发布（release-0.9.57）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.57`，纳入本轮 DeepSeek / Kimi / Mimo 协议提示扩展与工具思维链回灌修复。
+
 ## 发布：v0.9.56
 
 - 发布（release-0.9.56）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.56`，纳入本轮聊天流式切换恢复修复。
