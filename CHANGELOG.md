@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（chat-supervision-menu-during-streaming）：聊天流式/忙碌期间允许打开工具栏“更多”并发起督工任务，不可用的分支、工作目录与独立窗口操作改为隐藏；督工弹窗新增按语言预填的“持续推进计划”模板。
 - 修复（context-compaction-active-plans-spacing）：上下文压缩消息在摘要正文追加执行中计划时，保留计划块前的空行，避免 `<active_plans>` 与摘要正文挤在同一段。
 - 优化（chat-conversation-list-compact-mode）：会话列表新增详细/简约图标切换；简约模式将首行收口为标题与工作空间，第二行仅显示最新一条消息，并隐藏原双行预览。
 

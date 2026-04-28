@@ -149,9 +149,9 @@ const canSubmit = computed(() => {
 });
 
 function resetForm() {
-  goal.value = String(props.activeTask?.goal || "").trim();
-  why.value = String(props.activeTask?.why || "").trim();
-  todo.value = String(props.activeTask?.todo || "").trim();
+  goal.value = String(props.activeTask?.goal || t("chat.supervision.defaultGoal")).trim();
+  why.value = String(props.activeTask?.why || t("chat.supervision.defaultWhy")).trim();
+  todo.value = String(props.activeTask?.todo || t("chat.supervision.defaultTodo")).trim();
   durationHours.value = Number.isFinite(props.activeTask?.remainingHours)
     ? Math.min(24, Math.max(1, Number(props.activeTask?.remainingHours || 1)))
     : 1;

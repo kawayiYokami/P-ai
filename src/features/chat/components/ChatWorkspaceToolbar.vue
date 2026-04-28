@@ -11,7 +11,6 @@
           type="button"
           tabindex="0"
           class="btn btn-sm btn-ghost btn-circle shrink-0"
-          :disabled="busy"
           :title="t('chat.conversationMenu.title')"
           @mousedown="updateMenuPlacement"
         >
@@ -22,25 +21,25 @@
           class="dropdown-content menu z-50 w-64 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-xl"
           :class="menuPlacement === 'top' ? 'mb-3' : 'mt-3'"
         >
-          <li>
+          <li v-if="!busy">
             <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openBranchSelection')">
               <GitBranch class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.branchFromSelection") }}</span>
             </button>
           </li>
           <li>
-            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy || supervisionDisabled" @click="emit('openSupervisionTask')">
+            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="frozen || supervisionDisabled" @click="emit('openSupervisionTask')">
               <Timer class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.startSupervision") }}</span>
             </button>
           </li>
-          <li>
+          <li v-if="!busy && !workspaceButtonDisabled">
             <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy || workspaceButtonDisabled" @click="emit('lockWorkspace')">
               <Folder class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.setWorkspace") }}</span>
             </button>
           </li>
-          <li v-if="showDetachButton">
+          <li v-if="showDetachButton && !busy && !detachDisabled">
             <button
               type="button"
               class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left"
