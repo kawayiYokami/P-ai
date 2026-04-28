@@ -298,6 +298,12 @@ fn enqueue_context_compaction_followup(
                 source.id, event_id
             ));
         }
+        ChatEventIngress::Duplicate { event_id } => {
+            runtime_log_info(format!(
+                "[上下文整理] 完成后续激活重复，已忽略 conversation_id={} event_id={}",
+                source.id, event_id
+            ));
+        }
     }
     trigger_chat_queue_processing(state);
     Ok(())

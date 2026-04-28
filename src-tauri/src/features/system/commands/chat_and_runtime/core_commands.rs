@@ -69,6 +69,7 @@ fn build_user_message_provider_meta(
     input_provider_meta: Option<Value>,
     attachments: &[serde_json::Value],
     mentions: &[serde_json::Value],
+    request_id: Option<&str>,
 ) -> Option<Value> {
     let merged = merge_provider_meta_with_attachments(input_provider_meta, attachments);
     let mut root = match merged {
@@ -94,6 +95,9 @@ fn build_user_message_provider_meta(
         message_meta.insert("mentions".to_string(), Value::Array(mentions.to_vec()));
     }
     root.insert("message_meta".to_string(), Value::Object(message_meta));
+    if let Some(request_id) = request_id.map(str::trim).filter(|value| !value.is_empty()) {
+        root.insert("requestId".to_string(), Value::String(request_id.to_string()));
+    }
     Some(Value::Object(root))
 }
 
@@ -299,6 +303,12 @@ async fn confirm_plan_and_continue(
         ChatEventIngress::Queued { event_id } => {
             runtime_log_info(format!(
                 "[计划] 确认后继续执行已入队 conversation_id={} event_id={}",
+                conversation_id, event_id
+            ));
+        }
+        ChatEventIngress::Duplicate { event_id } => {
+            runtime_log_info(format!(
+                "[计划] 确认后继续执行重复，已忽略 conversation_id={} event_id={}",
                 conversation_id, event_id
             ));
         }
@@ -815,6 +825,8 @@ async fn send_chat_message(
             compressed: false,
         });
     }
+    // 先确定 requestId，再写入用户消息 provider_meta，保证重复发送可按已落地消息幂等识别。
+    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
     let user_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
@@ -832,6 +844,7 @@ async fn send_chat_message(
                 input.payload.provider_meta.clone(),
                 &attachment_entries,
                 &normalized_mentions,
+                Some(request_id.as_str()),
             )
         },
         tool_call: None,
@@ -922,7 +935,6 @@ async fn send_chat_message(
 
     // 构造队列事件
     let event_id = Uuid::new_v4().to_string();
-    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
     let has_user_mentions = input
         .payload
         .mentions
@@ -1041,6 +1053,8 @@ async fn send_user_mention_message_inner(
             compressed: false,
         });
     }
+    // 先确定 requestId，再写入用户消息 provider_meta，保证重复发送可按已落地消息幂等识别。
+    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
     let user_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
@@ -1058,6 +1072,7 @@ async fn send_user_mention_message_inner(
                 input.payload.provider_meta.clone(),
                 &attachment_entries,
                 &normalized_mentions,
+                Some(request_id.as_str()),
             )
         },
         tool_call: None,
@@ -1147,7 +1162,6 @@ async fn send_user_mention_message_inner(
     };
 
     let event_id = Uuid::new_v4().to_string();
-    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
     let mut runtime_context = runtime_context_new("user_message", "user_mention_send");
     runtime_context.request_id = Some(request_id.clone());
     runtime_context.dispatch_id = Some(event_id.clone());

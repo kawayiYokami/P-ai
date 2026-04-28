@@ -120,6 +120,7 @@ struct ActivatedAssistantResult {
 pub(crate) enum ChatEventIngress {
     Direct(ChatPendingEvent),
     Queued { event_id: String },
+    Duplicate { event_id: String },
 }
 
 // ==================== 队列查询和管理 ====================
@@ -199,6 +200,52 @@ fn conversation_running_slot_count(
     conversation_id: &str,
 ) -> usize {
     usize::from(claims.contains(conversation_id))
+}
+
+fn chat_pending_event_request_id(event: &ChatPendingEvent) -> Option<&str> {
+    event
+        .runtime_context
+        .as_ref()
+        .and_then(|context| context.request_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn chat_pending_event_duplicates_existing_message(
+    state: &AppState,
+    event: &ChatPendingEvent,
+) -> Result<bool, String> {
+    let Some(request_id) = chat_pending_event_request_id(event) else {
+        return Ok(false);
+    };
+    let conversation = match state_read_conversation_cached(state, &event.conversation_id) {
+        Ok(conversation) if conversation.summary.trim().is_empty() => conversation,
+        _ => return Ok(false),
+    };
+    Ok(conversation.messages.iter().any(|message| {
+        message
+            .provider_meta
+            .as_ref()
+            .and_then(|meta| meta.get("requestId").or_else(|| meta.get("request_id")))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value == request_id)
+            .unwrap_or(false)
+    }))
+}
+
+fn pending_queue_has_same_request_id(
+    slot: &ConversationRuntimeSlot,
+    event: &ChatPendingEvent,
+) -> bool {
+    let Some(request_id) = chat_pending_event_request_id(event) else {
+        return false;
+    };
+    slot.pending_queue
+        .iter()
+        .filter_map(chat_pending_event_request_id)
+        .any(|value| value == request_id)
 }
 
 /// 获取队列状态
@@ -460,10 +507,16 @@ pub(crate) fn ingress_chat_event(
     let mut slots = lock_conversation_runtime_slots(state)?;
     let running_count = claims.len();
     let slot = conversation_slot_mut(&mut slots, &event.conversation_id);
+    if pending_queue_has_same_request_id(slot, &event) {
+        return Ok(ChatEventIngress::Duplicate { event_id: event.id });
+    }
     let blocked = slot.state != MainSessionState::Idle
         || !slot.pending_queue.is_empty()
         || conversation_running_slot_count(&claims, &event.conversation_id) > 0
         || running_count >= CHAT_CONCURRENCY_LIMIT;
+    if blocked && chat_pending_event_duplicates_existing_message(state, &event)? {
+        return Ok(ChatEventIngress::Duplicate { event_id: event.id });
+    }
     slot.last_activity_at = now_iso();
     if blocked {
         let event_id = event.id.clone();
@@ -745,6 +798,14 @@ pub(crate) async fn process_chat_event_after_ingress(state: &AppState, ingress: 
         }
         ChatEventIngress::Queued { event_id } => {
             process_chat_queue_for_event(state, &event_id).await;
+        }
+        ChatEventIngress::Duplicate { event_id } => {
+            let _ = complete_pending_chat_events_with_error(
+                state,
+                &[event_id],
+                "重复消息已忽略",
+            );
+            emit_chat_queue_snapshot(state);
         }
     }
 }

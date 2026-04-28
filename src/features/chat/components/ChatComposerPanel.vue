@@ -1,7 +1,7 @@
 <template>
   <div>
     <ChatQueuePreview
-      :queue-events="queueEvents"
+      :queue-events="visibleQueueEvents"
       :session-state="sessionState"
       @recall-to-input="handleRecallToInput"
       @mark-guided="markGuided"
@@ -383,6 +383,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const { queueEvents, sessionState, recallQueueEvent, markGuided } = useChatQueue();
+
+const visibleQueueEvents = computed(() => {
+  const activeConversationId = String(props.activeConversationId || "").trim();
+  if (!activeConversationId) return [];
+  return queueEvents.value.filter(
+    (event) => String(event.conversationId || "").trim() === activeConversationId,
+  );
+});
 
 const localChatInput = computed({
   get: () => props.chatInput,

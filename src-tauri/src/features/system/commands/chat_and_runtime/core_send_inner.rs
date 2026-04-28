@@ -2015,6 +2015,21 @@ async fn send_chat_message_inner(
                 input.payload.provider_meta.clone(),
                 &attachment_meta,
             );
+            if let Some(request_id) = runtime_context
+                .request_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let mut meta = user_provider_meta.unwrap_or_else(|| serde_json::json!({}));
+                if !meta.is_object() {
+                    meta = serde_json::json!({});
+                }
+                if let Some(obj) = meta.as_object_mut() {
+                    obj.insert("requestId".to_string(), Value::String(request_id.to_string()));
+                }
+                user_provider_meta = Some(meta);
+            }
             let recall_payload = if is_delegate_conversation {
                 UserMessageRecallPayload::default()
             } else {
