@@ -1159,7 +1159,27 @@
     "recordAutoStopped": "录音已达到上限 {seconds}s，自动停止。",
     "recordStartFailed": "开始录音失败: {err}",
     "terminalApprovalQueueHint": "当前还有 {count} 条终端审批请求等待处理。",
-    "reviewOpinion": "审查意见："
+    "reviewOpinion": "审查意见：",
+    "toolTimeline": {
+      "everyMinutes": "每 {minutes} 分钟",
+      "until": "至 {time}",
+      "patchAdd": "新增",
+      "patchUpdate": "修改",
+      "patchDelete": "删除",
+      "patchMove": "移动",
+      "inlinePatch": "内联 patch",
+      "patchCall": "补丁调用",
+      "checkChanges": "请检查变更内容",
+      "checkArgs": "请检查参数",
+      "notProvided": "未给出",
+      "missingArgs": "参数待补充",
+      "noArgs": "无参数",
+      "unknownTool": "未知工具",
+      "todoItems": "{count} 项",
+      "todoInProgress": "进行中 {count}",
+      "todoPending": "待办 {count}",
+      "todoCompleted": "完成 {count}"
+    }
   },
   "archives": {
     "refresh": "刷新归档",

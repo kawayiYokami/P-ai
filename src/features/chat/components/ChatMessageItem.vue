@@ -847,13 +847,21 @@ function safeStringValue(data: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function toolTimelineText(key: string, params?: Record<string, string | number>): string {
+  return String(t(`status.toolTimeline.${key}`, params ?? {}));
+}
+
+function toolTimelineNameValue(name: string, value: string): string {
+  return `${name}：${value}`;
+}
+
 function taskTriggerSummary(value: unknown): string {
   if (typeof value !== "object" || value === null) return "";
   const obj = value as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "runAtLocal"),
-    obj.everyMinutes !== undefined ? `每 ${String(obj.everyMinutes)} 分钟` : "",
-    safeStringValue(obj, "endAtLocal") ? `至 ${safeStringValue(obj, "endAtLocal")}` : "",
+    obj.everyMinutes !== undefined ? toolTimelineText("everyMinutes", { minutes: String(obj.everyMinutes) }) : "",
+    safeStringValue(obj, "endAtLocal") ? toolTimelineText("until", { time: safeStringValue(obj, "endAtLocal") }) : "",
   ]);
 }
 
@@ -948,10 +956,10 @@ function toCompactValue(value: unknown, depth = 0): string {
 }
 
 function applyPatchOperationLabel(operation: string): string {
-  if (operation === "add") return "新增";
-  if (operation === "delete") return "删除";
-  if (operation === "move") return "移动";
-  return "修改";
+  if (operation === "add") return toolTimelineText("patchAdd");
+  if (operation === "delete") return toolTimelineText("patchDelete");
+  if (operation === "move") return toolTimelineText("patchMove");
+  return toolTimelineText("patchUpdate");
 }
 
 function summarizeApplyPatchInput(input: string): string {
@@ -992,7 +1000,7 @@ function summarizeApplyPatchInput(input: string): string {
     }
   }
 
-  if (entries.length === 0) return "内联 patch";
+  if (entries.length === 0) return toolTimelineText("inlinePatch");
   return entries
     .slice(0, 5)
     .map((entry) => `${applyPatchOperationLabel(entry.operation)} ${entry.path}`)
@@ -1001,10 +1009,10 @@ function summarizeApplyPatchInput(input: string): string {
 
 function summarizeApplyPatchTool(args: unknown): string {
   const argsText = toSingleLineJsonText(args);
-  if (!argsText) return "请检查变更内容";
+  if (!argsText) return toolTimelineText("checkChanges");
 
   if (typeof args === "string") {
-    if (!args.trim()) return "请检查变更内容";
+    if (!args.trim()) return toolTimelineText("checkChanges");
     return summarizeApplyPatchInput(args);
   }
 
@@ -1017,7 +1025,7 @@ function summarizeApplyPatchTool(args: unknown): string {
 
     const fileFromArgs = safeTextFromRecord(obj, ["file", "target", "path", "files", "pathnames"]);
     if (fileFromArgs) {
-      return `修改 ${fileFromArgs}`;
+      return `${toolTimelineText("patchUpdate")} ${fileFromArgs}`;
     }
 
     if (patch) {
@@ -1040,18 +1048,18 @@ function summarizeApplyPatchTool(args: unknown): string {
 
       const filtered = files.filter((file) => file.length > 0);
       if (filtered.length > 0) {
-        return filtered.map((file) => `修改 ${file}`).join("，");
+        return filtered.map((file) => `${toolTimelineText("patchUpdate")} ${file}`).join("，");
       }
     }
 
-    return compactSingleLineJson(args, 180) || "请检查参数";
+    return compactSingleLineJson(args, 180) || toolTimelineText("checkArgs");
   }
 
-  return "补丁调用";
+  return toolTimelineText("patchCall");
 }
 
 function summarizeCommandTool(args: unknown): string {
-  if (!args) return "未给出";
+  if (!args) return toolTimelineText("notProvided");
   if (typeof args === "string") return args;
   if (typeof args !== "object") return String(args);
 
@@ -1061,27 +1069,27 @@ function summarizeCommandTool(args: unknown): string {
   if (command) return command;
   if (fallback) return fallback;
   const compact = toCompactValue(obj);
-  return compact || "请检查参数";
+  return compact || toolTimelineText("checkArgs");
 }
 
 function summarizeFileTool(args: unknown): string {
-  if (!args) return "参数待补充";
+  if (!args) return toolTimelineText("missingArgs");
   if (typeof args === "string") {
     const text = args.trim();
-    return text || "参数待补充";
+    return text || toolTimelineText("missingArgs");
   }
   if (typeof args !== "object") {
     return String(args);
   }
   const obj = args as Record<string, unknown>;
   const path = safeTextFromRecord(obj, ["path", "file", "target", "source", "destination", "from", "to"]);
-  return path || toCompactValue(obj) || "参数待补充";
+  return path || toCompactValue(obj) || toolTimelineText("missingArgs");
 }
 
 function summarizeTodoTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const todos = (args as Record<string, unknown>).todos;
-  if (!Array.isArray(todos)) return "参数待补充";
+  if (!Array.isArray(todos)) return toolTimelineText("missingArgs");
   const counts = todos.reduce((acc, item) => {
     const status = typeof item === "object" && item !== null ? String((item as Record<string, unknown>).status || "pending") : "pending";
     acc[status] = (acc[status] || 0) + 1;
@@ -1093,16 +1101,16 @@ function summarizeTodoTool(args: unknown): string {
     ?? (typeof todos[0] === "object" && todos[0] !== null ? todos[0] as Record<string, unknown> : null);
   const activeText = active ? compactText(String(active.content || ""), 120) : "";
   return joinNonEmpty([
-    `${todos.length} 项`,
-    counts.in_progress ? `进行中 ${counts.in_progress}` : "",
-    counts.pending ? `待办 ${counts.pending}` : "",
-    counts.completed ? `完成 ${counts.completed}` : "",
+    toolTimelineText("todoItems", { count: todos.length }),
+    counts.in_progress ? toolTimelineText("todoInProgress", { count: counts.in_progress }) : "",
+    counts.pending ? toolTimelineText("todoPending", { count: counts.pending }) : "",
+    counts.completed ? toolTimelineText("todoCompleted", { count: counts.completed }) : "",
     activeText,
   ]);
 }
 
 function summarizeTaskTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "action"),
@@ -1112,7 +1120,7 @@ function summarizeTaskTool(args: unknown): string {
 }
 
 function summarizePlanTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "action"),
@@ -1121,7 +1129,7 @@ function summarizePlanTool(args: unknown): string {
 }
 
 function summarizeDelegateTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "task_name"),
@@ -1132,7 +1140,7 @@ function summarizeDelegateTool(args: unknown): string {
 }
 
 function summarizeMemoryTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "memory_type"),
@@ -1142,7 +1150,7 @@ function summarizeMemoryTool(args: unknown): string {
 }
 
 function summarizeWebTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "query"),
@@ -1153,7 +1161,7 @@ function summarizeWebTool(args: unknown): string {
 }
 
 function summarizeAkashaTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
   return joinNonEmpty([
     safeStringValue(obj, "world"),
@@ -1165,7 +1173,7 @@ function summarizeAkashaTool(args: unknown): string {
 }
 
 function summarizeOperateTool(args: unknown): string {
-  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const script = safeStringValue(args as Record<string, unknown>, "script");
   if (!script) return compactObjectEntries(args as Record<string, unknown>);
   const lines = script.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -1187,24 +1195,24 @@ function summarizeBuiltinTool(toolName: string, args: unknown): string {
 }
 
 function summarizeExternalTool(name: string, args: unknown): string {
-  if (args === undefined || args === null) return `${name}：无参数`;
+  if (args === undefined || args === null) return toolTimelineNameValue(name, toolTimelineText("noArgs"));
   if (typeof args === "string") {
     const text = args.trim();
-    return text ? `${name}：${text}` : `${name}：参数待补充`;
+    return toolTimelineNameValue(name, text || toolTimelineText("missingArgs"));
   }
   if (typeof args !== "object") {
-    return `${name}：${String(args)}`;
+    return toolTimelineNameValue(name, String(args));
   }
 
   const compact = toCompactValue(args);
   if (compact) {
-    return `${name}：${compact}`;
+    return toolTimelineNameValue(name, compact);
   }
 
   const jsonText = compactSingleLineJson(args, 180);
-  if (jsonText) return `${name}：${jsonText}`;
+  if (jsonText) return toolTimelineNameValue(name, jsonText);
 
-  return `${name}：参数待补充`;
+  return toolTimelineNameValue(name, toolTimelineText("missingArgs"));
 }
 
 function toolCallSummaryText(toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
@@ -1220,7 +1228,7 @@ function toolCallSummaryText(toolCall: { name: string; argsText: string; status?
     const builtinSummary = summarizeBuiltinTool(toolName, args);
     if (builtinSummary) return builtinSummary;
     const compact = toCompactValue(args);
-    return compact || "参数待补充";
+    return compact || toolTimelineText("missingArgs");
   }
 
   return summarizeExternalTool(toolCallDisplayName(toolName), args);
@@ -1234,7 +1242,7 @@ function toolCallDisplayName(toolName: string): string {
   if (toolName === "shell_exec") return "exec";
   if (toolName === "read_dir") return "read_dir";
   if (toolName === "list_dir") return "list_dir";
-  return String(toolName || "未知工具").trim() || "未知工具";
+  return String(toolName || toolTimelineText("unknownTool")).trim() || toolTimelineText("unknownTool");
 }
 
 function toolTimelineDotClass(block: ChatMessageBlock, toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
@@ -1253,7 +1261,7 @@ function toolNamesLabel(block: ChatMessageBlock): string {
   const counts = new Map<string, number>();
   const order: string[] = [];
   for (const call of calls) {
-    const name = String(call.name || "").trim() || "未知工具";
+    const name = String(call.name || "").trim() || toolTimelineText("unknownTool");
     if (!counts.has(name)) {
       counts.set(name, 0);
       order.push(name);
