@@ -216,7 +216,7 @@ fn terminal_simple_command_read_whitelist_allowed(
                     | "rg"
                     | "findstr"
                     | "where"
-            ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+            ) || (base_cmd == "git" && terminal_git_read_whitelist_allowed(&second, &simple.argv, arg_start_idx))
                 || terminal_output_only_command_is_read_only(base_cmd.as_str())
                 || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
         }
@@ -242,7 +242,7 @@ fn terminal_simple_command_read_whitelist_allowed(
                     | "stat"
                     | "which"
                     | "where"
-            ) || (base_cmd == "git" && terminal_git_read_only_subcommand(&second))
+            ) || (base_cmd == "git" && terminal_git_read_whitelist_allowed(&second, &simple.argv, arg_start_idx))
                 || terminal_output_only_command_is_read_only(base_cmd.as_str())
                 || terminal_check_command_is_read_only(base_cmd.as_str(), &simple.argv[arg_start_idx..])
         }
@@ -388,18 +388,88 @@ fn terminal_git_read_only_subcommand(subcommand: &str) -> bool {
             | "reflog"
             | "diff"
             | "status"
-            | "branch"
-            | "tag"
             | "ls-remote"
             | "blame"
             | "ls-files"
             | "grep"
-            | "config"
             | "cat-file"
             | "ls-tree"
             | "merge-base"
             | "rev-parse"
     )
+}
+
+fn terminal_git_read_whitelist_allowed(subcommand: &str, argv: &[String], arg_start_idx: usize) -> bool {
+    let args = argv.get(arg_start_idx.saturating_add(1)..).unwrap_or(&[]);
+    terminal_git_subcommand_is_read_only_with_args(subcommand, args)
+}
+
+fn terminal_git_arg_lower(arg: &str) -> String {
+    terminal_unquote_token(arg).to_ascii_lowercase()
+}
+
+fn terminal_git_subcommand_is_read_only_with_args(subcommand: &str, args: &[String]) -> bool {
+    match subcommand {
+        "branch" => terminal_git_branch_is_read_only(args),
+        "tag" => terminal_git_tag_is_read_only(args),
+        "config" => terminal_git_config_is_read_only(args),
+        _ => terminal_git_read_only_subcommand(subcommand),
+    }
+}
+
+fn terminal_git_branch_is_read_only(args: &[String]) -> bool {
+    let mut positional_count = 0usize;
+    for raw in args {
+        let arg = terminal_git_arg_lower(raw);
+        match arg.as_str() {
+            "-d" | "-m" | "-c" | "--delete" | "--move" | "--copy" => return false,
+            value if value.starts_with('-') => {}
+            _ => positional_count += 1,
+        }
+    }
+    positional_count == 0 || args.iter().map(|arg| terminal_git_arg_lower(arg)).any(|arg| {
+        matches!(arg.as_str(), "--list" | "-l" | "--contains" | "--merged" | "--no-merged" | "--points-at")
+    })
+}
+
+fn terminal_git_tag_is_read_only(args: &[String]) -> bool {
+    let mut positional_count = 0usize;
+    for raw in args {
+        let arg = terminal_git_arg_lower(raw);
+        match arg.as_str() {
+            "-d" | "--delete" | "-a" | "-s" | "-u" | "-f" | "--force" => return false,
+            value if value.starts_with('-') => {}
+            _ => positional_count += 1,
+        }
+    }
+    positional_count == 0 || args.iter().map(|arg| terminal_git_arg_lower(arg)).any(|arg| {
+        matches!(arg.as_str(), "--list" | "-l" | "--contains" | "--merged" | "--no-merged" | "--points-at")
+    })
+}
+
+fn terminal_git_config_is_read_only(args: &[String]) -> bool {
+    let mut has_read_mode = false;
+    let mut pending_read_option_value = false;
+    for raw in args {
+        let arg = terminal_git_arg_lower(raw);
+        if pending_read_option_value {
+            pending_read_option_value = false;
+            continue;
+        }
+        match arg.as_str() {
+            "--get" | "--get-all" | "--get-regexp" | "--list" | "-l" | "--show-origin" | "--show-scope" => {
+                has_read_mode = true;
+            }
+            "--name-only" | "--null" | "-z" => {}
+            "--file" | "-f" | "--blob" => {
+                pending_read_option_value = true;
+            }
+            _ if arg.starts_with("--file=") || arg.starts_with("--blob=") => {}
+            _ if arg.starts_with('-') => return false,
+            _ => {}
+        }
+    }
+    has_read_mode
 }
 
 fn terminal_check_command_is_read_only(base_cmd: &str, args: &[String]) -> bool {
@@ -2234,6 +2304,38 @@ mod terminal_exec_tests {
             assert_eq!(analysis.write_risk, TerminalWriteRisk::None, "{command}");
             assert!(
                 terminal_command_is_read_whitelist(command, "git-bash", &analysis),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn git_branch_tag_config_write_forms_should_not_be_read_whitelist() {
+        let cwd = PathBuf::from("E:\\github\\easy_call_ai");
+        let commands = [
+            "git branch -d feature",
+            "git branch -D feature",
+            "git branch --delete feature",
+            "git branch -m old new",
+            "git branch -M old new",
+            "git branch -c old new",
+            "git branch -C old new",
+            "git branch feature",
+            "git tag -d v1.0",
+            "git tag --delete v1.0",
+            "git tag -a v1.0 -m release",
+            "git tag -f v1.0 HEAD",
+            "git tag v1.0",
+            "git config --global user.name xxx",
+            "git config user.name xxx",
+            "git config --unset user.name",
+            "git config --replace-all user.name xxx",
+        ];
+
+        for command in commands {
+            let analysis = terminal_analyze_command(&cwd, command, "git-bash");
+            assert!(
+                !terminal_command_is_read_whitelist(command, "git-bash", &analysis),
                 "{command}"
             );
         }
