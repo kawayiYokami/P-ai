@@ -208,26 +208,26 @@
                 v-for="(toolCall, idx) in toolCallsForBlock(block)"
                 :key="`${block.id}-tool-${idx}`"
               >
-                <div class="timeline-start pr-2 text-xs font-semibold opacity-55">#{{ idx + 1 }}</div>
+                <div class="timeline-start max-w-36 pr-2 text-xs font-semibold opacity-75">
+                  {{ toolCallTitle(toolCall, idx + 1) }}
+                </div>
                 <div class="timeline-middle">
                   <span
                     class="inline-block h-2.5 w-2.5 rounded-full"
                     :class="toolTimelineDotClass(block, toolCall)"
                   ></span>
                 </div>
-                <div class="timeline-end mb-3 w-full min-w-0 pb-3 pl-3">
-                  <div class="mb-1 flex items-center gap-2 text-xs font-semibold opacity-85">
-                    <span>{{ toolCall.name }}</span>
+                <div class="timeline-end mb-2 w-full min-w-0 pb-2 pl-3">
+                  <div v-if="showStreamingUi(block)" class="mb-0.5 text-xs font-semibold opacity-85">
                     <span
-                      v-if="showStreamingUi(block)"
-                      class="badge badge-ghost badge-xs font-normal"
+                      class="inline-block badge badge-ghost badge-xs font-normal"
                       :class="toolCall.status === 'doing' ? 'text-primary border-primary/35' : 'text-success border-success/35'"
                     >{{ toolCall.status === "doing" ? "doing" : "done" }}</span>
                   </div>
                   <pre
-                    v-if="toolCall.argsText"
-                    class="whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/70"
-                  >{{ toolCall.argsText }}</pre>
+                    v-if="toolCallSummaryText(toolCall)"
+                    class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/70"
+                  >{{ toolCallSummaryText(toolCall) }}</pre>
                 </div>
                 <hr
                   v-if="idx < toolCallsForBlock(block).length - 1"
@@ -733,6 +733,508 @@ function toolStatusLabel(block: ChatMessageBlock): string {
 function toolSummaryDoing(block: ChatMessageBlock): boolean {
   if (!showStreamingUi(block)) return false;
   return toolCallsForBlock(block).some((call) => String(call.status || "").trim() === "doing");
+}
+
+const internalToolNames = new Set<string>([
+  "apply_patch",
+  "exec",
+  "shell_exec",
+  "read_file",
+  "write_file",
+  "append_text",
+  "delete_file",
+  "create_file",
+  "rename_file",
+  "move_file",
+  "list_dir",
+  "read_dir",
+  "find",
+  "search",
+  "todo",
+  "plan",
+  "task",
+  "delegate",
+  "remember",
+  "recall",
+  "fetch",
+  "websearch",
+  "operate",
+  "screenshot",
+  "wait",
+  "akasha_search",
+  "akasha_read",
+  "akasha_catalog",
+  "akasha_link",
+  "tavily_search",
+  "tavily_extract",
+  "tavily_crawl",
+  "tavily_map",
+  "tavily_research",
+]);
+
+const compactListKeys = new Set<string>([
+  "todos",
+  "files",
+  "urls",
+  "queries",
+  "lineRanges",
+  "tags",
+]);
+
+const ignorableSummaryKeys = new Set<string>([
+  "status",
+  "reasoning",
+  "background",
+  "why",
+  "max_length",
+  "maxResults",
+  "max_results",
+  "tokens",
+  "timeout_ms",
+  "quality",
+  "exact_match",
+  "include_raw_content",
+  "include_images",
+  "include_image_descriptions",
+  "include_favicon",
+  "format",
+  "topic",
+  "country",
+  "search_depth",
+  "extract_depth",
+]);
+
+function normalizeToolCallArgs(argsText: string): unknown {
+  const text = String(argsText || "").trim();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function safeTextFromRecord(data: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+    if (Array.isArray(value)) {
+      const joined = value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+        .join(" ");
+      if (joined) return joined;
+    }
+  }
+  return "";
+}
+
+function compactText(text: string, maxLen = 180): string {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 3)}...`;
+}
+
+function joinNonEmpty(parts: string[], separator = " · "): string {
+  return parts.map((part) => part.trim()).filter(Boolean).join(separator);
+}
+
+function safeStringValue(data: Record<string, unknown>, key: string): string {
+  const value = data[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function taskTriggerSummary(value: unknown): string {
+  if (typeof value !== "object" || value === null) return "";
+  const obj = value as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "runAtLocal"),
+    obj.everyMinutes !== undefined ? `每 ${String(obj.everyMinutes)} 分钟` : "",
+    safeStringValue(obj, "endAtLocal") ? `至 ${safeStringValue(obj, "endAtLocal")}` : "",
+  ]);
+}
+
+function compactObjectEntries(data: Record<string, unknown>, maxItems = 3): string {
+  return Object.entries(data)
+    .filter(([key, value]) => !ignorableSummaryKeys.has(key) && value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => {
+      if (compactListKeys.has(key) && Array.isArray(value)) {
+        return `${value.length} ${key}`;
+      }
+      const text = toCompactValue(value, 1);
+      return text ? `${key}: ${text}` : "";
+    })
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .join(" · ");
+}
+
+function toSingleLineJsonText(payload: unknown): string {
+  if (payload === undefined || payload === null) return "";
+  if (typeof payload === "string") return payload.trim() || "";
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+function compactSingleLineJson(payload: unknown, maxLen = 180): string {
+  const text = toSingleLineJsonText(payload);
+  if (!text) return "";
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= maxLen) return oneLine;
+  return `${oneLine.slice(0, maxLen - 3)}...`;
+}
+
+function toCompactValue(value: unknown, depth = 0): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth > 1) return "";
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => toCompactValue(item, depth + 1))
+      .filter((item) => item !== "")
+      .slice(0, 3);
+    return parts.join(" | ");
+  }
+
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const orderedKeys = [
+      "path",
+      "file",
+      "target",
+      "source",
+      "destination",
+      "from",
+      "to",
+      "command",
+      "cmd",
+      "url",
+      "query",
+      "name",
+      "id",
+      "text",
+      "content",
+      "input",
+      "output",
+      "method",
+    ];
+
+    for (const key of orderedKeys) {
+      const valueText = toCompactValue(obj[key], depth + 1);
+      if (valueText) return `${key}: ${valueText}`;
+    }
+
+    const pairs = Object.entries(obj)
+      .map(([key, rawValue]) => {
+        const compactValue = toCompactValue(rawValue, depth + 1);
+        return compactValue ? `${key}: ${compactValue}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+    if (pairs.length > 0) {
+      return pairs.join("；");
+    }
+  }
+
+  return "";
+}
+
+function applyPatchOperationLabel(operation: string): string {
+  if (operation === "add") return "新增";
+  if (operation === "delete") return "删除";
+  if (operation === "move") return "移动";
+  return "修改";
+}
+
+function summarizeApplyPatchInput(input: string): string {
+  const lines = input.split(/\r?\n/);
+  const entries: Array<{ operation: string; path: string }> = [];
+  let pendingUpdatePath = "";
+
+  for (const line of lines) {
+    const addMatch = line.match(/^\*\*\* Add File:\s+(.+)$/);
+    if (addMatch?.[1]) {
+      entries.push({ operation: "add", path: addMatch[1].trim() });
+      pendingUpdatePath = "";
+      continue;
+    }
+
+    const deleteMatch = line.match(/^\*\*\* Delete File:\s+(.+)$/);
+    if (deleteMatch?.[1]) {
+      entries.push({ operation: "delete", path: deleteMatch[1].trim() });
+      pendingUpdatePath = "";
+      continue;
+    }
+
+    const updateMatch = line.match(/^\*\*\* Update File:\s+(.+)$/);
+    if (updateMatch?.[1]) {
+      pendingUpdatePath = updateMatch[1].trim();
+      entries.push({ operation: "update", path: pendingUpdatePath });
+      continue;
+    }
+
+    const moveMatch = line.match(/^\*\*\* Move to:\s+(.+)$/);
+    if (moveMatch?.[1] && pendingUpdatePath) {
+      const last = entries[entries.length - 1];
+      if (last && last.path === pendingUpdatePath) {
+        last.operation = "move";
+        last.path = `${pendingUpdatePath} → ${moveMatch[1].trim()}`;
+      }
+      pendingUpdatePath = "";
+    }
+  }
+
+  if (entries.length === 0) return "内联 patch";
+  return entries
+    .slice(0, 5)
+    .map((entry) => `${applyPatchOperationLabel(entry.operation)} ${entry.path}`)
+    .join("，");
+}
+
+function summarizeApplyPatchTool(args: unknown): string {
+  const argsText = toSingleLineJsonText(args);
+  if (!argsText) return "请检查变更内容";
+
+  if (typeof args === "string") {
+    if (!args.trim()) return "请检查变更内容";
+    return summarizeApplyPatchInput(args);
+  }
+
+  if (typeof args === "object" && args !== null) {
+    const obj = args as Record<string, unknown>;
+    const input = typeof obj.input === "string" ? obj.input.trim() : "";
+    if (input) return summarizeApplyPatchInput(input);
+
+    const patch = (typeof obj.patch === "string" ? obj.patch : typeof obj.diff === "string" ? obj.diff : "").trim();
+
+    const fileFromArgs = safeTextFromRecord(obj, ["file", "target", "path", "files", "pathnames"]);
+    if (fileFromArgs) {
+      return `修改 ${fileFromArgs}`;
+    }
+
+    if (patch) {
+      const files = Array.from(new Set(
+        patch
+          .split(/\r?\n/)
+          .map((line) => {
+            const match = line.match(/^diff --git\s+(?:a\/|\S+)\s+(?:b\/|\S+)(.+)$/);
+            if (match && match[1]) {
+              return String(match[1]).replace(/^b\//, "").trim();
+            }
+            const simpleMatch = line.match(/^---\s+([ab]\/)?(.+)$/);
+            if (simpleMatch && simpleMatch[2]) {
+              return String(simpleMatch[2]).trim();
+            }
+            return "";
+          })
+          .filter((file) => Boolean(file) && !file.includes("/dev/null")),
+      ));
+
+      const filtered = files.filter((file) => file.length > 0);
+      if (filtered.length > 0) {
+        return filtered.map((file) => `修改 ${file}`).join("，");
+      }
+    }
+
+    return compactSingleLineJson(args, 180) || "请检查参数";
+  }
+
+  return "补丁调用";
+}
+
+function summarizeCommandTool(args: unknown): string {
+  if (!args) return "未给出";
+  if (typeof args === "string") return args;
+  if (typeof args !== "object") return String(args);
+
+  const obj = args as Record<string, unknown>;
+  const command = safeTextFromRecord(obj, ["command", "cmd", "shell", "input", "commandText"]);
+  const fallback = safeTextFromRecord(obj, ["args", "arguments", "argv", "params"]);
+  if (command) return command;
+  if (fallback) return fallback;
+  const compact = toCompactValue(obj);
+  return compact || "请检查参数";
+}
+
+function summarizeFileTool(args: unknown): string {
+  if (!args) return "参数待补充";
+  if (typeof args === "string") {
+    const text = args.trim();
+    return text || "参数待补充";
+  }
+  if (typeof args !== "object") {
+    return String(args);
+  }
+  const obj = args as Record<string, unknown>;
+  const path = safeTextFromRecord(obj, ["path", "file", "target", "source", "destination", "from", "to"]);
+  return path || toCompactValue(obj) || "参数待补充";
+}
+
+function summarizeTodoTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const todos = (args as Record<string, unknown>).todos;
+  if (!Array.isArray(todos)) return "参数待补充";
+  const counts = todos.reduce((acc, item) => {
+    const status = typeof item === "object" && item !== null ? String((item as Record<string, unknown>).status || "pending") : "pending";
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  const active = todos
+    .map((item) => (typeof item === "object" && item !== null ? item as Record<string, unknown> : null))
+    .find((item) => String(item?.status || "") === "in_progress")
+    ?? (typeof todos[0] === "object" && todos[0] !== null ? todos[0] as Record<string, unknown> : null);
+  const activeText = active ? compactText(String(active.content || ""), 120) : "";
+  return joinNonEmpty([
+    `${todos.length} 项`,
+    counts.in_progress ? `进行中 ${counts.in_progress}` : "",
+    counts.pending ? `待办 ${counts.pending}` : "",
+    counts.completed ? `完成 ${counts.completed}` : "",
+    activeText,
+  ]);
+}
+
+function summarizeTaskTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "action"),
+    safeStringValue(obj, "goal"),
+    taskTriggerSummary(obj.trigger),
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizePlanTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "action"),
+    compactText(safeStringValue(obj, "context"), 160),
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizeDelegateTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "task_name"),
+    safeStringValue(obj, "specific_goal"),
+    safeStringValue(obj, "department_id"),
+    safeStringValue(obj, "mode"),
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizeMemoryTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "memory_type"),
+    safeStringValue(obj, "judgment"),
+    safeStringValue(obj, "query"),
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizeWebTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "query"),
+    safeStringValue(obj, "url"),
+    Array.isArray(obj.urls) ? `${obj.urls.length} URLs` : "",
+    safeStringValue(obj, "instructions"),
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizeAkashaTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "world"),
+    safeStringValue(obj, "keyword"),
+    safeStringValue(obj, "documentPath"),
+    safeStringValue(obj, "documentTitle"),
+    Array.isArray(obj.lineRanges) ? obj.lineRanges.join("，") : "",
+  ]) || compactObjectEntries(obj);
+}
+
+function summarizeOperateTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || "参数待补充");
+  const script = safeStringValue(args as Record<string, unknown>, "script");
+  if (!script) return compactObjectEntries(args as Record<string, unknown>);
+  const lines = script.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return compactText(lines.slice(0, 3).join("；"), 180);
+}
+
+function summarizeBuiltinTool(toolName: string, args: unknown): string {
+  if (toolName === "todo") return summarizeTodoTool(args);
+  if (toolName === "task") return summarizeTaskTool(args);
+  if (toolName === "plan") return summarizePlanTool(args);
+  if (toolName === "delegate") return summarizeDelegateTool(args);
+  if (toolName === "remember" || toolName === "recall") return summarizeMemoryTool(args);
+  if (toolName === "fetch" || toolName === "websearch" || toolName.startsWith("tavily_")) return summarizeWebTool(args);
+  if (toolName.startsWith("akasha_")) return summarizeAkashaTool(args);
+  if (toolName === "operate") return summarizeOperateTool(args);
+  if (toolName === "screenshot") return summarizeFileTool(args);
+  if (toolName === "wait") return compactObjectEntries((typeof args === "object" && args !== null ? args : { ms: args }) as Record<string, unknown>);
+  return "";
+}
+
+function summarizeExternalTool(name: string, args: unknown): string {
+  if (args === undefined || args === null) return `${name}：无参数`;
+  if (typeof args === "string") {
+    const text = args.trim();
+    return text ? `${name}：${text}` : `${name}：参数待补充`;
+  }
+  if (typeof args !== "object") {
+    return `${name}：${String(args)}`;
+  }
+
+  const compact = toCompactValue(args);
+  if (compact) {
+    return `${name}：${compact}`;
+  }
+
+  const jsonText = compactSingleLineJson(args, 180);
+  if (jsonText) return `${name}：${jsonText}`;
+
+  return `${name}：参数待补充`;
+}
+
+function toolCallSummaryText(toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
+  const toolName = String(toolCall.name || "").trim() || "unknown";
+  const args = normalizeToolCallArgs(toolCall.argsText);
+
+  if (internalToolNames.has(toolName)) {
+    if (toolName === "apply_patch") return summarizeApplyPatchTool(args);
+    if (toolName === "exec" || toolName === "shell_exec") return summarizeCommandTool(args);
+    if (toolName.includes("file")) {
+      return summarizeFileTool(args);
+    }
+    const builtinSummary = summarizeBuiltinTool(toolName, args);
+    if (builtinSummary) return builtinSummary;
+    const compact = toCompactValue(args);
+    return compact || "参数待补充";
+  }
+
+  return summarizeExternalTool(toolCallDisplayName(toolName), args);
+}
+
+function toolCallTitle(toolCall: { name: string }, index: number): string {
+  return `#${index} ${toolCallDisplayName(toolCall.name)}`;
+}
+
+function toolCallDisplayName(toolName: string): string {
+  if (toolName === "shell_exec") return "exec";
+  if (toolName === "read_dir") return "read_dir";
+  if (toolName === "list_dir") return "list_dir";
+  return String(toolName || "未知工具").trim() || "未知工具";
 }
 
 function toolTimelineDotClass(block: ChatMessageBlock, toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
