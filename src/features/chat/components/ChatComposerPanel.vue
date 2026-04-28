@@ -280,18 +280,13 @@
           </select>
         </div>
         <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="btn btn-sm shrink-0 border-transparent"
-            :class="planModeEnabled
-              ? 'bg-info text-info-content hover:bg-info/90'
-              : 'btn-ghost text-base-content/70 hover:text-base-content hover:bg-base-200'"
-            :disabled="!planModeToggleAllowed"
-            :title="`${t('chat.plan.mode')} / Shift+Tab`"
-            @click="togglePlanMode"
+          <span
+            v-if="planModeEnabled"
+            class="badge badge-sm badge-info shrink-0 select-none"
+            :title="`Shift+Tab ${t('chat.plan.mode')}`"
           >
             {{ t("chat.plan.mode") }}
-          </button>
+          </span>
           <button
             class="btn btn-sm btn-circle shrink-0"
             :class="showStopAction ? 'btn-error' : 'btn-success'"

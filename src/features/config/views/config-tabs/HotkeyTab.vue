@@ -106,6 +106,23 @@
         </div>
       </div>
     </div>
+
+    <!-- 内置快捷键 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="card-title text-base mb-3">{{ t("config.hotkey.builtinShortcuts") }}</h3>
+        <ul class="list bg-base-100 rounded-box">
+          <li class="list-row">
+            <span class="font-mono">Tab</span>
+            <span class="list-col-grow opacity-60 text-right">{{ t("config.hotkey.builtinTabInstruction") }}</span>
+          </li>
+          <li class="list-row">
+            <span class="font-mono">Shift + Tab</span>
+            <span class="list-col-grow opacity-60 text-right">{{ t("config.hotkey.builtinShiftTabPlanMode") }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
   </div>
 </template>
 

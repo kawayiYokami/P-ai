@@ -76,6 +76,9 @@
       "holdToRecord": "Hold to record",
       "holdRecordButton": "Hold to record",
       "playRecord": "Play Record",
+      "builtinShortcuts": "Built-in Shortcuts",
+      "builtinTabInstruction": "Cross-domain Instruction",
+      "builtinShiftTabPlanMode": "Toggle Plan Mode",
       "theme": "Theme",
       "lightTheme": "Light",
       "darkTheme": "Dark"
