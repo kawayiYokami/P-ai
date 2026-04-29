@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 修复（tool-schema-cache-and-lazy-mcp）：聊天发送前改为只读全局工具 Schema 缓存，不再同步检查工具可用性或建立 MCP 连接；启动与 reload 后刷新工具 Schema，MCP 工具延迟到实际调用时连接并增加连接/执行超时、取消失败日志与缓存读取失败诊断，避免工具准备链路卡住模型请求。
  - 修复（apply-patch-windows-cfg-guard）：`apply_patch_has_windows_drive_prefix` 补上 `#[cfg(target_os = "windows")]` 条件编译守卫，消除非 Windows 平台重复定义导致的编译错误。
  - 修复（codex-refresh-lead-and-refresh-dedup）：Codex 运行时凭证刷新窗口从过期前 5 分钟提前到 5 天；按 provider 收敛并发刷新，避免多个请求同时刷新互相踩踏；同时增加进程内凭证缓存，`read_local` 模式在本次进程内刷新成功后可复用更新后的 token，降低反复读回旧本地凭证导致的频繁过期。
  - 修复（message-store-block-tests-and-persist-paths）：message store 持久化追加、截断、替换、拼接路径统一改为基于目录快照重写并回写分块 JSONL，修正测试对旧 `messages.jsonl` 单文件结构、旧任务构造方式与旧会话删除语义的过期断言，恢复此前 20 个失败测试并使 `cargo test` 全量通过。

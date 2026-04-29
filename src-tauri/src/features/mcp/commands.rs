@@ -90,9 +90,27 @@ async fn mcp_redeploy_all_from_policy(state: &AppState) -> Result<Vec<WorkspaceL
     let mut deploy_errors = Vec::<WorkspaceLoadError>::new();
     for server in servers.into_iter().filter(|s| s.enabled) {
         mcp_runtime_state_set(&server.id, false, "deploying", "", Vec::new());
-        let tools = match mcp_list_server_tools_runtime(&server).await {
-            Ok(tools) => tools,
-            Err(err) => {
+        let tools = match tokio::time::timeout(
+            std::time::Duration::from_secs(TOOL_RUNTIME_CHECK_TIMEOUT_SECS),
+            mcp_list_server_tools_runtime(&server),
+        )
+        .await
+        {
+            Ok(Ok(tools)) => tools,
+            Ok(Err(err)) => {
+                mcp_runtime_state_set(&server.id, false, "failed", &err, Vec::new());
+                deploy_errors.push(WorkspaceLoadError {
+                    item: server.id.clone(),
+                    error: err,
+                });
+                continue;
+            }
+            Err(_) => {
+                let err = format!("MCP 工具检验超时: server_id={}, server_name={}", server.id, server.name);
+                runtime_log_warn(format!(
+                    "[MCP] reload 期间工具检验超时: server_id={}, server_name={}",
+                    server.id, server.name
+                ));
                 mcp_runtime_state_set(&server.id, false, "failed", &err, Vec::new());
                 deploy_errors.push(WorkspaceLoadError {
                     item: server.id.clone(),

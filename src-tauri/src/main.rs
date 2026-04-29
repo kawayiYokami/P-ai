@@ -528,6 +528,7 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 match mcp_redeploy_all_from_policy(&startup_state).await {
                     Ok(errors) => {
+                        refresh_global_tool_schema_cache(&startup_state);
                         if !errors.is_empty() {
                             eprintln!(
                                 "[启动] MCP 自动重部署完成，发生 {} 个错误",
@@ -540,6 +541,7 @@ fn main() {
                     }
                     Err(err) => {
                         eprintln!("[启动] MCP 自动重部署失败: {err}");
+                        refresh_global_tool_schema_cache(&startup_state);
                     }
                 }
             });

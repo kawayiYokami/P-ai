@@ -498,17 +498,16 @@ where
 }
 
 async fn runtime_tool_definitions_for_genai(
-    tools: &[Box<dyn RuntimeToolDyn>],
+    definitions: &[ProviderToolDefinition],
     protocol_family: ToolCallProtocolFamily,
 ) -> Result<Vec<genai::chat::Tool>, String> {
     let mut out = Vec::<genai::chat::Tool>::new();
-    for tool in tools {
-        let definition = tool.definition().await;
-        let mut genai_tool = genai::chat::Tool::new(definition.name);
+    for definition in definitions {
+        let mut genai_tool = genai::chat::Tool::new(definition.name.clone());
         if !definition.description.trim().is_empty() {
-            genai_tool = genai_tool.with_description(definition.description);
+            genai_tool = genai_tool.with_description(definition.description.clone());
         }
-        let mut parameters = definition.parameters;
+        let mut parameters = definition.parameters.clone();
         if matches!(protocol_family, ToolCallProtocolFamily::Gemini) {
             gemini_to_openapi_schema(&mut parameters);
         }
@@ -777,7 +776,7 @@ async fn run_genai_tool_loop(
         options = options.with_max_tokens(max_output_tokens);
     }
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tools, protocol_family).await?;
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, protocol_family).await?;
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
@@ -1370,7 +1369,7 @@ async fn run_genai_tool_loop_non_stream(
         options = options.with_max_tokens(max_output_tokens);
     }
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tools, protocol_family).await?;
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, protocol_family).await?;
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();

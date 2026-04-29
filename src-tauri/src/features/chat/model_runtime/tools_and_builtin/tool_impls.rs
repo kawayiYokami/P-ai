@@ -546,10 +546,6 @@ impl RuntimeToolDyn for BuiltinTodoTool {
         TODO_TOOL_NAME.to_string()
     }
 
-    fn definition(&self) -> RuntimeToolDefFuture<'_> {
-        Box::pin(async move { self.provider_tool_definition() })
-    }
-
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
         Box::pin(async move {
             let args = parse_runtime_tool_args::<TodoWriteRequest>(&args_json)?;

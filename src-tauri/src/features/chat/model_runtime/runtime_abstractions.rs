@@ -25,9 +25,6 @@ trait RuntimeToolMetadata {
     fn provider_tool_definition(&self) -> ProviderToolDefinition;
 }
 
-type RuntimeToolDefFuture<'a> = std::pin::Pin<
-    Box<dyn std::future::Future<Output = ProviderToolDefinition> + Send + 'a>,
->;
 type RuntimeToolCallFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<ProviderToolResult, String>> + Send + 'a>,
 >;
@@ -37,7 +34,6 @@ type RuntimeJsonValueFuture<'a, E> = std::pin::Pin<
 
 trait RuntimeToolDyn: Send + Sync {
     fn name(&self) -> String;
-    fn definition(&self) -> RuntimeToolDefFuture<'_>;
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_>;
 }
 
@@ -77,10 +73,6 @@ where
 {
     fn name(&self) -> String {
         T::NAME.to_string()
-    }
-
-    fn definition(&self) -> RuntimeToolDefFuture<'_> {
-        Box::pin(async move { self.provider_tool_definition() })
     }
 
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {

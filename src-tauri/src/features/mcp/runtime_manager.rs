@@ -139,18 +139,6 @@ struct McpRuntimeTool {
     client: rmcp::service::Peer<rmcp::RoleClient>,
 }
 
-fn provider_tool_definition_from_mcp(definition: &rmcp::model::Tool) -> ProviderToolDefinition {
-    ProviderToolDefinition::new(
-        definition.name.to_string(),
-        definition
-            .description
-            .clone()
-            .unwrap_or_default()
-            .to_string(),
-        definition.schema_as_json_value(),
-    )
-}
-
 fn provider_tool_result_from_mcp_call(
     tool_name: &str,
     result: rmcp::model::CallToolResult,
@@ -254,10 +242,6 @@ impl RuntimeToolDyn for McpRuntimeTool {
         self.definition.name.to_string()
     }
 
-    fn definition(&self) -> RuntimeToolDefFuture<'_> {
-        Box::pin(async move { provider_tool_definition_from_mcp(&self.definition) })
-    }
-
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
         let name = self.definition.name.clone();
         Box::pin(async move {
@@ -275,13 +259,6 @@ impl RuntimeToolDyn for McpRuntimeTool {
             Ok(provider_tool_result_from_mcp_call(name.as_ref(), result))
         })
     }
-}
-
-fn boxed_mcp_runtime_tool(
-    definition: rmcp::model::Tool,
-    client: rmcp::service::Peer<rmcp::RoleClient>,
-) -> Box<dyn RuntimeToolDyn> {
-    Box::new(McpRuntimeTool { definition, client })
 }
 
 fn mcp_client_cache(
@@ -916,71 +893,3 @@ async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<M
     Ok(out)
 }
 
-#[derive(Debug, Clone, Default)]
-struct McpRuntimeAttachOutcome {
-    attached_tool_names: Vec<String>,
-    unavailable_tool_notices: Vec<String>,
-}
-
-async fn attach_enabled_mcp_tools_for_runtime(
-    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
-    app_state: Option<&AppState>,
-    current_department: Option<&DepartmentConfig>,
-) -> Result<McpRuntimeAttachOutcome, String> {
-    let Some(state) = app_state else {
-        return Ok(McpRuntimeAttachOutcome::default());
-    };
-    let servers = load_workspace_mcp_servers(state)?;
-
-    let mut outcome = McpRuntimeAttachOutcome::default();
-    for server in &servers {
-        if !mcp_runtime_state_get(&server.id)
-            .map(|s| s.deployed)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        if let Err(err) = parse_mcp_server_definition_from_config(server) {
-            eprintln!("[MCP] skip server={} parse failed: {err}", server.id);
-            outcome.unavailable_tool_notices.push(format!(
-                "MCP 服务器 `{}` 解析失败：{}。",
-                server.name, err
-            ));
-            continue;
-        }
-
-        let (peer, defs) = match mcp_list_tools_with_peer(server).await {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("[MCP] skip server={} connect/list failed: {}", server.id, err);
-                outcome.unavailable_tool_notices.push(format!(
-                    "MCP 服务器 `{}` 连接或列工具失败：{}。",
-                    server.name, err
-                ));
-                continue;
-            }
-        };
-        for def in defs {
-            let tool_name = def.name.to_string();
-            let qualified_by_name = format!("{}::{}", server.name, tool_name);
-            let qualified_by_id = format!("{}::{}", server.id, tool_name);
-            if !mcp_policy_enabled_for_tool(server, &tool_name) {
-                continue;
-            }
-            if !mcp_tool_allowed_by_definition(server, &tool_name) {
-                continue;
-            }
-            if !department_permission_allows_any_name(
-                current_department,
-                DepartmentPermissionCategory::McpTool,
-                &[qualified_by_name.as_str(), qualified_by_id.as_str(), tool_name.as_str()],
-            ) {
-                continue;
-            }
-            tools.push(boxed_mcp_runtime_tool(def, peer.clone()));
-            outcome.attached_tool_names.push(qualified_by_name);
-        }
-    }
-
-    Ok(outcome)
-}
