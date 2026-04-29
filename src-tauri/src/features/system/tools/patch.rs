@@ -650,6 +650,7 @@ fn apply_patch_parse_json(input: &str) -> Result<Vec<ApplyPatchOp>, String> {
 }
 
 
+#[cfg(target_os = "windows")]
 fn apply_patch_has_windows_drive_prefix(path: &str) -> bool {
     terminal_has_windows_drive_prefix(path)
 }
