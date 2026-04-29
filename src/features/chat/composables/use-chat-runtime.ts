@@ -27,6 +27,8 @@ type UseChatRuntimeOptions = {
   activeChatApiConfigId: Ref<string>;
   assistantDepartmentAgentId: Ref<string>;
   currentConversationId?: Ref<string>;
+  forcingArchiveConversationId?: Ref<string>;
+  compactingConversationId?: Ref<string>;
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
   compactingConversation: Ref<boolean>;
@@ -86,8 +88,14 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     options.setChatError("");
     if (action.lockForeground) {
       options.forcingArchive.value = true;
+      if (options.forcingArchiveConversationId) {
+        options.forcingArchiveConversationId.value = sourceConversationId || "";
+      }
     } else {
       options.compactingConversation.value = true;
+      if (options.compactingConversationId) {
+        options.compactingConversationId.value = sourceConversationId || "";
+      }
     }
     try {
       const normalizedTargetConversationId = String(targetConversationId || "").trim();
@@ -160,8 +168,14 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     } finally {
       if (action.lockForeground) {
         options.forcingArchive.value = false;
+        if (options.forcingArchiveConversationId) {
+          options.forcingArchiveConversationId.value = "";
+        }
       } else {
         options.compactingConversation.value = false;
+        if (options.compactingConversationId) {
+          options.compactingConversationId.value = "";
+        }
       }
     }
   }

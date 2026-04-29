@@ -218,12 +218,6 @@
                   ></span>
                 </div>
                 <div class="timeline-end mb-2 w-full min-w-0 pb-2 pl-3">
-                  <div v-if="showStreamingUi(block)" class="mb-0.5 text-xs font-semibold opacity-85">
-                    <span
-                      class="inline-block badge badge-ghost badge-xs font-normal"
-                      :class="toolCall.status === 'doing' ? 'text-primary border-primary/35' : 'text-success border-success/35'"
-                    >{{ toolCall.status === "doing" ? "doing" : "done" }}</span>
-                  </div>
                   <pre
                     v-if="toolCallSummaryText(toolCall)"
                     class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/70"

@@ -144,7 +144,9 @@
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
         :forcing-archive="forcingArchive"
+        :forcing-archive-conversation-id="forcingArchiveConversationId"
         :compacting-conversation="compactingConversation"
+        :compacting-conversation-id="compactingConversationId"
         :conversation-busy="forcingArchive || compactingConversation"
         :frozen="branchingConversation || forwardingConversationSelection"
         :message-blocks="visibleMessageBlocks"
@@ -472,7 +474,9 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
+  forcingArchiveConversationId?: string;
   compactingConversation: boolean;
+  compactingConversationId?: string;
   branchingConversation: boolean;
   forwardingConversationSelection: boolean;
   visibleMessageBlocks: ChatMessageBlock[];

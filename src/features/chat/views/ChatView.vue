@@ -582,7 +582,9 @@ const props = defineProps<{
   mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
+  forcingArchiveConversationId?: string;
   compactingConversation: boolean;
+  compactingConversationId?: string;
   conversationBusy: boolean;
   frozen: boolean;
   messageBlocks: ChatMessageBlock[];
@@ -830,6 +832,18 @@ const hasActiveOrPendingTodo = computed(() => {
   return normalizedConversationTodos.value.some(item => item.status === "pending" || item.status === "in_progress");
 });
 
+const isCurrentConversationCompacting = computed(() => {
+  const currentConversationId = String(props.activeConversationId || "").trim();
+  const compactingConversationId = String(props.compactingConversationId || "").trim();
+  return !!currentConversationId && currentConversationId === compactingConversationId;
+});
+
+const isCurrentConversationArchiving = computed(() => {
+  const currentConversationId = String(props.activeConversationId || "").trim();
+  const forcingArchiveConversationId = String(props.forcingArchiveConversationId || "").trim();
+  return !!currentConversationId && currentConversationId === forcingArchiveConversationId;
+});
+
 const activeConversationTodoIndex = computed(() => {
   const todos = normalizedConversationTodos.value;
   const inProgressIndex = todos.findIndex((item) => item.status === "in_progress");
@@ -887,7 +901,7 @@ const activeRunningToolCall = computed(() => {
 });
 
 const isOrganizingContextBusy = computed(() => {
-  if (props.compactingConversation) return true;
+  if (props.compactingConversation && isCurrentConversationCompacting.value) return true;
   const runningTool = activeRunningToolCall.value;
   if (runningTool && isOrganizeContextToolCall(runningTool)) return true;
   const statusText = String(props.toolStatusText || "").trim();
@@ -905,6 +919,7 @@ const chatStatusBanner = computed<null | { text: string; tone: "default" | "erro
     };
   }
   if (props.forcingArchive) {
+    if (!isCurrentConversationArchiving.value) return null;
     return {
       text: t("chat.statusArchivingConversation"),
       tone: "default",

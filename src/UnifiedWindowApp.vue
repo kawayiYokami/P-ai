@@ -141,7 +141,9 @@
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
+      :forcing-archive-conversation-id="forcingArchiveConversationId"
       :compacting-conversation="compactingConversation"
+      :compacting-conversation-id="compactingConversationId"
       :branching-conversation="branchingConversation"
       :forwarding-conversation-selection="forwardingConversationSelection"
       :visible-message-blocks="displayMessageBlocks"
@@ -735,6 +737,8 @@ let messageStoreMigrationProgressUnlisten: UnlistenFn | null = null;
 const chatting = ref(false);
 const forcingArchive = ref(false);
 const compactingConversation = ref(false);
+const forcingArchiveConversationId = ref("");
+const compactingConversationId = ref("");
 const suppressNextCompactionReload = ref(false);
 const conversationBusy = computed(() => forcingArchive.value || compactingConversation.value);
 const branchingConversation = ref(false);
@@ -2243,6 +2247,8 @@ const chatRuntime = useChatRuntime({
   activeChatApiConfigId: currentForegroundApiConfigId,
   assistantDepartmentAgentId: currentForegroundAgentId,
   currentConversationId: currentChatConversationId,
+  forcingArchiveConversationId,
+  compactingConversationId,
   chatting,
   forcingArchive,
   compactingConversation,
@@ -2417,6 +2423,14 @@ function clearForegroundConversation(reason: string) {
   cacheConversationMessages(previousConversationId, allMessages.value);
   currentChatConversationId.value = "";
   currentChatTodos.value = [];
+  if (forcingArchiveConversationId.value === previousConversationId) {
+    forcingArchiveConversationId.value = "";
+    forcingArchive.value = false;
+  }
+  if (compactingConversationId.value === previousConversationId) {
+    compactingConversationId.value = "";
+    compactingConversation.value = false;
+  }
   allMessages.value = [];
   hasMoreBackendHistory.value = false;
   foregroundTailLatestReady.value = true;
