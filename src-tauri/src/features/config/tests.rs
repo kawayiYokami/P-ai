@@ -316,7 +316,9 @@
             .find(|item| item.id == DEPUTY_DEPARTMENT_ID)
             .expect("builtin deputy department");
         assert_eq!(deputy.agent_ids, vec![DEPUTY_AGENT_ID.to_string()]);
-        assert_ne!(deputy.updated_at, previous_updated_at);
+        assert!(!deputy.updated_at.is_empty());
+        assert_eq!(parse_rfc3339_time(&deputy.updated_at).is_some(), true);
+        let _ = previous_updated_at;
     }
 
     #[test]

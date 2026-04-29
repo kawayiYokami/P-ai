@@ -605,92 +605,20 @@ pub(super) fn write_jsonl_snapshot_appended_messages_shard(
             paths.conversation_id
         ));
     }
-    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
-    let mut index = (*read_message_store_index_file(&paths.index_file)?).clone();
-    let mut encoded_entries = Vec::<String>::with_capacity(entries.len());
-    let mut next_offset = manifest.messages_jsonl_bytes;
+    let mut current = read_message_store_directory_conversation(paths)?;
     for (_, message) in entries {
-        if find_index_item_position(&index, &message.id).is_some() {
+        if current.messages.iter().any(|item| item.id == message.id) {
             return Err(format!(
                 "追加 JSONL 消息失败：消息 ID 已存在，conversation_id={}，message_id={}",
                 paths.conversation_id,
                 message.id
             ));
         }
-        let encoded = encode_jsonl_snapshot_message(message)?;
-        let byte_len = encoded.as_bytes().len() as u64;
-        let item = message_store_index_item_for_message(message, next_offset, byte_len);
-        index.items.push(item);
-        next_offset += byte_len;
-        encoded_entries.push(encoded);
+        current.messages.push((*message).clone());
     }
-    index.rebuild_position_lookup();
-    validate_message_store_index_file(&paths.index_file, &index)?;
-
-    if let Some(parent) = paths.messages_file.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建 JSONL 消息目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    let tmp_path = paths.messages_file.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
-    {
-        let mut source = fs::File::open(&paths.messages_file).map_err(|err| {
-            format!(
-                "打开 JSONL 消息文件失败，path={}，error={err}",
-                paths.messages_file.display()
-            )
-        })?;
-        let mut target = fs::File::create(&tmp_path).map_err(|err| {
-            format!(
-                "创建 JSONL 消息临时文件失败，path={}，error={err}",
-                tmp_path.display()
-            )
-        })?;
-        std::io::copy(&mut source, &mut target).map_err(|err| {
-            format!(
-                "复制 JSONL 消息文件失败，source={}，tmp={}，error={err}",
-                paths.messages_file.display(),
-                tmp_path.display()
-            )
-        })?;
-        for ((_, message), encoded) in entries.iter().zip(encoded_entries.iter()) {
-            std::io::Write::write_all(&mut target, encoded.as_bytes()).map_err(|err| {
-                format!(
-                    "追加 JSONL 消息临时文件失败，path={}，message_id={}，error={err}",
-                    tmp_path.display(),
-                    message.id
-                )
-            })?;
-        }
-    }
-
-    let last_message_id = entries
-        .last()
-        .map(|(_, message)| message.id.trim().to_string())
-        .unwrap_or_default();
-    let next_manifest = MessageStoreManifest::jsonl_snapshot_ready_for_messages(
-        index.items.len(),
-        last_message_id.clone(),
-        next_offset,
-        manifest.messages_index_revision + 1,
-    );
-    let mut building_manifest = manifest.clone();
-    building_manifest.migration_state = MessageStoreMigrationState::Building;
-    building_manifest.updated_at = now_iso();
-    write_message_store_manifest_atomic(&paths.manifest_file, &building_manifest)?;
     write_conversation_directory_meta_shard(paths, final_meta)?;
-    replace_message_store_file_atomic(&tmp_path, &paths.messages_file, "JSONL 消息")?;
-    write_message_store_index_atomic(&paths.index_file, &index)?;
-    write_message_store_manifest_atomic(&paths.manifest_file, &next_manifest)?;
-
-    Ok(MessageStoreDirectorySnapshotWrite {
-        manifest: next_manifest,
-        message_count: index.items.len(),
-        last_message_id,
-    })
+    let snapshot = ConversationPersistMessagesSnapshot::from_conversation(&current);
+    write_jsonl_snapshot_messages_shard(paths, &snapshot)
 }
 
 pub(super) fn write_jsonl_snapshot_truncated_messages_shard(
@@ -717,99 +645,19 @@ pub(super) fn write_jsonl_snapshot_truncated_messages_shard(
             paths.conversation_id
         ));
     }
-    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
-    let mut index = (*read_message_store_index_file(&paths.index_file)?).clone();
-    if keep_count > index.items.len() {
+    let mut current = read_message_store_directory_conversation(paths)?;
+    if keep_count > current.messages.len() {
         return Err(format!(
             "截断 JSONL 消息失败：保留数量超过当前消息数，conversation_id={}，keep_count={}，message_count={}",
             paths.conversation_id,
             keep_count,
-            index.items.len()
+            current.messages.len()
         ));
     }
-    let keep_bytes = if keep_count == 0 {
-        0
-    } else {
-        let item = &index.items[keep_count - 1];
-        item.offset.checked_add(item.byte_len).ok_or_else(|| {
-            format!(
-                "截断 JSONL 消息失败：offset 溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                item.message_id
-            )
-        })?
-    };
-    if keep_bytes > manifest.messages_jsonl_bytes {
-        return Err(format!(
-            "截断 JSONL 消息失败：保留字节超过 manifest 大小，conversation_id={}，keep_bytes={}，manifest_bytes={}",
-            paths.conversation_id,
-            keep_bytes,
-            manifest.messages_jsonl_bytes
-        ));
-    }
-
-    index.items.truncate(keep_count);
-    index.rebuild_position_lookup();
-    validate_message_store_index_file(&paths.index_file, &index)?;
-
-    if let Some(parent) = paths.messages_file.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建 JSONL 消息目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    let tmp_path = paths.messages_file.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
-    {
-        let source = fs::File::open(&paths.messages_file).map_err(|err| {
-            format!(
-                "打开 JSONL 消息文件失败，path={}，error={err}",
-                paths.messages_file.display()
-            )
-        })?;
-        let mut target = fs::File::create(&tmp_path).map_err(|err| {
-            format!(
-                "创建 JSONL 消息临时文件失败，path={}，error={err}",
-                tmp_path.display()
-            )
-        })?;
-        let mut limited = std::io::Read::take(source, keep_bytes);
-        std::io::copy(&mut limited, &mut target).map_err(|err| {
-            format!(
-                "复制 JSONL 消息前缀失败，source={}，tmp={}，bytes={}，error={err}",
-                paths.messages_file.display(),
-                tmp_path.display(),
-                keep_bytes
-            )
-        })?;
-    }
-
-    let last_message_id = index
-        .items
-        .last()
-        .map(|item| item.message_id.trim().to_string())
-        .unwrap_or_default();
-    let next_manifest = MessageStoreManifest::jsonl_snapshot_ready_for_messages(
-        index.items.len(),
-        last_message_id.clone(),
-        keep_bytes,
-        manifest.messages_index_revision + 1,
-    );
-    let mut building_manifest = manifest.clone();
-    building_manifest.migration_state = MessageStoreMigrationState::Building;
-    building_manifest.updated_at = now_iso();
-    write_message_store_manifest_atomic(&paths.manifest_file, &building_manifest)?;
+    current.messages.truncate(keep_count);
     write_conversation_directory_meta_shard(paths, meta)?;
-    replace_message_store_file_atomic(&tmp_path, &paths.messages_file, "JSONL 消息")?;
-    write_message_store_index_atomic(&paths.index_file, &index)?;
-    write_message_store_manifest_atomic(&paths.manifest_file, &next_manifest)?;
-
-    Ok(MessageStoreDirectorySnapshotWrite {
-        manifest: next_manifest,
-        message_count: index.items.len(),
-        last_message_id,
-    })
+    let snapshot = ConversationPersistMessagesSnapshot::from_conversation(&current);
+    write_jsonl_snapshot_messages_shard(paths, &snapshot)
 }
 
 pub(super) fn write_jsonl_snapshot_replaced_message_shard(
@@ -836,143 +684,18 @@ pub(super) fn write_jsonl_snapshot_replaced_message_shard(
             paths.conversation_id
         ));
     }
-    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
-    let mut index = (*read_message_store_index_file(&paths.index_file)?).clone();
-    let Some(position) = find_index_item_position(&index, &message.id) else {
+    let mut current = read_message_store_directory_conversation(paths)?;
+    let Some(position) = current.messages.iter().position(|item| item.id == message.id) else {
         return Err(format!(
             "替换 JSONL 消息失败：消息不存在，conversation_id={}，message_id={}",
             paths.conversation_id,
             message.id
         ));
     };
-    let old_item = index.items[position].clone();
-    let old_end = old_item.offset.checked_add(old_item.byte_len).ok_or_else(|| {
-        format!(
-            "替换 JSONL 消息失败：旧 offset 溢出，conversation_id={}，message_id={}",
-            paths.conversation_id,
-            old_item.message_id
-        )
-    })?;
-    let encoded = encode_jsonl_snapshot_message(message)?;
-    let new_len = encoded.as_bytes().len() as u64;
-    let delta = i128::from(new_len) - i128::from(old_item.byte_len);
-
-    index.items[position] = message_store_index_item_for_message(message, old_item.offset, new_len);
-    for item in index.items.iter_mut().skip(position + 1) {
-        let next_offset = i128::from(item.offset) + delta;
-        if next_offset < 0 || next_offset > i128::from(u64::MAX) {
-            return Err(format!(
-                "替换 JSONL 消息失败：offset 调整溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                item.message_id
-            ));
-        }
-        item.offset = next_offset as u64;
-    }
-    index.rebuild_position_lookup();
-    validate_message_store_index_file(&paths.index_file, &index)?;
-
-    if let Some(parent) = paths.messages_file.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建 JSONL 消息目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    let tmp_path = paths.messages_file.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
-    {
-        let mut source = fs::File::open(&paths.messages_file).map_err(|err| {
-            format!(
-                "打开 JSONL 消息文件失败，path={}，error={err}",
-                paths.messages_file.display()
-            )
-        })?;
-        let mut target = fs::File::create(&tmp_path).map_err(|err| {
-            format!(
-                "创建 JSONL 消息临时文件失败，path={}，error={err}",
-                tmp_path.display()
-            )
-        })?;
-        std::io::copy(&mut std::io::Read::by_ref(&mut source).take(old_item.offset), &mut target)
-            .map_err(|err| {
-                format!(
-                    "复制 JSONL 消息替换前缀失败，source={}，tmp={}，message_id={}，error={err}",
-                    paths.messages_file.display(),
-                    tmp_path.display(),
-                    message.id
-                )
-            })?;
-        std::io::Write::write_all(&mut target, encoded.as_bytes()).map_err(|err| {
-            format!(
-                "写入 JSONL 替换消息失败，path={}，message_id={}，error={err}",
-                tmp_path.display(),
-                message.id
-            )
-        })?;
-        std::io::Seek::seek(&mut source, std::io::SeekFrom::Start(old_end)).map_err(|err| {
-            format!(
-                "定位 JSONL 消息替换后缀失败，path={}，offset={}，error={err}",
-                paths.messages_file.display(),
-                old_end
-            )
-        })?;
-        std::io::copy(&mut source, &mut target).map_err(|err| {
-            format!(
-                "复制 JSONL 消息替换后缀失败，source={}，tmp={}，message_id={}，error={err}",
-                paths.messages_file.display(),
-                tmp_path.display(),
-                message.id
-            )
-        })?;
-    }
-
-    let next_bytes = if delta.is_negative() {
-        manifest
-            .messages_jsonl_bytes
-            .checked_sub(delta.unsigned_abs() as u64)
-            .ok_or_else(|| {
-                format!(
-                    "替换 JSONL 消息失败：文件大小调整下溢，conversation_id={}",
-                    paths.conversation_id
-                )
-            })?
-    } else {
-        manifest
-            .messages_jsonl_bytes
-            .checked_add(delta as u64)
-            .ok_or_else(|| {
-                format!(
-                    "替换 JSONL 消息失败：文件大小调整溢出，conversation_id={}",
-                    paths.conversation_id
-                )
-            })?
-    };
-    let last_message_id = index
-        .items
-        .last()
-        .map(|item| item.message_id.trim().to_string())
-        .unwrap_or_default();
-    let next_manifest = MessageStoreManifest::jsonl_snapshot_ready_for_messages(
-        index.items.len(),
-        last_message_id.clone(),
-        next_bytes,
-        manifest.messages_index_revision + 1,
-    );
-    let mut building_manifest = manifest.clone();
-    building_manifest.migration_state = MessageStoreMigrationState::Building;
-    building_manifest.updated_at = now_iso();
-    write_message_store_manifest_atomic(&paths.manifest_file, &building_manifest)?;
+    current.messages[position] = message.clone();
     write_conversation_directory_meta_shard(paths, meta)?;
-    replace_message_store_file_atomic(&tmp_path, &paths.messages_file, "JSONL 消息")?;
-    write_message_store_index_atomic(&paths.index_file, &index)?;
-    write_message_store_manifest_atomic(&paths.manifest_file, &next_manifest)?;
-
-    Ok(MessageStoreDirectorySnapshotWrite {
-        manifest: next_manifest,
-        message_count: index.items.len(),
-        last_message_id,
-    })
+    let snapshot = ConversationPersistMessagesSnapshot::from_conversation(&current);
+    write_jsonl_snapshot_messages_shard(paths, &snapshot)
 }
 
 pub(super) fn write_jsonl_snapshot_spliced_messages_shard(
@@ -1001,9 +724,8 @@ pub(super) fn write_jsonl_snapshot_spliced_messages_shard(
             paths.conversation_id
         ));
     }
-    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
-    let mut old_index = (*read_message_store_index_file(&paths.index_file)?).clone();
-    let old_len = old_index.items.len();
+    let mut current = read_message_store_directory_conversation(paths)?;
+    let old_len = current.messages.len();
     if start_index > old_len || delete_count > old_len.saturating_sub(start_index) {
         return Err(format!(
             "拼接 JSONL 消息失败：范围越界，conversation_id={}，start_index={}，delete_count={}，message_count={}",
@@ -1013,38 +735,6 @@ pub(super) fn write_jsonl_snapshot_spliced_messages_shard(
             old_len
         ));
     }
-    let prefix_bytes = if start_index == 0 {
-        0
-    } else {
-        let item = &old_index.items[start_index - 1];
-        item.offset.checked_add(item.byte_len).ok_or_else(|| {
-            format!(
-                "拼接 JSONL 消息失败：前缀 offset 溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                item.message_id
-            )
-        })?
-    };
-    let suffix_start_index = start_index + delete_count;
-    let suffix_bytes = if delete_count == 0 {
-        prefix_bytes
-    } else {
-        let item = &old_index.items[suffix_start_index - 1];
-        item.offset.checked_add(item.byte_len).ok_or_else(|| {
-            format!(
-                "拼接 JSONL 消息失败：删除段 offset 溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                item.message_id
-            )
-        })?
-    };
-
-    let mut next_items = Vec::<MessageStoreIndexItem>::with_capacity(
-        old_len - delete_count + inserted_messages.len(),
-    );
-    next_items.extend(old_index.items[..start_index].iter().cloned());
-    let mut encoded_inserted = Vec::<String>::with_capacity(inserted_messages.len());
-    let mut next_offset = prefix_bytes;
     for message in inserted_messages {
         let message_id = message.id.trim();
         if message_id.is_empty() {
@@ -1053,12 +743,12 @@ pub(super) fn write_jsonl_snapshot_spliced_messages_shard(
                 paths.conversation_id
             ));
         }
-        if next_items
+        if current
+            .messages
             .iter()
-            .any(|item| item.message_id.trim() == message_id)
-            || old_index.items[suffix_start_index..]
-                .iter()
-                .any(|item| item.message_id.trim() == message_id)
+            .enumerate()
+            .filter(|(idx, _)| *idx < start_index || *idx >= start_index + delete_count)
+            .any(|(_, item)| item.id.trim() == message_id)
         {
             return Err(format!(
                 "拼接 JSONL 消息失败：消息 ID 冲突，conversation_id={}，message_id={}",
@@ -1066,137 +756,11 @@ pub(super) fn write_jsonl_snapshot_spliced_messages_shard(
                 message_id
             ));
         }
-        let encoded = encode_jsonl_snapshot_message(message)?;
-        let byte_len = encoded.as_bytes().len() as u64;
-        next_items.push(message_store_index_item_for_message(message, next_offset, byte_len));
-        next_offset = next_offset.checked_add(byte_len).ok_or_else(|| {
-            format!(
-                "拼接 JSONL 消息失败：插入 offset 溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                message_id
-            )
-        })?;
-        encoded_inserted.push(encoded);
     }
-    let delta = i128::from(next_offset) - i128::from(suffix_bytes);
-    for item in old_index.items[suffix_start_index..].iter().cloned() {
-        let shifted_offset = i128::from(item.offset) + delta;
-        if shifted_offset < 0 || shifted_offset > i128::from(u64::MAX) {
-            return Err(format!(
-                "拼接 JSONL 消息失败：后缀 offset 调整溢出，conversation_id={}，message_id={}",
-                paths.conversation_id,
-                item.message_id
-            ));
-        }
-        let mut shifted = item;
-        shifted.offset = shifted_offset as u64;
-        next_items.push(shifted);
-    }
-    old_index.items = next_items;
-    old_index.rebuild_position_lookup();
-    validate_message_store_index_file(&paths.index_file, &old_index)?;
-
-    if let Some(parent) = paths.messages_file.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建 JSONL 消息目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    let tmp_path = paths.messages_file.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
-    {
-        let mut source = fs::File::open(&paths.messages_file).map_err(|err| {
-            format!(
-                "打开 JSONL 消息文件失败，path={}，error={err}",
-                paths.messages_file.display()
-            )
-        })?;
-        let mut target = fs::File::create(&tmp_path).map_err(|err| {
-            format!(
-                "创建 JSONL 消息临时文件失败，path={}，error={err}",
-                tmp_path.display()
-            )
-        })?;
-        std::io::copy(&mut std::io::Read::by_ref(&mut source).take(prefix_bytes), &mut target)
-            .map_err(|err| {
-                format!(
-                    "复制 JSONL 拼接前缀失败，source={}，tmp={}，error={err}",
-                    paths.messages_file.display(),
-                    tmp_path.display()
-                )
-            })?;
-        for (message, encoded) in inserted_messages.iter().zip(encoded_inserted.iter()) {
-            std::io::Write::write_all(&mut target, encoded.as_bytes()).map_err(|err| {
-                format!(
-                    "写入 JSONL 拼接消息失败，path={}，message_id={}，error={err}",
-                    tmp_path.display(),
-                    message.id
-                )
-            })?;
-        }
-        std::io::Seek::seek(&mut source, std::io::SeekFrom::Start(suffix_bytes)).map_err(|err| {
-            format!(
-                "定位 JSONL 拼接后缀失败，path={}，offset={}，error={err}",
-                paths.messages_file.display(),
-                suffix_bytes
-            )
-        })?;
-        std::io::copy(&mut source, &mut target).map_err(|err| {
-            format!(
-                "复制 JSONL 拼接后缀失败，source={}，tmp={}，error={err}",
-                paths.messages_file.display(),
-                tmp_path.display()
-            )
-        })?;
-    }
-
-    let next_bytes = if delta.is_negative() {
-        manifest
-            .messages_jsonl_bytes
-            .checked_sub(delta.unsigned_abs() as u64)
-            .ok_or_else(|| {
-                format!(
-                    "拼接 JSONL 消息失败：文件大小调整下溢，conversation_id={}",
-                    paths.conversation_id
-                )
-            })?
-    } else {
-        manifest
-            .messages_jsonl_bytes
-            .checked_add(delta as u64)
-            .ok_or_else(|| {
-                format!(
-                    "拼接 JSONL 消息失败：文件大小调整溢出，conversation_id={}",
-                    paths.conversation_id
-                )
-            })?
-    };
-    let last_message_id = old_index
-        .items
-        .last()
-        .map(|item| item.message_id.trim().to_string())
-        .unwrap_or_default();
-    let next_manifest = MessageStoreManifest::jsonl_snapshot_ready_for_messages(
-        old_index.items.len(),
-        last_message_id.clone(),
-        next_bytes,
-        manifest.messages_index_revision + 1,
-    );
-    let mut building_manifest = manifest.clone();
-    building_manifest.migration_state = MessageStoreMigrationState::Building;
-    building_manifest.updated_at = now_iso();
-    write_message_store_manifest_atomic(&paths.manifest_file, &building_manifest)?;
+    current.messages.splice(start_index..start_index + delete_count, inserted_messages.iter().cloned());
     write_conversation_directory_meta_shard(paths, meta)?;
-    replace_message_store_file_atomic(&tmp_path, &paths.messages_file, "JSONL 消息")?;
-    write_message_store_index_atomic(&paths.index_file, &old_index)?;
-    write_message_store_manifest_atomic(&paths.manifest_file, &next_manifest)?;
-
-    Ok(MessageStoreDirectorySnapshotWrite {
-        manifest: next_manifest,
-        message_count: old_index.items.len(),
-        last_message_id,
-    })
+    let snapshot = ConversationPersistMessagesSnapshot::from_conversation(&current);
+    write_jsonl_snapshot_messages_shard(paths, &snapshot)
 }
 
 pub(super) fn should_write_jsonl_snapshot_directory_shard(
@@ -1288,7 +852,8 @@ mod message_store_persist_tests {
         assert!(write.manifest.should_read_jsonl());
         assert_eq!(loaded.messages.len(), 2);
         assert!(paths.meta_file.exists());
-        assert!(paths.messages_file.exists());
+        assert!(!paths.messages_file.exists());
+        assert!(paths.blocks_dir.exists());
         assert!(paths.index_file.exists());
         assert!(paths.manifest_file.exists());
         let _ = fs::remove_dir_all(root);
@@ -1305,18 +870,32 @@ mod message_store_persist_tests {
         let mut conversation = test_conversation(vec![test_message("m1"), test_message("m2")]);
         write_jsonl_snapshot_directory_shard(&paths, &conversation)
             .expect("write directory snapshot");
-        let messages_before = fs::read_to_string(&paths.messages_file).expect("read messages before");
+        let loaded_before = read_message_store_directory_conversation(&paths)
+            .expect("read directory snapshot before");
         conversation.title = "updated title".to_string();
         conversation.messages.push(test_message("m3"));
         let meta = ConversationPersistMeta::from_conversation(&conversation);
 
         write_conversation_directory_meta_shard(&paths, &meta).expect("write meta only");
         let loaded_meta = read_conversation_shard_meta(&paths.meta_file).expect("read meta");
-        let messages_after = fs::read_to_string(&paths.messages_file).expect("read messages after");
+        let loaded_after = read_message_store_directory_conversation(&paths)
+            .expect("read directory snapshot after");
 
         assert_eq!(loaded_meta.title, "updated title");
-        assert_eq!(messages_after, messages_before);
-        assert!(!messages_after.contains("m3"));
+        assert_eq!(loaded_after.messages.len(), loaded_before.messages.len());
+        assert_eq!(
+            loaded_after
+                .messages
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>(),
+            loaded_before
+                .messages
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(!loaded_after.messages.iter().any(|message| message.id == "m3"));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1461,7 +1040,7 @@ mod message_store_persist_tests {
         assert_eq!(manifest.last_message_id, "m2");
         assert_eq!(
             manifest.messages_jsonl_bytes,
-            fs::metadata(&paths.messages_file).expect("metadata").len()
+            message_store_index_total_bytes(&paths, &index).expect("total bytes")
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -1513,7 +1092,7 @@ mod message_store_persist_tests {
         assert_eq!(index.items.len(), 3);
         assert_eq!(
             manifest.messages_jsonl_bytes,
-            fs::metadata(&paths.messages_file).expect("metadata").len()
+            message_store_index_total_bytes(&paths, &index).expect("total bytes")
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -1561,7 +1140,7 @@ mod message_store_persist_tests {
         assert_eq!(index.items.len(), 3);
         assert_eq!(
             manifest.messages_jsonl_bytes,
-            fs::metadata(&paths.messages_file).expect("metadata").len()
+            message_store_index_total_bytes(&paths, &index).expect("total bytes")
         );
         let _ = fs::remove_dir_all(root);
     }

@@ -2434,8 +2434,9 @@ mod message_store_reader_tests {
             test_message("jsonl2", "user"),
         ]);
         run_jsonl_snapshot_migration(&paths, &conversation, false).expect("run migration");
-        let original_content = fs::read_to_string(&paths.messages_file).expect("read messages");
-        fs::write(&paths.messages_file, "x".repeat(original_content.len()))
+        let block_path = paths.blocks_dir.join("000000.jsonl");
+        let original_content = fs::read_to_string(&block_path).expect("read messages");
+        fs::write(&block_path, "x".repeat(original_content.len()))
             .expect("break messages jsonl without changing size");
 
         let status = read_ready_message_store_status(&paths)
@@ -2685,7 +2686,7 @@ mod message_store_reader_tests {
             .expect_err("unsafe shard dir should fail before deletion");
 
         assert!(err.contains("分片目录不在 conversations 目录内"));
-        assert!(paths.legacy_conversation_file.exists());
+        assert!(!paths.legacy_conversation_file.exists());
         assert!(outside_dir.exists());
         let _ = fs::remove_dir_all(root);
     }

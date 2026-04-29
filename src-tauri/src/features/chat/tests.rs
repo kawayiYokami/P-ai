@@ -3046,97 +3046,37 @@
         let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
 
+        let create_task = |goal: &str, conversation_id: &str| {
+            task_store_create_task(&state.data_path, &TaskCreateInput {
+                goal: goal.to_string(),
+                conversation_id: Some(conversation_id.to_string()),
+                target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+                why: String::new(),
+                todo: String::new(),
+                trigger: TaskTriggerInputLocal {
+                    run_at_local: Some("2026-04-10T10:00:00+08:00".to_string()),
+                    every_minutes: Some(30.0),
+                    end_at_local: Some("2099-04-10T12:00:00+08:00".to_string()),
+                },
+            })
+            .expect("create task")
+        };
+        let task_1 = create_task("t1", "conversation-main");
+        let task_2 = create_task("t2", "conversation-main");
+        let task_3 = create_task("t3", "conversation-sub");
         let tasks = vec![
-            TaskRecordStored {
-                task_id: "task-1".to_string(),
-                conversation_id: Some("conversation-main".to_string()),
-                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-                order_index: 1,
-                title: "t1".to_string(),
-                cause: String::new(),
-                goal: String::new(),
-                flow: String::new(),
-                todos: Vec::new(),
-                status_summary: String::new(),
-                completion_state: TASK_STATE_ACTIVE.to_string(),
-                completion_conclusion: String::new(),
-                progress_notes: Vec::new(),
-                stage_key: String::new(),
-                stage_updated_at_utc: None,
-                trigger: TaskTriggerStored {
-                    run_at_utc: None,
-                    every_minutes: None,
-                    end_at_utc: None,
-                    next_run_at_utc: None,
-                },
-                created_at_utc: now_utc_rfc3339(),
-                updated_at_utc: now_utc_rfc3339(),
-                last_triggered_at_utc: None,
-                completed_at_utc: None,
-            },
-            TaskRecordStored {
-                task_id: "task-2".to_string(),
-                conversation_id: Some("conversation-main".to_string()),
-                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-                order_index: 2,
-                title: "t2".to_string(),
-                cause: String::new(),
-                goal: String::new(),
-                flow: String::new(),
-                todos: Vec::new(),
-                status_summary: String::new(),
-                completion_state: TASK_STATE_ACTIVE.to_string(),
-                completion_conclusion: String::new(),
-                progress_notes: Vec::new(),
-                stage_key: String::new(),
-                stage_updated_at_utc: None,
-                trigger: TaskTriggerStored {
-                    run_at_utc: None,
-                    every_minutes: None,
-                    end_at_utc: None,
-                    next_run_at_utc: None,
-                },
-                created_at_utc: now_utc_rfc3339(),
-                updated_at_utc: now_utc_rfc3339(),
-                last_triggered_at_utc: None,
-                completed_at_utc: None,
-            },
-            TaskRecordStored {
-                task_id: "task-3".to_string(),
-                conversation_id: Some("conversation-sub".to_string()),
-                target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-                order_index: 3,
-                title: "t3".to_string(),
-                cause: String::new(),
-                goal: String::new(),
-                flow: String::new(),
-                todos: Vec::new(),
-                status_summary: String::new(),
-                completion_state: TASK_STATE_ACTIVE.to_string(),
-                completion_conclusion: String::new(),
-                progress_notes: Vec::new(),
-                stage_key: String::new(),
-                stage_updated_at_utc: None,
-                trigger: TaskTriggerStored {
-                    run_at_utc: None,
-                    every_minutes: None,
-                    end_at_utc: None,
-                    next_run_at_utc: None,
-                },
-                created_at_utc: now_utc_rfc3339(),
-                updated_at_utc: now_utc_rfc3339(),
-                last_triggered_at_utc: None,
-                completed_at_utc: None,
-            },
+            task_store_get_task_record(&state.data_path, &task_1.task_id).expect("get task 1"),
+            task_store_get_task_record(&state.data_path, &task_2.task_id).expect("get task 2"),
+            task_store_get_task_record(&state.data_path, &task_3.task_id).expect("get task 3"),
         ];
 
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
         assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].task.task_id, "task-1");
+        assert_eq!(candidates[0].task.task_id, task_1.task_id);
         assert_eq!(candidates[0].session.conversation_id, "conversation-main");
-        assert_eq!(candidates[1].task.task_id, "task-3");
+        assert_eq!(candidates[1].task.task_id, task_3.task_id);
         assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
     }
 
@@ -3512,7 +3452,8 @@
         let later = (now_utc() + time::Duration::minutes(1))
             .format(&Rfc3339)
             .expect("format later");
-        let source = test_chat_conversation("conversation-main", "active", &now);
+        let mut source = test_chat_conversation("conversation-main", "active", &now);
+        source.summary = "archived summary".to_string();
         let mut data = AppData::default();
         data.main_conversation_id = Some(source.id.clone());
         data.conversations = vec![
@@ -3525,12 +3466,12 @@
             .expect("delete main conversation");
         let updated = state_read_app_data_cached(&state).expect("read app data");
 
-        assert_ne!(next_id, "conversation-main");
-        assert_ne!(next_id, "conversation-sub");
+        assert_eq!(next_id, "conversation-sub");
         assert_eq!(updated.main_conversation_id.as_deref(), Some(next_id.as_str()));
-        assert_eq!(updated.conversations.len(), 2);
-        assert!(updated.conversations.iter().any(|item| item.id == next_id && item.status == "active"));
-        assert!(!updated.conversations.iter().any(|item| item.id == "conversation-main" && item.summary.is_empty()));
+        assert_eq!(updated.conversations.len(), 1);
+        assert_eq!(updated.conversations[0].id, next_id);
+        assert_eq!(updated.conversations[0].status, "inactive");
+        assert_eq!(updated.conversations[0].summary, "");
     }
 
     #[test]
@@ -3543,7 +3484,8 @@
             .clone();
 
         let now = now_iso();
-        let source = test_chat_conversation("conversation-main", "active", &now);
+        let mut source = test_chat_conversation("conversation-main", "active", &now);
+        source.summary = "archived summary".to_string();
         let mut data = AppData::default();
         data.main_conversation_id = Some(source.id.clone());
         data.conversations = vec![source.clone()];

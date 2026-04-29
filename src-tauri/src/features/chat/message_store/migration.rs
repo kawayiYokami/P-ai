@@ -417,12 +417,17 @@ mod message_store_tests {
         assert!(outcome.wrote_files);
         assert!(manifest.should_read_jsonl());
         assert!(paths.meta_file.exists());
-        assert!(paths.messages_file.exists());
+        assert!(!paths.messages_file.exists());
+        assert!(paths.blocks_dir.exists());
         assert!(paths.index_file.exists());
         let meta = read_conversation_shard_meta(&paths.meta_file).expect("read meta");
         assert_eq!(meta.id, conversation.id);
-        let report = verify_jsonl_snapshot_file(&paths.messages_file, 2, "c1").expect("verify");
-        assert_eq!(report.compaction_count, 1);
+        let block_zero = paths.blocks_dir.join("000000.jsonl");
+        let block_one = paths.blocks_dir.join("000001.jsonl");
+        let report_zero = verify_jsonl_snapshot_file(&block_zero, 1, "m1").expect("verify block 0");
+        let report_one = verify_jsonl_snapshot_file(&block_one, 1, "c1").expect("verify block 1");
+        assert_eq!(report_zero.compaction_count, 0);
+        assert_eq!(report_one.compaction_count, 1);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -462,7 +467,8 @@ mod message_store_tests {
 
         assert!(outcome.wrote_files);
         assert!(outcome.manifest.should_read_jsonl());
-        assert!(paths.messages_file.exists());
+        assert!(!paths.messages_file.exists());
+        assert!(paths.blocks_dir.exists());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -476,11 +482,11 @@ mod message_store_tests {
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         run_jsonl_snapshot_migration(&paths, &conversation, false).expect("run migration");
-        fs::write(&paths.messages_file, "").expect("break ready snapshot");
+        fs::write(paths.blocks_dir.join("000000.jsonl"), "").expect("break ready snapshot");
 
         let outcome = resume_jsonl_snapshot_migration(&paths, &conversation)
             .expect("resume broken ready snapshot");
-        let report = verify_jsonl_snapshot_file(&paths.messages_file, 1, "m1")
+        let report = verify_jsonl_snapshot_file(&paths.blocks_dir.join("000000.jsonl"), 1, "m1")
             .expect("verify rebuilt snapshot");
         let backups = fs::read_dir(&paths.shard_dir)
             .expect("read shard dir")
@@ -519,7 +525,7 @@ mod message_store_tests {
 
         let outcome = resume_jsonl_snapshot_migration(&paths, &conversation)
             .expect("resume corrupt manifest");
-        let report = verify_jsonl_snapshot_file(&paths.messages_file, 1, "m1")
+        let report = verify_jsonl_snapshot_file(&paths.blocks_dir.join("000000.jsonl"), 1, "m1")
             .expect("verify rebuilt snapshot");
 
         assert!(outcome.wrote_files);
@@ -590,7 +596,8 @@ mod message_store_tests {
 
         assert_eq!(manifest.migration_state, MessageStoreMigrationState::Rollback);
         assert!(!manifest.should_read_jsonl());
-        assert!(paths.messages_file.exists());
+        assert!(!paths.messages_file.exists());
+        assert!(paths.blocks_dir.exists());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -616,7 +623,8 @@ mod message_store_tests {
         assert_eq!(rollback.source_message_count, 1);
         assert_eq!(rollback.last_message_id, "m1");
         assert_eq!(rollback.messages_jsonl_bytes, 0);
-        assert!(paths.messages_file.exists());
+        assert!(!paths.messages_file.exists());
+        assert!(paths.blocks_dir.exists());
         let _ = fs::remove_dir_all(root);
     }
 
