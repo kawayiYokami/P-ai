@@ -250,11 +250,44 @@ fn push_runtime_tool_executors(
         session_id: tool_session_id.to_string(),
     }));
     tools.push(Box::new(BuiltinContactSendFilesTool {
-        app_state: state,
+        app_state: state.clone(),
         session_id: tool_session_id.to_string(),
     }));
     tools.push(Box::new(BuiltinContactNoReplyTool));
+    push_cached_mcp_runtime_tools(tools, &state);
     Ok(())
+}
+
+fn push_cached_mcp_runtime_tools(tools: &mut Vec<Box<dyn RuntimeToolDyn>>, state: &AppState) {
+    let servers = match load_workspace_mcp_servers(state) {
+        Ok(servers) => servers,
+        Err(err) => {
+            runtime_log_warn(format!("[MCP] 装配 MCP 工具执行器失败，加载配置失败: {err}"));
+            return;
+        }
+    };
+    let existing_names = tools.iter().map(|tool| tool.name()).collect::<HashSet<_>>();
+    let mut added_names = HashSet::<String>::new();
+    for server in servers.into_iter().filter(|server| server.enabled) {
+        for descriptor in list_tools_from_runtime_or_policy(&server).into_iter().filter(|tool| tool.enabled) {
+            if existing_names.contains(&descriptor.tool_name) || !added_names.insert(descriptor.tool_name.clone()) {
+                continue;
+            }
+            let input_schema = Arc::new(match descriptor.parameters {
+                Value::Object(map) => map,
+                _ => serde_json::Map::new(),
+            });
+            let definition = rmcp::model::Tool::new(
+                descriptor.tool_name.clone(),
+                descriptor.description,
+                input_schema,
+            );
+            tools.push(Box::new(CachedMcpRuntimeTool {
+                server: server.clone(),
+                definition,
+            }));
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -270,7 +303,7 @@ struct LazyReadFileMcpTool {
 }
 
 const TOOL_RUNTIME_CHECK_TIMEOUT_SECS: u64 = 8;
-const TOOL_RUNTIME_EXEC_TIMEOUT_SECS: u64 = 120;
+const MCP_TOOL_RUNTIME_EXEC_TIMEOUT_SECS: u64 = 300;
 
 fn tool_unavailable_timeout_result(tool_name: &str) -> ProviderToolResult {
     ProviderToolResult::error(format!(
@@ -330,10 +363,17 @@ async fn call_lazy_operate_mcp_tool(
         definition,
         client: client.peer().clone(),
     };
-    let execute_timeout = std::time::Duration::from_secs(TOOL_RUNTIME_EXEC_TIMEOUT_SECS);
+    let execute_timeout = std::time::Duration::from_secs(MCP_TOOL_RUNTIME_EXEC_TIMEOUT_SECS);
     let result = match tokio::time::timeout(execute_timeout, tool.call_json(args_json)).await {
         Ok(result) => result,
-        Err(_) => Ok(tool_execution_timeout_result(MCP_OPERATE_TOOL_NAME)),
+        Err(_) => {
+            runtime_log_warn(format!(
+                "[工具执行] MCP 工具执行超时: tool={}, timeout_ms={}",
+                MCP_OPERATE_TOOL_NAME,
+                execute_timeout.as_millis()
+            ));
+            Ok(tool_execution_timeout_result(MCP_OPERATE_TOOL_NAME))
+        }
     };
     cancel_lazy_mcp_client(MCP_OPERATE_TOOL_NAME, client).await?;
     result
@@ -363,10 +403,17 @@ async fn call_lazy_read_file_mcp_tool(
         definition,
         client: client.peer().clone(),
     };
-    let execute_timeout = std::time::Duration::from_secs(TOOL_RUNTIME_EXEC_TIMEOUT_SECS);
+    let execute_timeout = std::time::Duration::from_secs(MCP_TOOL_RUNTIME_EXEC_TIMEOUT_SECS);
     let result = match tokio::time::timeout(execute_timeout, tool.call_json(args_json)).await {
         Ok(result) => result,
-        Err(_) => Ok(tool_execution_timeout_result(MCP_READ_FILE_TOOL_NAME)),
+        Err(_) => {
+            runtime_log_warn(format!(
+                "[工具执行] MCP 工具执行超时: tool={}, timeout_ms={}",
+                MCP_READ_FILE_TOOL_NAME,
+                execute_timeout.as_millis()
+            ));
+            Ok(tool_execution_timeout_result(MCP_READ_FILE_TOOL_NAME))
+        }
     };
     cancel_lazy_mcp_client(MCP_READ_FILE_TOOL_NAME, client).await?;
     result
@@ -375,6 +422,10 @@ async fn call_lazy_read_file_mcp_tool(
 impl RuntimeToolDyn for LazyOperateMcpTool {
     fn name(&self) -> String {
         MCP_OPERATE_TOOL_NAME.to_string()
+    }
+
+    fn is_mcp_tool(&self) -> bool {
+        true
     }
 
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
@@ -386,6 +437,10 @@ impl RuntimeToolDyn for LazyOperateMcpTool {
 impl RuntimeToolDyn for LazyReadFileMcpTool {
     fn name(&self) -> String {
         MCP_READ_FILE_TOOL_NAME.to_string()
+    }
+
+    fn is_mcp_tool(&self) -> bool {
+        true
     }
 
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {

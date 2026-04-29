@@ -138,6 +138,10 @@ impl RuntimeJsonTool for BuiltinRememberTool {
     type Args = MemorySaveToolArgs;
     type Error = ToolInvokeError;
 
+    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(3))
+    }
+
     fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
         Box::pin(async move {
         let args_json = serde_json::json!({
@@ -389,6 +393,13 @@ impl RuntimeJsonTool for BuiltinTerminalExecTool {
     const NAME: &'static str = "exec";
     type Args = TerminalExecToolArgs;
     type Error = ToolInvokeError;
+
+    fn timeout_override(args_json: &str) -> Option<std::time::Duration> {
+        parse_runtime_tool_args::<TerminalExecToolArgs>(args_json)
+            .ok()
+            .and_then(|args| args.timeout_ms)
+            .map(std::time::Duration::from_millis)
+    }
 
     fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
         Box::pin(async move {

@@ -522,10 +522,33 @@ async fn call_runtime_tool_by_name(
     tool_name: &str,
     tool_args: &str,
 ) -> Result<ProviderToolResult, String> {
+    const BUILTIN_TOOL_RUNTIME_EXEC_TIMEOUT_SECS: u64 = 30;
+    const MCP_TOOL_RUNTIME_EXEC_TIMEOUT_SECS: u64 = 300;
     let Some(tool) = tools.iter().find(|tool| tool.name() == tool_name) else {
         return Err(format!("未找到工具：{tool_name}"));
     };
-    tool.call_json(tool_args.to_string()).await
+    let timeout = tool.timeout_override(tool_args).unwrap_or_else(|| {
+        if tool.is_mcp_tool() {
+            std::time::Duration::from_secs(MCP_TOOL_RUNTIME_EXEC_TIMEOUT_SECS)
+        } else {
+            std::time::Duration::from_secs(BUILTIN_TOOL_RUNTIME_EXEC_TIMEOUT_SECS)
+        }
+    });
+    match tokio::time::timeout(timeout, tool.call_json(tool_args.to_string())).await {
+        Ok(result) => result,
+        Err(_) => {
+            runtime_log_warn(format!(
+                "[工具执行] 工具执行超时: tool={}, kind={}, timeout_ms={}",
+                tool_name,
+                if tool.is_mcp_tool() { "mcp" } else { "builtin" },
+                timeout.as_millis()
+            ));
+            Ok(ProviderToolResult::error(tool_failure_result_json(
+                tool_name,
+                &format!("工具执行超时，timeout_ms={}", timeout.as_millis()),
+            )))
+        }
+    }
 }
 
 fn runtime_tool_result_followup_message(

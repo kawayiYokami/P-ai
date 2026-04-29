@@ -139,6 +139,12 @@ struct McpRuntimeTool {
     client: rmcp::service::Peer<rmcp::RoleClient>,
 }
 
+#[derive(Clone)]
+struct CachedMcpRuntimeTool {
+    server: McpServerConfig,
+    definition: rmcp::model::Tool,
+}
+
 fn provider_tool_result_from_mcp_call(
     tool_name: &str,
     result: rmcp::model::CallToolResult,
@@ -242,6 +248,10 @@ impl RuntimeToolDyn for McpRuntimeTool {
         self.definition.name.to_string()
     }
 
+    fn is_mcp_tool(&self) -> bool {
+        true
+    }
+
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
         let name = self.definition.name.clone();
         Box::pin(async move {
@@ -261,12 +271,57 @@ impl RuntimeToolDyn for McpRuntimeTool {
     }
 }
 
+impl RuntimeToolDyn for CachedMcpRuntimeTool {
+    fn name(&self) -> String {
+        self.definition.name.to_string()
+    }
+
+    fn is_mcp_tool(&self) -> bool {
+        true
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        let server = self.server.clone();
+        let definition = self.definition.clone();
+        Box::pin(async move {
+            let peer = mcp_get_or_connect_peer_for_tool(&server, definition.name.as_ref()).await?;
+            let tool = McpRuntimeTool {
+                definition,
+                client: peer,
+            };
+            tool.call_json(args_json).await
+        })
+    }
+}
+
 fn mcp_client_cache(
 ) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, CachedMcpClient>> {
     static CACHE: OnceLock<
         tokio::sync::Mutex<std::collections::HashMap<String, CachedMcpClient>>,
     > = OnceLock::new();
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn mcp_client_connect_locks(
+) -> &'static tokio::sync::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
+> {
+    static LOCKS: OnceLock<
+        tokio::sync::Mutex<
+            std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
+        >,
+    > = OnceLock::new();
+    LOCKS.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+async fn mcp_client_connect_lock_for_server(
+    server_id: &str,
+) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut locks = mcp_client_connect_locks().lock().await;
+    locks
+        .entry(server_id.to_string())
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
 }
 
 #[derive(Debug, Clone)]
@@ -809,6 +864,19 @@ async fn mcp_get_or_connect_client(server: &McpServerConfig) -> Result<(), Strin
         }
     }
 
+    let connect_lock = mcp_client_connect_lock_for_server(&server.id).await;
+    let _connect_guard = connect_lock.lock().await;
+
+    {
+        let cache = mcp_client_cache();
+        let guard = cache.lock().await;
+        if let Some(hit) = guard.get(&server.id) {
+            if hit.definition_json == server.definition_json {
+                return Ok(());
+            }
+        }
+    }
+
     let parsed = parse_mcp_server_definition_from_config(server)?;
     let connected = mcp_connect_client(&parsed).await?;
     let mut old_cached: Option<CachedMcpClient> = None;
@@ -862,18 +930,38 @@ async fn mcp_list_tools_with_peer(
     server: &McpServerConfig,
 ) -> Result<(rmcp::service::Peer<rmcp::RoleClient>, Vec<rmcp::model::Tool>), String> {
     mcp_get_or_connect_client(server).await?;
+    let peer = {
+        let cache = mcp_client_cache();
+        let guard = cache.lock().await;
+        let cached = guard
+            .get(&server.id)
+            .ok_or_else(|| format!("MCP runtime cache missing server '{}'", server.id))?;
+        cached.client.peer().clone()
+    };
+    let tools = peer
+        .list_all_tools()
+        .await
+        .map_err(|err| format!("List MCP tools failed: {err}"))?;
+    Ok((peer, tools))
+}
+
+async fn mcp_get_or_connect_peer_for_tool(
+    server: &McpServerConfig,
+    tool_name: &str,
+) -> Result<rmcp::service::Peer<rmcp::RoleClient>, String> {
+    if !mcp_policy_enabled_for_tool(server, tool_name) || !mcp_tool_allowed_by_definition(server, tool_name) {
+        return Err(format!(
+            "MCP tool '{}' is disabled by policy for server '{}'",
+            tool_name, server.id
+        ));
+    }
+    mcp_get_or_connect_client(server).await?;
     let cache = mcp_client_cache();
     let guard = cache.lock().await;
     let cached = guard
         .get(&server.id)
         .ok_or_else(|| format!("MCP runtime cache missing server '{}'", server.id))?;
-    let peer = cached.client.peer().clone();
-    let tools = cached
-        .client
-        .list_all_tools()
-        .await
-        .map_err(|err| format!("List MCP tools failed: {err}"))?;
-    Ok((peer, tools))
+    Ok(cached.client.peer().clone())
 }
 
 async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<McpToolDescriptor>, String> {

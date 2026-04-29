@@ -897,6 +897,8 @@ fn with_memory_lock<T>(
     task_name: &str,
     f: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
+    let start = Instant::now();
+    const MEMORY_LOCK_WARN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
     let _guard = state.memory_lock.lock().map_err(|err| {
         format!(
             "Failed to lock memory mutex at {}:{} {} for task={} err={}",
@@ -907,6 +909,15 @@ fn with_memory_lock<T>(
             err
         )
     })?;
+    let waited = start.elapsed();
+    if waited >= MEMORY_LOCK_WARN_TIMEOUT {
+        runtime_log_warn(format!(
+            "[记忆生成] 获取记忆锁耗时过长: 任务名={} 耗时毫秒={} 阈值毫秒={}",
+            task_name,
+            waited.as_millis(),
+            MEMORY_LOCK_WARN_TIMEOUT.as_millis()
+        ));
+    }
     f()
 }
 

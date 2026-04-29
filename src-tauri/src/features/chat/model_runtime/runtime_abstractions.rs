@@ -34,6 +34,12 @@ type RuntimeJsonValueFuture<'a, E> = std::pin::Pin<
 
 trait RuntimeToolDyn: Send + Sync {
     fn name(&self) -> String;
+    fn timeout_override(&self, _args_json: &str) -> Option<std::time::Duration> {
+        None
+    }
+    fn is_mcp_tool(&self) -> bool {
+        false
+    }
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_>;
 }
 
@@ -41,6 +47,10 @@ trait RuntimeJsonTool: RuntimeToolMetadata + Send + Sync {
     const NAME: &'static str;
     type Args: for<'de> Deserialize<'de> + Send;
     type Error: std::fmt::Display + Send;
+
+    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
+        None
+    }
 
     fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error>;
 }
@@ -73,6 +83,14 @@ where
 {
     fn name(&self) -> String {
         T::NAME.to_string()
+    }
+
+    fn timeout_override(&self, args_json: &str) -> Option<std::time::Duration> {
+        T::timeout_override(args_json)
+    }
+
+    fn is_mcp_tool(&self) -> bool {
+        false
     }
 
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
