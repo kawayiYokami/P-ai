@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 修复（codex-refresh-lead-and-refresh-dedup）：Codex 运行时凭证刷新窗口从过期前 5 分钟提前到 5 天；按 provider 收敛并发刷新，避免多个请求同时刷新互相踩踏；同时增加进程内凭证缓存，`read_local` 模式在本次进程内刷新成功后可复用更新后的 token，降低反复读回旧本地凭证导致的频繁过期。
  - 修复（message-store-block-tests-and-persist-paths）：message store 持久化追加、截断、替换、拼接路径统一改为基于目录快照重写并回写分块 JSONL，修正测试对旧 `messages.jsonl` 单文件结构、旧任务构造方式与旧会话删除语义的过期断言，恢复此前 20 个失败测试并使 `cargo test` 全量通过。
  - 重构（apply-patch-json-and-error-guidance）：`apply_patch` 输入从 Codex 补丁文本切换为 JSON `operations` 协议，`update` 改为 `old_string` / `new_string` / `replace_all` 子串替换，`move` 统一落到重命名更新语义；同步改造撤回链路与备份恢复，并补强错误反馈，明确拒绝标准 git diff、为缺字段和匹配失败场景附最小 JSON 示例与下一步修正指引。
  - 修复（remote-im-contact-workspace-and-routing）：联系人工作区保存调用补齐 Tauri `input` 参数包装并在失败时保留草稿；远程 IM 联系人不再按主/非主部门切换路由，所有联系人消息统一进入联系人独立会话，部门仅决定后台处理人格与模型，同时清理配置页旧路由文案并补齐相关测试。

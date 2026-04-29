@@ -6,6 +6,7 @@ const CODEX_OAUTH_CALLBACK_PATH: &str = "/auth/callback";
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CODEX_OAUTH_SCOPE: &str = "openid profile email offline_access";
 const CODEX_OAUTH_ORIGINATOR: &str = "cline";
+const CODEX_REFRESH_LEAD_MS: i64 = 5 * 24 * 60 * 60 * 1000;
 const CODEX_OAUTH_HTML_SUCCESS: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Codex 登录成功</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:32px;"><h2>Codex 登录成功</h2><p>可以关闭这个窗口，返回应用继续使用。</p><script>setTimeout(()=>window.close(),2000)</script></body></html>"#;
 const CODEX_OAUTH_HTML_ERROR: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Codex 登录失败</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:32px;"><h2>Codex 登录失败</h2><p>请回到应用查看错误信息后重试。</p></body></html>"#;
 
@@ -141,6 +142,75 @@ fn codex_oauth_sessions() -> &'static Mutex<std::collections::HashMap<String, Co
     SESSIONS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+fn codex_refresh_locks(
+) -> &'static Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>> {
+    static LOCKS: OnceLock<
+        Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    > = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn codex_runtime_auth_cache() -> &'static Mutex<std::collections::HashMap<String, CodexStoredCredential>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, CodexStoredCredential>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn codex_runtime_auth_cache_key(provider_id: &str, auth_mode: &str, local_auth_path: &str) -> String {
+    format!(
+        "{}\n{}\n{}",
+        provider_id.trim(),
+        normalize_codex_auth_mode(auth_mode),
+        normalize_terminal_path_input_for_current_platform(local_auth_path)
+    )
+}
+
+fn codex_refresh_lock_for_provider(provider_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let key = provider_id.trim().to_string();
+    let mut guard = codex_refresh_locks().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard
+        .entry(key)
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+fn codex_runtime_auth_cache_get(
+    provider_id: &str,
+    auth_mode: &str,
+    local_auth_path: &str,
+) -> Option<CodexStoredCredential> {
+    let key = codex_runtime_auth_cache_key(provider_id, auth_mode, local_auth_path);
+    codex_runtime_auth_cache()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(&key).cloned())
+}
+
+fn codex_runtime_auth_cache_set(
+    provider_id: &str,
+    auth_mode: &str,
+    local_auth_path: &str,
+    credential: &CodexStoredCredential,
+) {
+    let key = codex_runtime_auth_cache_key(provider_id, auth_mode, local_auth_path);
+    if let Ok(mut guard) = codex_runtime_auth_cache().lock() {
+        guard.insert(key, credential.clone());
+    }
+}
+
+fn codex_pick_newer_credential(
+    current: CodexStoredCredential,
+    candidate: CodexStoredCredential,
+) -> CodexStoredCredential {
+    if candidate.expires_at_ms > current.expires_at_ms {
+        return candidate;
+    }
+    if candidate.expires_at_ms == current.expires_at_ms && candidate.updated_at > current.updated_at {
+        return candidate;
+    }
+    current
+}
+
 fn codex_session_get(provider_id: &str) -> Option<CodexOAuthSession> {
     codex_oauth_sessions()
         .lock()
@@ -259,7 +329,7 @@ fn codex_is_token_expired(expires_at_ms: i64) -> bool {
         return false;
     }
     let now_ms = now_utc().unix_timestamp_nanos() / 1_000_000;
-    now_ms >= i128::from(expires_at_ms.saturating_sub(5 * 60 * 1000))
+    now_ms >= i128::from(expires_at_ms.saturating_sub(CODEX_REFRESH_LEAD_MS))
 }
 
 fn codex_credential_from_token_response(
@@ -485,11 +555,14 @@ fn read_codex_runtime_auth_snapshot(
     local_auth_path: &str,
 ) -> Result<CodexRuntimeAuth, String> {
     let normalized_mode = normalize_codex_auth_mode(auth_mode);
-    let credential = if normalized_mode == CODEX_AUTH_MODE_MANAGED_OAUTH {
+    let mut credential = if normalized_mode == CODEX_AUTH_MODE_MANAGED_OAUTH {
         read_managed_codex_auth(provider_id)?
     } else {
         codex_parse_local_auth_file(local_auth_path)?
     };
+    if let Some(cached) = codex_runtime_auth_cache_get(provider_id, &normalized_mode, local_auth_path) {
+        credential = codex_pick_newer_credential(credential, cached);
+    }
     Ok(build_codex_runtime_auth(
         provider_id,
         &normalized_mode,
@@ -512,21 +585,32 @@ async fn codex_refresh_runtime_auth_with_trigger(
     auth: &CodexRuntimeAuth,
     trigger: &str,
 ) -> Result<CodexRuntimeAuth, String> {
-    let expires_at_ms = auth.expires_at_ms.unwrap_or_default();
-    let Some(refresh_token) = auth
+    let lock = codex_refresh_lock_for_provider(&auth.provider_id);
+    let _guard = lock.lock().await;
+
+    let latest_auth = read_codex_runtime_auth_snapshot(
+        &auth.provider_id,
+        &auth.auth_mode,
+        &auth.local_auth_path,
+    )?;
+    let expires_at_ms = latest_auth.expires_at_ms.unwrap_or_default();
+    if !codex_is_token_expired(expires_at_ms) {
+        return Ok(latest_auth);
+    }
+    let Some(refresh_token) = latest_auth
         .refresh_token
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return Ok(auth.clone());
+        return Ok(latest_auth);
     };
     let refresh_started = std::time::Instant::now();
     let refreshed = codex_refresh_credential(&CodexStoredCredential {
-        access_token: auth.access_token.clone(),
+        access_token: latest_auth.access_token.clone(),
         refresh_token: refresh_token.to_string(),
-        account_id: auth.account_id.clone().unwrap_or_default(),
-        email: auth.email.clone().unwrap_or_default(),
+        account_id: latest_auth.account_id.clone().unwrap_or_default(),
+        email: latest_auth.email.clone().unwrap_or_default(),
         expires_at_ms,
         updated_at: now_iso(),
     })
@@ -535,7 +619,7 @@ async fn codex_refresh_runtime_auth_with_trigger(
         codex_auth_log_info(
             "token_refresh",
             trigger,
-            &auth.provider_id,
+            &latest_auth.provider_id,
             "error",
             refresh_started.elapsed().as_millis(),
             &[
@@ -545,13 +629,19 @@ async fn codex_refresh_runtime_auth_with_trigger(
         );
         err
     })?;
-    if auth.auth_mode == CODEX_AUTH_MODE_MANAGED_OAUTH {
-        write_managed_codex_auth(&auth.provider_id, &refreshed)?;
+    if latest_auth.auth_mode == CODEX_AUTH_MODE_MANAGED_OAUTH {
+        write_managed_codex_auth(&latest_auth.provider_id, &refreshed)?;
     }
+    codex_runtime_auth_cache_set(
+        &latest_auth.provider_id,
+        &latest_auth.auth_mode,
+        &latest_auth.local_auth_path,
+        &refreshed,
+    );
     codex_auth_log_info(
         "token_refresh",
         trigger,
-        &auth.provider_id,
+        &latest_auth.provider_id,
         "authenticated",
         refresh_started.elapsed().as_millis(),
         &[
@@ -563,9 +653,9 @@ async fn codex_refresh_runtime_auth_with_trigger(
         ],
     );
     Ok(build_codex_runtime_auth(
-        &auth.provider_id,
-        &auth.auth_mode,
-        &auth.local_auth_path,
+        &latest_auth.provider_id,
+        &latest_auth.auth_mode,
+        &latest_auth.local_auth_path,
         refreshed,
     ))
 }
