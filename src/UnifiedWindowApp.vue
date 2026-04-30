@@ -2858,6 +2858,30 @@ function readConversationIdFromPayload(payload: unknown): string {
   return String((payload as { conversationId?: unknown }).conversationId || "").trim();
 }
 
+function readMessagesFromPayload(payload: unknown): ChatMessage[] {
+  if (!payload || typeof payload !== "object") return [];
+  const rawMessages = (payload as { messages?: unknown }).messages;
+  return Array.isArray(rawMessages) ? rawMessages as ChatMessage[] : [];
+}
+
+function mergeIncomingMessagesIntoCache(conversationId: string, messages: ChatMessage[]) {
+  const cid = String(conversationId || "").trim();
+  if (!cid || !Array.isArray(messages) || messages.length <= 0) return;
+  const incoming = messages
+    .filter((message) => !!String(message?.id || "").trim());
+  if (incoming.length <= 0) return;
+  const cachedDisplay = freezeConversationMessages(conversationMessageCache.value[cid] || []);
+  const cachedFormal = formalizeConversationMessages(cachedDisplay);
+  const incomingIds = new Set(incoming.map((message) => String(message.id || "").trim()));
+  const nextCached = [
+    ...cachedFormal.filter((message) => !incomingIds.has(String(message?.id || "").trim())),
+    ...incoming,
+  ];
+  cacheConversationMessages(cid, nextCached);
+  const latestMessage = incoming[incoming.length - 1];
+  if (latestMessage) applyConversationOverviewAppendedMessage(cid, latestMessage);
+}
+
 function buildConversationMessagesAfterAnchor(conversationId: string): string | null {
   const cid = String(conversationId || "").trim();
   if (!cid) return null;
@@ -4023,6 +4047,9 @@ onMounted(() => {
       });
       if (matchesForegroundConversation(payloadConversationId)) {
         void chatFlow.handleExternalHistoryFlushed(event.payload);
+      } else if (payloadConversationId) {
+        mergeIncomingMessagesIntoCache(payloadConversationId, readMessagesFromPayload(event.payload));
+        setConversationBadge(payloadConversationId, "completed");
       }
     })
       .then((unlisten) => {
