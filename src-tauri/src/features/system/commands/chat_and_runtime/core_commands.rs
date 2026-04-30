@@ -125,6 +125,34 @@ fn plan_context_from_message_provider_meta(message: &ChatMessage) -> Option<Stri
         .map(ToOwned::to_owned)
 }
 
+fn plan_continue_confirmation_message() -> ChatMessage {
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now_iso(),
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text {
+            text: "我同意，请执行。".to_string(),
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: Some(serde_json::json!({
+            "messageKind": "plan_confirm_continue",
+            "message_meta": {
+                "kind": "plan_confirm_continue"
+            }
+        })),
+        tool_call: None,
+        mcp_call: None,
+    }
+}
+
+fn plan_confirm_context_usage_ratio(source: &Conversation, selected_api: &ApiConfig) -> f64 {
+    conversation_prompt_service()
+        .latest_real_prompt_usage(source, selected_api)
+        .map(|usage| usage.usage_ratio.max(0.0))
+        .unwrap_or(0.0)
+}
+
 #[tauri::command]
 async fn confirm_plan_and_continue(
     input: ConfirmPlanAndContinueInput,
@@ -196,7 +224,9 @@ async fn confirm_plan_and_continue(
     };
     let continue_event_id = format!("confirm-plan-continue-{}", Uuid::new_v4());
     let preview = build_force_compaction_preview_result(state.inner(), &selected_api, &conversation)?;
-    if preview.can_compact {
+    let should_compact_before_continue =
+        preview.can_compact && plan_confirm_context_usage_ratio(&conversation, &selected_api) >= 0.60;
+    if should_compact_before_continue {
         dispatch_assistant_delta_to_active_view(
             state.inner(),
             conversation_id,
@@ -288,7 +318,7 @@ async fn confirm_plan_and_continue(
         created_at: now_iso(),
         source: ChatEventSource::System,
         queue_mode: ChatQueueMode::Normal,
-        messages: Vec::new(),
+        messages: vec![plan_continue_confirmation_message()],
         activate_assistant: true,
         session_info: ChatSessionInfo {
             department_id,

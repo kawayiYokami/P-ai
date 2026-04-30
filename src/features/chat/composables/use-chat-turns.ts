@@ -67,6 +67,36 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     if (messageKind === "tool_review_report") {
       return [];
     }
+    if (messageKind === "plan_confirm_continue") {
+      return [{
+        id: message.id,
+        sourceMessageId: message.id,
+        isExtraTextBlock: false,
+        role: "system",
+        dividerKind: "plan_started",
+        isStreaming: false,
+        streamSegments: [],
+        streamTail: "",
+        streamAnimatedDelta: "",
+        speakerAgentId: undefined,
+        createdAt: String(message.createdAt || "").trim() || undefined,
+        providerMeta: message.providerMeta,
+        mentions: [],
+        text: "",
+        images: [],
+        audios: [],
+        attachmentFiles: [],
+        memeSegments: undefined,
+        taskTrigger: undefined,
+        planCard: undefined,
+        remoteImOrigin: undefined,
+        reasoningStandard: "",
+        reasoningInline: "",
+        toolCallCount: 0,
+        lastToolName: "",
+        toolCalls: [],
+      }];
+    }
     const signature = messageSignature(message);
     const cached = messageBlockCache.get(message);
     if (cached && cached.signature === signature) {

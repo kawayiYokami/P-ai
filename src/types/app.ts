@@ -477,6 +477,7 @@ export type ChatMessageBlock = {
   sourceMessageId?: string;
   isExtraTextBlock?: boolean;
   role: ChatRole;
+  dividerKind?: "plan_started";
   isStreaming?: boolean;
   streamSegments?: string[];
   streamTail?: string;

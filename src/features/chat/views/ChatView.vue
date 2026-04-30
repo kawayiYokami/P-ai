@@ -126,6 +126,15 @@
                 </div>
 
                 <div
+                  v-else-if="entry.item.kind === 'plan_started'"
+                  class="mt-4 flex items-center gap-3 text-[11px] text-base-content/45"
+                >
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                  <span class="shrink-0 rounded-full border border-base-300/80 bg-base-100 px-3 py-1 text-base-content/55">计划开始执行</span>
+                  <div class="h-px flex-1 bg-base-300/80"></div>
+                </div>
+
+                <div
                   v-else-if="entry.item.kind === 'message'"
                   v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex)"
                 >
@@ -471,6 +480,7 @@ import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link
 
 type ChatRenderItem =
   | { kind: "compaction"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
+  | { kind: "plan_started"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
   | { kind: "message"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
   | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number }> };
 
@@ -946,6 +956,11 @@ const chatRenderItems = computed<ChatRenderItem[]>(() => {
 
   props.messageBlocks.forEach((block, blockIndex) => {
     const renderId = blockRenderId(block);
+    if (block.dividerKind === "plan_started") {
+      flushGroup();
+      items.push({ kind: "plan_started", id: `plan-started-${renderId}`, renderId, block, blockIndex });
+      return;
+    }
     if (isCompactionBlock(block)) {
       flushGroup();
       items.push({ kind: "compaction", id: `compaction-${renderId}`, renderId, block, blockIndex });
@@ -1645,7 +1660,7 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
 }
 
 function estimateChatRenderItemHeight(item: ChatRenderItem): number {
-  if (item.kind === "compaction") return 44;
+  if (item.kind === "compaction" || item.kind === "plan_started") return 44;
   if (item.kind === "message") {
     return estimateMessageBlockHeight(item.block) + 8;
   }
@@ -1670,7 +1685,7 @@ function blockSizeDependencies(block: ChatMessageBlock): unknown[] {
 }
 
 function virtualItemSizeDependencies(item: ChatRenderItem): unknown[] {
-  if (item.kind === "compaction") {
+  if (item.kind === "compaction" || item.kind === "plan_started") {
     return [item.id, item.kind];
   }
   if (item.kind === "message") {
