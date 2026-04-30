@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 修复（organize-context-terminal-auto-compaction）：LLM 调用 `organize_context` 时改为完结当前工具轮次，并按当前工具会话锚定目标会话启动自动压缩式调度；压缩完成后补齐 follow-up runtime context 会话锚并立即续跑，避免上下文整理写入成功但后续激活绑定到其他前台会话。
  - 优化（global-scrollbar-focus-visibility）：全局常见滚动容器默认保留滚动槽位与滚动能力，仅将滚动条颜色设为透明，悬停、聚焦或子元素聚焦时恢复显示；不再覆盖滚动条宽高，避免影响项目既有滚动条尺寸。
  - 修复（chat-stream-toolcalls-draft-scope）：流式工具状态绑定到当前助理草稿 `providerMeta._streamToolCalls`，切换会话或恢复草稿时先清空前景工具缓冲再从目标草稿/缓存加载；消息气泡渲染只读取自身 `toolCalls`，避免上一轮工具执行列表串到下一轮气泡。
  - 修复（mcp-runtime-executor-and-timeouts）：工具执行增加默认超时，内置工具默认 30 秒、MCP 工具默认 300 秒，终端按 `timeout_ms` 覆盖、记忆写入限定 3 秒并补充超时日志；普通 MCP 工具执行器改为从全局 MCP runtime 装配并按 server 粒度去重建链，调用时只短暂获取 peer 后并发执行，修复 `akasha_search` 等缓存 Schema 存在但执行时报“未找到工具”的问题。

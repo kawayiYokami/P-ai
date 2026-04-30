@@ -239,7 +239,7 @@ struct ForceArchiveResult {
     merge_groups: Option<usize>,
 }
 
-fn build_context_compaction_followup_runtime_context() -> RuntimeContext {
+fn build_context_compaction_followup_runtime_context(source: &Conversation) -> RuntimeContext {
     let mut runtime_context = runtime_context_new(
         "context_compaction",
         "context_compaction_followup",
@@ -248,6 +248,9 @@ fn build_context_compaction_followup_runtime_context() -> RuntimeContext {
         "context-compaction-followup-{}",
         Uuid::new_v4()
     ));
+    runtime_context.origin_conversation_id = Some(source.id.clone());
+    runtime_context.target_conversation_id = Some(source.id.clone());
+    runtime_context.root_conversation_id = Some(source.id.clone());
     runtime_context
 }
 
@@ -285,7 +288,7 @@ fn enqueue_context_compaction_followup(
             department_id: context_compaction_followup_department_id(state, source, effective_agent_id)?,
             agent_id: effective_agent_id.to_string(),
         },
-        runtime_context: Some(build_context_compaction_followup_runtime_context()),
+        runtime_context: Some(build_context_compaction_followup_runtime_context(source)),
         sender_info: None,
     };
     match ingress_chat_event(state, followup_event)? {
@@ -307,6 +310,50 @@ fn enqueue_context_compaction_followup(
     }
     trigger_chat_queue_processing(state);
     Ok(())
+}
+
+fn spawn_organize_context_auto_compaction(
+    state: &AppState,
+    selected_api: ApiConfig,
+    resolved_api: ResolvedApiConfig,
+    source: Conversation,
+    effective_agent_id: String,
+) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let conversation_id = source.id.clone();
+        let result = run_context_compaction_pipeline(
+            &state,
+            &selected_api,
+            &resolved_api,
+            &source,
+            &effective_agent_id,
+            "organize_context",
+            "ORGANIZE-CONTEXT-AUTO",
+            true,
+        )
+        .await;
+        match result {
+            Ok(_) => {
+                if let Err(err) = enqueue_context_compaction_followup(
+                    &state,
+                    &source,
+                    &effective_agent_id,
+                ) {
+                    runtime_log_warn(format!(
+                        "[上下文整理] 自动压缩完成后续激活失败 conversation_id={} error={}",
+                        conversation_id, err
+                    ));
+                }
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[上下文整理] 自动压缩失败 conversation_id={} error={}",
+                    conversation_id, err
+                ));
+            }
+        }
+    });
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -946,6 +993,7 @@ fn emit_compaction_history_flushed_event(
     state: &AppState,
     conversation_id: &str,
     compression_message: &ChatMessage,
+    activate_after_flush: bool,
 ) {
     let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
@@ -961,7 +1009,7 @@ fn emit_compaction_history_flushed_event(
         "conversationId": conversation_id,
         "messageCount": 1,
         "messages": [compression_message],
-        "activateAssistant": false,
+        "activateAssistant": activate_after_flush,
         "compactionApplied": true,
     });
     if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
@@ -1447,6 +1495,7 @@ async fn force_compact_current(
         &effective_agent_id,
         "manual_force_compaction",
         "COMPACTION-FORCE",
+        false,
     )
     .await?;
     trigger_chat_queue_processing(state.inner());
@@ -1575,6 +1624,7 @@ pub(crate) async fn run_context_compaction_pipeline(
     effective_agent_id: &str,
     compaction_reason: &str,
     trace_tag: &str,
+    activate_after_flush: bool,
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
@@ -1593,6 +1643,7 @@ pub(crate) async fn run_context_compaction_pipeline(
         effective_agent_id,
         compaction_reason,
         trace_tag,
+        activate_after_flush,
         started_at,
         &trace_id,
     )
@@ -1624,6 +1675,7 @@ async fn run_context_compaction_pipeline_inner(
     _effective_agent_id: &str,
     compaction_reason: &str,
     trace_tag: &str,
+    activate_after_flush: bool,
     started_at: std::time::Instant,
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
@@ -1756,7 +1808,7 @@ async fn run_context_compaction_pipeline_inner(
             );
         }
     }
-    emit_compaction_history_flushed_event(state, &source.id, &compression_message);
+    emit_compaction_history_flushed_event(state, &source.id, &compression_message, activate_after_flush);
 
     eprintln!(
         "[SummaryContext] 完成，场景=compaction，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_linked={}，profile_created={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",

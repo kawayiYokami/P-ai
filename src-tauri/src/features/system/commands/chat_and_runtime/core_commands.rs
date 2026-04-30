@@ -221,6 +221,7 @@ async fn confirm_plan_and_continue(
             &agent_id,
             "confirm_plan_before_continue",
             "COMPACTION-CONFIRM-PLAN",
+            false,
         )
         .await;
         match compaction_result {

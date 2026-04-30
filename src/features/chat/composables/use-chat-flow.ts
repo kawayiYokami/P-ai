@@ -1568,14 +1568,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
       await options.onReloadMessages();
     }
 
-    if (!wasQueuedForActivation || shouldForceReset) {
+    if (!wasQueuedForActivation) {
       // await 期间可能有新的 sendChat/轮次启动，避免回写旧状态覆盖新轮次。
       // 对 sendChat 的激活批次，history_flushed 只完成历史合并，不收回 queued；等待 round_started。
       if (gen !== generation) return;
-      if (!wasQueuedForActivation || shouldForceReset) {
-        setRound({ phase: "idle" });
-        options.chatting.value = false;
-      }
+      setRound({ phase: "idle" });
+      options.chatting.value = false;
       console.info("[CHAT_TRACE][history_flushed] non_activate_finish", {
         source,
         gen,

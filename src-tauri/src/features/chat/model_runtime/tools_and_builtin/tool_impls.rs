@@ -223,6 +223,7 @@ struct BuiltinReloadTool {
 #[derive(Debug, Clone)]
 struct BuiltinOrganizeContextTool {
     app_state: AppState,
+    session_id: String,
     api_config_id: String,
     agent_id: String,
 }
@@ -281,6 +282,7 @@ impl RuntimeJsonTool for BuiltinOrganizeContextTool {
             );
             let result = builtin_organize_context(
                 &self.app_state,
+                &self.session_id,
                 &self.api_config_id,
                 &self.agent_id,
             )

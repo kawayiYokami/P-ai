@@ -176,6 +176,7 @@ async fn builtin_tool_definitions_for_frontend(
         frontend_tool_definition(
             BuiltinOrganizeContextTool {
                 app_state: state.clone(),
+                session_id: preview_session_id.clone(),
                 api_config_id: preview_api_id.clone(),
                 agent_id: preview_agent_id,
             }

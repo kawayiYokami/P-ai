@@ -695,6 +695,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         &context.agent.id,
         &decision.reason,
         "COMPACTION-BEFORE-TOOL-CONTINUE",
+        false,
     )
     .await;
 

@@ -2369,6 +2369,7 @@ async fn send_chat_message_inner(
                 &effective_agent_id,
                 &decision.reason,
                 "COMPACTION-AUTO",
+                false,
             )
             .await;
 

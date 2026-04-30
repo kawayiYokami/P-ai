@@ -31,6 +31,7 @@ async fn builtin_reload(app_state: &AppState) -> Result<Value, String> {
 
 async fn builtin_organize_context(
     app_state: &AppState,
+    session_id: &str,
     api_config_id: &str,
     agent_id: &str,
 ) -> Result<Value, String> {
@@ -39,15 +40,23 @@ async fn builtin_organize_context(
         let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
-        let effective_agent_id = agent_id.trim().to_string();
-        if effective_agent_id.is_empty() {
+        let (_, session_agent_id, session_conversation_id) = delegate_parse_session_parts(session_id);
+        let requested_agent_id = agent_id.trim();
+        let effective_agent_id = if requested_agent_id.is_empty() {
+            session_agent_id.trim().to_string()
+        } else {
+            requested_agent_id.to_string()
+        };
+        if effective_agent_id.trim().is_empty() {
             return Err("缺少人格 ID，无法整理上下文。".to_string());
         }
-        let conversation_id = conversation_service()
-            .resolve_latest_foreground_conversation_id(app_state, &effective_agent_id)?
-            .ok_or_else(|| "当前没有可整理的活动对话。".to_string())?;
-        let source = state_read_conversation_cached(app_state, &conversation_id)
-            .map_err(|err| format!("当前没有可整理的活动对话：{}", err))?;
+        let conversation_id = session_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "缺少当前工具调用会话 ID，无法整理上下文。".to_string())?;
+        let source = state_read_conversation_cached(app_state, conversation_id)
+            .map_err(|err| format!("当前工具调用会话不可整理：{}", err))?;
         if source.messages.len() < 10 {
             return Ok(serde_json::json!({
                 "ok": false,
@@ -70,26 +79,20 @@ async fn builtin_organize_context(
         (selected_api, resolved_api, source, effective_agent_id)
     };
 
-    let mut result = run_context_compaction_pipeline(
+    spawn_organize_context_auto_compaction(
         app_state,
-        &selected_api,
-        &resolved_api,
-        &source,
-        &effective_agent_id,
-        "organize_context",
-        "ORGANIZE-CONTEXT",
-    )
-    .await?;
-    enqueue_context_compaction_followup(app_state, &source, &effective_agent_id)?;
-    result.compaction_message = None;
-    serde_json::to_value(result)
-        .map(|value| {
-            let mut obj = serde_json::Map::new();
-            obj.insert("ok".to_string(), Value::Bool(true));
-            obj.insert("applied".to_string(), Value::Bool(true));
-            obj.insert("result".to_string(), value);
-            Value::Object(obj)
-        })
-        .map_err(|err| format!("序列化组织上下文结果失败：{err}"))
+        selected_api,
+        resolved_api,
+        source.clone(),
+        effective_agent_id.clone(),
+    );
+    Ok(serde_json::json!({
+        "ok": true,
+        "applied": true,
+        "terminal": true,
+        "scheduled": true,
+        "conversationId": source.id,
+        "message": "上下文整理已接管当前轮，完成后会立即续跑。"
+    }))
 }
 

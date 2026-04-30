@@ -80,6 +80,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
         BuiltinReloadTool { app_state: state.clone() }.provider_tool_definition(),
         BuiltinOrganizeContextTool {
             app_state: state.clone(),
+            session_id: preview_session_id.clone(),
             api_config_id: preview_api_id.clone(),
             agent_id: preview_agent_id,
         }
@@ -183,7 +184,13 @@ async fn assemble_runtime_tools(
         .collect::<Vec<_>>();
     let mut tools: Vec<Box<dyn RuntimeToolDyn>> = Vec::new();
     if selected_api.enable_tools {
-        push_runtime_tool_executors(&mut tools, app_state, selected_api.id.as_str(), tool_session_id)?;
+        push_runtime_tool_executors(
+            &mut tools,
+            app_state,
+            selected_api.id.as_str(),
+            agent.id.as_str(),
+            tool_session_id,
+        )?;
     }
     let _ = app_config;
     let _ = agent;
@@ -199,6 +206,7 @@ fn push_runtime_tool_executors(
     tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
     app_state: Option<&AppState>,
     api_config_id: &str,
+    agent_id: &str,
     tool_session_id: &str,
 ) -> Result<(), String> {
     let state = app_state
@@ -214,8 +222,9 @@ fn push_runtime_tool_executors(
     tools.push(Box::new(BuiltinReloadTool { app_state: state.clone() }));
     tools.push(Box::new(BuiltinOrganizeContextTool {
         app_state: state.clone(),
+        session_id: tool_session_id.to_string(),
         api_config_id: api_config_id.to_string(),
-        agent_id: DEFAULT_AGENT_ID.to_string(),
+        agent_id: agent_id.to_string(),
     }));
     tools.push(Box::new(BuiltinWaitTool));
     tools.push(Box::new(LazyReadFileMcpTool {
