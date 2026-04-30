@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 优化（global-scrollbar-focus-visibility）：全局常见滚动容器默认保留滚动槽位与滚动能力，仅将滚动条颜色设为透明，悬停、聚焦或子元素聚焦时恢复显示；不再覆盖滚动条宽高，避免影响项目既有滚动条尺寸。
  - 修复（chat-stream-toolcalls-draft-scope）：流式工具状态绑定到当前助理草稿 `providerMeta._streamToolCalls`，切换会话或恢复草稿时先清空前景工具缓冲再从目标草稿/缓存加载；消息气泡渲染只读取自身 `toolCalls`，避免上一轮工具执行列表串到下一轮气泡。
  - 修复（mcp-runtime-executor-and-timeouts）：工具执行增加默认超时，内置工具默认 30 秒、MCP 工具默认 300 秒，终端按 `timeout_ms` 覆盖、记忆写入限定 3 秒并补充超时日志；普通 MCP 工具执行器改为从全局 MCP runtime 装配并按 server 粒度去重建链，调用时只短暂获取 peer 后并发执行，修复 `akasha_search` 等缓存 Schema 存在但执行时报“未找到工具”的问题。
  - 修复（tool-schema-cache-and-lazy-mcp）：聊天发送前改为只读全局工具 Schema 缓存，不再同步检查工具可用性或建立 MCP 连接；启动与 reload 后刷新工具 Schema，MCP 工具延迟到实际调用时连接并增加连接/执行超时、取消失败日志与缓存读取失败诊断，避免工具准备链路卡住模型请求。
@@ -12,6 +13,10 @@
  - 优化（chat-tool-timeline-summary）：聊天消息工具 timeline 改为左侧显示序号与工具名，右侧仅显示极简关键参数；内置工具按类型提取用户最关心的信息，`apply_patch` 仅显示修改类型与路径，避免原始 JSON 和补丁正文撑开消息。
  - 优化（welcome-i18n）：欢迎页文案口语化，卡片分级改为「必须/建议/可选」三级，删除当前状态问号图标。
  
+## 发布：v0.9.61
+
+- 发布（release-0.9.61）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.61`，纳入本轮全局滚动条默认透明、聚焦/悬停显示的样式优化。
+
 ## 发布：v0.9.59
 
 - 发布（release-0.9.59）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.59`。

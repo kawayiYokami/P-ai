@@ -276,6 +276,48 @@ body {
   textarea
 ) {
   scrollbar-gutter: stable both-edges;
+  scrollbar-color: transparent transparent;
+}
+
+:where(
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .overflow-auto,
+  .overflow-scroll,
+  textarea
+):where(:hover, :focus, :focus-within) {
+  scrollbar-color: color-mix(in oklab, currentColor 28%, transparent) transparent;
+}
+
+:where(
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .overflow-auto,
+  .overflow-scroll,
+  textarea
+)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:where(
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .overflow-auto,
+  .overflow-scroll,
+  textarea
+)::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: transparent;
+}
+
+:where(
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .overflow-auto,
+  .overflow-scroll,
+  textarea
+):where(:hover, :focus, :focus-within)::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, currentColor 28%, transparent);
 }
 
 .answer {
