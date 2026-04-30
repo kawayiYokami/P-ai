@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 修复（chat-stream-toolcalls-draft-scope）：流式工具状态绑定到当前助理草稿 `providerMeta._streamToolCalls`，切换会话或恢复草稿时先清空前景工具缓冲再从目标草稿/缓存加载；消息气泡渲染只读取自身 `toolCalls`，避免上一轮工具执行列表串到下一轮气泡。
  - 修复（mcp-runtime-executor-and-timeouts）：工具执行增加默认超时，内置工具默认 30 秒、MCP 工具默认 300 秒，终端按 `timeout_ms` 覆盖、记忆写入限定 3 秒并补充超时日志；普通 MCP 工具执行器改为从全局 MCP runtime 装配并按 server 粒度去重建链，调用时只短暂获取 peer 后并发执行，修复 `akasha_search` 等缓存 Schema 存在但执行时报“未找到工具”的问题。
  - 修复（tool-schema-cache-and-lazy-mcp）：聊天发送前改为只读全局工具 Schema 缓存，不再同步检查工具可用性或建立 MCP 连接；启动与 reload 后刷新工具 Schema，MCP 工具延迟到实际调用时连接并增加连接/执行超时、取消失败日志与缓存读取失败诊断，避免工具准备链路卡住模型请求。
  - 修复（apply-patch-windows-cfg-guard）：`apply_patch_has_windows_drive_prefix` 补上 `#[cfg(target_os = "windows")]` 条件编译守卫，消除非 Windows 平台重复定义导致的编译错误。

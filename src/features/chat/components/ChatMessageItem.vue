@@ -713,9 +713,6 @@ function shouldAnimateEnter(block: ChatMessageBlock): boolean {
 }
 
 function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsText: string; status?: "doing" | "done" }> {
-  if (showStreamingUi(block) && props.streamToolCalls.length > 0) {
-    return props.streamToolCalls;
-  }
   return block.toolCalls;
 }
 

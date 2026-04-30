@@ -7,6 +7,20 @@ import {
   projectMessageForDisplay,
 } from "../../../utils/chat-message-semantics";
 
+function streamToolCallsFromProviderMeta(meta: Record<string, unknown>): Array<{ name: string; argsText: string; status?: "doing" | "done" }> {
+  if (!Array.isArray(meta._streamToolCalls)) return [];
+  return (meta._streamToolCalls as unknown[])
+    .map((item) => {
+      const raw = item && typeof item === "object" ? item as Record<string, unknown> : null;
+      return {
+        name: String(raw?.name || "").trim(),
+        argsText: String(raw?.argsText || ""),
+        status: String(raw?.status || "") === "doing" ? "doing" as const : "done" as const,
+      };
+    })
+    .filter((item) => !!item.name);
+}
+
 type UseChatMessageBlocksOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
@@ -68,6 +82,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       : [];
     const streamTail = String(meta._streamTail ?? "");
     const streamAnimatedDelta = String(meta._streamAnimatedDelta ?? "");
+    const streamToolCalls = streamToolCallsFromProviderMeta(meta);
     const baseBlock = {
       id: message.id,
       sourceMessageId: message.id,
@@ -93,7 +108,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       reasoningInline: projection.reasoningInline,
       toolCallCount: projection.toolCallCount,
       lastToolName: projection.lastToolName,
-      toolCalls: projection.toolCalls,
+      toolCalls: streamToolCalls.length > 0 ? streamToolCalls : projection.toolCalls,
     } satisfies ChatMessageBlock;
 
     const blocks: ChatMessageBlock[] = [];

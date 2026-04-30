@@ -200,6 +200,8 @@ type ConversationStreamCache = {
   streamLastToolName: string;
 };
 
+type StreamToolCallView = { name: string; argsText: string; status?: "doing" | "done" };
+
 export type ConversationRuntimeStreamCacheSnapshot = {
   activationId?: string;
   requestId?: string;
@@ -430,6 +432,29 @@ export function useChatFlow(options: UseChatFlowOptions) {
   function normalizeToolStatusState(value: unknown): "running" | "done" | "failed" | "" {
     const text = String(value || "").trim();
     return text === "running" || text === "done" || text === "failed" ? text : "";
+  }
+
+  function loadStreamToolCallsFromDraft(draftId: string) {
+    if (!options.streamToolCalls) return;
+    if (!draftId) {
+      options.streamToolCalls.value = [];
+      return;
+    }
+    const draft = options.allMessages.value.find((item) => item.id === draftId);
+    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
+    const calls = Array.isArray(meta._streamToolCalls)
+      ? (meta._streamToolCalls as unknown[])
+        .map((item) => {
+          const raw = item && typeof item === "object" ? item as Record<string, unknown> : null;
+          return {
+            name: String(raw?.name || "").trim(),
+            argsText: String(raw?.argsText || ""),
+            status: String(raw?.status || "") === "doing" ? "doing" as const : "done" as const,
+          };
+        })
+        .filter((item) => !!item.name)
+      : [];
+    options.streamToolCalls.value = calls;
   }
 
   function streamCacheHasVisibleProgress(cache?: ConversationRuntimeStreamCacheSnapshot | ConversationStreamCache | null): boolean {
@@ -859,6 +884,22 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return String(meta._streamTail ?? "");
   }
 
+  function syncStreamToolCallsToDraft(draftId: string) {
+    if (!draftId || !options.streamToolCalls) return;
+    const calls = options.streamToolCalls.value.map((item) => ({ ...item }));
+    options.allMessages.value = options.allMessages.value.map((message) => {
+      if (message.id !== draftId) return message;
+      const meta = ((message.providerMeta || {}) as Record<string, unknown>);
+      return {
+        ...message,
+        providerMeta: {
+          ...meta,
+          _streamToolCalls: calls,
+        },
+      };
+    });
+  }
+
   function consumeClosedMarkdownBlocks(input: string): { chunks: string[]; tail: string } {
     const chunks: string[] = [];
     let cursor = 0;
@@ -951,6 +992,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
         _streamSegments: nextStreamSegments,
         _streamTail: nextStreamTail,
         _streamAnimatedDelta: String(streamAnimatedDelta || ""),
+        _streamToolCalls: Array.isArray(options.streamToolCalls?.value)
+          ? options.streamToolCalls.value.map((item) => ({ ...item }))
+          : [] as StreamToolCallView[],
       },
     };
     const cur = options.allMessages.value;
@@ -1288,14 +1332,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const conversationId = options.getConversationId ? options.getConversationId() : "";
     if (round.phase === "streaming") {
       if (!hasAssistantDraftInMessages()) {
+        if (options.streamToolCalls) options.streamToolCalls.value = [];
         applyConversationStreamCacheToDisplay(conversationId);
         const draftId = insertDraft(round.gen);
         updateDraftText(draftId);
         setRound({ phase: "streaming", gen: round.gen, draftId });
+      } else {
+        loadStreamToolCallsFromDraft(round.draftId);
       }
       return round.gen;
     }
     const gen = ++generation;
+    if (options.streamToolCalls) options.streamToolCalls.value = [];
     const existingDraft = [...options.allMessages.value]
       .reverse()
       .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
@@ -1316,6 +1364,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
     const draftId = existingDraftId || insertDraft(gen);
+    if (existingDraftId) {
+      loadStreamToolCallsFromDraft(draftId);
+    }
     if (existingDraftId || restoredFromCache) {
       updateDraftText(draftId);
     }
@@ -1361,6 +1412,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
       return 0;
     }
     const conversationId = options.getConversationId ? options.getConversationId() : "";
+    if (options.streamToolCalls) options.streamToolCalls.value = [];
     const existingDraft = [...options.allMessages.value]
       .reverse()
       .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
@@ -1374,6 +1426,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
     const draftId = existingDraftId || insertDraft(gen);
+    if (existingDraftId) {
+      loadStreamToolCallsFromDraft(draftId);
+    }
     if (existingDraftId || restoredFromCache) {
       updateDraftText(draftId);
     }
@@ -1691,6 +1746,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
             status: "doing",
           });
           options.streamToolCalls.value = next;
+        }
+        if (currentRound.phase === "streaming") {
+          syncStreamToolCallsToDraft(currentRound.draftId);
         }
       }
       options.toolStatusText.value = parsed.message || "";
@@ -2016,6 +2074,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     if (parsed.kind === "tool_status") {
       applyConversationStreamCacheToDisplay(cacheConversationId);
       if (round.phase === "streaming") {
+        syncStreamToolCallsToDraft(round.draftId);
         updateDraftText(round.draftId);
       }
       return;
