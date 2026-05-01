@@ -142,7 +142,6 @@ fn prepared_history_to_genai_messages(
             ));
         } else if hm.role == "assistant" {
             let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
-            let mut has_replayable_tool_calls = false;
             if !hm.text.trim().is_empty() {
                 assistant_parts.push(genai::chat::ContentPart::from_text(hm.text.clone()));
             }
@@ -171,7 +170,6 @@ fn prepared_history_to_genai_messages(
                     ) {
                         continue;
                     }
-                    has_replayable_tool_calls = true;
                     if let Some(provider_call_id) = call
                         .provider_call_id
                         .as_deref()
@@ -194,10 +192,10 @@ fn prepared_history_to_genai_messages(
                     ));
                 }
             }
-            let assistant_reasoning_content = if force_tool_reasoning_content && has_replayable_tool_calls {
+            let assistant_reasoning_content = if force_tool_reasoning_content {
                 if hm.reasoning_content.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
                     runtime_log_warn(format!(
-                        "[聊天][DeepSeek] 阶段={stage} 历史消息缺失 reasoning_content：索引={index}, role=assistant, tool_calls=有，已自动补空串",
+                        "[聊天][DeepSeek] 阶段={stage} 历史消息缺失 reasoning_content：索引={index}, role=assistant，已自动补空串",
                         stage = request_stage,
                         index = message_index
                     ));
@@ -214,8 +212,8 @@ fn prepared_history_to_genai_messages(
             let assistant_message = genai::chat::ChatMessage::assistant(
                 genai::chat::MessageContent::from_parts(assistant_parts),
             )
-            // reasoning_content 是 assistant tool_calls 历史的一部分，必须从会话
-            // JSON 传递到最终供应商请求体；不要在这里清洗、合并或兜底伪造。
+            // DeepSeek 要求 assistant 历史消息都带 reasoning_content；缺失时只能补空串，
+            // 已存在的思维链必须原样回灌到最终供应商请求体。
             .with_reasoning_content(assistant_reasoning_content);
             chat_history.push(assistant_message);
         } else if hm.role == "tool" {
@@ -928,6 +926,63 @@ mod openai_responses_genai_request_tests {
             request.messages[0].role,
             genai::chat::ChatRole::User
         ));
+    }
+
+    #[test]
+    fn build_openai_chat_genai_request_should_backfill_deepseek_assistant_reasoning_content() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "第一条没有思维链".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "user".to_string(),
+                    text: "收到".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "第二条保留思维链".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: Some("已有思维链".to_string()),
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_openai_chat_genai_request(&prepared, true, "test")
+            .expect("build_openai_chat_genai_request should succeed");
+
+        assert_eq!(request.messages[0].content.reasoning_contents(), vec![""]);
+        assert_eq!(
+            request.messages[2].content.reasoning_contents(),
+            vec!["已有思维链"]
+        );
     }
 
     #[test]
