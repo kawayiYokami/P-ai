@@ -26,6 +26,16 @@
             {{ provider.name || provider.id }}（{{ provider.requestFormat }}）
           </option>
           </select>
+          <button
+            class="btn btn-sm btn-square shrink-0"
+            :class="currentProviderDirty ? 'btn-info' : 'bg-base-200 text-base-content/30 shadow-none'"
+            type="button"
+            title="还原当前供应商草稿"
+            :disabled="!currentProviderDirty || props.savingConfig"
+            @click="handleRestoreProviderDraft"
+          >
+            <RotateCcw class="h-4 w-4" />
+          </button>
           <button class="api-save-btn btn btn-sm btn-square shrink-0 transition-all duration-300"
             :class="currentProviderDirty
               ? 'btn-success api-save-btn--dirty'
@@ -323,7 +333,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { AlertTriangle, ChevronDown, ExternalLink, Eye, EyeOff, Plus, RefreshCw, Save, Trash2, WandSparkles } from "lucide-vue-next";
+import { AlertTriangle, ChevronDown, ExternalLink, Eye, EyeOff, Plus, RefreshCw, RotateCcw, Save, Trash2, WandSparkles } from "lucide-vue-next";
 import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus } from "../../../../types/app";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
@@ -744,12 +754,13 @@ function selectModelCard(modelId: string) {
   props.config.selectedApiConfigId = `${provider.id}::${modelId}`;
 }
 
-function addProvider() {
+async function addProvider() {
   const seed = buildProviderSeed();
   const provider = createProvider(seed, activeCapability.value);
   applyProtocolDefaults(provider);
   props.config.apiProviders.push(provider);
   props.config.selectedApiConfigId = `${provider.id}::${provider.models[0].id}`;
+  await Promise.resolve(props.saveApiConfigAction());
 }
 
 function removeProvider(providerId: string) {
@@ -766,7 +777,7 @@ function closeDeleteProviderDialog() {
   pendingDeleteProviderName.value = "";
 }
 
-function confirmDeleteProvider() {
+async function confirmDeleteProvider() {
   const providerId = String(pendingDeleteProviderId.value || "").trim();
   if (!providerId) {
     closeDeleteProviderDialog();
@@ -784,9 +795,10 @@ function confirmDeleteProvider() {
     props.config.selectedApiConfigId = `${fallbackProvider.id}::${fallbackModel.id}`;
   }
   closeDeleteProviderDialog();
+  await Promise.resolve(props.saveApiConfigAction());
 }
 
-function switchCapabilityTab(capability: ApiCapability) {
+async function switchCapabilityTab(capability: ApiCapability) {
   revertUnsavedConfigIfNeeded();
   const nextProvider = providerList.value.find((provider) => capabilityFromRequestFormat(provider.requestFormat) === capability);
   if (nextProvider) {
@@ -798,6 +810,7 @@ function switchCapabilityTab(capability: ApiCapability) {
   applyProtocolDefaults(provider);
   props.config.apiProviders.push(provider);
   props.config.selectedApiConfigId = `${provider.id}::${provider.models[0].id}`;
+  await Promise.resolve(props.saveApiConfigAction());
 }
 
 function revertUnsavedConfigIfNeeded() {
@@ -1124,6 +1137,10 @@ async function handleSaveApiConfig() {
     provider.cachedModelOptions = Array.from(new Set(providerModelOptions.value));
   }
   await Promise.resolve(props.saveApiConfigAction());
+}
+
+function handleRestoreProviderDraft() {
+  revertUnsavedConfigIfNeeded();
 }
 
 watch(

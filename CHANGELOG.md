@@ -1,6 +1,7 @@
 # 变更日志
 
 ## 进行中
+ - 修复（api-provider-draft-save-and-restore）：配置页新增/删除供应商以及按能力分组自动补建供应商后立即持久化；同时在保存按钮旁新增“还原草稿”按钮，显式恢复当前供应商到最近一次已保存状态，避免新建或删除仅停留在草稿态。
  - 修复（background-history-flushed-cache）：聊天窗口收到非当前会话的 `history_flushed` 时不再直接丢弃，而是按 `conversationId` 合并落库消息到后台会话缓存并更新概览/徽标，确保切走期间完成的上下文压缩结果与计划确认分界线在切回时可见。
  - 修复（plan-confirm-hidden-continue）：计划确认后先写入执行中计划，再插入对 LLM 可见但前端仅显示“计划开始执行”分界线的确认消息；上下文占用低于 60% 时不再压缩，达到 60% 后才先压缩再插入确认并续跑，避免压缩后反复询问用户是否同意。
  - 修复（organize-context-terminal-auto-compaction）：LLM 调用 `organize_context` 时改为完结当前工具轮次，并按当前工具会话锚定目标会话启动自动压缩式调度；压缩完成后补齐 follow-up runtime context 会话锚并立即续跑，避免上下文整理写入成功但后续激活绑定到其他前台会话。
