@@ -351,6 +351,7 @@
       @confirm-force-archive-action="handleConfirmForceArchiveAction()"
       @close-force-archive-action-dialog="closeForceArchiveActionDialog"
     />
+    <Win10ResizeHandles :enabled="resizeHandlesEnabled" />
     <ChatWorkspacePickerDialog
       :open="chatWorkspacePickerOpen"
       :saving="chatWorkspacePickerSaving"
@@ -409,6 +410,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "./services/tauri-api";
+import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
 import { useAppBootstrap } from "./features/shell/composables/use-app-bootstrap";
 import { useAppCore } from "./features/shell/composables/use-app-core";
 import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle";
@@ -617,6 +619,10 @@ let chatMicPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
 let foregroundConversationCacheRaf = 0;
 const configTab = ref<ConfigSearchTab>("hotkey");
 const configSearchQuery = ref("");
+const resizeHandlesEnabled = computed(() => {
+  if (maximized.value) return false;
+  return viewMode.value === "chat" || viewMode.value === "archives" || detachedChatWindow.value;
+});
 const configSearchResults = computed<ConfigSearchResult[]>(() => {
   if (viewMode.value !== "config") return [];
   return searchConfigTabs(configSearchQuery.value, normalizeLocale(config.uiLanguage));

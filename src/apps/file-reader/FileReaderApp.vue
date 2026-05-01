@@ -108,6 +108,7 @@
         <span>{{ actionErrorMessage }}</span>
       </div>
     </div>
+    <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
 
@@ -123,6 +124,7 @@ import "markstream-vue/index.css";
 import { invokeTauri } from "../../services/tauri-api";
 import { registerChatMarkstreamComponents } from "../../features/chat/markdown/register-chat-markstream";
 import { useAppTheme } from "../../features/shell/composables/use-app-theme";
+import Win10ResizeHandles from "../../features/shell/components/Win10ResizeHandles.vue";
 
 enableMermaid();
 enableKatex();
