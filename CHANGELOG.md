@@ -17,6 +17,10 @@
  - 修复（remote-im-contact-workspace-and-routing）：联系人工作区保存调用补齐 Tauri `input` 参数包装并在失败时保留草稿；远程 IM 联系人不再按主/非主部门切换路由，所有联系人消息统一进入联系人独立会话，部门仅决定后台处理人格与模型，同时清理配置页旧路由文案并补齐相关测试。
  - 优化（chat-tool-timeline-summary）：聊天消息工具 timeline 改为左侧显示序号与工具名，右侧仅显示极简关键参数；内置工具按类型提取用户最关心的信息，`apply_patch` 仅显示修改类型与路径，避免原始 JSON 和补丁正文撑开消息。
  - 优化（welcome-i18n）：欢迎页文案口语化，卡片分级改为「必须/建议/可选」三级，删除当前状态问号图标。
+
+## 发布：v0.9.62
+
+- 发布（release-0.9.62）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.62`，纳入本轮供应商草稿保存/还原与 Codex 本地平铺凭证兼容修复。
  
 ## 发布：v0.9.61
 
