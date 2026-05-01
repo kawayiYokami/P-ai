@@ -158,45 +158,33 @@ fn updater_proxy_url(origin: &str) -> String {
 
 fn updater_release_api_fallback_urls() -> Vec<String> {
     vec![
-        format!(
-            "{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"
-        ),
-        format!(
-            "{UPDATER_GITHUB_EDGEONE_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"
-        ),
-        format!(
-            "{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"
-        ),
+        format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+        UPDATER_GITHUB_RELEASE_API_ORIGIN.to_string(),
     ]
 }
 
 fn updater_changelog_api_fallback_urls() -> Vec<String> {
     vec![
-        format!(
-            "{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"
-        ),
-        format!(
-            "{UPDATER_GITHUB_EDGEONE_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"
-        ),
-        format!(
-            "{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"
-        ),
+        format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+        UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN.to_string(),
     ]
 }
 
 fn updater_manifest_fallback_urls(origin: &str) -> Vec<String> {
     vec![
         format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
-        format!("{UPDATER_GITHUB_EDGEONE_PROXY_PREFIX}{origin}"),
         format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+        origin.to_string(),
     ]
 }
 
 fn updater_download_fallback_urls(origin: &str) -> Vec<String> {
     vec![
         format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
-        format!("{UPDATER_GITHUB_EDGEONE_PROXY_PREFIX}{origin}"),
         format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+        origin.to_string(),
     ]
 }
 
