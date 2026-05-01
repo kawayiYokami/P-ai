@@ -159,6 +159,7 @@
           <div
             v-if="reasoningStandardExpanded"
             class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70"
+            @click="collapseDetailsFromContentClick"
           >
             {{ block.reasoningStandard }}
           </div>
@@ -177,6 +178,7 @@
           <div
             v-if="inlineReasoningExpanded"
             class="collapse-content px-0 pb-1 pt-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/70"
+            @click="collapseDetailsFromContentClick"
           >
             {{ resolvedInlineReasoning(block) }}
           </div>
@@ -202,6 +204,7 @@
           <div
             v-if="toolCallsExpanded"
             class="collapse-content px-0 pb-1 pt-2 text-xs text-base-content/70"
+            @click="collapseDetailsFromContentClick"
           >
             <ul class="timeline timeline-vertical timeline-compact">
               <li
@@ -610,6 +613,21 @@ function onInlineReasoningToggle(event: Event): void {
 
 function onToolCallsToggle(event: Event): void {
   toolCallsExpanded.value = detailsOpenFromEvent(event);
+}
+
+function collapseDetailsFromContentClick(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.closest('button, a, input, textarea, select, summary, label, [data-selection-ignore="true"]')) {
+    return;
+  }
+  if (window.getSelection()?.toString()) {
+    return;
+  }
+  const details = target.closest("details");
+  if (details instanceof HTMLDetailsElement) {
+    details.open = false;
+  }
 }
 
 function avatarInitial(name: string): string {
