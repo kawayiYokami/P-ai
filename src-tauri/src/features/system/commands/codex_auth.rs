@@ -52,7 +52,7 @@ struct CodexJwtClaims {
     api_auth: CodexJwtApiClaims,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 struct CodexLocalAuthTokens {
     #[serde(default, alias = "accessToken")]
     access_token: String,
@@ -62,12 +62,22 @@ struct CodexLocalAuthTokens {
     id_token: String,
     #[serde(default, alias = "accountId")]
     account_id: String,
+    #[serde(default)]
+    email: String,
+    #[serde(default, alias = "expiresAtMs")]
+    expires_at_ms: Option<i64>,
+    #[serde(default, alias = "expiresAt")]
+    expires_at: String,
+    #[serde(default)]
+    expired: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct CodexLocalAuthFile {
     #[serde(default)]
     tokens: Option<CodexLocalAuthTokens>,
+    #[serde(flatten)]
+    flat_tokens: CodexLocalAuthTokens,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -332,6 +342,23 @@ fn codex_is_token_expired(expires_at_ms: i64) -> bool {
     now_ms >= i128::from(expires_at_ms.saturating_sub(CODEX_REFRESH_LEAD_MS))
 }
 
+fn codex_parse_expiry_ms(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(raw) = trimmed.parse::<i64>() {
+        return Some(if raw > 10_000_000_000 {
+            raw
+        } else {
+            raw.saturating_mul(1000)
+        });
+    }
+    OffsetDateTime::parse(trimmed, &Rfc3339)
+        .ok()
+        .map(|value| (value.unix_timestamp_nanos() / 1_000_000).min(i128::from(i64::MAX)) as i64)
+}
+
 fn codex_credential_from_token_response(
     response: CodexOAuthTokenResponse,
     fallback: Option<&CodexStoredCredential>,
@@ -465,9 +492,7 @@ fn codex_parse_local_auth_file(path: &str) -> Result<CodexStoredCredential, Stri
         .map_err(|err| format!("读取本地 Codex 凭证失败 ({}): {err}", normalized))?;
     let payload = serde_json::from_str::<CodexLocalAuthFile>(&content)
         .map_err(|err| format!("解析本地 Codex 凭证失败 ({}): {err}", normalized))?;
-    let tokens = payload
-        .tokens
-        .ok_or_else(|| "本地 Codex 凭证缺少 tokens 字段".to_string())?;
+    let tokens = payload.tokens.unwrap_or(payload.flat_tokens);
     if tokens.access_token.trim().is_empty() {
         return Err("本地 Codex 凭证缺少 access_token".to_string());
     }
@@ -484,16 +509,25 @@ fn codex_parse_local_auth_file(path: &str) -> Result<CodexStoredCredential, Stri
     if account_id.is_empty() {
         account_id = codex_extract_account_id(&access_claims);
     }
-    let mut email = id_claims.email.trim().to_string();
+    let mut email = tokens.email.trim().to_string();
+    if email.is_empty() {
+        email = id_claims.email.trim().to_string();
+    }
     if email.is_empty() {
         email = access_claims.email.trim().to_string();
     }
+    let expires_at_ms = tokens
+        .expires_at_ms
+        .filter(|value| *value > 0)
+        .or_else(|| codex_parse_expiry_ms(&tokens.expires_at))
+        .or_else(|| codex_parse_expiry_ms(&tokens.expired))
+        .unwrap_or_else(|| access_claims.exp.saturating_mul(1000));
     Ok(CodexStoredCredential {
         access_token: tokens.access_token.trim().to_string(),
         refresh_token: tokens.refresh_token.trim().to_string(),
         account_id,
         email,
-        expires_at_ms: access_claims.exp.saturating_mul(1000),
+        expires_at_ms,
         updated_at: now_iso(),
     })
 }

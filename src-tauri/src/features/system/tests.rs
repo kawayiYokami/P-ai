@@ -65,6 +65,84 @@
         assert_eq!(models, vec!["moonshot-v1-8k".to_string()]);
     }
 
+    fn test_codex_jwt(payload: serde_json::Value) -> String {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none"}"#);
+        let body = URL_SAFE_NO_PAD.encode(payload.to_string());
+        format!("{header}.{body}.signature")
+    }
+
+    #[test]
+    fn codex_parse_local_auth_file_should_read_nested_tokens() {
+        let temp_root = std::env::temp_dir().join(format!("easy-call-ai-codex-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_root).expect("create temp dir");
+        let path = temp_root.join("auth.json");
+        let access_token = test_codex_jwt(serde_json::json!({
+            "exp": 2000000000,
+            "email": "access@example.com",
+            "chatgpt_account_id": "acc-from-access"
+        }));
+        let id_token = test_codex_jwt(serde_json::json!({
+            "email": "id@example.com",
+            "chatgpt_account_id": "acc-from-id"
+        }));
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "tokens": {
+                    "access_token": access_token,
+                    "refresh_token": "refresh-nested",
+                    "id_token": id_token
+                }
+            })
+            .to_string(),
+        )
+        .expect("write auth file");
+
+        let credential =
+            codex_parse_local_auth_file(path.to_string_lossy().as_ref()).expect("parse nested auth");
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+        assert_eq!(credential.refresh_token, "refresh-nested");
+        assert_eq!(credential.account_id, "acc-from-id");
+        assert_eq!(credential.email, "id@example.com");
+        assert_eq!(credential.expires_at_ms, 2_000_000_000_000);
+    }
+
+    #[test]
+    fn codex_parse_local_auth_file_should_read_flat_tokens() {
+        let temp_root = std::env::temp_dir().join(format!("easy-call-ai-codex-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_root).expect("create temp dir");
+        let path = temp_root.join("auth.json");
+        let access_token = test_codex_jwt(serde_json::json!({
+            "exp": 1990000000,
+            "email": "access@example.com",
+            "chatgpt_account_id": "acc-from-access"
+        }));
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "access_token": access_token,
+                "refresh_token": "refresh-flat",
+                "account_id": "acc-flat",
+                "email": "flat@example.com",
+                "expired": "2033-05-18T03:33:20Z",
+                "type": "codex"
+            })
+            .to_string(),
+        )
+        .expect("write auth file");
+
+        let credential =
+            codex_parse_local_auth_file(path.to_string_lossy().as_ref()).expect("parse flat auth");
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+        assert_eq!(credential.refresh_token, "refresh-flat");
+        assert_eq!(credential.account_id, "acc-flat");
+        assert_eq!(credential.email, "flat@example.com");
+        assert_eq!(credential.expires_at_ms, 2_000_000_000_000);
+    }
+
     #[test]
     fn verify_staging_files_should_accept_when_target_exe_present() {
         let temp_root = std::env::temp_dir().join(format!("easy-call-ai-updater-{}", Uuid::new_v4()));
