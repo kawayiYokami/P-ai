@@ -2295,25 +2295,36 @@ export function useChatFlow(options: UseChatFlowOptions) {
     const partialReasoningInline =
       options.latestReasoningInlineText.value || String(activeDraftMeta.reasoningInline || "");
 
-    // queued 阶段：尚未进入流式，直接本地中断，不请求后端 stop。
-    if (round.phase === "queued") {
-      sendStartedAtMsByGen.delete(round.gen);
+    const finishLocalStoppedRound = async (statusState: "failed" | "" = "") => {
       ++generation;
       sendChatActiveGen = 0;
-      activeActivationId = "";
-      pendingTerminalEvent = null;
       deferredRoundCompletion = null;
-      removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
+      pendingTerminalEvent = null;
+      activeActivationId = "";
       if (pendingUserDraftId) {
         removeDraft(pendingUserDraftId);
+      }
+      if (round.phase === "streaming") {
+        removeDraft(round.draftId);
+        sendStartedAtMsByGen.delete(round.gen);
+      } else if (round.phase === "queued") {
+        removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
+        sendStartedAtMsByGen.delete(round.gen);
       }
       setRound({ phase: "idle" });
       options.chatting.value = false;
       reasoningStartedAtMs.value = 0;
-      options.toolStatusState.value = "";
-      options.toolStatusText.value = "";
+      options.toolStatusState.value = statusState;
+      options.toolStatusText.value = statusState
+        ? (summarizeToolCallsText() || options.t("status.interrupted"))
+        : "";
       clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-      activeActivationId = "";
+      await options.onReloadMessages();
+    };
+
+    // queued 阶段：尚未进入流式，直接本地中断，不请求后端 stop。
+    if (round.phase === "queued") {
+      await finishLocalStoppedRound();
       // 本地立即停的同时，异步通知后端中断正在排队/执行中的请求。
       if (stopSession && options.invokeStopChatMessage) {
         void options
@@ -2341,6 +2352,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
           partialReasoningStandard,
           partialReasoningInline,
         });
+        await finishLocalStoppedRound();
         return;
       } catch (error) {
         const et = error instanceof Error
@@ -2351,23 +2363,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
 
     // stop 失败时，回退本地中断，避免 UI 挂在 streaming 态。
-    ++generation;
-    sendChatActiveGen = 0;
-    deferredRoundCompletion = null;
-    activeActivationId = "";
-    if (pendingUserDraftId) {
-      removeDraft(pendingUserDraftId);
-    }
-    if (round.phase === "streaming") {
-      removeDraft(round.draftId);
-    }
-    setRound({ phase: "idle" });
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    options.toolStatusState.value = "failed";
-    options.toolStatusText.value = summarizeToolCallsText() || options.t("status.interrupted");
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-    await options.onReloadMessages();
+    await finishLocalStoppedRound("failed");
   }
 
   return {

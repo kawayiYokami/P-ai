@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（chat-stop-during-model-retry）：模型首包前失败重试期间点击停止时，后端中断成功后前端立即清理等待草稿、红色停止按钮和重试状态，避免 UI 继续停留在忙碌态。
 - 修复（chat-model-retry-prestream-status）：模型首包前失败并进入自动重试时，前端将失败原因与重试进度保留在助理等待草稿状态中，避免三点等待气泡消失后看不到“正在重试 (1/5)”提示。
 - 优化（genai-prompt-cache-key）：聊天模型请求统一按会话 ID 设置 genai `prompt_cache_key`，让 OpenAI-compatible 与 Responses/Codex 等支持方可复用供应商侧提示缓存，不支持的供应商由 genai 适配器忽略。
 - 修复（genai-provider-refresh-and-history-replay）：genai 历史回放统一为空缺 assistant reasoning_content 补空串；旧 Responses/Codex 工具历史缺少 provider_call_id 时降级为普通 assistant/user 文本；模型列表刷新按明确协议与 base_url 规则优先选择 Gemini/Anthropic/Codex 原生路径，并补充适配器回退日志与推理网关错误文案。
