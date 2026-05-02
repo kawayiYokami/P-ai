@@ -185,7 +185,9 @@ enum RequestFormat {
 
 impl RequestFormat {
     fn from_str(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
+        let raw = value.trim().to_ascii_lowercase();
+        let normalized = raw.replace([' ', '-'], "_");
+        match raw.as_str() {
             "openai" => Some(Self::OpenAI),
             "auto" => Some(Self::Auto),
             "deepseek" => Some(Self::DeepSeek),
@@ -213,7 +215,24 @@ impl RequestFormat {
             "openai_embedding" => Some(Self::OpenAIEmbedding),
             "openai_rerank" => Some(Self::OpenAIRerank),
             "gemini_embedding" => Some(Self::GeminiEmbedding),
-            _ => None,
+            _ => match normalized.as_str() {
+                "" | "default" | "automatic" => Some(Self::Auto),
+                "openai_compatible" | "openaicompatible" | "compatible_openai" | "openai_compat" => {
+                    Some(Self::OpenAI)
+                }
+                "deepseek_kimi" => Some(Self::DeepSeekKimi),
+                "openai_responses" | "responses" => Some(Self::OpenAIResponses),
+                "claude" => Some(Self::Anthropic),
+                "google" | "google_gemini" => Some(Self::Gemini),
+                "ollama_cloud" => Some(Self::OllamaCloud),
+                "github_copilot" => Some(Self::GithubCopilot),
+                "stt" | "openai_stt" => Some(Self::OpenAIStt),
+                "tts" | "openai_tts" => Some(Self::OpenAITts),
+                "embedding" | "embeddings" | "openai_embedding" => Some(Self::OpenAIEmbedding),
+                "rerank" | "openai_rerank" => Some(Self::OpenAIRerank),
+                "gemini_embedding" => Some(Self::GeminiEmbedding),
+                _ => None,
+            },
         }
     }
 
@@ -331,14 +350,12 @@ impl<'de> serde::Deserialize<'de> for RequestFormat {
         D: serde::Deserializer<'de>,
     {
         let raw = <String as serde::Deserialize>::deserialize(deserializer)?;
-        Self::from_str(&raw).ok_or_else(|| {
-            serde::de::Error::custom(format!("unsupported request format '{}'", raw.trim()))
-        })
+        Ok(Self::from_str(&raw).unwrap_or(Self::Auto))
     }
 }
 
 fn default_request_format() -> RequestFormat {
-    RequestFormat::OpenAI
+    RequestFormat::Auto
 }
 
 fn default_false() -> bool {

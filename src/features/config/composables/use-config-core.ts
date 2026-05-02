@@ -1,6 +1,7 @@
 import type { ComputedRef } from "vue";
 import type { ApiConfigItem, ApiModelConfigItem, ApiProviderConfigItem, AppConfig, CodexAuthMode, RemoteImChannelConfig, RemoteImPlatform } from "../../../types/app";
 import { defaultToolBindings } from "../utils/builtin-tools";
+import { normalizeApiRequestFormat } from "../utils/api-request-format";
 
 function normalizeRemoteImPlatform(value: unknown): RemoteImPlatform {
   const text = String(value || "").trim().toLowerCase();
@@ -77,7 +78,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return {
       id: `${provider.id}::${model.id}`,
       name: `${provider.name}/${model.model}`,
-      requestFormat: provider.requestFormat,
+      requestFormat: normalizeApiRequestFormat(provider.requestFormat),
       allowConcurrentRequests: !!provider.allowConcurrentRequests,
       enableText: provider.enableText,
       enableImage: model.enableImage,
@@ -108,7 +109,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         options.config.apiProviders = options.config.apiConfigs.map((api, index) => ({
           id: `api-provider-legacy-${index + 1}`,
           name: api.name,
-          requestFormat: api.requestFormat,
+          requestFormat: normalizeApiRequestFormat(api.requestFormat),
           allowConcurrentRequests: !!api.allowConcurrentRequests,
           enableText: !!api.enableText,
           enableImage: !!api.enableImage,
@@ -144,6 +145,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       (options.config.apiConfigs || []).map((api) => [String(api.id || "").trim(), api] as const),
     );
     for (const provider of options.config.apiProviders) {
+      provider.requestFormat = normalizeApiRequestFormat(provider.requestFormat);
       const models = Array.isArray(provider.models) ? provider.models : [];
       provider.enableImage = models.some((model) => !!model.enableImage);
       provider.enableTools = models.some((model) => model.enableTools !== false);
@@ -156,7 +158,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         const draft = endpointDraftById.get(endpointId);
         if (!draft) continue;
         provider.name = String(provider.name || "").trim() || provider.id;
-        provider.requestFormat = draft.requestFormat;
+        provider.requestFormat = normalizeApiRequestFormat(draft.requestFormat);
         provider.allowConcurrentRequests = !!draft.allowConcurrentRequests;
         provider.enableText = !!draft.enableText;
         provider.enableAudio = !!draft.enableAudio;
@@ -196,7 +198,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         nextApiConfigs.push({
           id: `${provider.id}::${model.id}`,
           name: `${providerName}/${modelValue}`,
-          requestFormat: provider.requestFormat,
+          requestFormat: normalizeApiRequestFormat(provider.requestFormat),
           allowConcurrentRequests: !!provider.allowConcurrentRequests,
           enableText: !!provider.enableText,
           enableImage: !!model.enableImage,
@@ -227,7 +229,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       nextApiConfigs.push({
         id: `${provider.id}::${model.id}`,
         name: `${provider.name}/${model.model}`,
-        requestFormat: provider.requestFormat,
+        requestFormat: normalizeApiRequestFormat(provider.requestFormat),
         allowConcurrentRequests: !!provider.allowConcurrentRequests,
         enableText: !!provider.enableText,
         enableImage: !!model.enableImage,
@@ -298,7 +300,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiProviders: (options.config.apiProviders || []).map((provider) => ({
         id: provider.id,
         name: provider.name,
-        requestFormat: provider.requestFormat,
+        requestFormat: normalizeApiRequestFormat(provider.requestFormat),
         allowConcurrentRequests: !!provider.allowConcurrentRequests,
         enableText: !!provider.enableText,
         enableImage: (provider.models || []).some((model) => !!model.enableImage),
@@ -336,7 +338,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
-        requestFormat: a.requestFormat,
+        requestFormat: normalizeApiRequestFormat(a.requestFormat),
         allowConcurrentRequests: !!a.allowConcurrentRequests,
         enableText: !!a.enableText,
         enableImage: !!a.enableImage,
@@ -389,7 +391,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       apiConfigs: options.config.apiConfigs.map((a) => ({
         id: a.id,
         name: a.name,
-        requestFormat: a.requestFormat,
+        requestFormat: normalizeApiRequestFormat(a.requestFormat),
         enableText: a.enableText,
         enableImage: a.enableImage,
         enableAudio: a.enableAudio,

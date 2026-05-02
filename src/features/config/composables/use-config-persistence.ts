@@ -14,6 +14,7 @@ import type {
   RemoteImChannelConfig,
 } from "../../../types/app";
 import type { SupportedLocale } from "../../../i18n";
+import { normalizeApiRequestFormat } from "../utils/api-request-format";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -294,7 +295,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       ? (cfg.apiProviders || []).map((provider) => ({
           id: String((provider as { id?: unknown }).id || "").trim(),
           name: String((provider as { name?: unknown }).name || "").trim(),
-          requestFormat: (String((provider as { requestFormat?: unknown }).requestFormat || "openai").trim() as AppConfig["apiProviders"][number]["requestFormat"]),
+          requestFormat: normalizeApiRequestFormat((provider as { requestFormat?: unknown }).requestFormat),
           allowConcurrentRequests: !!(provider as { allowConcurrentRequests?: unknown }).allowConcurrentRequests,
           enableText: !!(provider as { enableText?: unknown }).enableText,
           enableImage: !!(provider as { enableImage?: unknown }).enableImage,
@@ -340,7 +341,12 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.apiConfigs.splice(
       0,
       options.config.apiConfigs.length,
-      ...(cfg.apiConfigs.length ? cfg.apiConfigs : [options.createApiConfig("default")]),
+      ...(cfg.apiConfigs.length
+        ? cfg.apiConfigs.map((api) => ({
+            ...api,
+            requestFormat: normalizeApiRequestFormat((api as { requestFormat?: unknown }).requestFormat),
+          }))
+        : [options.createApiConfig("default")]),
     );
     options.normalizeApiBindingsLocal();
     lastConversationApiSettingsJson = JSON.stringify({

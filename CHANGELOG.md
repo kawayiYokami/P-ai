@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（api-request-format-legacy-fallback）：旧配置中的 OpenAI 兼容协议别名会映射为 `openai`，缺失或未知协议自动回落到 `auto`，避免供应商设置页协议下拉为空。
 - 修复（startup-white-screen-guard）：前端启动壳先渲染，迁移安全闸通过后再启动后台服务；首屏数据加载慢时只提示并继续等待真实结果，避免白屏或半初始化。
 - 功能（user-async-delegate-selection）：聊天消息多选栏新增“发起委托”，支持“审查”预设、目标部门选择和最近 3 次委托配置复用；后端按选中消息抽取用户/助手纯文本作为背景，发起用户手动异步委托并将结果写回当前会话。
 - 优化（delegate-tool-schema-consult）：LLM 可见的 `delegate` 工具改为子代理咨询语义，仅暴露 `department_id/mode/background/question/focus`，并明确用于大范围模糊搜索、调查或比对后收敛精准目标；模型发起的 async 委托固定只写回结果，不再由模型控制是否续跑主助理。

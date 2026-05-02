@@ -349,6 +349,7 @@ import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppCo
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
+import { normalizeApiRequestFormat } from "../../utils/api-request-format";
 
 type ApiCapability = "text" | "voice" | "embedding";
 type ProviderPresetCategory = "official" | "domestic" | "openaiCompatible" | "local";
@@ -516,8 +517,7 @@ const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
 ]);
 
 function canonicalRequestFormat(format: string): ApiRequestFormat {
-  const normalized = String(format || "").trim().toLowerCase();
-  return (normalized === "deepseek/kimi" ? "deepseek" : normalized) as ApiRequestFormat;
+  return normalizeApiRequestFormat(format);
 }
 
 function isTextRequestFormat(format: string): format is ApiRequestFormat {
@@ -647,7 +647,7 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
   return {
     id: String(provider.id || "").trim(),
     name: String(provider.name || "").trim(),
-    requestFormat: provider.requestFormat,
+    requestFormat: normalizeApiRequestFormat(provider.requestFormat),
     allowConcurrentRequests: !!provider.allowConcurrentRequests,
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
@@ -692,7 +692,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
   return {
     id: String(provider.id || "").trim(),
     name: String(provider.name || "").trim(),
-    requestFormat: provider.requestFormat,
+    requestFormat: normalizeApiRequestFormat(provider.requestFormat),
     allowConcurrentRequests: !!provider.allowConcurrentRequests,
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
@@ -744,6 +744,7 @@ function stopCodexAuthPolling() {
 }
 
 function applyProtocolDefaults(provider: ApiProviderConfigItem) {
+  provider.requestFormat = normalizeApiRequestFormat(provider.requestFormat);
   const isCodex = provider.requestFormat === "codex";
   if (isCodex) {
     provider.baseUrl = DEFAULT_CODEX_BASE_URL;
@@ -768,6 +769,15 @@ function applyProtocolDefaults(provider: ApiProviderConfigItem) {
     ...model,
     reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
   }));
+}
+
+function normalizeProviderRequestFormats() {
+  for (const provider of providerList.value) {
+    const normalized = normalizeApiRequestFormat(provider.requestFormat);
+    if (provider.requestFormat !== normalized) {
+      provider.requestFormat = normalized;
+    }
+  }
 }
 
 function createModel(seed: string, name = "gpt-4o-mini"): ApiModelConfigItem {
@@ -1246,6 +1256,12 @@ watch(
   () => {
     linkHelperActiveProtocol.value = defaultLinkHelperProtocol();
   },
+  { immediate: true },
+);
+
+watch(
+  () => providerList.value.map((provider) => provider.requestFormat).join("\0"),
+  normalizeProviderRequestFormats,
   { immediate: true },
 );
 
