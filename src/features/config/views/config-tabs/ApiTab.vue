@@ -93,9 +93,9 @@
               <div v-if="baseUrlHelperOpen" class="rounded-box border border-base-300 bg-base-200/50 p-3">
                 <div class="mb-2 text-xs opacity-70">{{ t("config.api.linkHelperHint") }}</div>
                 <div class="tabs tabs-boxed mb-2 bg-base-100 p-1">
-                  <button v-for="tab in linkHelperTabs" :key="tab.id" class="tab tab-sm flex-1"
-                    :class="linkHelperActiveTab === tab.id ? 'tab-active' : ''" type="button"
-                    @click="linkHelperActiveTab = tab.id">
+                  <button v-for="tab in linkHelperTabs" :key="tab.value" class="tab tab-sm flex-1"
+                    :class="linkHelperActiveProtocol === tab.value ? 'tab-active' : ''" type="button"
+                    @click="linkHelperActiveProtocol = tab.value">
                     {{ tab.label }}
                   </button>
                 </div>
@@ -402,7 +402,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const baseUrlHelperOpen = ref(false);
-const linkHelperActiveTab = ref<ProviderPresetCategory>("official");
+const linkHelperActiveProtocol = ref<ApiRequestFormat>("openai");
 const selectedPresetId = ref("openai-official");
 const activeModelPickerId = ref("");
 const modelSearch = ref("");
@@ -554,28 +554,40 @@ const currentCodexAuthStatus = computed(() => {
   return providerId ? codexAuthStatusByProvider.value[providerId] ?? null : null;
 });
 
-const linkHelperTabs: Array<{ id: ProviderPresetCategory; label: string }> = [
-  { id: "official", label: "官方" },
-  { id: "domestic", label: "国内" },
-  { id: "openaiCompatible", label: "兼容" },
-  { id: "local", label: "本地" },
-];
+const linkHelperTabs = computed(() =>
+  protocolOptions.value.filter((option) =>
+    option.value !== "auto" && providerPresets.some((preset) => Boolean(preset.urls[option.value])),
+  ),
+);
 
 const filteredProviderPresets = computed(() => {
   const matched = providerPresets.filter((preset) =>
-    preset.category === linkHelperActiveTab.value && Boolean(preset.urls[selectedProtocol.value]),
+    Boolean(preset.urls[linkHelperActiveProtocol.value]),
   );
   return [...matched].sort((a, b) => Number(Boolean(b.hasFreeQuota)) - Number(Boolean(a.hasFreeQuota)));
 });
 
 const selectedPreset = computed(() =>
-  providerPresets.find((preset) => preset.id === selectedPresetId.value) ?? filteredProviderPresets.value[0] ?? providerPresets[0],
+  providerPresets.find((preset) =>
+    preset.id === selectedPresetId.value && Boolean(preset.urls[linkHelperActiveProtocol.value]),
+  ) ?? filteredProviderPresets.value[0] ?? providerPresets[0],
 );
 
 const generatedBaseUrl = computed(() => {
   const preset = selectedPreset.value;
-  return preset?.urls[selectedProtocol.value] || preset?.urls.openai || "";
+  return preset?.urls[linkHelperActiveProtocol.value] || "";
 });
+
+function defaultLinkHelperProtocol(): ApiRequestFormat {
+  const protocol = selectedProtocol.value;
+  if (
+    protocol !== "auto"
+    && providerPresets.some((preset) => Boolean(preset.urls[protocol]))
+  ) {
+    return protocol;
+  }
+  return linkHelperTabs.value[0]?.value ?? "openai";
+}
 
 const providerModelOptions = computed(() => {
   const provider = selectedProvider.value;
@@ -1228,6 +1240,14 @@ async function handleSaveApiConfig() {
 function handleRestoreProviderDraft() {
   revertUnsavedConfigIfNeeded();
 }
+
+watch(
+  selectedProtocol,
+  () => {
+    linkHelperActiveProtocol.value = defaultLinkHelperProtocol();
+  },
+  { immediate: true },
+);
 
 watch(
   () => selectedProvider.value?.id,
