@@ -314,7 +314,7 @@
       "descReload": "Reload MCP and skill from workspace.",
       "descOrganizeContext": "Use only when the topic has drifted far and unrelated context may interfere with the latest task; do not compress when the chat is still short or context usage is still low.",
       "descTask": "Manage the persistent task board: update, complete, and inspect tasks.",
-      "descDelegate": "Delegate work to another department: only the main assistant department can use it. mode=async runs in the background; mode=sync waits for the child result before continuing.",
+      "descDelegate": "Use a child agent when broad fuzzy search, investigation, or comparison is needed to narrow many clues into a precise target or conclusion.",
       "descRemoteImSend": "Remote contact communication tool.",
       "descGeneric": "General tool capability.",
       "shellWorkspace": "Shell Workspace",

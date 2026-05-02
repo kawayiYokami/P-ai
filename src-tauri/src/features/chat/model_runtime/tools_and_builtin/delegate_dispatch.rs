@@ -89,7 +89,21 @@ struct ValidatedDelegateArgs {
     background: String,
     specific_goal: String,
     deliverable_requirement: String,
-    notify_assistant_when_done: bool,
+}
+
+fn delegate_title_from_question(question: &str) -> String {
+    let compact = question
+        .trim()
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    let title = compact.chars().take(32).collect::<String>();
+    if title.trim().is_empty() {
+        "未命名委托".to_string()
+    } else {
+        title
+    }
 }
 
 fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateArgs, String> {
@@ -98,26 +112,19 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
     if target_department_id.is_empty() {
         return Err("delegate.department_id is required".to_string());
     }
-    let instruction = args.instruction.trim().to_string();
+    let instruction = args.question.trim().to_string();
     if instruction.is_empty() {
-        return Err("delegate.instruction is required".to_string());
+        return Err("delegate.question is required".to_string());
     }
-    let title = args
-        .task_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("未命名委托")
-        .to_string();
+    let title = delegate_title_from_question(&instruction);
     Ok(ValidatedDelegateArgs {
         mode,
         target_department_id,
         instruction,
         title,
-        background: args.background.clone().unwrap_or_default(),
-        specific_goal: args.specific_goal.clone().unwrap_or_default(),
-        deliverable_requirement: args.deliverable_requirement.clone().unwrap_or_default(),
-        notify_assistant_when_done: args.notify_assistant_when_done,
+        background: args.background.clone(),
+        specific_goal: args.focus.clone(),
+        deliverable_requirement: String::new(),
     })
 }
 
@@ -349,7 +356,7 @@ async fn builtin_delegate(
         validated.background,
         validated.specific_goal,
         validated.deliverable_requirement,
-        validated.notify_assistant_when_done,
+        false,
         call_stack,
     )?;
 
@@ -461,4 +468,3 @@ async fn delegate_execute_sync(
         })),
     }
 }
-

@@ -58,21 +58,14 @@ struct ContactNoReplyToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct DelegateToolArgs {
     department_id: String,
     #[serde(default)]
     mode: Option<String>,
-    #[serde(default)]
-    task_name: Option<String>,
-    instruction: String,
-    #[serde(default)]
-    background: Option<String>,
-    #[serde(default)]
-    specific_goal: Option<String>,
-    #[serde(default)]
-    deliverable_requirement: Option<String>,
-    #[serde(default = "default_true")]
-    notify_assistant_when_done: bool,
+    background: String,
+    question: String,
+    focus: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +76,7 @@ enum DelegateMode {
 
 fn parse_delegate_mode(raw: Option<&str>) -> Result<DelegateMode, String> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
-        None => Err("delegate.mode is required".to_string()),
+        None => Ok(DelegateMode::Async),
         Some("async") => Ok(DelegateMode::Async),
         Some("sync") => Ok(DelegateMode::Sync),
         Some(other) => Err(format!(

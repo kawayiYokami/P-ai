@@ -37,13 +37,13 @@ fn delegate_build_task_prompt_block(
     specific_goal: &str,
     deliverable_requirement: &str,
 ) -> String {
-    let mut lines = vec![format!("委托任务：{}", title.trim())];
-    lines.push(format!("核心指令：{}", instruction.trim()));
+    let mut lines = vec![format!("子代理咨询：{}", title.trim())];
+    lines.push(format!("提问：{}", instruction.trim()));
     if !background.trim().is_empty() {
         lines.push(format!("背景：{}", background.trim()));
     }
     if !specific_goal.trim().is_empty() {
-        lines.push(format!("具体目标：{}", specific_goal.trim()));
+        lines.push(format!("关注重点：{}", specific_goal.trim()));
     }
     if !deliverable_requirement.trim().is_empty() {
         lines.push(format!("交付要求：{}", deliverable_requirement.trim()));

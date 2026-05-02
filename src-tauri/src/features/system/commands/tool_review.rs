@@ -2123,12 +2123,9 @@ async fn submit_tool_review_code(
         let delegate_args = DelegateToolArgs {
             department_id: target_department_id_owned.clone(),
             mode: Some("sync".to_string()),
-            task_name: Some("代码审查".to_string()),
-            instruction,
-            background: Some(tool_review_delegate_background(&scope_owned, target_owned.as_deref())),
-            specific_goal: Some("输出符合协议的代码审查 JSON".to_string()),
-            deliverable_requirement: Some("仅返回纯 JSON，不要包 markdown。".to_string()),
-            notify_assistant_when_done: false,
+            background: tool_review_delegate_background(&scope_owned, target_owned.as_deref()),
+            question: instruction,
+            focus: "输出符合协议的代码审查 JSON；仅返回纯 JSON，不要包 markdown。".to_string(),
         };
         let session_id = format!("{}::{}", source_agent_id_owned, conversation_id_owned);
         runtime_log_info(format!(

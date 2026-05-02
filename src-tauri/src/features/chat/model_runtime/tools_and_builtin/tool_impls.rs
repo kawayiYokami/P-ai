@@ -689,20 +689,17 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "delegate",
-            "向某个部门发起委托。mode=async 仅主助理可用，表示后台处理并立即返回送达结果；mode=sync 表示当前线程等待下级完成后再继续。",
+            "当需要大范围模糊搜索、调查或比对，并从大量线索中收敛出精准目标/结论时，向目标部门的子代理咨询。子代理只返回内容，不执行危险操作；async 后台写回，sync 等待结果。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "department_id": { "type": "string", "description": "目标部门 ID" },
-                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托模式。async=仅主助理可用，后台处理并立即返回；sync=当前线程等待结果再继续。" },
-                "task_name": { "type": "string", "description": "委托标题" },
-                "instruction": { "type": "string", "description": "明确委托内容" },
-                "background": { "type": "string", "description": "当前已知背景" },
-                "specific_goal": { "type": "string", "description": "具体目标" },
-                "deliverable_requirement": { "type": "string", "description": "交付要求" },
-                "notify_assistant_when_done": { "type": "boolean", "description": "仅在 mode=async 时生效；完成后是否额外提醒主助理。mode=sync 会忽略此字段。", "default": true }
+                "mode": { "type": "string", "enum": ["async", "sync"], "description": "async 后台写回；sync 等待结果。", "default": "async" },
+                "background": { "type": "string", "description": "已有背景" },
+                "question": { "type": "string", "description": "要子代理查清的问题" },
+                "focus": { "type": "string", "description": "搜索/调查重点" }
               },
-              "required": ["department_id", "mode", "instruction"]
+              "required": ["department_id", "background", "question", "focus"]
             }),
         )
     }

@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（delegate-tool-schema-consult）：LLM 可见的 `delegate` 工具改为子代理咨询语义，仅暴露 `department_id/mode/background/question/focus`，并明确用于大范围模糊搜索、调查或比对后收敛精准目标；模型发起的 async 委托固定只写回结果，不再由模型控制是否续跑主助理。
 - 修复（archives-delete-delegate-conversation）：归档窗口的委托会话页支持删除委托会话；删除运行中的委托时会先中止对应模型/工具调度与子委托调度，再清理委托会话文件。
 - 修复（delegate-conversation-cascade-delete）：普通会话删除或归档成功后，会按 `root_conversation_id` 级联中止并删除绑定的委托会话，避免原会话消失后仍残留委托记录。
 - 功能（chat-delegate-sidebar）：聊天右侧侧边栏新增“委托”标签，按当前会话实时显示委托执行状态、模型请求步数、工具调用次数、最近工具、压缩边界累计用量与耗时，并可跳转归档窗口查看对应委托会话详情。
