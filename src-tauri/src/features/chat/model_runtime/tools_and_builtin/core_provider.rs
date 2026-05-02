@@ -1,4 +1,5 @@
 // ========== provider 调用 ==========
+#[cfg(test)]
 include!("core_provider_gemini.rs");
 include!("core_provider_calls.rs");
 

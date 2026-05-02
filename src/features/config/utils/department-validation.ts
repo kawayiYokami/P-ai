@@ -2,10 +2,37 @@ import type { ApiConfigItem, AppConfig } from "../../../types/app";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
+const TEXT_REQUEST_FORMATS = new Set([
+  "auto",
+  "openai",
+  "deepseek",
+  "openai_responses",
+  "codex",
+  "gemini",
+  "anthropic",
+  "fireworks",
+  "together",
+  "groq",
+  "mimo",
+  "nebius",
+  "xai",
+  "zai",
+  "bigmodel",
+  "aliyun",
+  "cohere",
+  "ollama",
+  "ollama_cloud",
+  "vertex",
+  "github_copilot",
+]);
+
 function textCapableApiIds(apiConfigs: ApiConfigItem[]): Set<string> {
   return new Set(
     (apiConfigs || [])
-      .filter((api) => !!api.enableText && ["openai", "deepseek/kimi", "codex", "openai_responses", "gemini", "anthropic"].includes(api.requestFormat))
+      .filter((api) => {
+        const format = String(api.requestFormat || "").trim().toLowerCase();
+        return !!api.enableText && (format === "deepseek/kimi" || TEXT_REQUEST_FORMATS.has(format));
+      })
       .map((api) => api.id),
   );
 }

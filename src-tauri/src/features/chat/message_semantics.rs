@@ -4,21 +4,6 @@ enum MessageToolHistoryView {
     PromptReplay,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ToolCallProtocolFamily {
-    OpenAiChatLike,
-    OpenAiResponses,
-    Gemini,
-    Anthropic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StructuredToolReplayCapability {
-    Structured,
-    TextOnly,
-    Invalid,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 struct NormalizedToolCallRecord {
     invocation_id: Option<String>,
@@ -282,71 +267,6 @@ fn tool_history_markdown_lines_from_message(message: &ChatMessage) -> Vec<String
     out
 }
 
-fn tool_call_replay_capability(
-    protocol_family: ToolCallProtocolFamily,
-    call: &NormalizedToolCallRecord,
-) -> StructuredToolReplayCapability {
-    let has_invocation_id = call
-        .invocation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some();
-    let has_tool_name = call
-        .tool_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some();
-    if !has_invocation_id || !has_tool_name {
-        return StructuredToolReplayCapability::Invalid;
-    }
-    match protocol_family {
-        ToolCallProtocolFamily::OpenAiResponses => {
-            if call
-                .provider_call_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some()
-            {
-                StructuredToolReplayCapability::Structured
-            } else {
-                StructuredToolReplayCapability::TextOnly
-            }
-        }
-        ToolCallProtocolFamily::OpenAiChatLike
-        | ToolCallProtocolFamily::Gemini
-        | ToolCallProtocolFamily::Anthropic => StructuredToolReplayCapability::Structured,
-    }
-}
-
-fn tool_result_replay_capability(
-    protocol_family: ToolCallProtocolFamily,
-    tool_call_id: &str,
-    provider_call_id: Option<&str>,
-) -> StructuredToolReplayCapability {
-    if tool_call_id.trim().is_empty() {
-        return StructuredToolReplayCapability::Invalid;
-    }
-    match protocol_family {
-        ToolCallProtocolFamily::OpenAiResponses => {
-            if provider_call_id
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some()
-            {
-                StructuredToolReplayCapability::Structured
-            } else {
-                StructuredToolReplayCapability::TextOnly
-            }
-        }
-        ToolCallProtocolFamily::OpenAiChatLike
-        | ToolCallProtocolFamily::Gemini
-        | ToolCallProtocolFamily::Anthropic => StructuredToolReplayCapability::Structured,
-    }
-}
-
 #[cfg(test)]
 mod message_semantics_tests {
     use super::*;
@@ -532,35 +452,5 @@ mod message_semantics_tests {
         assert_eq!(history[0].reasoning_content.as_deref(), Some("第一次工具思考"));
         assert_eq!(history[2].role, "assistant");
         assert_eq!(history[2].reasoning_content.as_deref(), Some("第二次工具思考"));
-    }
-
-    #[test]
-    fn tool_call_replay_capability_should_require_provider_call_id_only_for_responses() {
-        let call = NormalizedToolCallRecord {
-            invocation_id: Some("fc_1".to_string()),
-            provider_call_id: None,
-            tool_type: Some("function".to_string()),
-            tool_name: Some("bing_search".to_string()),
-            arguments_value: serde_json::json!({ "query": "rust" }),
-            arguments_text: "{\"query\":\"rust\"}".to_string(),
-            raw_arguments: Value::String("{\"query\":\"rust\"}".to_string()),
-        };
-
-        assert_eq!(
-            tool_call_replay_capability(ToolCallProtocolFamily::OpenAiChatLike, &call),
-            StructuredToolReplayCapability::Structured
-        );
-        assert_eq!(
-            tool_call_replay_capability(ToolCallProtocolFamily::Gemini, &call),
-            StructuredToolReplayCapability::Structured
-        );
-        assert_eq!(
-            tool_call_replay_capability(ToolCallProtocolFamily::Anthropic, &call),
-            StructuredToolReplayCapability::Structured
-        );
-        assert_eq!(
-            tool_call_replay_capability(ToolCallProtocolFamily::OpenAiResponses, &call),
-            StructuredToolReplayCapability::TextOnly
-        );
     }
 }

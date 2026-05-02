@@ -282,7 +282,7 @@ fn is_streaming_request_payload_format_error(err: &str) -> bool {
 }
 
 fn request_format_supports_non_stream_fallback(format: RequestFormat) -> bool {
-    matches!(format, RequestFormat::OpenAI | RequestFormat::DeepSeekKimi)
+    format.is_genai_chat() || format.is_auto()
 }
 
 async fn invoke_model_by_format(
@@ -291,26 +291,13 @@ async fn invoke_model_by_format(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
-    match resolved_api.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
-            call_model_openai_stream(resolved_api, model_name, prepared, app_state).await
-        }
-        RequestFormat::OpenAIResponses | RequestFormat::Codex => {
-            call_model_openai_responses(resolved_api, model_name, prepared, None, app_state).await
-        }
-        RequestFormat::Gemini => call_model_gemini(resolved_api, model_name, prepared, app_state).await,
-        RequestFormat::Anthropic => {
-            call_model_anthropic(resolved_api, model_name, prepared, app_state).await
-        }
-        RequestFormat::OpenAITts
-        | RequestFormat::OpenAIStt
-        | RequestFormat::GeminiEmbedding
-        | RequestFormat::OpenAIEmbedding
-        | RequestFormat::OpenAIRerank => Err(format!(
-            "Request format '{}' is not supported for this non-stream inference.",
-            resolved_api.request_format
-        )),
+    if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
+        return call_model_openai_stream(resolved_api, model_name, prepared, app_state).await;
     }
+    Err(format!(
+        "Request format '{}' is not supported for inference gateway.",
+        resolved_api.request_format
+    ))
 }
 
 async fn invoke_model_non_stream_by_format(
@@ -319,19 +306,10 @@ async fn invoke_model_non_stream_by_format(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
-    match resolved_api.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
-            call_model_openai_non_stream(resolved_api, model_name, prepared, app_state).await
-        }
-        RequestFormat::OpenAIResponses | RequestFormat::Codex => {
-            call_model_openai_responses_non_stream(resolved_api, model_name, prepared, app_state)
-                .await
-        }
-        RequestFormat::Anthropic => {
-            call_model_anthropic_non_stream(resolved_api, model_name, prepared, app_state).await
-        }
-        _ => invoke_model_by_format(resolved_api, model_name, prepared, app_state).await,
+    if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
+        return call_model_openai_non_stream(resolved_api, model_name, prepared, app_state).await;
     }
+    invoke_model_by_format(resolved_api, model_name, prepared, app_state).await
 }
 
 async fn invoke_model_by_format_with_timeout(

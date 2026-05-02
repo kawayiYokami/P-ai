@@ -224,6 +224,103 @@ async fn fetch_models_anthropic(input: &RefreshModelsInput) -> Result<Vec<String
     Ok(models)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelRefreshStrategy {
+    OpenAi,
+    GeminiNative,
+    AnthropicNative,
+    CodexBuiltin,
+}
+
+fn codex_builtin_models() -> Vec<String> {
+    vec![
+        "gpt-5.5".to_string(),
+        "gpt-5.4".to_string(),
+        "gpt-5.4-mini".to_string(),
+        "gpt-5.3-codex".to_string(),
+        "gpt-5.3-codex-spark".to_string(),
+        "gpt-5.2".to_string(),
+    ]
+}
+
+fn push_unique_refresh_strategy(
+    strategies: &mut Vec<ModelRefreshStrategy>,
+    strategy: ModelRefreshStrategy,
+) {
+    if !strategies.contains(&strategy) {
+        strategies.push(strategy);
+    }
+}
+
+fn inferred_model_refresh_strategy_from_base_url(base_url: &str) -> Option<ModelRefreshStrategy> {
+    let normalized = base_url.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.contains("chatgpt.com/backend-api/codex") {
+        return Some(ModelRefreshStrategy::CodexBuiltin);
+    }
+    if normalized.contains("generativelanguage.googleapis.com")
+        || normalized.contains("aistudio.google.com")
+        || normalized.contains("gemini")
+    {
+        return Some(ModelRefreshStrategy::GeminiNative);
+    }
+    if normalized.contains("api.anthropic.com") || normalized.contains("anthropic") {
+        return Some(ModelRefreshStrategy::AnthropicNative);
+    }
+    Some(ModelRefreshStrategy::OpenAi)
+}
+
+fn model_refresh_strategies(input: &RefreshModelsInput) -> Vec<ModelRefreshStrategy> {
+    let mut strategies = Vec::<ModelRefreshStrategy>::new();
+    let inferred = inferred_model_refresh_strategy_from_base_url(&input.base_url);
+    match input.request_format {
+        RequestFormat::Gemini => {
+            push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::GeminiNative);
+        }
+        RequestFormat::Anthropic => {
+            push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::AnthropicNative);
+        }
+        RequestFormat::Codex => {
+            push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::CodexBuiltin);
+        }
+        RequestFormat::Auto => {
+            if let Some(strategy) = inferred {
+                push_unique_refresh_strategy(&mut strategies, strategy);
+            }
+        }
+        _ => {
+            push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::OpenAi);
+        }
+    }
+    for strategy in [
+        ModelRefreshStrategy::OpenAi,
+        ModelRefreshStrategy::GeminiNative,
+        ModelRefreshStrategy::AnthropicNative,
+    ] {
+        push_unique_refresh_strategy(&mut strategies, strategy);
+    }
+    if matches!(input.request_format, RequestFormat::Codex)
+        || matches!(inferred, Some(ModelRefreshStrategy::CodexBuiltin))
+    {
+        push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::CodexBuiltin);
+    }
+    strategies
+}
+
+async fn fetch_models_with_strategy(
+    input: &RefreshModelsInput,
+    strategy: ModelRefreshStrategy,
+) -> Result<Vec<String>, String> {
+    match strategy {
+        ModelRefreshStrategy::OpenAi => fetch_models_openai(input).await,
+        ModelRefreshStrategy::GeminiNative => fetch_models_gemini_native(input).await,
+        ModelRefreshStrategy::AnthropicNative => fetch_models_anthropic(input).await,
+        ModelRefreshStrategy::CodexBuiltin => Ok(codex_builtin_models()),
+    }
+}
+
 fn model_id_exact_match(requested_model: &str, candidate_model: &str) -> bool {
     let requested = requested_model.trim();
     let candidate = candidate_model.trim();
@@ -377,7 +474,10 @@ async fn refresh_models(
     state: State<'_, AppState>,
     input: RefreshModelsInput,
 ) -> Result<Vec<String>, String> {
-    if !input.request_format.is_codex() && input.api_key.trim().is_empty() {
+    let inferred_strategy = inferred_model_refresh_strategy_from_base_url(&input.base_url);
+    let can_refresh_without_api_key = input.request_format.is_codex()
+        || matches!(inferred_strategy, Some(ModelRefreshStrategy::CodexBuiltin));
+    if !can_refresh_without_api_key && input.api_key.trim().is_empty() {
         return Err("API key is empty.".to_string());
     }
     if input.base_url.trim().is_empty() {
@@ -392,23 +492,6 @@ async fn refresh_models(
     }
 
     match input.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi | RequestFormat::OpenAIResponses => {
-            fetch_models_openai(&input).await
-        }
-        RequestFormat::Codex => Ok(vec![
-            "gpt-5.5".to_string(),
-            "gpt-5.4".to_string(),
-            "gpt-5.4-mini".to_string(),
-            "gpt-5.3-codex".to_string(),
-            "gpt-5.3-codex-spark".to_string(),
-            "gpt-5.2".to_string(),
-        ]),
-        RequestFormat::Gemini => fetch_models_gemini_native(&input).await,
-        RequestFormat::GeminiEmbedding => Err(
-            "Request format 'gemini_embedding' is for embedding and does not support model list refresh."
-                .to_string(),
-        ),
-        RequestFormat::Anthropic => fetch_models_anthropic(&input).await,
         RequestFormat::OpenAITts => Err(
             "Request format 'openai_tts' is for TTS and does not support model list refresh."
                 .to_string(),
@@ -421,9 +504,43 @@ async fn refresh_models(
             "Request format 'openai_embedding' is for embedding and does not support model list refresh."
                 .to_string(),
         ),
-        RequestFormat::OpenAIRerank => Err(
-            "Request format 'openai_rerank' is for rerank and does not support model list refresh."
+        RequestFormat::OpenAIRerank | RequestFormat::GeminiEmbedding => Err(
+            "Request format is for embedding/rerank and does not support model list refresh."
                 .to_string(),
         ),
+        _ => {
+            let mut errors = Vec::<String>::new();
+            for strategy in model_refresh_strategies(&input) {
+                match fetch_models_with_strategy(&input, strategy).await {
+                    Ok(models) => return Ok(models),
+                    Err(err) => errors.push(format!("{strategy:?}: {err}")),
+                }
+            }
+            Err(format!("Refresh model list failed: {}", errors.join(" | ")))
+        }
+    }
+}
+
+#[tauri::command]
+async fn resolve_model_adapter_kind(model_name: String) -> Result<String, String> {
+    let stripped = model_name
+        .split(['/', ':'])
+        .last()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&model_name);
+    match genai::adapter::AdapterKind::from_model(stripped) {
+        // Ollama 在本应用里使用 OpenAI-compatible 接口刷新/调用模型。
+        Ok(genai::adapter::AdapterKind::Ollama) => Ok(genai::adapter::AdapterKind::OpenAI.to_string()),
+        Ok(kind) => Ok(kind.to_string()),
+        Err(err) => {
+            eprintln!(
+                "[模型适配器] 状态=回退 模型={} 适配器={} 原因={:?}",
+                stripped,
+                genai::adapter::AdapterKind::OpenAI,
+                err
+            );
+            Ok(genai::adapter::AdapterKind::OpenAI.to_string())
+        }
     }
 }

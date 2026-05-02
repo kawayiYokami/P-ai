@@ -65,6 +65,75 @@
         assert_eq!(models, vec!["moonshot-v1-8k".to_string()]);
     }
 
+    #[test]
+    fn model_refresh_strategies_should_prefer_native_provider_from_format() {
+        let input = RefreshModelsInput {
+            base_url: "https://generativelanguage.googleapis.com".to_string(),
+            api_key: "test-key".to_string(),
+            request_format: RequestFormat::Gemini,
+            provider_id: None,
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+        };
+
+        assert_eq!(
+            model_refresh_strategies(&input),
+            vec![
+                ModelRefreshStrategy::GeminiNative,
+                ModelRefreshStrategy::OpenAi,
+                ModelRefreshStrategy::AnthropicNative,
+            ]
+        );
+    }
+
+    #[test]
+    fn model_refresh_strategies_should_infer_native_provider_for_auto_base_url() {
+        let input = RefreshModelsInput {
+            base_url: "https://api.anthropic.com".to_string(),
+            api_key: "test-key".to_string(),
+            request_format: RequestFormat::Auto,
+            provider_id: None,
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+        };
+
+        assert_eq!(
+            model_refresh_strategies(&input),
+            vec![
+                ModelRefreshStrategy::AnthropicNative,
+                ModelRefreshStrategy::OpenAi,
+                ModelRefreshStrategy::GeminiNative,
+            ]
+        );
+    }
+
+    #[test]
+    fn model_refresh_strategies_should_only_use_codex_builtin_when_selected_or_inferred() {
+        let codex_input = RefreshModelsInput {
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
+            api_key: String::new(),
+            request_format: RequestFormat::Auto,
+            provider_id: None,
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+        };
+        let openai_input = RefreshModelsInput {
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "test-key".to_string(),
+            request_format: RequestFormat::OpenAI,
+            provider_id: None,
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+        };
+
+        assert!(
+            model_refresh_strategies(&codex_input).contains(&ModelRefreshStrategy::CodexBuiltin)
+        );
+        assert!(
+            !model_refresh_strategies(&openai_input).contains(&ModelRefreshStrategy::CodexBuiltin)
+        );
+    }
+
     fn test_codex_jwt(payload: serde_json::Value) -> String {
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none"}"#);

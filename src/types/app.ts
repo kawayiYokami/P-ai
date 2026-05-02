@@ -1,15 +1,31 @@
 export type ApiRequestFormat =
+  | "auto"
   | "openai"
+  | "deepseek"
   | "deepseek/kimi"
   | "openai_responses"
   | "codex"
+  | "gemini"
+  | "anthropic"
+  | "fireworks"
+  | "together"
+  | "groq"
+  | "mimo"
+  | "nebius"
+  | "xai"
+  | "zai"
+  | "bigmodel"
+  | "aliyun"
+  | "cohere"
+  | "ollama"
+  | "ollama_cloud"
+  | "vertex"
+  | "github_copilot"
   | "openai_tts"
   | "openai_stt"
   | "openai_embedding"
   | "openai_rerank"
-  | "gemini"
-  | "gemini_embedding"
-  | "anthropic";
+  | "gemini_embedding";
 
 export type CodexAuthMode = "read_local" | "managed_oauth";
 

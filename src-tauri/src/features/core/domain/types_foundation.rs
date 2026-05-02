@@ -129,12 +129,48 @@ struct ApiToolConfig {
 enum RequestFormat {
     #[serde(rename = "openai")]
     OpenAI,
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "deepseek")]
+    DeepSeek,
     #[serde(rename = "deepseek/kimi")]
     DeepSeekKimi,
     #[serde(rename = "openai_responses")]
     OpenAIResponses,
     #[serde(rename = "codex")]
     Codex,
+    #[serde(rename = "gemini")]
+    Gemini,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "fireworks")]
+    Fireworks,
+    #[serde(rename = "together")]
+    Together,
+    #[serde(rename = "groq")]
+    Groq,
+    #[serde(rename = "mimo")]
+    Mimo,
+    #[serde(rename = "nebius")]
+    Nebius,
+    #[serde(rename = "xai")]
+    Xai,
+    #[serde(rename = "zai")]
+    Zai,
+    #[serde(rename = "bigmodel")]
+    BigModel,
+    #[serde(rename = "aliyun")]
+    Aliyun,
+    #[serde(rename = "cohere")]
+    Cohere,
+    #[serde(rename = "ollama")]
+    Ollama,
+    #[serde(rename = "ollama_cloud")]
+    OllamaCloud,
+    #[serde(rename = "vertex")]
+    Vertex,
+    #[serde(rename = "github_copilot")]
+    GithubCopilot,
     #[serde(rename = "openai_tts")]
     OpenAITts,
     #[serde(rename = "openai_stt")]
@@ -143,28 +179,40 @@ enum RequestFormat {
     OpenAIEmbedding,
     #[serde(rename = "openai_rerank")]
     OpenAIRerank,
-    #[serde(rename = "gemini")]
-    Gemini,
     #[serde(rename = "gemini_embedding")]
     GeminiEmbedding,
-    #[serde(rename = "anthropic")]
-    Anthropic,
 }
 
 impl RequestFormat {
     fn from_str(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "openai" => Some(Self::OpenAI),
+            "auto" => Some(Self::Auto),
+            "deepseek" => Some(Self::DeepSeek),
             "deepseek/kimi" => Some(Self::DeepSeekKimi),
             "openai_responses" => Some(Self::OpenAIResponses),
             "codex" => Some(Self::Codex),
+            "gemini" => Some(Self::Gemini),
+            "anthropic" => Some(Self::Anthropic),
+            "fireworks" => Some(Self::Fireworks),
+            "together" => Some(Self::Together),
+            "groq" => Some(Self::Groq),
+            "mimo" => Some(Self::Mimo),
+            "nebius" => Some(Self::Nebius),
+            "xai" => Some(Self::Xai),
+            "zai" => Some(Self::Zai),
+            "bigmodel" => Some(Self::BigModel),
+            "aliyun" => Some(Self::Aliyun),
+            "cohere" => Some(Self::Cohere),
+            "ollama" => Some(Self::Ollama),
+            "ollama_cloud" => Some(Self::OllamaCloud),
+            "vertex" => Some(Self::Vertex),
+            "github_copilot" => Some(Self::GithubCopilot),
             "openai_tts" => Some(Self::OpenAITts),
             "openai_stt" => Some(Self::OpenAIStt),
             "openai_embedding" => Some(Self::OpenAIEmbedding),
             "openai_rerank" => Some(Self::OpenAIRerank),
-            "gemini" => Some(Self::Gemini),
             "gemini_embedding" => Some(Self::GeminiEmbedding),
-            "anthropic" => Some(Self::Anthropic),
             _ => None,
         }
     }
@@ -172,16 +220,32 @@ impl RequestFormat {
     fn as_str(self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
+            Self::Auto => "auto",
+            Self::DeepSeek => "deepseek",
             Self::DeepSeekKimi => "deepseek/kimi",
             Self::OpenAIResponses => "openai_responses",
             Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Anthropic => "anthropic",
+            Self::Fireworks => "fireworks",
+            Self::Together => "together",
+            Self::Groq => "groq",
+            Self::Mimo => "mimo",
+            Self::Nebius => "nebius",
+            Self::Xai => "xai",
+            Self::Zai => "zai",
+            Self::BigModel => "bigmodel",
+            Self::Aliyun => "aliyun",
+            Self::Cohere => "cohere",
+            Self::Ollama => "ollama",
+            Self::OllamaCloud => "ollama_cloud",
+            Self::Vertex => "vertex",
+            Self::GithubCopilot => "github_copilot",
             Self::OpenAITts => "openai_tts",
             Self::OpenAIStt => "openai_stt",
             Self::OpenAIEmbedding => "openai_embedding",
             Self::OpenAIRerank => "openai_rerank",
-            Self::Gemini => "gemini",
             Self::GeminiEmbedding => "gemini_embedding",
-            Self::Anthropic => "anthropic",
         }
     }
 
@@ -197,11 +261,49 @@ impl RequestFormat {
         matches!(self, Self::Anthropic)
     }
 
+    fn genai_adapter_kind(self) -> Option<genai::adapter::AdapterKind> {
+        match self {
+            Self::OpenAI => Some(genai::adapter::AdapterKind::OpenAI),
+            Self::DeepSeek | Self::DeepSeekKimi => Some(genai::adapter::AdapterKind::DeepSeek),
+            Self::OpenAIResponses | Self::Codex => Some(genai::adapter::AdapterKind::OpenAIResp),
+            Self::Gemini => Some(genai::adapter::AdapterKind::Gemini),
+            Self::Anthropic => Some(genai::adapter::AdapterKind::Anthropic),
+            Self::Fireworks => Some(genai::adapter::AdapterKind::Fireworks),
+            Self::Together => Some(genai::adapter::AdapterKind::Together),
+            Self::Groq => Some(genai::adapter::AdapterKind::Groq),
+            Self::Mimo => Some(genai::adapter::AdapterKind::Mimo),
+            Self::Nebius => Some(genai::adapter::AdapterKind::Nebius),
+            Self::Xai => Some(genai::adapter::AdapterKind::Xai),
+            Self::Zai => Some(genai::adapter::AdapterKind::Zai),
+            Self::BigModel => Some(genai::adapter::AdapterKind::BigModel),
+            Self::Aliyun => Some(genai::adapter::AdapterKind::Aliyun),
+            Self::Cohere => Some(genai::adapter::AdapterKind::Cohere),
+            Self::Ollama => Some(genai::adapter::AdapterKind::Ollama),
+            Self::OllamaCloud => Some(genai::adapter::AdapterKind::OllamaCloud),
+            Self::Vertex => Some(genai::adapter::AdapterKind::Vertex),
+            Self::GithubCopilot => Some(genai::adapter::AdapterKind::GithubCopilot),
+            Self::Auto
+            | Self::OpenAITts
+            | Self::OpenAIStt
+            | Self::OpenAIEmbedding
+            | Self::OpenAIRerank
+            | Self::GeminiEmbedding => None,
+        }
+    }
+
+    fn is_genai_chat(self) -> bool {
+        self.genai_adapter_kind().is_some()
+    }
+
     fn is_openai_style(self) -> bool {
         matches!(
             self,
-            Self::OpenAI | Self::DeepSeekKimi | Self::OpenAIResponses | Self::Codex
-        )
+            Self::OpenAI | Self::Auto | Self::DeepSeek | Self::DeepSeekKimi | Self::OpenAIResponses | Self::Codex
+        ) || self.is_genai_chat()
+    }
+
+    fn is_auto(self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     fn is_openai_responses_family(self) -> bool {
@@ -213,15 +315,7 @@ impl RequestFormat {
     }
 
     fn is_chat_text(self) -> bool {
-        matches!(
-            self,
-            Self::OpenAI
-                | Self::DeepSeekKimi
-                | Self::OpenAIResponses
-                | Self::Codex
-                | Self::Gemini
-                | Self::Anthropic
-        )
+        matches!(self, Self::Auto) || self.is_genai_chat()
     }
 }
 

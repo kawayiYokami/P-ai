@@ -672,6 +672,7 @@ fn main() {
             preview_force_archive_current,
             preview_force_compact_current,
             refresh_models,
+            resolve_model_adapter_kind,
             fetch_model_metadata,
             export_config_migration_package,
             preview_import_config_migration_package,

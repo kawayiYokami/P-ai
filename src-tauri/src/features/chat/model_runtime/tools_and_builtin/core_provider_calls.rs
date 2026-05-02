@@ -85,39 +85,44 @@ fn genai_content_parts_from_text_and_binary(
     parts
 }
 
-fn genai_tool_call_id_for_history(
-    protocol_family: ToolCallProtocolFamily,
-    call: &NormalizedToolCallRecord,
-) -> Option<String> {
-    match protocol_family {
-        ToolCallProtocolFamily::OpenAiResponses => call
-            .provider_call_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-        ToolCallProtocolFamily::OpenAiChatLike
-        | ToolCallProtocolFamily::Gemini
-        | ToolCallProtocolFamily::Anthropic => call
-            .invocation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
+fn genai_tool_call_id_for_history(call: &NormalizedToolCallRecord) -> Option<String> {
+    call.provider_call_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn legacy_tool_call_text_for_history(call: &NormalizedToolCallRecord) -> Option<String> {
+    let tool_name = call.tool_name.as_deref()?.trim();
+    if tool_name.is_empty() {
+        return None;
+    }
+    let args = call.arguments_text.trim();
+    if args.is_empty() {
+        Some(format!("工具调用: {tool_name}"))
+    } else {
+        Some(format!("工具调用: {tool_name}\n参数: {args}"))
+    }
+}
+
+fn legacy_tool_result_text_for_history(tool_call_id: Option<&str>, text: &str) -> String {
+    let trimmed = text.trim();
+    let content = if trimmed.is_empty() { " " } else { text };
+    match tool_call_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(call_id) => format!("工具结果 ({call_id}):\n{content}"),
+        None => format!("工具结果:\n{content}"),
     }
 }
 
 fn prepared_history_to_genai_messages(
     prepared: &PreparedPrompt,
-    protocol_family: ToolCallProtocolFamily,
-    force_tool_reasoning_content: bool,
-    request_stage: &str,
 ) -> Result<Vec<genai::chat::ChatMessage>, String> {
     let mut chat_history = Vec::<genai::chat::ChatMessage>::new();
     let mut tool_call_id_to_provider_call_id =
         std::collections::HashMap::<String, String>::new();
     let normalized_history_messages = normalized_prepared_history_messages(&prepared.history_messages);
-    for (message_index, hm) in normalized_history_messages.iter().enumerate() {
+    for hm in normalized_history_messages.iter() {
         if hm.role == "user" {
             let base_user_text = if hm.text.trim().is_empty() {
                 " ".to_string()
@@ -163,13 +168,6 @@ fn prepared_history_to_genai_messages(
                     else {
                         continue;
                     };
-                    if matches!(
-                        tool_call_replay_capability(protocol_family, &call),
-                        StructuredToolReplayCapability::Invalid
-                            | StructuredToolReplayCapability::TextOnly
-                    ) {
-                        continue;
-                    }
                     if let Some(provider_call_id) = call
                         .provider_call_id
                         .as_deref()
@@ -179,7 +177,10 @@ fn prepared_history_to_genai_messages(
                         tool_call_id_to_provider_call_id
                             .insert(invocation_id.to_string(), provider_call_id.to_string());
                     }
-                    let Some(call_id) = genai_tool_call_id_for_history(protocol_family, &call) else {
+                    let Some(call_id) = genai_tool_call_id_for_history(&call) else {
+                        if let Some(text) = legacy_tool_call_text_for_history(&call) {
+                            assistant_parts.push(genai::chat::ContentPart::from_text(text));
+                        }
                         continue;
                     };
                     assistant_parts.push(genai::chat::ContentPart::ToolCall(
@@ -192,28 +193,13 @@ fn prepared_history_to_genai_messages(
                     ));
                 }
             }
-            let assistant_reasoning_content = if force_tool_reasoning_content {
-                if hm.reasoning_content.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
-                    runtime_log_warn(format!(
-                        "[聊天][DeepSeek] 阶段={stage} 历史消息缺失 reasoning_content：索引={index}, role=assistant，已自动补空串",
-                        stage = request_stage,
-                        index = message_index
-                    ));
-                    Some(String::new())
-                } else {
-                    hm.reasoning_content.clone()
-                }
-            } else {
-                hm.reasoning_content.clone()
-            };
+            let assistant_reasoning_content = Some(hm.reasoning_content.clone().unwrap_or_default());
             if assistant_parts.is_empty() {
                 assistant_parts.push(genai::chat::ContentPart::from_text(" "));
             }
             let assistant_message = genai::chat::ChatMessage::assistant(
                 genai::chat::MessageContent::from_parts(assistant_parts),
             )
-            // DeepSeek 要求 assistant 历史消息都带 reasoning_content；缺失时只能补空串，
-            // 已存在的思维链必须原样回灌到最终供应商请求体。
             .with_reasoning_content(assistant_reasoning_content);
             chat_history.push(assistant_message);
         } else if hm.role == "tool" {
@@ -231,125 +217,22 @@ fn prepared_history_to_genai_messages(
                 chat_history.push(genai::chat::ChatMessage::user(safe_tool_text));
                 continue;
             };
-            let provider_call_id = tool_call_id_to_provider_call_id.get(tool_call_id).cloned();
-            match tool_result_replay_capability(
-                protocol_family,
-                tool_call_id,
-                provider_call_id.as_deref(),
-            ) {
-                StructuredToolReplayCapability::Structured => {
-                    let response_call_id = match protocol_family {
-                        ToolCallProtocolFamily::OpenAiResponses => {
-                            provider_call_id.unwrap_or_else(|| tool_call_id.to_string())
-                        }
-                        ToolCallProtocolFamily::OpenAiChatLike
-                        | ToolCallProtocolFamily::Gemini
-                        | ToolCallProtocolFamily::Anthropic => tool_call_id.to_string(),
-                    };
-                    chat_history.push(genai::chat::ChatMessage::from(
-                        genai::chat::ToolResponse::new(response_call_id, safe_tool_text),
-                    ));
-                }
-                StructuredToolReplayCapability::TextOnly
-                | StructuredToolReplayCapability::Invalid => {
-                    chat_history.push(genai::chat::ChatMessage::user(safe_tool_text));
-                }
+            if let Some(provider_call_id) = tool_call_id_to_provider_call_id.get(tool_call_id).cloned() {
+                chat_history.push(genai::chat::ChatMessage::from(
+                    genai::chat::ToolResponse::new(provider_call_id, safe_tool_text),
+                ));
+            } else {
+                chat_history.push(genai::chat::ChatMessage::user(
+                    legacy_tool_result_text_for_history(Some(tool_call_id), &safe_tool_text),
+                ));
             }
         }
     }
     Ok(chat_history)
 }
 
-fn build_openai_responses_genai_request(
-    prepared: &PreparedPrompt,
-) -> Result<genai::chat::ChatRequest, String> {
-    let history_messages =
-        prepared_history_to_genai_messages(
-            prepared,
-            ToolCallProtocolFamily::OpenAiResponses,
-            false,
-            "build_openai_responses_genai_request",
-        )?;
-    let latest_parts = genai_content_parts_from_text_and_binary(
-        &prepared_prompt_latest_user_text_blocks(prepared),
-        &prepared.latest_images,
-        &prepared.latest_audios,
-    );
-    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
-        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
-            latest_parts,
-        )),
-    );
-    if !prepared.preamble.trim().is_empty() {
-        request = request.with_system(prepared.preamble.clone());
-    }
-    Ok(request)
-}
-
-fn build_openai_chat_genai_request(
-    prepared: &PreparedPrompt,
-    force_tool_reasoning_content: bool,
-    request_stage: &str,
-) -> Result<genai::chat::ChatRequest, String> {
-    let history_messages =
-        prepared_history_to_genai_messages(
-            prepared,
-            ToolCallProtocolFamily::OpenAiChatLike,
-            force_tool_reasoning_content,
-            request_stage,
-        )?;
-    let latest_parts = genai_content_parts_from_text_and_binary(
-        &prepared_prompt_latest_user_text_blocks(prepared),
-        &prepared.latest_images,
-        &prepared.latest_audios,
-    );
-    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
-        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
-            latest_parts,
-        )),
-    );
-    if !prepared.preamble.trim().is_empty() {
-        request = request.with_system(prepared.preamble.clone());
-    }
-    Ok(request)
-}
-
-fn build_gemini_genai_request(
-    prepared: &PreparedPrompt,
-) -> Result<genai::chat::ChatRequest, String> {
-    let history_messages =
-        prepared_history_to_genai_messages(
-            prepared,
-            ToolCallProtocolFamily::Gemini,
-            false,
-            "build_gemini_genai_request",
-        )?;
-    let latest_parts = genai_content_parts_from_text_and_binary(
-        &prepared_prompt_latest_user_text_blocks(prepared),
-        &prepared.latest_images,
-        &prepared.latest_audios,
-    );
-    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
-        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
-            latest_parts,
-        )),
-    );
-    if !prepared.preamble.trim().is_empty() {
-        request = request.with_system(prepared.preamble.clone());
-    }
-    Ok(request)
-}
-
-fn build_anthropic_genai_request(
-    prepared: &PreparedPrompt,
-) -> Result<genai::chat::ChatRequest, String> {
-    let history_messages =
-        prepared_history_to_genai_messages(
-            prepared,
-            ToolCallProtocolFamily::Anthropic,
-            false,
-            "build_anthropic_genai_request",
-        )?;
+fn build_genai_chat_request(prepared: &PreparedPrompt) -> Result<genai::chat::ChatRequest, String> {
+    let history_messages = prepared_history_to_genai_messages(prepared)?;
     let latest_parts = genai_content_parts_from_text_and_binary(
         &prepared_prompt_latest_user_text_blocks(prepared),
         &prepared.latest_images,
@@ -368,18 +251,8 @@ fn build_anthropic_genai_request(
 
 fn build_provider_genai_request(
     prepared: &PreparedPrompt,
-    protocol_family: ToolCallProtocolFamily,
-    force_tool_reasoning_content: bool,
-    request_stage: &str,
 ) -> Result<genai::chat::ChatRequest, String> {
-    match protocol_family {
-        ToolCallProtocolFamily::OpenAiResponses => build_openai_responses_genai_request(prepared),
-        ToolCallProtocolFamily::OpenAiChatLike => {
-            build_openai_chat_genai_request(prepared, force_tool_reasoning_content, request_stage)
-        }
-        ToolCallProtocolFamily::Gemini => build_gemini_genai_request(prepared),
-        ToolCallProtocolFamily::Anthropic => build_anthropic_genai_request(prepared),
-    }
+    build_genai_chat_request(prepared)
 }
 
 fn normalize_gemini_genai_base_url(raw: &str) -> String {
@@ -449,6 +322,115 @@ fn provider_genai_reasoning_effort(
         .and_then(|value| value.parse::<genai::chat::ReasoningEffort>().ok())
 }
 
+fn build_provider_genai_service_target(
+    api_config: &ResolvedApiConfig,
+    adapter_kind: genai::adapter::AdapterKind,
+    model_name: &str,
+    request_api_key: String,
+) -> genai::ServiceTarget {
+    genai::ServiceTarget {
+        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+            adapter_kind,
+            &api_config.base_url,
+        )),
+        auth: genai::resolver::AuthData::from_single(request_api_key),
+        model: genai::ModelIden::new(adapter_kind, model_name),
+    }
+}
+
+fn strip_model_namespace<'a>(model_name: &'a str) -> &'a str {
+    for sep in ['/', ':'] {
+        if let Some((_, suffix)) = model_name.split_once(sep) {
+            let suffix = suffix.trim();
+            if !suffix.is_empty() {
+                return suffix;
+            }
+        }
+    }
+    model_name
+}
+
+fn resolve_model_adapter_for_auto(model_name: &str) -> genai::adapter::AdapterKind {
+    let stripped = strip_model_namespace(model_name);
+    match genai::adapter::AdapterKind::from_model(stripped) {
+        // Ollama 在本应用里走 OpenAI-compatible 协议，由 base_url 指向 Ollama 服务。
+        Ok(genai::adapter::AdapterKind::Ollama) => genai::adapter::AdapterKind::OpenAI,
+        Ok(kind) => kind,
+        Err(_) => genai::adapter::AdapterKind::OpenAI,
+    }
+}
+
+fn resolve_provider_genai_adapter_kind(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    fallback_adapter_kind: genai::adapter::AdapterKind,
+) -> genai::adapter::AdapterKind {
+    if api_config.request_format.is_auto() {
+        resolve_model_adapter_for_auto(model_name)
+    } else {
+        api_config
+            .request_format
+            .genai_adapter_kind()
+            .unwrap_or(fallback_adapter_kind)
+    }
+}
+
+fn build_provider_genai_client_and_model_spec_from_target(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
+    request_api_key: String,
+    service_target: genai::ServiceTarget,
+) -> (genai::Client, genai::ModelSpec) {
+    let adapter_kind = api_config
+        .request_format
+        .genai_adapter_kind()
+        .or_else(|| api_config.request_format.is_auto().then(|| resolve_model_adapter_for_auto(model_name)));
+    if let Some(adapter_kind) = adapter_kind {
+        let target = genai::ServiceTarget {
+            endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+                adapter_kind,
+                &api_config.base_url,
+            )),
+            auth: genai::resolver::AuthData::from_single(request_api_key),
+            model: genai::ModelIden::new(adapter_kind, model_name.to_string()),
+        };
+        (
+            genai::Client::builder().build(),
+            genai::ModelSpec::from_target(target),
+        )
+    } else {
+        (
+            genai::Client::builder().build(),
+            genai::ModelSpec::from_target(service_target),
+        )
+    }
+}
+
+fn build_provider_genai_chat_options(
+    api_config: &ResolvedApiConfig,
+    capture_reasoning_content: bool,
+    capture_tool_calls: bool,
+) -> genai::chat::ChatOptions {
+    let mut options = genai::chat::ChatOptions::default()
+        .with_capture_usage(true)
+        .with_capture_content(true)
+        .with_capture_reasoning_content(capture_reasoning_content)
+        .with_extra_headers(provider_genai_headers(api_config));
+    if capture_tool_calls {
+        options = options.with_capture_tool_calls(true);
+    }
+    if let Some(reasoning_effort) = provider_genai_reasoning_effort(api_config) {
+        options = options.with_reasoning_effort(reasoning_effort);
+    }
+    if let Some(temperature) = api_config.temperature {
+        options = options.with_temperature(temperature);
+    }
+    if let Some(max_output_tokens) = api_config.max_output_tokens {
+        options = options.with_max_tokens(max_output_tokens);
+    }
+    options
+}
+
 async fn resolve_request_api_config(
     api_config: &ResolvedApiConfig,
 ) -> Result<ResolvedApiConfig, String> {
@@ -479,46 +461,35 @@ async fn call_model_openai_stream_internal(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
     let adapter_kind = match kind {
-        OpenAiApiKind::ChatCompletions => provider_openai_chat_adapter_kind(&api_config, model_name),
-        OpenAiApiKind::Responses => genai::adapter::AdapterKind::OpenAIResp,
+        OpenAiApiKind::ChatCompletions => resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
+            provider_openai_chat_adapter_kind(&api_config, model_name),
+        ),
+        OpenAiApiKind::Responses => resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
+            genai::adapter::AdapterKind::OpenAIResp,
+        ),
     };
-    let protocol_family = match kind {
-        OpenAiApiKind::ChatCompletions => ToolCallProtocolFamily::OpenAiChatLike,
-        OpenAiApiKind::Responses => ToolCallProtocolFamily::OpenAiResponses,
-    };
-    let request = build_provider_genai_request(
-        &prepared,
-        protocol_family,
-        matches!(adapter_kind, genai::adapter::AdapterKind::DeepSeek),
-        "call_model_openai_stream_internal",
-    )?;
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
-            adapter_kind,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(adapter_kind, model_name),
-    };
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let request = build_provider_genai_request(&prepared)?;
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        adapter_kind,
+        model_name,
+        request_api_key.clone(),
+    );
+    let options = build_provider_genai_chat_options(&api_config, true, false);
 
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let mut stream = client
-        .exec_chat_stream(service_target, request, Some(&options))
+        .exec_chat_stream(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai openai stream build failed: {err}"))?
         .stream;
@@ -552,37 +523,27 @@ async fn call_model_openai_non_stream(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let adapter_kind = provider_openai_chat_adapter_kind(&api_config, model_name);
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
-            adapter_kind,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(adapter_kind, model_name),
-    };
-    let request = build_openai_chat_genai_request(
-        &prepared,
-        matches!(adapter_kind, genai::adapter::AdapterKind::DeepSeek),
-        "call_model_openai_non_stream",
-    )?;
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let adapter_kind = resolve_provider_genai_adapter_kind(
+        &api_config,
+        model_name,
+        provider_openai_chat_adapter_kind(&api_config, model_name),
+    );
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        adapter_kind,
+        model_name,
+        request_api_key.clone(),
+    );
+    let request = build_genai_chat_request(&prepared)?;
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let response = client
-        .exec_chat(service_target, request, Some(&options))
+        .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
     let assistant_text = response.content.into_texts().join("\n");
@@ -614,31 +575,26 @@ async fn call_model_openai_responses_non_stream(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_openai_genai_base_url(
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(genai::adapter::AdapterKind::OpenAIResp, model_name),
-    };
-    let request = build_openai_responses_genai_request(&prepared)?;
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
+            genai::adapter::AdapterKind::OpenAIResp,
+        ),
+        model_name,
+        request_api_key.clone(),
+    );
+    let request = build_genai_chat_request(&prepared)?;
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let response = client
-        .exec_chat(service_target, request, Some(&options))
+        .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai responses non-stream failed: {err}"))?;
     let assistant_text = response.content.into_texts().join("\n");
@@ -669,31 +625,26 @@ async fn call_model_openai_responses(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_openai_genai_base_url(
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(genai::adapter::AdapterKind::OpenAIResp, model_name),
-    };
-    let request = build_openai_responses_genai_request(&prepared)?;
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
+            genai::adapter::AdapterKind::OpenAIResp,
+        ),
+        model_name,
+        request_api_key.clone(),
+    );
+    let request = build_genai_chat_request(&prepared)?;
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let mut stream = client
-        .exec_chat_stream(service_target, request, Some(&options))
+        .exec_chat_stream(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai responses stream build failed: {err}"))?
         .stream;
@@ -706,36 +657,30 @@ async fn call_model_gemini(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
-    let request = build_gemini_genai_request(&prepared)?;
+    let request = build_genai_chat_request(&prepared)?;
     let api_config = resolve_request_api_config(api_config).await?;
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
             genai::adapter::AdapterKind::Gemini,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(genai::adapter::AdapterKind::Gemini, model_name),
-    };
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+        ),
+        model_name,
+        request_api_key.clone(),
+    );
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let response = client
-        .exec_chat(service_target, request, Some(&options))
+        .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
     let assistant_text = response.content.into_texts().join("\n");
@@ -765,32 +710,26 @@ async fn call_model_anthropic(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
             genai::adapter::AdapterKind::Anthropic,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(genai::adapter::AdapterKind::Anthropic, model_name),
-    };
-    let request = build_anthropic_genai_request(&prepared)?;
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+        ),
+        model_name,
+        request_api_key.clone(),
+    );
+    let request = build_genai_chat_request(&prepared)?;
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let mut stream = client
-        .exec_chat_stream(service_target, request, Some(&options))
+        .exec_chat_stream(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
         .stream;
@@ -807,32 +746,26 @@ async fn call_model_anthropic_non_stream(
     let _provider_serial_guard =
         maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        resolve_provider_genai_adapter_kind(
+            &api_config,
+            model_name,
             genai::adapter::AdapterKind::Anthropic,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(genai::adapter::AdapterKind::Anthropic, model_name),
-    };
-    let request = build_anthropic_genai_request(&prepared)?;
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(false)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+        ),
+        model_name,
+        request_api_key.clone(),
+    );
+    let request = build_genai_chat_request(&prepared)?;
+    let options = build_provider_genai_chat_options(&api_config, true, false);
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
     let response = client
-        .exec_chat(service_target, request, Some(&options))
+        .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai anthropic non-stream failed: {err}"))?;
     let assistant_text = response.content.into_texts().join("\n");
@@ -857,7 +790,7 @@ mod openai_responses_genai_request_tests {
     use super::*;
 
     #[test]
-    fn build_openai_responses_genai_request_should_keep_system_at_top_level() {
+    fn build_genai_chat_request_should_keep_system_at_top_level() {
         let prepared = PreparedPrompt {
             preamble: "你是系统提示".to_string(),
             history_messages: Vec::new(),
@@ -869,8 +802,8 @@ mod openai_responses_genai_request_tests {
             latest_audios: Vec::new(),
         };
 
-        let request = build_openai_responses_genai_request(&prepared)
-            .expect("build_openai_responses_genai_request should succeed");
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
 
         assert_eq!(request.system.as_deref(), Some("你是系统提示"));
         assert_eq!(request.messages.len(), 1);
@@ -881,55 +814,7 @@ mod openai_responses_genai_request_tests {
     }
 
     #[test]
-    fn build_gemini_genai_request_should_keep_system_at_top_level() {
-        let prepared = PreparedPrompt {
-            preamble: "你是 Gemini 系统提示".to_string(),
-            history_messages: Vec::new(),
-            latest_user_text: "分析这段代码".to_string(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_user_extra_blocks: Vec::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        };
-
-        let request =
-            build_gemini_genai_request(&prepared).expect("build_gemini_genai_request should succeed");
-
-        assert_eq!(request.system.as_deref(), Some("你是 Gemini 系统提示"));
-        assert_eq!(request.messages.len(), 1);
-        assert!(matches!(
-            request.messages[0].role,
-            genai::chat::ChatRole::User
-        ));
-    }
-
-    #[test]
-    fn build_anthropic_genai_request_should_keep_system_at_top_level() {
-        let prepared = PreparedPrompt {
-            preamble: "你是 Claude 系统提示".to_string(),
-            history_messages: Vec::new(),
-            latest_user_text: "总结这段日志".to_string(),
-            latest_user_meta_text: String::new(),
-            latest_user_extra_text: String::new(),
-            latest_user_extra_blocks: Vec::new(),
-            latest_images: Vec::new(),
-            latest_audios: Vec::new(),
-        };
-
-        let request = build_anthropic_genai_request(&prepared)
-            .expect("build_anthropic_genai_request should succeed");
-
-        assert_eq!(request.system.as_deref(), Some("你是 Claude 系统提示"));
-        assert_eq!(request.messages.len(), 1);
-        assert!(matches!(
-            request.messages[0].role,
-            genai::chat::ChatRole::User
-        ));
-    }
-
-    #[test]
-    fn build_openai_chat_genai_request_should_backfill_deepseek_assistant_reasoning_content() {
+    fn build_genai_chat_request_should_backfill_empty_reasoning_content() {
         let prepared = PreparedPrompt {
             preamble: String::new(),
             history_messages: vec![
@@ -975,13 +860,78 @@ mod openai_responses_genai_request_tests {
             latest_audios: Vec::new(),
         };
 
-        let request = build_openai_chat_genai_request(&prepared, true, "test")
-            .expect("build_openai_chat_genai_request should succeed");
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
 
         assert_eq!(request.messages[0].content.reasoning_contents(), vec![""]);
         assert_eq!(
             request.messages[2].content.reasoning_contents(),
             vec!["已有思维链"]
+        );
+    }
+
+    #[test]
+    fn build_genai_chat_request_should_downgrade_legacy_tool_history_without_provider_call_id() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": "local_call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": "{\"q\":\"天气\"}"
+                        }
+                    })]),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "晴天".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("local_call_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
+
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::Assistant
+        ));
+        assert_eq!(
+            request.messages[0].content.texts(),
+            vec!["工具调用: lookup\n参数: {\"q\":\"天气\"}"]
+        );
+        assert!(request.messages[0].content.tool_calls().is_empty());
+        assert!(matches!(
+            request.messages[1].role,
+            genai::chat::ChatRole::User
+        ));
+        assert_eq!(
+            request.messages[1].content.texts(),
+            vec!["工具结果 (local_call_1):\n晴天"]
         );
     }
 

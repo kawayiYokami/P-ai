@@ -10,19 +10,18 @@ async fn call_model_anthropic_with_tools(
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
+    let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::Anthropic);
     run_genai_tool_loop(
         api_config,
         model_name,
         prepared,
         tool_assembly,
-        ToolCallProtocolFamily::Anthropic,
-        genai::adapter::AdapterKind::Anthropic,
+        adapter_kind,
         selected_api,
         api_config,
         auto_compaction_context,
         on_delta,
         max_tool_iterations,
-        false,
         tool_abort_state,
         chat_session_key,
     )

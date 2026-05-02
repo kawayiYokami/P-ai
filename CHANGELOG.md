@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（genai-provider-refresh-and-history-replay）：genai 历史回放统一为空缺 assistant reasoning_content 补空串；旧 Responses/Codex 工具历史缺少 provider_call_id 时降级为普通 assistant/user 文本；模型列表刷新按明确协议与 base_url 规则优先选择 Gemini/Anthropic/Codex 原生路径，并补充适配器回退日志与推理网关错误文案。
+
 ## 发布：v0.9.63
 
 - 发布（release-0.9.63）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.63`，纳入本轮 GitHub 更新代理兜底顺序调整、聊天消息详情点击收起、无边框窗口自定义边缘缩放修复。

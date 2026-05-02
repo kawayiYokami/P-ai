@@ -3057,7 +3057,7 @@ fn should_create_assistant_provider_meta(
         || trusted_input_tokens.is_some()
         || estimated_prompt_tokens > 0
         || remote_im_reply_decision_present
-        || matches!(request_format, RequestFormat::DeepSeekKimi)
+        || matches!(request_format, RequestFormat::DeepSeek | RequestFormat::DeepSeekKimi)
 }
 
 #[cfg(test)]
@@ -3152,7 +3152,7 @@ mod core_send_inner_tests {
     #[test]
     fn should_create_assistant_provider_meta_should_preserve_empty_reasoning_for_deepseek() {
         assert!(should_create_assistant_provider_meta(
-            &RequestFormat::DeepSeekKimi,
+            &RequestFormat::DeepSeek,
             "",
             "",
             None,

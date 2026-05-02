@@ -15,87 +15,54 @@ async fn describe_image_with_vision_api(
             &vision_resolved.base_url,
             &vision_api.model,
         );
-    let reply = match vision_resolved.request_format {
-        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
-            if prefer_non_stream {
-                call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state)).await?
-            } else {
-                match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone(), Some(state)).await {
-                    Ok(reply) => {
-                        if let Err(clear_err) = provider_clear_streaming_disabled(
-                            Some(state),
-                            vision_resolved.request_format,
-                            &vision_resolved.base_url,
-                            &vision_api.model,
-                        ) {
-                            runtime_log_warn(format!(
-                                "[视觉] 清理流式降级缓存失败: base_url={}, model={}, err={}",
-                                vision_resolved.base_url, vision_api.model, clear_err
-                            ));
-                        }
-                        reply
-                    }
-                    Err(err)
-                        if supports_non_stream_fallback
-                            && is_streaming_request_payload_format_error(&err) =>
-                    {
-                        if let Err(mark_err) =
-                            provider_mark_streaming_disabled(
-                                Some(state),
-                                vision_resolved.request_format,
-                                &vision_resolved.base_url,
-                                &vision_api.model,
-                            )
-                        {
-                            runtime_log_warn(format!(
-                                "[视觉] 标记本次运行内非流式 base_url 失败: base_url={}, err={}",
-                                vision_resolved.base_url, mark_err
-                            ));
-                        }
-                        runtime_log_info(format!(
-                            "[视觉] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
-                            vision_resolved.base_url, vision_api.model, err
+    let reply = if vision_resolved.request_format.is_genai_chat() || vision_resolved.request_format.is_auto() {
+        if prefer_non_stream {
+            call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state)).await?
+        } else {
+            match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone(), Some(state)).await {
+                Ok(reply) => {
+                    if let Err(clear_err) = provider_clear_streaming_disabled(
+                        Some(state),
+                        vision_resolved.request_format,
+                        &vision_resolved.base_url,
+                        &vision_api.model,
+                    ) {
+                        runtime_log_warn(format!(
+                            "[视觉] 清理流式降级缓存失败: base_url={}, model={}, err={}",
+                            vision_resolved.base_url, vision_api.model, clear_err
                         ));
-                        call_model_openai_non_stream(
-                            vision_resolved,
-                            &vision_api.model,
-                            prepared,
-                            Some(state),
-                        )
-                        .await?
                     }
-                    Err(err) => return Err(err),
+                    reply
                 }
+                Err(err)
+                    if supports_non_stream_fallback
+                        && is_streaming_request_payload_format_error(&err) =>
+                {
+                    if let Err(mark_err) = provider_mark_streaming_disabled(
+                        Some(state),
+                        vision_resolved.request_format,
+                        &vision_resolved.base_url,
+                        &vision_api.model,
+                    ) {
+                        runtime_log_warn(format!(
+                            "[视觉] 标记本次运行内非流式 base_url 失败: base_url={}, err={}",
+                            vision_resolved.base_url, mark_err
+                        ));
+                    }
+                    runtime_log_info(format!(
+                        "[视觉] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
+                        vision_resolved.base_url, vision_api.model, err
+                    ));
+                    call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state)).await?
+                }
+                Err(err) => return Err(err),
             }
         }
-        RequestFormat::OpenAIResponses | RequestFormat::Codex => {
-            call_model_openai_responses(
-                vision_resolved,
-                &vision_api.model,
-                prepared,
-                None,
-                Some(state),
-            )
-            .await?
-        }
-        RequestFormat::Gemini => {
-            call_model_gemini(vision_resolved, &vision_api.model, prepared, Some(state)).await?
-        }
-        RequestFormat::Anthropic => {
-            call_model_anthropic(vision_resolved, &vision_api.model, prepared, Some(state)).await?
-        }
-        RequestFormat::OpenAITts
-        | RequestFormat::OpenAIStt
-        | RequestFormat::GeminiEmbedding
-        | RequestFormat::OpenAIEmbedding
-        | RequestFormat::OpenAIRerank => {
-            return Err(
-                format!(
-                    "Vision request format '{}' is not supported.",
-                    vision_resolved.request_format
-                ),
-            )
-        }
+    } else {
+        return Err(format!(
+            "Vision request format '{}' is not supported.",
+            vision_resolved.request_format
+        ));
     };
     Ok(reply.assistant_text)
 }

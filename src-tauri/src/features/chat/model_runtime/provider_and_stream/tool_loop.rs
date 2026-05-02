@@ -499,7 +499,6 @@ where
 
 async fn runtime_tool_definitions_for_genai(
     definitions: &[ProviderToolDefinition],
-    protocol_family: ToolCallProtocolFamily,
 ) -> Result<Vec<genai::chat::Tool>, String> {
     let mut out = Vec::<genai::chat::Tool>::new();
     for definition in definitions {
@@ -507,10 +506,7 @@ async fn runtime_tool_definitions_for_genai(
         if !definition.description.trim().is_empty() {
             genai_tool = genai_tool.with_description(definition.description.clone());
         }
-        let mut parameters = definition.parameters.clone();
-        if matches!(protocol_family, ToolCallProtocolFamily::Gemini) {
-            gemini_to_openapi_schema(&mut parameters);
-        }
+        let parameters = definition.parameters.clone();
         genai_tool = genai_tool.with_schema(parameters);
         out.push(genai_tool);
     }
@@ -609,16 +605,8 @@ fn runtime_tool_result_followup_message(
 
 fn build_genai_message_state(
     prepared: &PreparedPrompt,
-    protocol_family: ToolCallProtocolFamily,
-    force_tool_reasoning_content: bool,
-    request_stage: &str,
 ) -> Result<(Option<String>, Vec<genai::chat::ChatMessage>), String> {
-    let request = build_provider_genai_request(
-        prepared,
-        protocol_family,
-        force_tool_reasoning_content,
-        request_stage,
-    )?;
+    let request = build_genai_chat_request(prepared)?;
     Ok((request.system, request.messages))
 }
 
@@ -762,55 +750,41 @@ async fn run_genai_tool_loop(
     model_name: &str,
     prepared: PreparedPrompt,
     tool_assembly: RuntimeToolAssembly,
-    protocol_family: ToolCallProtocolFamily,
     adapter_kind: genai::adapter::AdapterKind,
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     _max_tool_iterations: usize,
-    include_reasoning_before_tool_calls: bool,
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
-            adapter_kind,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(adapter_kind, model_name),
-    };
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(include_reasoning_before_tool_calls)
-        .with_capture_tool_calls(true)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        adapter_kind,
+        model_name,
+        request_api_key.clone(),
+    );
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
+    let options = build_provider_genai_chat_options(
+        &api_config,
+        true,
+        true,
+    );
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, protocol_family).await?;
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions).await?;
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut trusted_input_tokens: Option<u64> = None;
-    let (system_prompt, mut messages) = build_genai_message_state(
-        &prepared,
-        protocol_family,
-        matches!(adapter_kind, genai::adapter::AdapterKind::DeepSeek),
-        "run_genai_tool_loop.stream",
-    )?;
+    let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
     let mut auto_compaction_applied = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
@@ -854,7 +828,7 @@ async fn run_genai_tool_loop(
                     request = request.with_tools(genai_tools.clone());
                 }
                 client
-                    .exec_chat_stream(service_target.clone(), request, Some(&options))
+                    .exec_chat_stream(model_spec.clone(), request, Some(&options))
                     .await
                     .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
                     .stream
@@ -992,10 +966,8 @@ async fn run_genai_tool_loop(
         let mut assistant_message = genai::chat::ChatMessage::assistant(
             genai::chat::MessageContent::from_parts(assistant_parts),
         );
-        if include_reasoning_before_tool_calls {
-            assistant_message =
-                assistant_message.with_reasoning_content(Some(turn_reasoning.trim().to_string()));
-        }
+        assistant_message =
+            assistant_message.with_reasoning_content(Some(turn_reasoning.trim().to_string()));
         messages.push(assistant_message);
 
         for tool_call in turn_tool_calls {
@@ -1100,13 +1072,11 @@ async fn run_genai_tool_loop(
                 "content": Value::Null,
                 "tool_calls": [tc_json]
             });
-            if include_reasoning_before_tool_calls {
-                if let Some(object) = assistant_tool_event.as_object_mut() {
-                    object.insert(
-                        "reasoning_content".to_string(),
-                        Value::String(turn_reasoning.trim().to_string()),
-                    );
-                }
+            if let Some(object) = assistant_tool_event.as_object_mut() {
+                object.insert(
+                    "reasoning_content".to_string(),
+                    Value::String(turn_reasoning.trim().to_string()),
+                );
             }
             tool_history_events.push(assistant_tool_event);
             let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
@@ -1297,14 +1267,14 @@ async fn run_genai_tool_loop(
 
 async fn execute_genai_non_stream_round(
     client: &genai::Client,
-    service_target: &genai::ServiceTarget,
+    model_spec: &genai::ModelSpec,
     request: genai::chat::ChatRequest,
     options: &genai::chat::ChatOptions,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     prefix_text_boundary: bool,
 ) -> Result<GenaiToolLoopRoundOutput, String> {
     let response = client
-        .exec_chat(service_target.clone(), request, Some(options))
+        .exec_chat(model_spec.clone(), request, Some(options))
         .await
         .map_err(|err| format!("GenAI 非流式请求失败：{err}"))?;
     let turn_text = response
@@ -1355,55 +1325,41 @@ async fn run_genai_tool_loop_non_stream(
     model_name: &str,
     prepared: PreparedPrompt,
     tool_assembly: RuntimeToolAssembly,
-    protocol_family: ToolCallProtocolFamily,
     adapter_kind: genai::adapter::AdapterKind,
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     _max_tool_iterations: usize,
-    include_reasoning_before_tool_calls: bool,
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
-    let client = genai::Client::builder().build();
-    let service_target = genai::ServiceTarget {
-        endpoint: genai::resolver::Endpoint::from_owned(normalize_provider_genai_base_url(
-            adapter_kind,
-            &api_config.base_url,
-        )),
-        auth: genai::resolver::AuthData::from_single(request_api_key),
-        model: genai::ModelIden::new(adapter_kind, model_name),
-    };
-    let mut options = genai::chat::ChatOptions::default()
-        .with_capture_usage(true)
-        .with_capture_content(true)
-        .with_capture_reasoning_content(include_reasoning_before_tool_calls)
-        .with_capture_tool_calls(true)
-        .with_extra_headers(provider_genai_headers(&api_config));
-    if let Some(reasoning_effort) = provider_genai_reasoning_effort(&api_config) {
-        options = options.with_reasoning_effort(reasoning_effort);
-    }
-    if let Some(temperature) = api_config.temperature {
-        options = options.with_temperature(temperature);
-    }
-    if let Some(max_output_tokens) = api_config.max_output_tokens {
-        options = options.with_max_tokens(max_output_tokens);
-    }
+    let service_target = build_provider_genai_service_target(
+        &api_config,
+        adapter_kind,
+        model_name,
+        request_api_key.clone(),
+    );
+    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+        &api_config,
+        model_name,
+        request_api_key,
+        service_target,
+    );
+    let options = build_provider_genai_chat_options(
+        &api_config,
+        true,
+        true,
+    );
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, protocol_family).await?;
+    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions).await?;
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
     let mut trusted_input_tokens: Option<u64> = None;
-    let (system_prompt, mut messages) = build_genai_message_state(
-        &prepared,
-        protocol_family,
-        matches!(adapter_kind, genai::adapter::AdapterKind::DeepSeek),
-        "run_genai_tool_loop_non_stream",
-    )?;
+    let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
     let mut auto_compaction_applied = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
@@ -1441,7 +1397,7 @@ async fn run_genai_tool_loop_non_stream(
             .await?;
             execute_genai_non_stream_round(
                 &client,
-                &service_target,
+                &model_spec,
                 request,
                 &options,
                 on_delta,
@@ -1486,10 +1442,8 @@ async fn run_genai_tool_loop_non_stream(
         let mut assistant_message = genai::chat::ChatMessage::assistant(
             genai::chat::MessageContent::from_parts(assistant_parts),
         );
-        if include_reasoning_before_tool_calls {
-            assistant_message =
-                assistant_message.with_reasoning_content(Some(turn_reasoning.trim().to_string()));
-        }
+        assistant_message =
+            assistant_message.with_reasoning_content(Some(turn_reasoning.trim().to_string()));
         messages.push(assistant_message);
 
         for tool_call in turn_tool_calls {
@@ -1593,13 +1547,11 @@ async fn run_genai_tool_loop_non_stream(
                 "content": Value::Null,
                 "tool_calls": [tc_json]
             });
-            if include_reasoning_before_tool_calls {
-                if let Some(object) = assistant_tool_event.as_object_mut() {
-                    object.insert(
-                        "reasoning_content".to_string(),
-                        Value::String(turn_reasoning.trim().to_string()),
-                    );
-                }
+            if let Some(object) = assistant_tool_event.as_object_mut() {
+                object.insert(
+                    "reasoning_content".to_string(),
+                    Value::String(turn_reasoning.trim().to_string()),
+                );
             }
             tool_history_events.push(assistant_tool_event);
             let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);

@@ -445,6 +445,35 @@ const SYSTEM_DEPARTMENT_IDS = new Set([
   "remote-customer-service-department",
 ]);
 
+const TEXT_REQUEST_FORMATS = new Set([
+  "auto",
+  "openai",
+  "deepseek",
+  "openai_responses",
+  "codex",
+  "gemini",
+  "anthropic",
+  "fireworks",
+  "together",
+  "groq",
+  "mimo",
+  "nebius",
+  "xai",
+  "zai",
+  "bigmodel",
+  "aliyun",
+  "cohere",
+  "ollama",
+  "ollama_cloud",
+  "vertex",
+  "github_copilot",
+]);
+
+function isTextRequestFormat(format: string): boolean {
+  const normalized = String(format || "").trim().toLowerCase();
+  return normalized === "deepseek/kimi" || TEXT_REQUEST_FORMATS.has(normalized);
+}
+
 type DepartmentDefaultSeed = Pick<DepartmentConfig, "name" | "summary" | "guide">;
 type DepartmentPermissionNameCategory = "builtinToolNames" | "skillNames" | "mcpToolNames";
 
@@ -546,7 +575,7 @@ const selectedDepartment = computed(
 const selectedDepartmentIsSystemBuiltIn = computed(() => isSystemBuiltInDepartment(selectedDepartment.value));
 const selectedDepartmentIsPrivateWorkspace = computed(() => selectedDepartment.value?.source === "private_workspace");
 const textDepartmentApiConfigs = computed(() =>
-  props.apiConfigs.filter((api) => !!api.enableText && ["openai", "deepseek/kimi", "codex", "openai_responses", "gemini", "anthropic"].includes(api.requestFormat)),
+  props.apiConfigs.filter((api) => !!api.enableText && isTextRequestFormat(api.requestFormat)),
 );
 const selectedDepartmentApiConfigIds = computed(() =>
   currentDepartmentApiConfigIdsForEditor(selectedDepartment.value),

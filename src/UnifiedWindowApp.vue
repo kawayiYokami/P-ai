@@ -463,6 +463,7 @@ import type { ChatWorkspaceChoice } from "./features/chat/composables/use-chat-w
 import type {
   PersonaProfile,
   AppConfig,
+  ApiRequestFormat,
   ChatMentionTarget,
   ChatMessage,
   ChatConversationOverviewItem,
@@ -965,24 +966,42 @@ const titleText = computed(() => {
   }
   return t("window.configTitle");
 });
+const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
+  "auto",
+  "openai",
+  "deepseek",
+  "openai_responses",
+  "codex",
+  "gemini",
+  "anthropic",
+  "fireworks",
+  "together",
+  "groq",
+  "mimo",
+  "nebius",
+  "xai",
+  "zai",
+  "bigmodel",
+  "aliyun",
+  "cohere",
+  "ollama",
+  "ollama_cloud",
+  "vertex",
+  "github_copilot",
+]);
+
+function isTextRequestFormat(format: string): boolean {
+  const normalized = String(format || "").trim().toLowerCase();
+  return normalized === "deepseek/kimi" || TEXT_REQUEST_FORMATS.has(normalized as ApiRequestFormat);
+}
+
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const selectedApiProvider = computed(() => {
   const [providerId] = String(config.selectedApiConfigId || "").split("::");
   return config.apiProviders.find((provider) => provider.id === providerId) ?? null;
 });
 const textCapableApiConfigs = computed(() =>
-  config.apiConfigs.filter(
-    (a) =>
-      a.enableText
-      && (
-        a.requestFormat === "openai"
-        || a.requestFormat === "deepseek/kimi"
-        || a.requestFormat === "codex"
-        || a.requestFormat === "openai_responses"
-        || a.requestFormat === "gemini"
-        || a.requestFormat === "anthropic"
-      ),
-  ),
+  config.apiConfigs.filter((a) => a.enableText && isTextRequestFormat(a.requestFormat)),
 );
 const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
 const sttCapableApiConfigs = computed(() =>
