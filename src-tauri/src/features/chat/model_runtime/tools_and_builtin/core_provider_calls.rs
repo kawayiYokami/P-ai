@@ -428,6 +428,14 @@ fn build_provider_genai_chat_options(
     if let Some(max_output_tokens) = api_config.max_output_tokens {
         options = options.with_max_tokens(max_output_tokens);
     }
+    if let Some(prompt_cache_key) = api_config
+        .prompt_cache_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        options = options.with_prompt_cache_key(prompt_cache_key);
+    }
     options
 }
 
@@ -811,6 +819,54 @@ mod openai_responses_genai_request_tests {
             request.messages[0].role,
             genai::chat::ChatRole::User
         ));
+    }
+
+    #[test]
+    fn build_provider_genai_chat_options_should_use_prompt_cache_key() {
+        let api_config = ResolvedApiConfig {
+            provider_id: None,
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::OpenAI,
+            allow_concurrent_requests: false,
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "gpt-4o-mini".to_string(),
+            reasoning_effort: None,
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: Some("conversation-1".to_string()),
+            extra_headers: Vec::new(),
+            codex_auth: None,
+        };
+
+        let options = build_provider_genai_chat_options(&api_config, false, false);
+
+        assert_eq!(options.prompt_cache_key.as_deref(), Some("conversation-1"));
+    }
+
+    #[test]
+    fn build_provider_genai_chat_options_should_use_prompt_cache_key_for_codex() {
+        let api_config = ResolvedApiConfig {
+            provider_id: Some("codex-provider".to_string()),
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::Codex,
+            allow_concurrent_requests: false,
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
+            api_key: "test-key".to_string(),
+            model: "gpt-5.4".to_string(),
+            reasoning_effort: Some("high".to_string()),
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: Some("conversation-codex".to_string()),
+            extra_headers: Vec::new(),
+            codex_auth: None,
+        };
+
+        let options = build_provider_genai_chat_options(&api_config, true, true);
+
+        assert_eq!(options.prompt_cache_key.as_deref(), Some("conversation-codex"));
     }
 
     #[test]

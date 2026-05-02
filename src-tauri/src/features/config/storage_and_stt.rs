@@ -1514,6 +1514,7 @@ fn resolve_api_config(
                 reasoning_effort: None,
                 temperature: debug_cfg.temperature.map(|value| value.clamp(0.0, 2.0)),
                 max_output_tokens: None,
+                prompt_cache_key: None,
                 extra_headers: Vec::new(),
                 codex_auth: None,
             });
@@ -1599,6 +1600,7 @@ fn resolve_api_config(
             || selected.custom_max_output_tokens_enabled)
             .then_some(selected.max_output_tokens.clamp(256, 32_768))
             .filter(|_| !selected.request_format.is_codex()),
+        prompt_cache_key: None,
         extra_headers,
         codex_auth,
     })

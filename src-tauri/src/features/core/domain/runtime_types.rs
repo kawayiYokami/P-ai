@@ -38,6 +38,7 @@ struct ResolvedApiConfig {
     reasoning_effort: Option<String>,
     temperature: Option<f64>,
     max_output_tokens: Option<u32>,
+    prompt_cache_key: Option<String>,
     extra_headers: Vec<(String, String)>,
     codex_auth: Option<CodexRuntimeAuth>,
 }

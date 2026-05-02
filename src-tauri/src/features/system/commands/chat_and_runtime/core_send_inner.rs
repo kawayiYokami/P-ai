@@ -2494,6 +2494,7 @@ async fn send_chat_message_inner(
                     continue;
                 }
             };
+        candidate_resolved_api.prompt_cache_key = Some(conversation_id.clone());
         let candidate_model_name = if candidate_selected_api.model.trim().is_empty() {
             candidate_resolved_api.model.clone()
         } else {
