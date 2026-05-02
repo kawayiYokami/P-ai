@@ -452,6 +452,16 @@ fn normalize_api_tools(config: &mut AppConfig) {
             provider.enable_tools = true;
             provider.base_url = DEFAULT_CODEX_BASE_URL.to_string();
             provider.api_keys.clear();
+            provider
+                .cached_model_options
+                .retain(|model| !is_codex_spark_model(model));
+            for model in &mut provider.models {
+                if is_codex_spark_model(&model.model) {
+                    model.model = "gpt-5.3-codex".to_string();
+                    model.context_window_tokens =
+                        codex_context_window_tokens_for_model(&model.model);
+                }
+            }
         }
         let legacy_command_enabled = provider
             .tools
@@ -488,7 +498,8 @@ fn normalize_api_tools(config: &mut AppConfig) {
             api.custom_max_output_tokens_enabled = false;
 
             if is_codex_spark_model(&api.model) {
-                api.enable_image = false;
+                api.model = "gpt-5.3-codex".to_string();
+                api.context_window_tokens = codex_context_window_tokens_for_model(&api.model);
             }
         }
         api.custom_max_output_tokens_enabled =

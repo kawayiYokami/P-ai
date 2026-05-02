@@ -1,5 +1,5 @@
 const INTERNAL_MAX_TOOL_LOOP_ROUNDS: usize = 100;
-const REPEATED_TOOL_CALL_BLOCK_THRESHOLD: usize = 10;
+const REPEATED_TOOL_CALL_BLOCK_THRESHOLD: usize = 3;
 
 struct GenaiToolLoopRoundOutput {
     turn_text: String,
@@ -61,6 +61,34 @@ fn normalized_tool_args_signature(tool_args: &str) -> String {
     }
 }
 
+fn tool_args_effectively_empty(tool_args: &str) -> bool {
+    let trimmed = tool_args.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(Value::Null) => true,
+        Ok(Value::String(text)) => text.trim().is_empty(),
+        Ok(Value::Array(items)) => items.is_empty(),
+        Ok(Value::Object(map)) => map.is_empty(),
+        _ => false,
+    }
+}
+
+fn repeated_tool_call_block_message(tool_name: &str, tool_args: &str, repeat_streak: usize) -> String {
+    if tool_args_effectively_empty(tool_args) {
+        format!(
+            "工具调用已被系统停止：{} 连续 {} 次使用空参数调用。请直接向用户说明缺少必要参数，不要继续调用该工具。",
+            tool_name, repeat_streak
+        )
+    } else {
+        format!(
+            "工具调用已被系统停止：相同工具与相同参数已连续调用 {} 次。请直接向用户说明当前工具调用无法继续，不要继续重复调用。",
+            repeat_streak
+        )
+    }
+}
+
 fn register_tool_repeat_attempt(
     guard: &mut ToolRepeatGuard,
     tool_name: &str,
@@ -75,6 +103,24 @@ fn register_tool_repeat_attempt(
         guard.same_call_streak = 1;
     }
     guard.same_call_streak
+}
+
+fn repeated_tool_call_block_reply(
+    full_reasoning_standard: String,
+    tool_history_events: Vec<Value>,
+    trusted_input_tokens: Option<u64>,
+    err_text: String,
+) -> ModelReply {
+    ModelReply {
+        assistant_text: err_text.clone(),
+        final_response_text: err_text,
+        reasoning_standard: full_reasoning_standard,
+        reasoning_inline: String::new(),
+        assistant_provider_meta: None,
+        tool_history_events,
+        suppress_assistant_message: false,
+        trusted_input_tokens,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -997,13 +1043,10 @@ async fn run_genai_tool_loop(
             );
 
             let tool_result = if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
-                let err_text = format!(
-                    "工具调用已被系统阻止：相同工具与相同参数已连续调用 {} 次，请调整参数或停止调用。",
-                    REPEATED_TOOL_CALL_BLOCK_THRESHOLD
-                );
+                let err_text = repeated_tool_call_block_message(&tool_name, &tool_args, repeat_streak);
                 runtime_log_info(format!(
-                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, args={}",
-                    chat_session_key, tool_name, repeat_streak, tool_args
+                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, threshold={}, args={}",
+                    chat_session_key, tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, tool_args
                 ));
                 send_tool_status_event(
                     on_delta,
@@ -1012,7 +1055,12 @@ async fn run_genai_tool_loop(
                     Some(tool_args.as_str()),
                     &err_text,
                 );
-                ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+                return Ok(repeated_tool_call_block_reply(
+                    full_reasoning_standard,
+                    tool_history_events,
+                    trusted_input_tokens,
+                    err_text,
+                ));
             } else {
                 match call_tool_with_user_abort(
                     tool_abort_state,
@@ -1473,13 +1521,10 @@ async fn run_genai_tool_loop_non_stream(
             );
 
             let tool_result = if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
-                let err_text = format!(
-                    "工具调用已被系统阻止：相同工具与相同参数已连续调用 {} 次，请调整参数或停止调用。",
-                    REPEATED_TOOL_CALL_BLOCK_THRESHOLD
-                );
+                let err_text = repeated_tool_call_block_message(&tool_name, &tool_args, repeat_streak);
                 runtime_log_info(format!(
-                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, args={}",
-                    chat_session_key, tool_name, repeat_streak, tool_args
+                    "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, threshold={}, args={}",
+                    chat_session_key, tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, tool_args
                 ));
                 send_tool_status_event(
                     on_delta,
@@ -1488,7 +1533,12 @@ async fn run_genai_tool_loop_non_stream(
                     Some(tool_args.as_str()),
                     &err_text,
                 );
-                ProviderToolResult::error(tool_failure_result_json(&tool_name, &err_text))
+                return Ok(repeated_tool_call_block_reply(
+                    full_reasoning_standard,
+                    tool_history_events,
+                    trusted_input_tokens,
+                    err_text,
+                ));
             } else {
                 match call_tool_with_user_abort(
                     tool_abort_state,
@@ -1918,15 +1968,33 @@ mod tool_loop_tests {
     }
 
     #[test]
-    fn tool_repeat_guard_should_block_after_ten_identical_calls() {
+    fn tool_repeat_guard_should_block_after_three_identical_calls() {
         let mut guard = ToolRepeatGuard::default();
         let mut streak = 0usize;
-        for _ in 0..11 {
+        for _ in 0..4 {
             streak = register_tool_repeat_attempt(&mut guard, "read_file", r#"{"path":"a.txt"}"#);
         }
 
-        assert_eq!(streak, 11);
+        assert_eq!(streak, 4);
         assert!(streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD);
+    }
+
+    #[test]
+    fn empty_tool_args_should_use_short_repeat_block_threshold() {
+        assert!(tool_args_effectively_empty(""));
+        assert!(tool_args_effectively_empty("{}"));
+        assert!(tool_args_effectively_empty("[]"));
+        assert!(tool_args_effectively_empty("null"));
+        assert!(tool_args_effectively_empty("\"\""));
+        assert!(!tool_args_effectively_empty(r#"{"query":"abc"}"#));
+
+        let mut guard = ToolRepeatGuard::default();
+        let first = register_tool_repeat_attempt(&mut guard, "akasha_search", "{}");
+        let second = register_tool_repeat_attempt(&mut guard, "akasha_search", "{}");
+
+        assert_eq!(first, 1);
+        assert_eq!(second, 2);
+        assert!(second <= REPEATED_TOOL_CALL_BLOCK_THRESHOLD);
     }
 
     #[test]

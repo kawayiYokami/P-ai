@@ -2,6 +2,10 @@
 
 ## 进行中
 
+- 修复（tool-repeat-loop-guard）：同名同参数工具调用连续重复超过 3 次时直接终止当前工具循环并向用户返回说明，避免 LLM 在空参数或失败工具调用上反复续调到上限。
+- 依赖（genai-update）：`genai` Git 依赖从 `cb343d74` 升级到上游 `50c9d655`。
+- 修复（codex-spark-reasoning）：`gpt-5.3-codex-spark` / `*-codex-spark` 走 genai Responses/Codex 协议时禁用 reasoning 参数与 reasoning 捕获，避免上游因不支持 reasoning 字段返回 400。
+- 调整（codex-spark-hidden）：暂时从 Codex 内置模型列表中隐藏 `gpt-5.3-codex-spark`，旧配置自动迁移到 `gpt-5.3-codex`，避免 genai 尚未支持 Spark 工具参数 done 事件时出现空参数工具循环。
 - 修复（chat-empty-stream-error-text）：模型流式请求正常结束但没有任何可见内容时，错误提示改为“模型权限/套餐不支持（上游返回空响应）”，引导用户检查 API Key 模型权限或切换模型。
 - 修复（chat-stop-during-model-retry）：模型首包前失败重试期间点击停止时，后端中断成功后前端立即清理等待草稿、红色停止按钮和重试状态，避免 UI 继续停留在忙碌态。
 - 修复（chat-model-retry-prestream-status）：模型首包前失败并进入自动重试时，前端将失败原因与重试进度保留在助理等待草稿状态中，避免三点等待气泡消失后看不到“正在重试 (1/5)”提示。

@@ -316,10 +316,19 @@ fn provider_genai_headers(api_config: &ResolvedApiConfig) -> genai::Headers {
 fn provider_genai_reasoning_effort(
     api_config: &ResolvedApiConfig,
 ) -> Option<genai::chat::ReasoningEffort> {
+    if provider_genai_model_disables_reasoning(&api_config.model) {
+        return None;
+    }
     api_config
         .reasoning_effort
         .as_deref()
         .and_then(|value| value.parse::<genai::chat::ReasoningEffort>().ok())
+}
+
+fn provider_genai_model_disables_reasoning(model_name: &str) -> bool {
+    let normalized = model_name.trim().to_ascii_lowercase();
+    normalized.starts_with("gpt-5.3-codex-spark")
+        || normalized.contains("-codex-spark")
 }
 
 fn build_provider_genai_service_target(
@@ -411,6 +420,8 @@ fn build_provider_genai_chat_options(
     capture_reasoning_content: bool,
     capture_tool_calls: bool,
 ) -> genai::chat::ChatOptions {
+    let capture_reasoning_content =
+        capture_reasoning_content && !provider_genai_model_disables_reasoning(&api_config.model);
     let mut options = genai::chat::ChatOptions::default()
         .with_capture_usage(true)
         .with_capture_content(true)
@@ -867,6 +878,31 @@ mod openai_responses_genai_request_tests {
         let options = build_provider_genai_chat_options(&api_config, true, true);
 
         assert_eq!(options.prompt_cache_key.as_deref(), Some("conversation-codex"));
+    }
+
+    #[test]
+    fn build_provider_genai_chat_options_should_disable_reasoning_for_codex_spark() {
+        let api_config = ResolvedApiConfig {
+            provider_id: Some("codex-provider".to_string()),
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::Codex,
+            allow_concurrent_requests: false,
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
+            api_key: "test-key".to_string(),
+            model: "gpt-5.3-codex-spark".to_string(),
+            reasoning_effort: Some("high".to_string()),
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: Some("conversation-codex".to_string()),
+            extra_headers: Vec::new(),
+            codex_auth: None,
+        };
+
+        let options = build_provider_genai_chat_options(&api_config, true, true);
+
+        assert_eq!(options.capture_reasoning_content, Some(false));
+        assert!(options.reasoning_effort.is_none());
     }
 
     #[test]
