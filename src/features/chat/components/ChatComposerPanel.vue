@@ -40,7 +40,7 @@
           type="button"
           class="btn btn-sm"
           :class="{ 'btn-primary': selectionDelegateCardOpen }"
-          :disabled="selectedMessageCount === 0 || delegateDepartmentOptions.length === 0"
+          :disabled="delegateDepartmentOptions.length === 0"
           @click="openSelectionDelegateCard"
         >
           发起委托
@@ -114,7 +114,7 @@
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-medium">发起异步委托</div>
-            <div class="mt-1 text-xs opacity-70">选中消息会作为纯文本背景发送给子代理。</div>
+            <div class="mt-1 text-xs opacity-70">选中消息会作为纯文本背景发送给子代理；不选消息也可以直接委托。</div>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <span class="text-sm opacity-70">快捷委托</span>
@@ -618,8 +618,7 @@ const preferredDelegateDepartmentId = computed(() => {
   return String(delegateDepartmentOptions.value[0]?.id || "").trim();
 });
 const canSubmitSelectionDelegate = computed(() =>
-  props.selectedMessageCount > 0
-  && delegateDepartmentOptions.value.some(
+  delegateDepartmentOptions.value.some(
     (department) => department.id === String(selectionDelegateDepartmentId.value || "").trim(),
   )
   && !!String(selectionDelegateQuestion.value || "").trim(),

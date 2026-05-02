@@ -2027,12 +2027,13 @@ function emitSelectionAction(
   actionPayload: string | { departmentId: string; presetId: string; background: string; question: string; focus: string } = "",
 ) {
   const payload = selectionPayload();
-  if (payload.count === 0) return;
   if (kind === "branch") {
+    if (payload.count === 0) return;
     emit("selectionActionBranch", payload);
     return;
   }
   if (kind === "forward") {
+    if (payload.count === 0) return;
     const normalizedTargetConversationId = String(actionPayload || "").trim();
     if (!normalizedTargetConversationId) return;
     emit("selectionActionForward", {
@@ -2053,6 +2054,7 @@ function emitSelectionAction(
     });
     return;
   }
+  if (payload.count === 0) return;
   const exportFormat = actionPayload === "html" || actionPayload === "png" ? actionPayload : undefined;
   emit("selectionActionShare", {
     ...payload,

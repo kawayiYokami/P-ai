@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（user-async-delegate-without-selection）：用户手动发起异步委托时不再强制要求选中消息；选中消息仅作为可选背景，未选择消息时可直接按问题与补充背景创建委托。
 - 优化（chat-conversation-list-floating-scrollbar）：会话列表宽度统一为 `w-80`，移除列表滚动区内边距并改为隐藏原生滚动条、自绘右侧悬浮滚动条，避免滚动条占位挤压列表内容。
 - 修复（api-request-format-legacy-fallback）：旧配置中的 OpenAI 兼容协议别名会映射为 `openai`，缺失或未知协议自动回落到 `auto`，避免供应商设置页协议下拉为空。
 - 修复（startup-white-screen-guard）：前端启动壳先渲染，迁移安全闸通过后再启动后台服务；首屏数据加载慢时只提示并继续等待真实结果，避免白屏或半初始化。

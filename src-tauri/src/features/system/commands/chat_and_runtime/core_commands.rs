@@ -704,9 +704,6 @@ fn resolve_user_async_delegate_plan(
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
         .collect::<Vec<_>>();
-    if selected_message_ids.is_empty() {
-        return Err("selectedMessageIds is required".to_string());
-    }
 
     let app_config = state_read_config_cached(app_state)?;
     let agents = state_read_agents_cached(app_state)?;
@@ -759,9 +756,6 @@ fn resolve_user_async_delegate_plan(
 
     let (selected_context, selected_count) =
         build_user_async_delegate_selected_context(&conversation, &agents, &selected_message_ids);
-    if selected_count == 0 {
-        return Err("选中消息没有可用于委托的纯文本内容".to_string());
-    }
     let background = build_user_async_delegate_background(&input.background, &selected_context);
     let title = user_async_delegate_title(question, input.preset_id.as_deref());
     Ok((
