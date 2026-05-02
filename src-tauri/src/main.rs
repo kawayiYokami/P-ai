@@ -602,6 +602,7 @@ fn main() {
             get_unarchived_conversation_recent_messages,
             get_unarchived_conversation_message_by_id,
             list_delegate_conversations,
+            list_conversation_delegate_statuses,
             get_delegate_conversation_messages,
             delete_unarchived_conversation,
             get_active_conversation_messages,

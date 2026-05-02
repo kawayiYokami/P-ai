@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 功能（chat-delegate-sidebar）：聊天右侧侧边栏新增“委托”标签，按当前会话实时显示委托执行状态、模型请求步数、工具调用次数、最近工具、压缩边界累计用量与耗时，并可跳转归档窗口查看对应委托会话详情。
 - 修复（tool-repeat-loop-guard）：同名同参数工具调用连续重复超过 3 次时直接终止当前工具循环并向用户返回说明，避免 LLM 在空参数或失败工具调用上反复续调到上限。
 - 依赖（genai-update）：`genai` Git 依赖从 `cb343d74` 升级到上游 `50c9d655`。
 - 修复（codex-spark-reasoning）：`gpt-5.3-codex-spark` / `*-codex-spark` 走 genai Responses/Codex 协议时禁用 reasoning 参数与 reasoning 捕获，避免上游因不支持 reasoning 字段返回 400。

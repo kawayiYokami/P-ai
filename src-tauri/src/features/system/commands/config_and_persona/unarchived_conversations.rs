@@ -647,6 +647,365 @@ fn list_delegate_conversations(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ListConversationDelegateStatusesInput {
+    conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationDelegateStatusSummary {
+    delegate_id: String,
+    conversation_id: String,
+    root_conversation_id: String,
+    title: String,
+    status: String,
+    started_at: String,
+    updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archived_at: Option<String>,
+    elapsed_ms: u64,
+    request_count: usize,
+    tool_call_count: usize,
+    last_tool_name: String,
+    token_count: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DelegateConversationStats {
+    request_count: usize,
+    tool_call_count: usize,
+    last_tool_name: String,
+    token_count: u64,
+}
+
+fn conversation_delegate_effective_prompt_tokens(message: &ChatMessage) -> Option<u64> {
+    message
+        .provider_meta
+        .as_ref()?
+        .get("effectivePromptTokens")?
+        .as_u64()
+}
+
+fn conversation_delegate_compaction_kind(message: &ChatMessage) -> Option<String> {
+    let kind = message
+        .provider_meta
+        .as_ref()?
+        .get("message_meta")
+        .or_else(|| message.provider_meta.as_ref()?.get("messageMeta"))?
+        .get("kind")?
+        .as_str()?
+        .trim();
+    match kind {
+        "context_compaction" => Some("context_compaction".to_string()),
+        "summary_context_seed" => Some("summary_context_seed".to_string()),
+        _ => None,
+    }
+}
+
+fn conversation_delegate_token_count(messages: &[ChatMessage]) -> u64 {
+    let mut total = 0u64;
+    let mut latest_segment_usage = None::<u64>;
+    for message in messages {
+        if let Some(value) = conversation_delegate_effective_prompt_tokens(message) {
+            latest_segment_usage = Some(value);
+        }
+        if conversation_delegate_compaction_kind(message).is_some() {
+            if let Some(value) = latest_segment_usage.take() {
+                total = total.saturating_add(value);
+            }
+        }
+    }
+    if let Some(value) = latest_segment_usage {
+        total = total.saturating_add(value);
+    }
+    total
+}
+
+fn conversation_delegate_text_message_has_content(message: &ChatMessage) -> bool {
+    !render_prompt_message_text(message).trim().is_empty()
+        || message.extra_text_blocks.iter().any(|item| !item.trim().is_empty())
+}
+
+fn conversation_delegate_stats_from_messages(
+    messages: &[ChatMessage],
+    inflight_tool_history: &[Value],
+) -> DelegateConversationStats {
+    let mut stats = DelegateConversationStats {
+        token_count: conversation_delegate_token_count(messages),
+        ..DelegateConversationStats::default()
+    };
+    for message in messages {
+        if message.role != "assistant" || conversation_delegate_compaction_kind(message).is_some() {
+            continue;
+        }
+        let events = normalize_message_tool_history_events(message, MessageToolHistoryView::Display);
+        let assistant_tool_request_count = events
+            .iter()
+            .filter(|event| event.role == "assistant")
+            .count();
+        let mut tool_call_count = 0usize;
+        let mut last_tool_name = String::new();
+        for event in &events {
+            if event.role != "assistant" {
+                continue;
+            }
+            for call in &event.tool_calls {
+                tool_call_count = tool_call_count.saturating_add(1);
+                if let Some(name) = call
+                    .tool_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    last_tool_name = name.to_string();
+                }
+            }
+        }
+        let has_final_text = conversation_delegate_text_message_has_content(message);
+        if assistant_tool_request_count == 0 || has_final_text {
+            stats.request_count = stats.request_count.saturating_add(1);
+        }
+        stats.request_count = stats
+            .request_count
+            .saturating_add(assistant_tool_request_count);
+        stats.tool_call_count = stats.tool_call_count.saturating_add(tool_call_count);
+        if !last_tool_name.is_empty() {
+            stats.last_tool_name = last_tool_name;
+        }
+    }
+    if !inflight_tool_history.is_empty() {
+        let transient = ChatMessage {
+            id: "delegate_inflight_tool_history".to_string(),
+            role: "assistant".to_string(),
+            created_at: String::new(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: String::new(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(inflight_tool_history.to_vec()),
+            mcp_call: None,
+        };
+        for event in normalize_message_tool_history_events(&transient, MessageToolHistoryView::Display) {
+            if event.role != "assistant" {
+                continue;
+            }
+            stats.request_count = stats.request_count.saturating_add(1);
+            for call in event.tool_calls {
+                stats.tool_call_count = stats.tool_call_count.saturating_add(1);
+                if let Some(name) = call
+                    .tool_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    stats.last_tool_name = name.to_string();
+                }
+            }
+        }
+    }
+    stats
+}
+
+fn conversation_delegate_elapsed_ms(started_at: &str, completed_at: Option<&str>) -> u64 {
+    let Some(start) = parse_iso(started_at) else {
+        return 0;
+    };
+    let end = completed_at
+        .and_then(parse_iso)
+        .unwrap_or_else(now_utc);
+    let millis = (end - start).whole_milliseconds();
+    if millis <= 0 {
+        0
+    } else {
+        millis.min(i128::from(u64::MAX)) as u64
+    }
+}
+
+fn conversation_delegate_status_from_entry(
+    app_state: &AppState,
+    delegate_id: &str,
+    active: bool,
+) -> (String, String, Option<String>) {
+    match delegate_store_get_delegate(&app_state.data_path, delegate_id) {
+        Ok(entry) => {
+            let status = if active && entry.status == DELEGATE_STATUS_DELIVERED {
+                "running".to_string()
+            } else {
+                entry.status
+            };
+            (status, entry.created_at, entry.completed_at)
+        }
+        Err(_) => {
+            let status = if active {
+                "running".to_string()
+            } else {
+                "unknown".to_string()
+            };
+            (status, String::new(), None)
+        }
+    }
+}
+
+fn conversation_delegate_summary_from_thread(
+    app_state: &AppState,
+    thread: &DelegateRuntimeThread,
+    active: bool,
+) -> Result<ConversationDelegateStatusSummary, String> {
+    let delegate_id = thread.delegate_id.clone();
+    let chat_key = delegate_thread_chat_key(thread);
+    let inflight_tool_history = if active {
+        inflight_completed_tool_history(app_state, &chat_key)?
+    } else {
+        Vec::new()
+    };
+    let stats = conversation_delegate_stats_from_messages(
+        &thread.conversation.messages,
+        &inflight_tool_history,
+    );
+    let (status, stored_started_at, stored_completed_at) =
+        conversation_delegate_status_from_entry(app_state, &delegate_id, active);
+    let started_at = if stored_started_at.trim().is_empty() {
+        thread.conversation.created_at.clone()
+    } else {
+        stored_started_at
+    };
+    let completed_at = stored_completed_at
+        .or_else(|| thread.archived_at.clone())
+        .or_else(|| thread.conversation.archived_at.clone());
+    Ok(ConversationDelegateStatusSummary {
+        delegate_id: delegate_id.clone(),
+        conversation_id: thread.conversation.id.clone(),
+        root_conversation_id: thread.root_conversation_id.clone(),
+        title: if thread.title.trim().is_empty() {
+            conversation_preview_title(&thread.conversation)
+        } else {
+            thread.title.clone()
+        },
+        status,
+        started_at: started_at.clone(),
+        updated_at: thread.conversation.updated_at.clone(),
+        completed_at: completed_at.clone(),
+        archived_at: thread.archived_at.clone().or_else(|| thread.conversation.archived_at.clone()),
+        elapsed_ms: conversation_delegate_elapsed_ms(&started_at, completed_at.as_deref()),
+        request_count: stats.request_count,
+        tool_call_count: stats.tool_call_count,
+        last_tool_name: stats.last_tool_name,
+        token_count: stats.token_count,
+    })
+}
+
+fn conversation_delegate_summary_from_persisted(
+    app_state: &AppState,
+    conversation: &Conversation,
+) -> Result<ConversationDelegateStatusSummary, String> {
+    let delegate_id = conversation
+        .delegate_id
+        .clone()
+        .unwrap_or_else(|| conversation.id.clone());
+    let stats = conversation_delegate_stats_from_messages(&conversation.messages, &[]);
+    let (status, stored_started_at, stored_completed_at) =
+        conversation_delegate_status_from_entry(app_state, &delegate_id, false);
+    let started_at = if stored_started_at.trim().is_empty() {
+        conversation.created_at.clone()
+    } else {
+        stored_started_at
+    };
+    let completed_at = stored_completed_at.or_else(|| conversation.archived_at.clone());
+    Ok(ConversationDelegateStatusSummary {
+        delegate_id,
+        conversation_id: conversation.id.clone(),
+        root_conversation_id: conversation.root_conversation_id.clone().unwrap_or_default(),
+        title: conversation_preview_title(conversation),
+        status,
+        started_at: started_at.clone(),
+        updated_at: conversation.updated_at.clone(),
+        completed_at: completed_at.clone(),
+        archived_at: conversation.archived_at.clone(),
+        elapsed_ms: conversation_delegate_elapsed_ms(&started_at, completed_at.as_deref()),
+        request_count: stats.request_count,
+        tool_call_count: stats.tool_call_count,
+        last_tool_name: stats.last_tool_name,
+        token_count: stats.token_count,
+    })
+}
+
+#[tauri::command]
+fn list_conversation_delegate_statuses(
+    input: ListConversationDelegateStatusesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ConversationDelegateStatusSummary>, String> {
+    let root_conversation_id = input.conversation_id.trim();
+    if root_conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    let active_threads = delegate_runtime_thread_list(state.inner())?;
+    let active_ids = active_threads
+        .iter()
+        .map(|thread| thread.delegate_id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let mut seen_ids = std::collections::HashSet::<String>::new();
+    let mut summaries = Vec::<ConversationDelegateStatusSummary>::new();
+    for thread in active_threads {
+        if thread.root_conversation_id.trim() != root_conversation_id {
+            continue;
+        }
+        if !seen_ids.insert(thread.delegate_id.clone()) {
+            continue;
+        }
+        summaries.push(conversation_delegate_summary_from_thread(
+            state.inner(),
+            &thread,
+            true,
+        )?);
+    }
+    for thread in delegate_recent_thread_list(state.inner())? {
+        if thread.root_conversation_id.trim() != root_conversation_id {
+            continue;
+        }
+        if !seen_ids.insert(thread.delegate_id.clone()) {
+            continue;
+        }
+        summaries.push(conversation_delegate_summary_from_thread(
+            state.inner(),
+            &thread,
+            active_ids.contains(&thread.delegate_id),
+        )?);
+    }
+    for conversation in delegate_persisted_conversation_list(state.inner())? {
+        if conversation
+            .root_conversation_id
+            .as_deref()
+            .map(str::trim)
+            != Some(root_conversation_id)
+        {
+            continue;
+        }
+        let delegate_id = conversation
+            .delegate_id
+            .clone()
+            .unwrap_or_else(|| conversation.id.clone());
+        if !seen_ids.insert(delegate_id) {
+            continue;
+        }
+        summaries.push(conversation_delegate_summary_from_persisted(
+            state.inner(),
+            &conversation,
+        )?);
+    }
+    summaries.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| b.started_at.cmp(&a.started_at))
+    });
+    Ok(summaries)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GetUnarchivedConversationMessagesInput {
     conversation_id: String,
 }
@@ -1407,6 +1766,14 @@ mod unarchived_conversations_tests {
         message
     }
 
+    fn build_test_usage_message(id: &str, effective_prompt_tokens: u64) -> ChatMessage {
+        let mut message = build_test_message(id, "assistant");
+        message.provider_meta = Some(serde_json::json!({
+            "effectivePromptTokens": effective_prompt_tokens,
+        }));
+        message
+    }
+
     fn build_test_todo_tool_message(
         id: &str,
         todos: serde_json::Value,
@@ -1433,6 +1800,61 @@ mod unarchived_conversations_tests {
             }),
         ]);
         message
+    }
+
+    #[test]
+    fn conversation_delegate_token_count_should_sum_latest_usage_per_compaction_segment() {
+        let messages = vec![
+            build_test_usage_message("a1", 100),
+            build_test_usage_message("a2", 140),
+            build_test_compaction_message("c1"),
+            build_test_usage_message("a3", 25),
+            build_test_usage_message("a4", 40),
+        ];
+
+        assert_eq!(conversation_delegate_token_count(&messages), 180);
+    }
+
+    #[test]
+    fn conversation_delegate_stats_should_count_tool_rounds_and_final_reply() {
+        let mut message = build_test_message("assistant-1", "最终答复");
+        message.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "ok",
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                        "name": "apply_patch",
+                        "arguments": "{\"path\":\"src/main.rs\"}"
+                    }
+                }]
+            }),
+        ]);
+
+        let stats = conversation_delegate_stats_from_messages(&[message], &[]);
+
+        assert_eq!(stats.request_count, 3);
+        assert_eq!(stats.tool_call_count, 2);
+        assert_eq!(stats.last_tool_name, "apply_patch");
     }
 
     #[test]

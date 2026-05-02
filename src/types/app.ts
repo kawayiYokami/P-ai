@@ -648,6 +648,23 @@ export type DelegateConversationSummary = {
   archivedAt?: string;
 };
 
+export type ConversationDelegateStatusSummary = {
+  delegateId: string;
+  conversationId: string;
+  rootConversationId: string;
+  title: string;
+  status: string;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archivedAt?: string;
+  elapsedMs: number;
+  requestCount: number;
+  toolCallCount: number;
+  lastToolName: string;
+  tokenCount: number;
+};
+
 export type AgentWorkSignalPayload = {
   agentId: string;
   delegateId: string;

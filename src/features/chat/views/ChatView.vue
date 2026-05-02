@@ -437,6 +437,9 @@
         :workspaces="workspaces"
         :current-department-id="currentDepartmentId"
         :department-options="createConversationDepartmentOptions"
+        :delegate-statuses="delegateStatuses"
+        :delegate-loading="delegateStatusesLoading"
+        :delegate-error-text="delegateStatusesErrorText"
         @select-batch="setToolReviewCurrentBatchKey"
         @load-item-detail="loadToolReviewItemDetail"
         @review-item="runToolReviewForCall"
@@ -449,6 +452,7 @@
         @delete-report="handleDeleteToolReviewReport"
         @copy-report="copyToolReviewReport"
         @attach-report="$emit('attachToolReviewReport', $event)"
+        @open-delegate-detail="openDelegateArchiveDetail"
       />
     </div>
   </div>
@@ -462,7 +466,7 @@ import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, ListTodo } from "lucide-vue-next";
 import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatApprovalPanel from "../components/ChatApprovalPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
@@ -485,6 +489,7 @@ type ChatRenderItem =
   | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number }> };
 
 const MAX_GROUP_ITEM_COUNT = 2;
+const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
 const FILE_READER_EXTENSIONS = new Set([
   "md",
   "markdown",
@@ -1580,6 +1585,77 @@ const {
   t,
   onRefreshMessage: (payload) => emit("refreshToolReviewMessage", payload),
 });
+const delegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
+const delegateStatusesLoading = ref(false);
+const delegateStatusesErrorText = ref("");
+let delegateStatusesPollTimer: number | null = null;
+let delegateStatusesRequestSeq = 0;
+
+async function refreshDelegateStatuses() {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || !toolReviewPanelOpen.value) {
+    delegateStatuses.value = [];
+    delegateStatusesErrorText.value = "";
+    return;
+  }
+  const requestSeq = ++delegateStatusesRequestSeq;
+  delegateStatusesLoading.value = true;
+  try {
+    const statuses = await invokeTauri<ConversationDelegateStatusSummary[]>("list_conversation_delegate_statuses", {
+      input: { conversationId },
+    });
+    if (requestSeq !== delegateStatusesRequestSeq) return;
+    delegateStatuses.value = statuses;
+    delegateStatusesErrorText.value = "";
+  } catch (error) {
+    if (requestSeq !== delegateStatusesRequestSeq) return;
+    delegateStatusesErrorText.value = `委托状态加载失败：${String(error)}`;
+  } finally {
+    if (requestSeq === delegateStatusesRequestSeq) {
+      delegateStatusesLoading.value = false;
+    }
+  }
+}
+
+function clearDelegateStatusesPollTimer() {
+  if (delegateStatusesPollTimer === null) return;
+  window.clearInterval(delegateStatusesPollTimer);
+  delegateStatusesPollTimer = null;
+}
+
+function syncDelegateStatusesPolling() {
+  clearDelegateStatusesPollTimer();
+  if (!toolReviewPanelOpen.value || !String(props.activeConversationId || "").trim()) return;
+  void refreshDelegateStatuses();
+  delegateStatusesPollTimer = window.setInterval(() => {
+    void refreshDelegateStatuses();
+  }, 2000);
+}
+
+async function openDelegateArchiveDetail(status: ConversationDelegateStatusSummary) {
+  const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
+  if (!conversationId) return;
+  try {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY, JSON.stringify({
+        conversationId,
+        viewMode: "delegate",
+        createdAt: Date.now(),
+      }));
+    }
+    await invokeTauri("show_archives_window");
+  } catch (error) {
+    delegateStatusesErrorText.value = `打开委托归档失败：${String(error)}`;
+  }
+}
+
+watch(
+  () => [toolReviewPanelOpen.value, String(props.activeConversationId || "").trim()],
+  () => {
+    syncDelegateStatusesPolling();
+  },
+  { immediate: true },
+);
 
 function isOwnMessage(block: ChatMessageBlock): boolean {
   return isRightAlignedMessage(block);
@@ -1961,6 +2037,7 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 }
 
 onBeforeUnmount(() => {
+  clearDelegateStatusesPollTimer();
   if (pendingMeasureFrame) {
     cancelAnimationFrame(pendingMeasureFrame);
     pendingMeasureFrame = 0;

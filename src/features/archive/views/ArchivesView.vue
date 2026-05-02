@@ -412,7 +412,7 @@ function focusAdjacentArchiveBlock(step: -1 | 1) {
   emit("selectArchiveBlock", next.blockId);
 }
 
-function readPendingArchiveFocusRequest(): { conversationId: string; viewMode: "current" } | null {
+function readPendingArchiveFocusRequest(): { conversationId: string; viewMode: "current" | "delegate" } | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY);
   if (!raw) return null;
@@ -426,13 +426,13 @@ function readPendingArchiveFocusRequest(): { conversationId: string; viewMode: "
       window.localStorage.removeItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY);
       return null;
     }
-    if (requestViewMode !== "current") {
+    if (requestViewMode !== "current" && requestViewMode !== "delegate") {
       window.localStorage.removeItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY);
       return null;
     }
     return {
       conversationId,
-      viewMode: "current",
+      viewMode: requestViewMode,
     };
   } catch {
     window.localStorage.removeItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY);
@@ -443,6 +443,17 @@ function readPendingArchiveFocusRequest(): { conversationId: string; viewMode: "
 function applyPendingArchiveFocusRequest() {
   const pending = readPendingArchiveFocusRequest();
   if (!pending) return false;
+  if (pending.viewMode === "delegate") {
+    if (!props.delegateConversations.some((item) => String(item.conversationId || "").trim() === pending.conversationId)) {
+      return false;
+    }
+    viewMode.value = pending.viewMode;
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(ARCHIVE_FOCUS_REQUEST_STORAGE_KEY);
+    }
+    emit("selectDelegateConversation", pending.conversationId);
+    return true;
+  }
   if (!props.unarchivedConversations.some((item) => String(item.conversationId || "").trim() === pending.conversationId)) {
     return false;
   }
@@ -455,7 +466,7 @@ function applyPendingArchiveFocusRequest() {
 }
 
 watch(
-  () => props.unarchivedConversations,
+  () => [props.unarchivedConversations, props.delegateConversations],
   () => {
     applyPendingArchiveFocusRequest();
   },
