@@ -1,6 +1,6 @@
 <template>
-  <div class="sticky top-0 z-10 bg-inherit p-2 pb-0">
-    <div class="flex items-center gap-2">
+  <div class="sticky top-0 z-10 bg-inherit">
+    <div class="flex items-center gap-2 p-2 pb-0">
       <button
         type="button"
         class="btn btn-ghost btn-sm h-8 min-h-8 shrink-0 gap-1 px-2 text-xs"

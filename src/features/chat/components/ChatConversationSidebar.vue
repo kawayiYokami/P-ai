@@ -1,5 +1,5 @@
 <template>
-  <aside class="flex h-full w-88 shrink-0 flex-col border-r border-base-300 bg-base-200">
+  <aside class="flex h-full w-80 shrink-0 flex-col border-r border-base-300 bg-base-200">
     <ChatConversationListHeader
       v-model:search-query="conversationSearchQuery"
       v-model:active-tab="activeConversationTab"
@@ -8,22 +8,22 @@
       :local-label="t('chat.localConversationTab')"
       :contact-label="t('chat.contactConversationTab')"
     />
-    <div class="flex-1 min-h-0 overflow-y-auto p-2 pt-2">
+    <ChatConversationFloatingScroll class="flex-1 min-h-0">
       <section
         v-for="section in filteredConversationSections"
         :key="section.key"
-        class="mb-2 last:mb-0"
+        class="last:mb-0"
       >
-        <div class="divider my-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/45 before:bg-base-300 after:bg-base-300">
+        <div class="divider m-0 h-auto min-h-0 py-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/45 before:bg-base-300 after:bg-base-300">
           {{ section.title }}
         </div>
-        <div class="space-y-1">
+        <div>
           <component
             v-for="item in section.items"
             :key="item.conversationId"
             :is="isCurrentConversation(item) ? 'div' : 'button'"
             :type="isCurrentConversation(item) ? undefined : 'button'"
-            class="block w-full rounded-box text-left transition-colors hover:bg-base-100"
+            class="block w-full rounded-none text-left transition-colors hover:bg-base-100"
             :class="[
               item.conversationId === activeConversationId ? 'bg-base-300 hover:bg-base-300' : '',
               isConversationDisabled(item) ? 'cursor-not-allowed opacity-60' : '',
@@ -147,7 +147,7 @@
       >
         {{ t("chat.conversationSearchEmpty") }}
       </div>
-    </div>
+    </ChatConversationFloatingScroll>
   </aside>
 </template>
 
@@ -158,6 +158,7 @@ import { Pin, PinOff } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { formatConversationListTime } from "../utils/conversation-time";
+import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
 import ChatConversationListHeader from "./ChatConversationListHeader.vue";
 
 const CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY = "easy_call.chat_conversation_list_tab.v1";

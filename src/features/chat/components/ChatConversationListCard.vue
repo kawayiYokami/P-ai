@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-[80vh] w-[80vw] max-h-[calc(100vh-1rem)] max-w-[calc(100vw-1rem)] flex-col rounded-box border border-base-300 bg-base-100 shadow-xl">
+  <div class="flex h-[80vh] w-80 max-h-[calc(100vh-1rem)] max-w-[calc(100vw-1rem)] flex-col rounded-box border border-base-300 bg-base-100 shadow-xl">
     <ChatConversationListHeader
       v-model:search-query="conversationSearchQuery"
       v-model:active-tab="activeConversationTab"
@@ -8,22 +8,22 @@
       :local-label="t('chat.localConversationTab')"
       :contact-label="t('chat.contactConversationTab')"
     />
-    <div class="flex-1 min-h-0 overflow-y-auto p-2 pt-2">
+    <ChatConversationFloatingScroll class="flex-1 min-h-0">
       <section
         v-for="section in filteredConversationSections"
         :key="section.key"
-        class="mb-2 last:mb-0"
+        class="last:mb-0"
       >
-        <div class="divider my-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/45 before:bg-base-300 after:bg-base-300">
+        <div class="divider m-0 h-auto min-h-0 py-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/45 before:bg-base-300 after:bg-base-300">
           {{ section.title }}
         </div>
-        <div class="space-y-1">
+        <div>
           <component
             v-for="item in section.items"
             :key="item.conversationId"
             :is="isCurrentConversation(item) ? 'div' : 'button'"
             :type="isCurrentConversation(item) ? undefined : 'button'"
-            class="w-full rounded-box text-left transition-colors"
+            class="block w-full rounded-none text-left transition-colors"
             :class="[
               item.conversationId === props.activeConversationId ? 'bg-base-300' : 'bg-base-100 hover:bg-base-200',
               isConversationItemDisabled(item) ? 'cursor-not-allowed opacity-60' : '',
@@ -145,7 +145,7 @@
       >
         {{ t("chat.conversationSearchEmpty") }}
       </div>
-    </div>
+    </ChatConversationFloatingScroll>
   </div>
 </template>
 
@@ -155,6 +155,7 @@ import { useI18n } from "vue-i18n";
 import { Pin, PinOff } from "lucide-vue-next";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { formatConversationListTime } from "../utils/conversation-time";
+import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
 import ChatConversationListHeader from "./ChatConversationListHeader.vue";
 
 const CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY = "easy_call.chat_conversation_list_tab.v1";
