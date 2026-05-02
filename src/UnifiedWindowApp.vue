@@ -1234,7 +1234,7 @@ function syncChatWindowActiveState(reason = "unknown") {
   if (active) {
     void stopRecording(false);
     const activeConversationId = String(currentChatConversationId.value || "").trim();
-    if (!activeConversationId) {
+    if (!activeConversationId && startupDataReady.value) {
       void refreshChatUnarchivedConversations()
         .catch((error) => {
           console.warn("[聊天追踪][前台会话] 激活恢复失败", error);
@@ -3839,6 +3839,12 @@ const { suppressChatReloadWatch, refreshAllViewData } = useViewRefresh({
   resetVisibleTurnCount: () => {},
   perfNow,
   perfLog,
+  onRefreshStepSlow: (label, error) => {
+    setStatus(`启动数据加载较慢：${label}：${formatI18nError(tr, "status.requestFailed", error)}`);
+  },
+  onRefreshStepFailed: (label, error) => {
+    setStatus(`启动数据加载失败：${label}：${formatI18nError(tr, "status.requestFailed", error)}`);
+  },
 });
 
 const appBootstrap = useAppBootstrap({
@@ -4996,21 +5002,31 @@ useAppLifecycle({
   refreshAllViewData,
   afterRefreshData: () => {
     startupDataReady.value = true;
+    if (viewMode.value === "chat" && !String(currentChatConversationId.value || "").trim()) {
+      void refreshChatUnarchivedConversations().catch((error) => {
+        console.warn("[聊天追踪][前台会话] 启动数据就绪后恢复失败", error);
+      });
+    }
   },
   viewMode,
   syncWindowControlsState,
   stopRecording,
   cleanupSpeechRecording,
   cleanupChatMedia,
-  afterMountedReady: async () => {
-    await initializeDetachedChatWindow();
+  onStartupStepFailed: (label, error) => {
+    setStatus(`启动步骤失败：${label}：${formatI18nError(tr, "status.requestFailed", error)}`);
+  },
+  afterSafetyGateReady: async () => {
     void invokeTauri<boolean>("frontend_ready_start_remote_im_services")
       .then((started) => {
-        console.info("[启动] 前端 mounted ready 已通知后端启动远程 IM 服务", { started });
+        console.info("[启动] 前端 mounted ready 已通知后端启动后台服务", { started });
       })
       .catch((error) => {
-        console.warn("[启动] 通知后端启动远程 IM 服务失败", error);
+        console.warn("[启动] 通知后端启动后台服务失败", error);
       });
+  },
+  afterMountedReady: async () => {
+    await initializeDetachedChatWindow();
     await autoCheckGithubUpdate();
   },
 });

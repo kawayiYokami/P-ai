@@ -228,9 +228,9 @@ async fn remote_im_restart_channel(
 
 #[tauri::command]
 fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool, String> {
-    static REMOTE_IM_START_REQUESTED: std::sync::atomic::AtomicBool =
+    static BACKGROUND_SERVICES_START_REQUESTED: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
-    if REMOTE_IM_START_REQUESTED
+    if BACKGROUND_SERVICES_START_REQUESTED
         .compare_exchange(
             false,
             true,
@@ -239,15 +239,53 @@ fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool, Strin
         )
         .is_err()
     {
-        eprintln!("[启动] 前端就绪后启动远程 IM 服务：已请求过，跳过重复启动");
+        eprintln!("[启动] 前端就绪后启动后台服务：已请求过，跳过重复启动");
         return Ok(false);
     }
 
-    eprintln!("[启动] 前端已就绪，开始异步启动远程 IM 服务");
+    eprintln!("[启动] 前端已就绪，开始异步启动后台服务");
+    let startup_state = app.state::<AppState>().inner().clone();
     tauri::async_runtime::spawn(async move {
-        start_remote_im_services_after_frontend_ready(app).await;
+        start_background_services_after_frontend_ready(app, startup_state).await;
     });
     Ok(true)
+}
+
+async fn start_background_services_after_frontend_ready(
+    app_handle: AppHandle,
+    startup_state: AppState,
+) {
+    start_task_scheduler(startup_state.clone());
+    tauri::async_runtime::spawn({
+        let probe_state = startup_state.clone();
+        async move {
+            probe_release_source_once(&probe_state).await;
+        }
+    });
+    tauri::async_runtime::spawn({
+        let mcp_state = startup_state.clone();
+        async move {
+            match mcp_redeploy_all_from_policy(&mcp_state).await {
+                Ok(errors) => {
+                    refresh_global_tool_schema_cache(&mcp_state);
+                    if !errors.is_empty() {
+                        eprintln!(
+                            "[启动] MCP 自动重部署完成，发生 {} 个错误",
+                            errors.len()
+                        );
+                        for item in errors {
+                            eprintln!("[启动] MCP 自动重部署异常: {} | {}", item.item, item.error);
+                        }
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[启动] MCP 自动重部署失败: {err}");
+                    refresh_global_tool_schema_cache(&mcp_state);
+                }
+            }
+        }
+    });
+    start_remote_im_services_after_frontend_ready(app_handle).await;
 }
 
 async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
@@ -514,37 +552,7 @@ fn main() {
             if should_enable_devtools() {
                 eprintln!("[启动] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
             }
-            let startup_state = app_handle.state::<AppState>().inner().clone();
-            start_task_scheduler(startup_state.clone());
-            tauri::async_runtime::spawn({
-                let probe_state = startup_state.clone();
-                async move {
-                    probe_release_source_once(&probe_state).await;
-                }
-            });
-
-            eprintln!("[启动] 远程 IM 服务延后到前端 mounted ready 后启动");
-
-            tauri::async_runtime::spawn(async move {
-                match mcp_redeploy_all_from_policy(&startup_state).await {
-                    Ok(errors) => {
-                        refresh_global_tool_schema_cache(&startup_state);
-                        if !errors.is_empty() {
-                            eprintln!(
-                                "[启动] MCP 自动重部署完成，发生 {} 个错误",
-                                errors.len()
-                            );
-                            for item in errors {
-                                eprintln!("[启动] MCP 自动重部署异常: {} | {}", item.item, item.error);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("[启动] MCP 自动重部署失败: {err}");
-                        refresh_global_tool_schema_cache(&startup_state);
-                    }
-                }
-            });
+            eprintln!("[启动] 任务调度、MCP 自动重部署与远程 IM 服务延后到前端 mounted ready 后启动");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
