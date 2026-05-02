@@ -355,6 +355,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 type ConversationDepartmentOption = {
   id: string;
   name: string;
+  ownerAgentId?: string;
   ownerName: string;
   providerName?: string;
   modelName?: string;

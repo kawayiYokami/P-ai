@@ -371,6 +371,46 @@ struct UserMentionFailurePlan {
     reason: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitUserAsyncDelegateInput {
+    conversation_id: String,
+    target_department_id: String,
+    #[serde(default)]
+    preset_id: Option<String>,
+    #[serde(default)]
+    background: String,
+    question: String,
+    focus: String,
+    #[serde(default)]
+    selected_message_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitUserAsyncDelegateOutput {
+    delegate_id: String,
+    conversation_id: String,
+    target_agent_id: String,
+    target_agent_name: String,
+    selected_message_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct UserAsyncDelegatePlan {
+    root_conversation_id: String,
+    source_department_id: String,
+    source_agent_id: String,
+    target_department_id: String,
+    target_agent_id: String,
+    target_agent_name: String,
+    title: String,
+    question: String,
+    background: String,
+    focus: String,
+    target_api_config_ids: Vec<String>,
+}
+
 fn build_user_mention_context_snapshot_with_agents(
     conversation: &Conversation,
     agents: &[AgentProfile],
@@ -525,6 +565,221 @@ fn build_user_mention_dispatch_plans(
         });
     }
     Ok((mention_plans, mention_failures))
+}
+
+fn user_async_delegate_message_text(message: &ChatMessage) -> String {
+    if message.role.trim() != "user" && message.role.trim() != "assistant" {
+        return String::new();
+    }
+    let mut chunks = Vec::<String>::new();
+    for part in &message.parts {
+        if let MessagePart::Text { text } = part {
+            let text = text.trim();
+            if !text.is_empty() {
+                chunks.push(text.to_string());
+            }
+        }
+    }
+    chunks.join("\n").trim().to_string()
+}
+
+fn user_async_delegate_speaker_name(message: &ChatMessage, agents: &[AgentProfile]) -> String {
+    if message.role.trim() == "user" {
+        return "用户".to_string();
+    }
+    let speaker_agent_id = message
+        .speaker_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+    agents
+        .iter()
+        .find(|agent| agent.id == speaker_agent_id)
+        .map(|agent| agent.name.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "助理".to_string())
+}
+
+fn user_async_delegate_truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let head = text.chars().take(max_chars).collect::<String>();
+    format!("{head}\n[内容过长，已截断]")
+}
+
+fn build_user_async_delegate_selected_context(
+    conversation: &Conversation,
+    agents: &[AgentProfile],
+    selected_message_ids: &[String],
+) -> (String, usize) {
+    let (selected_messages, _) =
+        collect_selected_messages_for_branch(conversation, selected_message_ids);
+    let mut lines = Vec::<String>::new();
+    let mut count = 0usize;
+    for message in selected_messages {
+        let text = user_async_delegate_message_text(&message);
+        if text.trim().is_empty() {
+            continue;
+        }
+        count += 1;
+        let speaker = user_async_delegate_speaker_name(&message, agents);
+        lines.push(format!(
+            "[{}] {}",
+            speaker,
+            user_async_delegate_truncate_chars(text.trim(), 4000)
+        ));
+    }
+    let joined = lines.join("\n\n");
+    (user_async_delegate_truncate_chars(joined.trim(), 30000), count)
+}
+
+fn normalize_user_async_delegate_background(raw_background: &str) -> String {
+    let trimmed = raw_background.trim();
+    if trimmed.eq_ignore_ascii_case("请使用review skill")
+        || trimmed.eq_ignore_ascii_case("请使用 review skill")
+    {
+        return String::new();
+    }
+    trimmed.to_string()
+}
+
+fn build_user_async_delegate_background(
+    raw_background: &str,
+    selected_context: &str,
+) -> String {
+    let mut parts = Vec::<String>::new();
+    let raw_background = normalize_user_async_delegate_background(raw_background);
+    if !raw_background.is_empty() {
+        parts.push(format!("用户补充背景：\n{raw_background}"));
+    }
+    let selected_context = selected_context.trim();
+    if !selected_context.is_empty() {
+        parts.push(format!("当前会话选中消息纯文本：\n{selected_context}"));
+    }
+    parts.join("\n\n")
+}
+
+fn user_async_delegate_title(question: &str, preset_id: Option<&str>) -> String {
+    let prefix = match preset_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("review") => "审查委托",
+        Some(_) => "异步委托",
+        None => "异步委托",
+    };
+    let first_line = question
+        .trim()
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    let suffix = first_line.chars().take(24).collect::<String>();
+    if suffix.trim().is_empty() {
+        prefix.to_string()
+    } else {
+        format!("{prefix}：{suffix}")
+    }
+}
+
+fn resolve_user_async_delegate_plan(
+    app_state: &AppState,
+    input: &SubmitUserAsyncDelegateInput,
+) -> Result<(UserAsyncDelegatePlan, usize), String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required".to_string());
+    }
+    let target_department_id = input.target_department_id.trim();
+    if target_department_id.is_empty() {
+        return Err("targetDepartmentId is required".to_string());
+    }
+    let question = input.question.trim();
+    if question.is_empty() {
+        return Err("question is required".to_string());
+    }
+    let focus = input.focus.trim();
+    let selected_message_ids = input
+        .selected_message_ids
+        .iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if selected_message_ids.is_empty() {
+        return Err("selectedMessageIds is required".to_string());
+    }
+
+    let app_config = state_read_config_cached(app_state)?;
+    let agents = state_read_agents_cached(app_state)?;
+    let conversation = state_read_conversation_cached(app_state, conversation_id)
+        .ok()
+        .filter(|conversation| {
+            conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+                && !conversation_is_delegate(conversation)
+        })
+        .ok_or_else(|| "当前会话不存在或已归档".to_string())?;
+    let source_department_id = conversation.department_id.trim();
+    let source_department = department_by_id(&app_config, source_department_id)
+        .ok_or_else(|| format!("当前会话所属部门不存在，departmentId={source_department_id}"))?;
+    let conversation_agent_id = conversation.agent_id.trim();
+    let source_agent_id = if !conversation_agent_id.is_empty()
+        && source_department
+            .agent_ids
+            .iter()
+            .any(|id| id.trim() == conversation_agent_id)
+    {
+        conversation_agent_id.to_string()
+    } else {
+        source_department
+            .agent_ids
+            .iter()
+            .find(|id| !id.trim().is_empty())
+            .map(|id| id.trim().to_string())
+            .ok_or_else(|| format!("当前会话所属部门没有可用负责人，departmentId={source_department_id}"))?
+    };
+    let target_department = department_by_id(&app_config, target_department_id)
+        .ok_or_else(|| format!("目标部门不存在，departmentId={target_department_id}"))?;
+    let target_agent_id = target_department
+        .agent_ids
+        .iter()
+        .find(|id| !id.trim().is_empty())
+        .map(|id| id.trim().to_string())
+        .ok_or_else(|| format!("目标部门没有可用委任人，departmentId={target_department_id}"))?;
+    if target_agent_id == source_agent_id {
+        return Err("委托目标不能是当前会话人格".to_string());
+    }
+    let target_agent = agents
+        .iter()
+        .find(|agent| agent.id == target_agent_id && !agent.is_built_in_user)
+        .ok_or_else(|| format!("目标委任人不存在，agentId={target_agent_id}"))?;
+    let target_api_config_ids = delegate_target_chat_api_config_ids(&app_config, target_department);
+    if target_api_config_ids.is_empty() {
+        return Err(format!("目标部门没有可用模型，departmentId={target_department_id}"));
+    }
+
+    let (selected_context, selected_count) =
+        build_user_async_delegate_selected_context(&conversation, &agents, &selected_message_ids);
+    if selected_count == 0 {
+        return Err("选中消息没有可用于委托的纯文本内容".to_string());
+    }
+    let background = build_user_async_delegate_background(&input.background, &selected_context);
+    let title = user_async_delegate_title(question, input.preset_id.as_deref());
+    Ok((
+        UserAsyncDelegatePlan {
+            root_conversation_id: conversation.id.clone(),
+            source_department_id: source_department.id.clone(),
+            source_agent_id,
+            target_department_id: target_department.id.clone(),
+            target_agent_id: target_agent_id.clone(),
+            target_agent_name: target_agent.name.trim().to_string(),
+            title,
+            question: question.to_string(),
+            background,
+            focus: focus.to_string(),
+            target_api_config_ids,
+        },
+        selected_count,
+    ))
 }
 
 fn enqueue_user_mention_result_message(
@@ -686,6 +941,108 @@ fn spawn_user_mention_failure_message(app_state: AppState, failure: UserMentionF
             );
         }
     });
+}
+
+fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -> Result<String, String> {
+    let delegate = delegate_create_record(
+        &app_state,
+        DELEGATE_TOOL_KIND_USER_MENTION,
+        &plan.root_conversation_id,
+        None,
+        &plan.source_department_id,
+        &plan.target_department_id,
+        &plan.source_agent_id,
+        &plan.target_agent_id,
+        &plan.title,
+        &plan.question,
+        plan.background.clone(),
+        plan.focus.clone(),
+        String::new(),
+        false,
+        vec![
+            plan.source_department_id.clone(),
+            plan.target_department_id.clone(),
+        ],
+    )?;
+    let delegate_id = delegate.delegate_id.clone();
+    tokio::spawn(async move {
+        let target_agent_name = plan.target_agent_name.clone();
+        let run_result = delegate_run_thread_to_completion(
+            app_state.clone(),
+            delegate.clone(),
+            plan.target_api_config_ids.clone(),
+            None,
+        )
+        .await;
+        match run_result {
+            Ok(run) => {
+                let text = if run.assistant_text.trim().is_empty() {
+                    format!("《{}》已处理完成。", delegate.title.trim())
+                } else {
+                    run.assistant_text.clone()
+                };
+                if let Err(err) = enqueue_user_mention_result_message(
+                    &app_state,
+                    &plan.root_conversation_id,
+                    &plan.source_agent_id,
+                    &plan.target_department_id,
+                    &plan.target_agent_id,
+                    &text,
+                    serde_json::json!({
+                        "messageKind": "delegate_result",
+                        "delegateId": delegate.delegate_id,
+                        "delegateKind": DELEGATE_TOOL_KIND_USER_MENTION,
+                        "resultStatus": "completed",
+                        "speakerAgentId": plan.target_agent_id,
+                        "sourceAgentId": plan.source_agent_id,
+                        "targetAgentId": plan.target_agent_id,
+                        "reasoningStandard": run.reasoning_standard,
+                    }),
+                ) {
+                    eprintln!(
+                        "[用户异步委托] 写回完成结果消息失败: conversation_id={}, target_agent_id={}, error={}",
+                        plan.root_conversation_id,
+                        plan.target_agent_id,
+                        err
+                    );
+                }
+            }
+            Err(err) => {
+                let text = format!("《{}》执行失败：{}", delegate.title.trim(), err);
+                if let Err(enqueue_err) = enqueue_user_mention_result_message(
+                    &app_state,
+                    &plan.root_conversation_id,
+                    &plan.source_agent_id,
+                    &plan.target_department_id,
+                    &plan.target_agent_id,
+                    &text,
+                    serde_json::json!({
+                        "messageKind": "delegate_result",
+                        "delegateId": delegate.delegate_id,
+                        "delegateKind": DELEGATE_TOOL_KIND_USER_MENTION,
+                        "resultStatus": "failed",
+                        "speakerAgentId": plan.target_agent_id,
+                        "sourceAgentId": plan.source_agent_id,
+                        "targetAgentId": plan.target_agent_id,
+                        "error": err,
+                    }),
+                ) {
+                    eprintln!(
+                        "[用户异步委托] 写回失败结果消息失败: conversation_id={}, target_agent_id={}, error={}",
+                        plan.root_conversation_id,
+                        plan.target_agent_id,
+                        enqueue_err
+                    );
+                }
+            }
+        }
+        runtime_log_info(format!(
+            "[用户异步委托] 后台执行 完成 delegate_id={} target_agent_name={}",
+            delegate.delegate_id,
+            target_agent_name
+        ));
+    });
+    Ok(delegate_id)
 }
 
 fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
@@ -1260,6 +1617,33 @@ async fn send_user_mention_message(
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
     send_user_mention_message_inner(input, state.inner(), &on_delta).await
+}
+
+#[tauri::command]
+async fn submit_user_async_delegate(
+    input: SubmitUserAsyncDelegateInput,
+    state: State<'_, AppState>,
+) -> Result<SubmitUserAsyncDelegateOutput, String> {
+    let (plan, selected_message_count) = resolve_user_async_delegate_plan(state.inner(), &input)?;
+    let output = SubmitUserAsyncDelegateOutput {
+        delegate_id: String::new(),
+        conversation_id: plan.root_conversation_id.clone(),
+        target_agent_id: plan.target_agent_id.clone(),
+        target_agent_name: plan.target_agent_name.clone(),
+        selected_message_count,
+    };
+    let delegate_id = spawn_user_async_delegate(state.inner().clone(), plan)?;
+    runtime_log_info(format!(
+        "[用户异步委托] 发起 完成 conversation_id={} delegate_id={} target_agent_id={} selected_message_count={}",
+        output.conversation_id,
+        delegate_id,
+        output.target_agent_id,
+        output.selected_message_count
+    ));
+    Ok(SubmitUserAsyncDelegateOutput {
+        delegate_id,
+        ..output
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

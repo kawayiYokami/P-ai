@@ -22,9 +22,27 @@
           :class="menuPlacement === 'top' ? 'mb-3' : 'mt-3'"
         >
           <li v-if="!busy">
+            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openDelegateSelection')">
+              <ClipboardList class="h-4 w-4 shrink-0" />
+              <span class="leading-5">发起委托</span>
+            </button>
+          </li>
+          <li v-if="!busy">
             <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openBranchSelection')">
-              <GitBranch class="h-4 w-4 shrink-0" />
-              <span class="leading-5">{{ t("chat.conversationMenu.branchFromSelection") }}</span>
+              <GitBranchPlus class="h-4 w-4 shrink-0" />
+              <span class="leading-5">会话分支</span>
+            </button>
+          </li>
+          <li v-if="!busy">
+            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openForwardSelection')">
+              <Package class="h-4 w-4 shrink-0" />
+              <span class="leading-5">会话转发</span>
+            </button>
+          </li>
+          <li v-if="!busy">
+            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openShareSelection')">
+              <ExternalLink class="h-4 w-4 shrink-0" />
+              <span class="leading-5">分享会话</span>
             </button>
           </li>
           <li>
@@ -132,7 +150,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ExternalLink, Folder, GitBranch, Glasses, Grip, SquareTerminal, Timer } from "lucide-vue-next";
+import { ClipboardList, ExternalLink, Folder, GitBranchPlus, Glasses, Grip, Package, SquareTerminal, Timer } from "lucide-vue-next";
 import type { ChatPersonaPresenceChip } from "../../../types/app";
 
 const props = defineProps<{
@@ -164,6 +182,9 @@ const emit = defineEmits<{
   (e: "lockWorkspace"): void;
   (e: "openSupervisionTask"): void;
   (e: "openBranchSelection"): void;
+  (e: "openDelegateSelection"): void;
+  (e: "openForwardSelection"): void;
+  (e: "openShareSelection"): void;
   (e: "detachConversation"): void;
   (e: "toggleToolReview"): void;
   (e: "mentionPersona", agentId: string): void;

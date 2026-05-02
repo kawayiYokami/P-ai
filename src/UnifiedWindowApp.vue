@@ -278,6 +278,7 @@
       :on-create-conversation="createUnarchivedConversation"
       :on-branch-conversation-from-selection="branchConversationFromSelection"
       :on-forward-conversation-from-selection="forwardConversationFromSelection"
+      :on-user-async-delegate-from-selection="userAsyncDelegateFromSelection"
       :on-open-skill-panel="openSkillPlaceholderDialog"
       :load-archives="loadArchives"
       :select-archive="selectArchive"
@@ -1878,6 +1879,7 @@ const createConversationDepartmentOptions = computed(() =>
       return {
         id: String(department.id || "").trim(),
         name: String(department.name || "").trim() || String(department.id || "").trim(),
+        ownerAgentId: ownerId,
         ownerName: String(owner?.name || "").trim() || ownerId || "未设置负责人",
         providerName: String(apiConfig?.name || apiConfig?.id || "").trim(),
         modelName: String(apiConfig?.model || "").trim(),
@@ -3712,6 +3714,51 @@ async function forwardConversationFromSelection(payload: {
     setStatusError("status.loadMessagesFailed", error);
   } finally {
     forwardingConversationSelection.value = false;
+  }
+}
+
+async function userAsyncDelegateFromSelection(payload: {
+  count: number;
+  messageIds: string[];
+  departmentId: string;
+  presetId: string;
+  background: string;
+  question: string;
+  focus: string;
+}) {
+  const conversationId = String(currentChatConversationId.value || "").trim();
+  const targetDepartmentId = String(payload?.departmentId || "").trim();
+  const selectedMessageIds = Array.isArray(payload?.messageIds)
+    ? payload.messageIds
+        .map((item) => String(item || "").trim())
+        .filter((item, index, array) => !!item && array.indexOf(item) === index)
+    : [];
+  const question = String(payload?.question || "").trim();
+  const focus = String(payload?.focus || "").trim();
+  if (!conversationId || !targetDepartmentId || selectedMessageIds.length === 0 || !question) return;
+  try {
+    const result = await invokeTauri<{
+      delegateId: string;
+      conversationId: string;
+      targetAgentId: string;
+      targetAgentName: string;
+      selectedMessageCount: number;
+    }>("submit_user_async_delegate", {
+      input: {
+        conversationId,
+        targetDepartmentId,
+        presetId: String(payload?.presetId || "review").trim() || "review",
+        background: String(payload?.background || "").trim(),
+        question,
+        focus,
+        selectedMessageIds,
+      },
+    });
+    const targetName = String(result?.targetAgentName || result?.targetAgentId || "").trim() || "子代理";
+    const selectedCount = Number(result?.selectedMessageCount || selectedMessageIds.length);
+    setStatus(`已发起异步委托给 ${targetName}，带入 ${selectedCount} 条消息`);
+  } catch (error) {
+    setStatus(`发起委托失败：${formatI18nError(tr, "status.requestFailed", error)}`);
   }
 }
 

@@ -243,6 +243,9 @@
                 :detach-disabled="!activeConversationId || activeConversationSummary?.isMainConversation || chatting || frozen || conversationBusy"
                 @lock-workspace="$emit('lockWorkspace')"
                 @open-branch-selection="openBranchSelectionMenu"
+                @open-delegate-selection="openDelegateSelectionMenu"
+                @open-forward-selection="openForwardSelectionMenu"
+                @open-share-selection="openShareSelectionMenu"
                 @mention-persona="agentId => {
                   const normalizedAgentId = String(agentId || '').trim();
                   if (!normalizedAgentId) return;
@@ -379,7 +382,8 @@
             @selection-action-copy="copySelectedMessages"
             @selection-action-branch="emitSelectionAction('branch')"
             @selection-action-forward="emitSelectionAction('forward', $event)"
-            @selection-action-share="emitSelectionAction('share')"
+            @selection-action-delegate="emitSelectionAction('delegate', $event)"
+            @selection-action-share="emitSelectionAction('share', $event)"
             @force-archive="$emit('forceArchive')"
             @switch-conversation="$emit('switchConversation', $event)"
             @create-conversation="$emit('createConversation', $event)"
@@ -635,7 +639,7 @@ const props = defineProps<{
   currentTheme: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
   conversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
+  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
   defaultCreateConversationDepartmentId: string;
   detachedChatWindow?: boolean;
   terminalApprovals?: TerminalApprovalConversationItem[];
@@ -1060,7 +1064,8 @@ const emit = defineEmits<{
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }): void;
-  (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
+  (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; presetId: string; background: string; question: string; focus: string }): void;
+  (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }): void;
   (e: "approveTerminalApproval", requestId: string): void;
   (e: "denyTerminalApproval", requestId: string): void;
 }>();
@@ -1088,12 +1093,47 @@ function openBranchSelectionMenu() {
   });
 }
 
+function openDelegateSelectionMenu() {
+  if (props.chatting || props.frozen || props.conversationBusy) return;
+  messageSelectionModeEnabled.value = true;
+  selectedMessageRenderIds.value = [];
+  void nextTick(() => {
+    composerPanelRef.value?.openSelectionDelegateCard?.();
+    composerPanelRef.value?.focusInput?.({ preventScroll: true });
+  });
+}
+
+function openForwardSelectionMenu() {
+  if (props.chatting || props.frozen || props.conversationBusy) return;
+  messageSelectionModeEnabled.value = true;
+  selectedMessageRenderIds.value = [];
+  void nextTick(() => {
+    composerPanelRef.value?.openSelectionDeliverCard?.();
+    composerPanelRef.value?.focusInput?.({ preventScroll: true });
+  });
+}
+
+function openShareSelectionMenu() {
+  if (props.chatting || props.frozen || props.conversationBusy) return;
+  messageSelectionModeEnabled.value = true;
+  selectedMessageRenderIds.value = [];
+  void nextTick(() => {
+    composerPanelRef.value?.openSelectionShareCard?.();
+    composerPanelRef.value?.focusInput?.({ preventScroll: true });
+  });
+}
+
 const linkOpenErrorText = ref("");
 const conversationSummaryCard = ref<{ visible: boolean; text: string }>({
   visible: false,
   text: "",
 });
-const composerPanelRef = ref<{ focusInput: (options?: FocusOptions) => void } | null>(null);
+const composerPanelRef = ref<{
+  focusInput: (options?: FocusOptions) => void;
+  openSelectionDeliverCard?: () => void;
+  openSelectionDelegateCard?: () => void;
+  openSelectionShareCard?: () => void;
+} | null>(null);
 const messageSelectionModeEnabled = ref(false);
 const selectedMessageRenderIds = ref<string[]>([]);
 const olderHistoryRequestPending = ref(false);
@@ -1982,7 +2022,10 @@ async function copyToolReviewReport(reportText: string) {
   }
 }
 
-function emitSelectionAction(kind: "branch" | "share" | "forward", targetConversationId = "") {
+function emitSelectionAction(
+  kind: "branch" | "share" | "forward" | "delegate",
+  actionPayload: string | { departmentId: string; presetId: string; background: string; question: string; focus: string } = "",
+) {
   const payload = selectionPayload();
   if (payload.count === 0) return;
   if (kind === "branch") {
@@ -1990,7 +2033,7 @@ function emitSelectionAction(kind: "branch" | "share" | "forward", targetConvers
     return;
   }
   if (kind === "forward") {
-    const normalizedTargetConversationId = String(targetConversationId || "").trim();
+    const normalizedTargetConversationId = String(actionPayload || "").trim();
     if (!normalizedTargetConversationId) return;
     emit("selectionActionForward", {
       ...payload,
@@ -1998,7 +2041,23 @@ function emitSelectionAction(kind: "branch" | "share" | "forward", targetConvers
     });
     return;
   }
-  emit("selectionActionShare", payload);
+  if (kind === "delegate") {
+    if (!actionPayload || typeof actionPayload === "string") return;
+    emit("selectionActionDelegate", {
+      ...payload,
+      departmentId: String(actionPayload.departmentId || "").trim(),
+      presetId: String(actionPayload.presetId || "review").trim() || "review",
+      background: String(actionPayload.background || "").trim(),
+      question: String(actionPayload.question || "").trim(),
+      focus: String(actionPayload.focus || "").trim(),
+    });
+    return;
+  }
+  const exportFormat = actionPayload === "html" || actionPayload === "png" ? actionPayload : undefined;
+  emit("selectionActionShare", {
+    ...payload,
+    exportFormat,
+  });
 }
 
 async function handleAssistantLinkClick(event: MouseEvent) {

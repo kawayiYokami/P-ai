@@ -198,7 +198,8 @@
         @selection-action-copy-error="setStatus(props.t('chat.copyFailed'))"
         @selection-action-branch="onBranchConversationFromSelection($event)"
         @selection-action-forward="onForwardConversationFromSelection($event)"
-        @selection-action-share="openSelectionShareDialog($event)"
+        @selection-action-delegate="onUserAsyncDelegateFromSelection($event)"
+        @selection-action-share="handleSelectionShareAction($event)"
         @attach-tool-review-report="attachToolReviewReport"
         @lock-workspace="onLockChatWorkspace"
         @open-supervision-task="openSupervisionTaskDialog"
@@ -381,6 +382,7 @@ type SelectionSharePayload = {
   count: number;
   messageIds: string[];
   blocks: ChatMessageBlock[];
+  exportFormat?: "html" | "png";
 };
 
 const props = defineProps<{
@@ -512,7 +514,7 @@ const props = defineProps<{
   }>;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   chatConversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
+  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
   defaultCreateConversationDepartmentId: string;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
@@ -628,6 +630,7 @@ const props = defineProps<{
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
+  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) => void;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectArchiveBlock: (blockId?: number | null) => void;
@@ -694,6 +697,22 @@ function openSelectionShareDialog(payload: SelectionSharePayload) {
     return;
   }
   selectionSharePayload.value = payload;
+  selectionShareDialogOpen.value = true;
+}
+
+function handleSelectionShareAction(payload: SelectionSharePayload) {
+  if (!payload || payload.count <= 0 || !Array.isArray(payload.blocks) || payload.blocks.length === 0) {
+    return;
+  }
+  selectionSharePayload.value = payload;
+  if (payload.exportFormat === "html") {
+    void exportSelectionAsHtml();
+    return;
+  }
+  if (payload.exportFormat === "png") {
+    void exportSelectionAsImage();
+    return;
+  }
   selectionShareDialogOpen.value = true;
 }
 

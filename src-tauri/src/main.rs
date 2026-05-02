@@ -657,6 +657,7 @@ fn main() {
             confirm_plan_and_continue,
             send_chat_message,
             send_user_mention_message,
+            submit_user_async_delegate,
             bind_active_chat_view_stream,
              stop_chat_message,
              get_chat_queue_snapshot,
