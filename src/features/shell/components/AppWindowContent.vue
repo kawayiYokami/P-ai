@@ -266,6 +266,7 @@
       @import-archive-file="importArchiveFile"
       @delete-archive="deleteArchive"
       @delete-unarchived-conversation="deleteUnarchivedConversation"
+      @delete-delegate-conversation="deleteDelegateConversation"
       @delete-remote-im-contact-conversation="deleteRemoteImContactConversation"
     />
     <dialog :ref="memoryDialogVNodeRef" class="modal">
@@ -639,6 +640,7 @@ const props = defineProps<{
   importArchiveFile: (file: File) => void;
   deleteArchive: (id: string) => void;
   deleteUnarchivedConversation: (id: string) => void;
+  deleteDelegateConversation: (id: string) => void;
   deleteRemoteImContactConversation: (id: string) => void;
   closeMemoryViewer: () => void;
   prevMemoryPage: () => void;

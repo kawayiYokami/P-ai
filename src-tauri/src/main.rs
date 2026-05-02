@@ -604,6 +604,7 @@ fn main() {
             list_delegate_conversations,
             list_conversation_delegate_statuses,
             get_delegate_conversation_messages,
+            delete_delegate_conversation,
             delete_unarchived_conversation,
             get_active_conversation_messages,
             get_active_conversation_messages_before,

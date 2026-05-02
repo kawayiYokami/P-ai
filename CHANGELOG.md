@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（archives-delete-delegate-conversation）：归档窗口的委托会话页支持删除委托会话；删除运行中的委托时会先中止对应模型/工具调度与子委托调度，再清理委托会话文件。
+- 修复（delegate-conversation-cascade-delete）：普通会话删除或归档成功后，会按 `root_conversation_id` 级联中止并删除绑定的委托会话，避免原会话消失后仍残留委托记录。
 - 功能（chat-delegate-sidebar）：聊天右侧侧边栏新增“委托”标签，按当前会话实时显示委托执行状态、模型请求步数、工具调用次数、最近工具、压缩边界累计用量与耗时，并可跳转归档窗口查看对应委托会话详情。
 - 修复（tool-repeat-loop-guard）：同名同参数工具调用连续重复超过 3 次时直接终止当前工具循环并向用户返回说明，避免 LLM 在空参数或失败工具调用上反复续调到上限。
 - 依赖（genai-update）：`genai` Git 依赖从 `cb343d74` 升级到上游 `50c9d655`。

@@ -108,6 +108,23 @@ fn delegate_conversation_store_write(
     write_json_file_atomic(&path, conversation, "delegate conversation file")
 }
 
+fn delegate_conversation_store_delete(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let path = delegate_conversation_store_path(data_path, conversation_id)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    fs::remove_file(&path).map_err(|err| {
+        format!(
+            "删除委托会话文件失败，path={}，error={err}",
+            path.display()
+        )
+    })?;
+    Ok(true)
+}
+
 fn delegate_conversation_store_list(data_path: &PathBuf) -> Result<Vec<Conversation>, String> {
     let dir = delegate_conversation_store_dir(data_path);
     if !dir.exists() {

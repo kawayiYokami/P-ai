@@ -46,8 +46,8 @@
         <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
         <button
           class="btn bg-base-100 border-base-300 hover:bg-base-200 text-error"
-          :disabled="viewMode === 'delegate' || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isMainConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
-          @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
+          :disabled="(viewMode === 'delegate' && !selectedDelegateConversationId) || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isMainConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
+          @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'delegate' ? onDeleteDelegateClick(selectedDelegateConversationId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
         >
           <Trash2 class="h-4 w-4" />
           {{ t("common.delete") }}
@@ -295,6 +295,7 @@ const emit = defineEmits<{
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
   (e: "deleteArchive", archiveId: string): void;
   (e: "deleteUnarchivedConversation", conversationId: string): void;
+  (e: "deleteDelegateConversation", conversationId: string): void;
   (e: "deleteRemoteImContactConversation", contactId: string): void;
   (e: "importArchiveFile", file: File): void;
 }>();
@@ -534,6 +535,13 @@ async function onDeleteUnarchivedClick(conversationId: string) {
   const confirmed = await requestConfirmDialog(t("common.delete"), t("archives.deleteUnarchivedConfirm"));
   if (!confirmed) return;
   emit("deleteUnarchivedConversation", conversationId);
+}
+
+async function onDeleteDelegateClick(conversationId: string) {
+  if (!conversationId) return;
+  const confirmed = await requestConfirmDialog(t("common.delete"), "确定删除这个委托会话吗？");
+  if (!confirmed) return;
+  emit("deleteDelegateConversation", conversationId);
 }
 
 async function onDeleteRemoteImContactClick(contactId: string) {

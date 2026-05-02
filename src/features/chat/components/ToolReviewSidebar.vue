@@ -64,11 +64,11 @@
         <div v-else-if="props.delegateStatuses.length === 0" class="px-4 py-2 text-sm text-base-content/65">
           当前会话暂无委托
         </div>
-        <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-2">
+        <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
           <section
             v-for="delegate in props.delegateStatuses"
             :key="delegate.delegateId"
-            class="rounded-box border border-base-300 bg-base-200 px-3 py-3"
+            class="w-full min-w-0 rounded-box border border-base-300 bg-base-200 px-3 py-3"
           >
             <div class="flex min-w-0 items-center justify-between gap-3">
               <div class="min-w-0 truncate text-sm font-medium text-base-content/85">
@@ -78,12 +78,15 @@
                 {{ formatDelegateStatus(delegate.status) }}
               </div>
             </div>
-            <div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-base-content/70">
-              <div>步数 {{ delegate.requestCount }} 次</div>
-              <div>工具 {{ delegate.toolCallCount }} 次</div>
-              <div class="col-span-2 min-w-0 truncate">最近工具 {{ delegate.lastToolName || "-" }}</div>
-              <div>用量 {{ formatTokenK(delegate.tokenCount) }}</div>
-              <div>耗时 {{ formatElapsedMs(delegate.elapsedMs) }}</div>
+            <div class="mt-3 flex flex-col gap-2 text-xs text-base-content/70">
+              <div class="flex min-w-0 items-center justify-between gap-3">
+                <span class="shrink-0">用时 {{ formatElapsedMs(delegate.elapsedMs) }}</span>
+                <span class="shrink-0">{{ delegate.requestCount }}步</span>
+              </div>
+              <div class="flex min-w-0 items-center justify-between gap-3">
+                <span class="min-w-0 truncate">最近工具 {{ delegate.lastToolName || "-" }}</span>
+                <span class="shrink-0">用量 {{ formatTokenK(delegate.tokenCount) }}</span>
+              </div>
             </div>
             <div class="mt-3 flex justify-end">
               <button

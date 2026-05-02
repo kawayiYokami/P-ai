@@ -39,6 +39,11 @@ type DeleteUnarchivedConversationResult = {
   activeConversationId: string;
 };
 
+type DeleteDelegateConversationResult = {
+  deletedConversationId: string;
+  deleted: boolean;
+};
+
 type UseArchivesViewOptions = {
   t: TrFn;
   setStatus: (text: string) => void;
@@ -481,6 +486,25 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
+  async function deleteDelegateConversation(conversationId: string): Promise<DeleteDelegateConversationResult | null> {
+    if (!conversationId) return null;
+    try {
+      const result = await invokeTauri<DeleteDelegateConversationResult>("delete_delegate_conversation", {
+        input: { conversationId },
+      });
+      options.setStatus("委托会话已删除。");
+      if (selectedDelegateConversationId.value === conversationId) {
+        selectedDelegateConversationId.value = "";
+        delegateMessages.value = [];
+      }
+      await loadDelegateConversations();
+      return result;
+    } catch (e) {
+      options.setStatusError("status.deleteUnarchivedConversationFailed", e);
+      return null;
+    }
+  }
+
   async function exportArchive(payload: { format: "markdown" | "json" }) {
     if (!selectedArchiveId.value) {
       options.setStatus(options.t("status.selectArchiveFirst"));
@@ -590,6 +614,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     selectArchive,
     selectArchiveBlock,
     deleteUnarchivedConversation,
+    deleteDelegateConversation,
     deleteRemoteImContactConversation,
     deleteArchive,
     exportArchive,

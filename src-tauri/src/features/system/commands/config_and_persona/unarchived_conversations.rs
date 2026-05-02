@@ -604,7 +604,14 @@ fn list_delegate_conversations(
         .iter()
         .filter_map(|thread| {
             seen_ids.insert(thread.delegate_id.clone()).then(|| {
-                delegate_conversation_summary_from_runtime_thread(thread)
+                let mut summary = delegate_conversation_summary_from_runtime_thread(thread);
+                summary.title = delegate_display_title_from_id(
+                    state.inner(),
+                    &thread.delegate_id,
+                    Some(&thread.conversation),
+                    Some(&thread.title),
+                );
+                summary
             })
         })
         .collect::<Vec<_>>();
@@ -619,7 +626,12 @@ fn list_delegate_conversations(
         let last_message_at = conversation.messages.last().map(|message| message.created_at.clone());
         summaries.push(DelegateConversationSummary {
             conversation_id: conversation.id.clone(),
-            title: conversation_preview_title(&conversation),
+            title: delegate_display_title_from_id(
+                state.inner(),
+                &delegate_id,
+                Some(&conversation),
+                Some(&conversation.title),
+            ),
             updated_at: conversation.updated_at.clone(),
             last_message_at,
             message_count: conversation.messages.len(),
@@ -643,6 +655,82 @@ fn list_delegate_conversations(
         bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
     });
     Ok(summaries)
+}
+
+fn clean_delegate_display_title(value: &str) -> String {
+    let collapsed = value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '"' | '\'' | '“' | '”' | '‘' | '’' | '`' | ':' | '：' | '-' | '。' | '.' | '，' | ','
+            )
+        })
+        .to_string();
+    if collapsed.chars().count() > 36 {
+        format!("{}...", collapsed.chars().take(36).collect::<String>())
+    } else {
+        collapsed
+    }
+}
+
+fn delegate_title_is_generic(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "" | "未命名委托" | "委托" | "委托任务" | "新委托" | "任务"
+    )
+}
+
+fn delegate_display_title_from_entry(entry: &DelegateEntry) -> String {
+    let explicit_title = clean_delegate_display_title(&entry.title);
+    if !delegate_title_is_generic(&explicit_title) {
+        return explicit_title;
+    }
+    [
+        entry.specific_goal.as_str(),
+        entry.instruction.as_str(),
+        entry.deliverable_requirement.as_str(),
+        entry.background.as_str(),
+    ]
+    .iter()
+    .map(|value| clean_delegate_display_title(value))
+    .find(|value| !value.is_empty())
+    .unwrap_or_else(|| {
+        if explicit_title.is_empty() {
+            "未命名委托".to_string()
+        } else {
+            explicit_title
+        }
+    })
+}
+
+fn delegate_display_title_from_id(
+    app_state: &AppState,
+    delegate_id: &str,
+    conversation: Option<&Conversation>,
+    fallback_title: Option<&str>,
+) -> String {
+    if let Ok(entry) = delegate_store_get_delegate(&app_state.data_path, delegate_id) {
+        let title = delegate_display_title_from_entry(&entry);
+        if !title.trim().is_empty() {
+            return title;
+        }
+    }
+    let fallback = fallback_title
+        .map(clean_delegate_display_title)
+        .filter(|value| !delegate_title_is_generic(value))
+        .unwrap_or_default();
+    if !fallback.is_empty() {
+        return fallback;
+    }
+    conversation
+        .map(conversation_preview_title)
+        .map(|value| clean_delegate_display_title(&value))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "未命名委托".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -880,11 +968,12 @@ fn conversation_delegate_summary_from_thread(
         delegate_id: delegate_id.clone(),
         conversation_id: thread.conversation.id.clone(),
         root_conversation_id: thread.root_conversation_id.clone(),
-        title: if thread.title.trim().is_empty() {
-            conversation_preview_title(&thread.conversation)
-        } else {
-            thread.title.clone()
-        },
+        title: delegate_display_title_from_id(
+            app_state,
+            &delegate_id,
+            Some(&thread.conversation),
+            Some(&thread.title),
+        ),
         status,
         started_at: started_at.clone(),
         updated_at: thread.conversation.updated_at.clone(),
@@ -919,7 +1008,12 @@ fn conversation_delegate_summary_from_persisted(
         delegate_id,
         conversation_id: conversation.id.clone(),
         root_conversation_id: conversation.root_conversation_id.clone().unwrap_or_default(),
-        title: conversation_preview_title(conversation),
+        title: delegate_display_title_from_id(
+            app_state,
+            conversation.delegate_id.as_deref().unwrap_or(&conversation.id),
+            Some(conversation),
+            Some(&conversation.title),
+        ),
         status,
         started_at: started_at.clone(),
         updated_at: conversation.updated_at.clone(),
@@ -1162,6 +1256,19 @@ struct GetDelegateConversationMessagesInput {
     conversation_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteDelegateConversationInput {
+    conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteDelegateConversationOutput {
+    deleted_conversation_id: String,
+    deleted: bool,
+}
+
 #[tauri::command]
 fn get_delegate_conversation_messages(
     input: GetDelegateConversationMessagesInput,
@@ -1176,6 +1283,26 @@ fn get_delegate_conversation_messages(
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
+}
+
+#[tauri::command]
+fn delete_delegate_conversation(
+    input: DeleteDelegateConversationInput,
+    state: State<'_, AppState>,
+) -> Result<DeleteDelegateConversationOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let deleted = delegate_runtime_thread_conversation_delete(state.inner(), conversation_id)?;
+    runtime_log_info(format!(
+        "[委托会话] 完成，任务=删除委托会话，conversation_id={}，deleted={}",
+        conversation_id, deleted
+    ));
+    Ok(DeleteDelegateConversationOutput {
+        deleted_conversation_id: conversation_id.to_string(),
+        deleted,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1234,6 +1361,16 @@ fn delete_unarchived_conversation(
         conversation_id,
         started_at.elapsed().as_millis()
     ));
+    match delegate_runtime_thread_conversation_delete_by_root(state.inner(), conversation_id) {
+        Ok(deleted_count) => runtime_log_info(format!(
+            "[委托会话] 完成，任务=随会话删除级联清理，root_conversation_id={}，deleted_count={}",
+            conversation_id, deleted_count
+        )),
+        Err(err) => runtime_log_warn(format!(
+            "[委托会话] 失败，任务=随会话删除级联清理，root_conversation_id={}，error={}",
+            conversation_id, err
+        )),
+    }
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
     Ok(DeleteUnarchivedConversationOutput {
