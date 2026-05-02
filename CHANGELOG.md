@@ -19,6 +19,10 @@
 - 优化（genai-prompt-cache-key）：聊天模型请求统一按会话 ID 设置 genai `prompt_cache_key`，让 OpenAI-compatible 与 Responses/Codex 等支持方可复用供应商侧提示缓存，不支持的供应商由 genai 适配器忽略。
 - 修复（genai-provider-refresh-and-history-replay）：genai 历史回放统一为空缺 assistant reasoning_content 补空串；旧 Responses/Codex 工具历史缺少 provider_call_id 时降级为普通 assistant/user 文本；模型列表刷新按明确协议与 base_url 规则优先选择 Gemini/Anthropic/Codex 原生路径，并补充适配器回退日志与推理网关错误文案。
 
+## 发布：v0.9.64
+
+- 发布（release-0.9.64）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.64`，纳入本轮启动白屏保护、用户异步委托、委托归档清理、genai 适配、Codex Spark 隐藏、模型重试状态与旧供应商协议兼容修复。
+
 ## 发布：v0.9.63
 
 - 发布（release-0.9.63）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.63`，纳入本轮 GitHub 更新代理兜底顺序调整、聊天消息详情点击收起、无边框窗口自定义边缘缩放修复。
