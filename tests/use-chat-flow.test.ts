@@ -179,6 +179,99 @@ describe("useChatFlow stream isolation", () => {
     expect(chatting.value).toBe(false);
   });
 
+  it("shows retry status in the pre-streaming assistant draft", async () => {
+    const chatting = ref(false);
+    const forcingArchive = ref(false);
+    const chatInput = ref("new question");
+    const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
+    const latestUserText = ref("");
+    const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
+    const latestAssistantText = ref("");
+    const latestReasoningStandardText = ref("");
+    const latestReasoningInlineText = ref("");
+    const toolStatusText = ref("");
+    const toolStatusState = ref<"running" | "done" | "failed" | "">("");
+    const chatErrorText = ref("");
+    const allMessages = shallowRef<ChatMessage[]>([]);
+    const visibleTurnCount = ref(1);
+
+    type ChannelLike = {
+      emit: (event: AssistantDeltaEvent) => void;
+    };
+
+    let capturedChannel: ChannelLike | null = null;
+    let resolveRequest:
+      | ((value: {
+        assistantText: string;
+        latestUserText: string;
+        reasoningStandard?: string;
+        reasoningInline?: string;
+        archivedBeforeSend: boolean;
+      }) => void)
+      | null = null;
+
+    const flow = useChatFlow({
+      chatting,
+      forcingArchive,
+      getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
+      chatInput,
+      clipboardImages,
+      latestUserText,
+      latestUserImages,
+      latestAssistantText,
+      latestReasoningStandardText,
+      latestReasoningInlineText,
+      toolStatusText,
+      toolStatusState,
+      chatErrorText,
+      allMessages,
+      visibleMessageBlockCount: visibleTurnCount,
+      t: (key) => key,
+      formatRequestFailed: (error) => String(error),
+      removeBinaryPlaceholders: (text) => text,
+      invokeSendChatMessage: ({ onDelta }) =>
+        new Promise((resolve) => {
+          capturedChannel = onDelta as unknown as ChannelLike;
+          resolveRequest = resolve;
+        }),
+      onReloadMessages: async () => {},
+    });
+
+    const sendPromise = flow.sendChat();
+    await Promise.resolve();
+
+    expect(capturedChannel).not.toBeNull();
+    capturedChannel!.emit({ kind: "history_flushed", message: "{\"conversationId\":\"conversation-1\",\"messageCount\":1,\"activateAssistant\":true}" });
+    await flushAsyncSteps();
+
+    capturedChannel!.emit({
+      kind: "tool_status",
+      toolStatus: "running",
+      message: "模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...",
+    });
+
+    const assistantDraft = allMessages.value.find((message) => String(message.id || "").startsWith("__draft_assistant__:"));
+    expect(assistantDraft?.providerMeta?._preStreamingStatusText).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
+    expect(toolStatusText.value).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
+
+    capturedChannel!.emit({ delta: "N" });
+    await vi.advanceTimersByTimeAsync(34);
+
+    const streamingDraft = allMessages.value.find((message) => String(message.id || "").startsWith("__draft_assistant__:"));
+    expect(streamingDraft?.providerMeta?._preStreamingStatusText).toBe("");
+
+    expect(resolveRequest).not.toBeNull();
+    resolveRequest!({
+      assistantText: "A_new",
+      latestUserText: "new question",
+      reasoningStandard: "",
+      reasoningInline: "",
+      archivedBeforeSend: false,
+    });
+
+    await sendPromise;
+  });
+
   it("stops stream by preserving partial text and syncing stop payload", async () => {
     const chatting = ref(false);
     const forcingArchive = ref(false);

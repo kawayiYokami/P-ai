@@ -979,6 +979,18 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     const nextStreamSegments = streamSegments || readDraftStreamSegments(draftId);
     const nextStreamTail = streamTail ?? readDraftStreamTail(draftId);
+    const nextReasoningStandard = String(options.latestReasoningStandardText.value || "");
+    const nextReasoningInline = String(options.latestReasoningInlineText.value || "");
+    const hasVisibleStreamContent =
+      !!String(options.latestAssistantText.value || "").trim()
+      || !!nextReasoningStandard.trim()
+      || !!nextReasoningInline.trim()
+      || nextStreamSegments.some((item) => !!String(item || "").trim())
+      || !!String(nextStreamTail || "").trim()
+      || (options.streamToolCalls?.value.length || 0) > 0;
+    const preStreamingStatusText = hasVisibleStreamContent
+      ? ""
+      : String(options.toolStatusText.value || "").trim();
     const msg: ChatMessage = {
       id: draftId,
       role: "assistant",
@@ -986,12 +998,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
       speakerAgentId: agentId || "assistant-draft",
       parts: [{ type: "text", text: String(options.latestAssistantText.value || "") }],
       providerMeta: {
-        reasoningStandard: String(options.latestReasoningStandardText.value || ""),
-        reasoningInline: String(options.latestReasoningInlineText.value || ""),
+        reasoningStandard: nextReasoningStandard,
+        reasoningInline: nextReasoningInline,
         _streaming: true,
         _streamSegments: nextStreamSegments,
         _streamTail: nextStreamTail,
         _streamAnimatedDelta: String(streamAnimatedDelta || ""),
+        _preStreamingStatusText: preStreamingStatusText,
         _streamToolCalls: Array.isArray(options.streamToolCalls?.value)
           ? options.streamToolCalls.value.map((item) => ({ ...item }))
           : [] as StreamToolCallView[],
