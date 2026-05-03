@@ -173,6 +173,11 @@
       "statusOk": "已設定",
       "statusMissing": "未設定",
       "currentState": "目前狀態：",
+      "autoInstall": "一鍵安裝",
+      "manualInstall": "手動安裝",
+      "installing": "安裝中...",
+      "installSuccess": "安裝完成，已重新偵測。",
+      "installFailedFallback": "自動安裝失敗，已開啟官方下載頁：{err}",
       "stats": {
         "completed": "已完成配置",
         "configurations": "項配置",
@@ -186,7 +191,7 @@
           "title": "Git",
           "summary": "必須安裝 Git。終端工作流、Git Bash 與很多後續開發協作都會直接依賴它。",
           "currentOk": "已偵測到 Git。",
-          "currentMissing": "還沒有偵測到 Git。官方安裝地址：https://git-scm.com/downloads",
+          "currentMissing": "還沒裝。點一鍵安裝，失敗時會自動開啟官網。",
           "action": "去看工具",
           "install": "安裝 Git"
         },
@@ -194,7 +199,7 @@
           "title": "Node.js",
           "summary": "必須安裝 Node.js。前端開發、很多腳本工具以及後續安裝 MCP / skill 都會用到它。",
           "currentOk": "已偵測到 Node.js。",
-          "currentMissing": "還沒有偵測到 Node.js。官方安裝地址：https://nodejs.org/en/download",
+          "currentMissing": "還沒裝。點一鍵安裝，失敗時會自動開啟官網。",
           "action": "去看工具",
           "install": "安裝 Node.js"
         },

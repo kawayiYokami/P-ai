@@ -173,6 +173,11 @@
       "statusOk": "Ready",
       "statusMissing": "Missing",
       "currentState": "Current state: ",
+      "autoInstall": "Install automatically",
+      "manualInstall": "Manual install",
+      "installing": "Installing...",
+      "installSuccess": "Installed and checked again.",
+      "installFailedFallback": "Automatic install failed. The official download page was opened: {err}",
       "stats": {
         "completed": "Completed",
         "configurations": "configurations",
@@ -186,7 +191,7 @@
           "title": "Git",
           "summary": "Git is required. Terminal workflows, Git Bash, and a lot of later development collaboration depend on it.",
           "currentOk": "Git was detected.",
-          "currentMissing": "Git was not detected yet. Official download: https://git-scm.com/downloads",
+          "currentMissing": "Git was not detected yet. Try automatic install; if it fails, the official page will open.",
           "action": "Open Tools",
           "install": "Install Git"
         },
@@ -194,7 +199,7 @@
           "title": "Node.js",
           "summary": "Node.js is required. Frontend development, many script tools, and later MCP / skill installation depend on it.",
           "currentOk": "Node.js was detected.",
-          "currentMissing": "Node.js was not detected yet. Official download: https://nodejs.org/en/download",
+          "currentMissing": "Node.js was not detected yet. Try automatic install; if it fails, the official page will open.",
           "action": "Open Tools",
           "install": "Install Node.js"
         },

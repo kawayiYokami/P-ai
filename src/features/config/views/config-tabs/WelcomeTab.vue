@@ -92,6 +92,13 @@
               <div class="flex-1">
                 <span class="font-medium opacity-70">{{ t("config.welcome.currentState") }}</span>
                 {{ card.current }}
+                <div
+                  v-if="card.installerKind && runtimeInstallStatus[card.installerKind]"
+                  class="mt-1 text-[11px]"
+                  :class="runtimeInstallStatusError[card.installerKind] ? 'text-error' : 'text-success'"
+                >
+                  {{ runtimeInstallStatus[card.installerKind] }}
+                </div>
               </div>
             </div>
           </div>
@@ -99,14 +106,23 @@
           <!-- 操作按钮 -->
           <div class="card-actions justify-end">
             <button
-              v-if="card.externalUrl && card.externalLabel"
-              class="btn btn-sm"
+              v-if="card.installerKind && !card.ok"
+              class="btn btn-sm btn-primary"
+              type="button"
+              :disabled="installingPrerequisite === card.installerKind"
+              @click="installRuntimePrerequisite(card)"
+            >
+              {{ installingPrerequisite === card.installerKind ? t("config.welcome.installing") : t("config.welcome.autoInstall") }}
+            </button>
+            <button
+              v-if="card.externalUrl && !card.ok"
+              class="btn btn-sm btn-ghost"
               type="button"
               @click="openExternalUrl(card.externalUrl)"
             >
-              {{ card.externalLabel }}
+              {{ t("config.welcome.manualInstall") }}
             </button>
-            <button class="btn btn-sm btn-primary" @click="$emit('jump', card.targetTab)">
+            <button class="btn btn-sm" :class="(!card.installerKind || card.ok) ? 'btn-primary' : ''" @click="$emit('jump', card.targetTab)">
               {{ card.action }}
             </button>
           </div>
@@ -121,9 +137,11 @@ import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, PersonaProfile } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
+import { toErrorMessage } from "../../../../utils/error";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type WelcomeCardLevel = "required" | "strong" | "optional";
+type HostRuntimePrerequisiteKind = "git" | "node";
 type MemoryProviderBindings = {
   embeddingApiConfigId?: string;
   rerankApiConfigId?: string;
@@ -134,6 +152,11 @@ type SkillListResult = {
 type HostRuntimePrerequisites = {
   gitInstalled?: boolean;
   nodeInstalled?: boolean;
+};
+type HostRuntimePrerequisiteInstallResult = {
+  kind: HostRuntimePrerequisiteKind;
+  installed: boolean;
+  message: string;
 };
 type WelcomeCard = {
   id: string;
@@ -146,6 +169,7 @@ type WelcomeCard = {
   targetTab: ConfigTab;
   externalUrl?: string;
   externalLabel?: string;
+  installerKind?: HostRuntimePrerequisiteKind;
 };
 
 const props = defineProps<{
@@ -184,6 +208,9 @@ function firstRerankModel(apiConfigs: ApiConfigItem[]) {
 const memoryBindings = ref<MemoryProviderBindings>({});
 const skillCount = ref(0);
 const hostRuntimePrerequisites = ref<HostRuntimePrerequisites>({});
+const installingPrerequisite = ref<HostRuntimePrerequisiteKind | null>(null);
+const runtimeInstallStatus = ref<Record<HostRuntimePrerequisiteKind, string>>({ git: "", node: "" });
+const runtimeInstallStatusError = ref<Record<HostRuntimePrerequisiteKind, boolean>>({ git: false, node: false });
 
 async function loadWelcomeRuntimeState() {
   try {
@@ -249,6 +276,7 @@ const cards = computed(() => {
       targetTab: "tools" as ConfigTab,
       externalUrl: GIT_DOWNLOAD_URL,
       externalLabel: t("config.welcome.cards.git.install"),
+      installerKind: "git" as HostRuntimePrerequisiteKind,
     },
     {
       id: "node-runtime",
@@ -263,6 +291,7 @@ const cards = computed(() => {
       targetTab: "tools" as ConfigTab,
       externalUrl: NODE_DOWNLOAD_URL,
       externalLabel: t("config.welcome.cards.node.install"),
+      installerKind: "node" as HostRuntimePrerequisiteKind,
     },
     {
       id: "text-model",
@@ -412,6 +441,29 @@ const completionRate = computed(() => {
 
 function openExternalUrl(url: string) {
   void invokeTauri("open_external_url", { url });
+}
+
+async function installRuntimePrerequisite(card: WelcomeCard) {
+  if (!card.installerKind || installingPrerequisite.value) return;
+  const kind = card.installerKind;
+  installingPrerequisite.value = kind;
+  runtimeInstallStatus.value[kind] = t("config.welcome.installing");
+  runtimeInstallStatusError.value[kind] = false;
+  try {
+    const result = await invokeTauri<HostRuntimePrerequisiteInstallResult>("install_host_runtime_prerequisite", { kind });
+    runtimeInstallStatus.value[kind] = result.message || t("config.welcome.installSuccess");
+    runtimeInstallStatusError.value[kind] = false;
+    await loadWelcomeRuntimeState();
+  } catch (error) {
+    const err = toErrorMessage(error);
+    runtimeInstallStatus.value[kind] = t("config.welcome.installFailedFallback", { err });
+    runtimeInstallStatusError.value[kind] = true;
+    if (card.externalUrl) {
+      openExternalUrl(card.externalUrl);
+    }
+  } finally {
+    installingPrerequisite.value = null;
+  }
 }
 
 function openQuickSetupWindow() {

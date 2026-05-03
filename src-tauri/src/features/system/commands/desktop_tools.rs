@@ -225,6 +225,14 @@ struct HostRuntimePrerequisites {
     node_installed: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostRuntimePrerequisiteInstallResult {
+    kind: String,
+    installed: bool,
+    message: String,
+}
+
 fn command_exists_in_path(name: &str) -> bool {
     let raw = name.trim();
     if raw.is_empty() {
@@ -265,11 +273,162 @@ fn command_exists_in_path(name: &str) -> bool {
     false
 }
 
+fn host_runtime_prerequisite_installed(kind: &str) -> Result<bool, String> {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "git" => {
+            if command_exists_in_path("git") {
+                return Ok(true);
+            }
+            #[cfg(target_os = "windows")]
+            {
+                return Ok([
+                    r"C:\Program Files\Git\cmd\git.exe",
+                    r"C:\Program Files\Git\bin\git.exe",
+                    r"C:\Program Files (x86)\Git\cmd\git.exe",
+                    r"C:\Program Files (x86)\Git\bin\git.exe",
+                ]
+                .iter()
+                .any(|path| Path::new(path).is_file()));
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Ok(false)
+            }
+        }
+        "node" => {
+            if command_exists_in_path("node") {
+                return Ok(true);
+            }
+            #[cfg(target_os = "windows")]
+            {
+                return Ok([
+                    r"C:\Program Files\nodejs\node.exe",
+                    r"C:\Program Files (x86)\nodejs\node.exe",
+                ]
+                .iter()
+                .any(|path| Path::new(path).is_file()));
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Ok(false)
+            }
+        }
+        other => Err(format!("不支持的运行时依赖：{other}")),
+    }
+}
+
 #[tauri::command]
 fn get_host_runtime_prerequisites() -> HostRuntimePrerequisites {
     HostRuntimePrerequisites {
-        git_installed: command_exists_in_path("git"),
-        node_installed: command_exists_in_path("node"),
+        git_installed: host_runtime_prerequisite_installed("git").unwrap_or(false),
+        node_installed: host_runtime_prerequisite_installed("node").unwrap_or(false),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn winget_package_id_for_host_runtime(kind: &str) -> Result<&'static str, String> {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "git" => Ok("Git.Git"),
+        "node" => Ok("OpenJS.NodeJS.LTS"),
+        other => Err(format!("不支持的运行时依赖：{other}")),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_winget_host_runtime_install(kind: &str, elevated: bool) -> Result<(), String> {
+    let package_id = winget_package_id_for_host_runtime(kind)?;
+    let winget_args = [
+        "install",
+        "--id",
+        package_id,
+        "-e",
+        "--source",
+        "winget",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        "--disable-interactivity",
+    ];
+
+    let status = if elevated {
+        let quoted_args = winget_args
+            .iter()
+            .map(|arg| format!("'{}'", arg.replace('\'', "''")))
+            .collect::<Vec<_>>()
+            .join(",");
+        let script = format!(
+            "$p = Start-Process -FilePath 'winget' -Verb RunAs -Wait -PassThru -ArgumentList @({quoted_args}); if ($null -eq $p) {{ exit 1 }}; exit $p.ExitCode"
+        );
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .status()
+            .map_err(|err| format!("拉起管理员安装失败：{err}"))?
+    } else {
+        std::process::Command::new("winget")
+            .args(winget_args)
+            .status()
+            .map_err(|err| format!("启动 winget 失败：{err}"))?
+    };
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "winget 安装退出码：{}",
+            status.code().map_or_else(|| "未知".to_string(), |code| code.to_string())
+        ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn install_host_runtime_prerequisite_sync(
+    kind: String,
+) -> Result<HostRuntimePrerequisiteInstallResult, String> {
+    let normalized = kind.trim().to_ascii_lowercase();
+    if host_runtime_prerequisite_installed(&normalized)? {
+        return Ok(HostRuntimePrerequisiteInstallResult {
+            kind: normalized,
+            installed: true,
+            message: "已经检测到依赖，无需安装。".to_string(),
+        });
+    }
+    if !command_exists_in_path("winget") {
+        return Err("当前系统未检测到 winget，已改为打开官方下载页。".to_string());
+    }
+
+    if let Err(first_err) = run_winget_host_runtime_install(&normalized, false) {
+        eprintln!("[依赖安装] 普通安装失败，准备请求管理员权限，kind={}，error={}", normalized, first_err);
+        run_winget_host_runtime_install(&normalized, true)?;
+    }
+
+    if host_runtime_prerequisite_installed(&normalized)? {
+        Ok(HostRuntimePrerequisiteInstallResult {
+            kind: normalized,
+            installed: true,
+            message: "安装完成。".to_string(),
+        })
+    } else {
+        Err("安装流程结束后仍未检测到依赖，请重启 PAI 或手动安装。".to_string())
+    }
+}
+
+#[tauri::command]
+async fn install_host_runtime_prerequisite(
+    kind: String,
+) -> Result<HostRuntimePrerequisiteInstallResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(move || install_host_runtime_prerequisite_sync(kind))
+            .await
+            .map_err(|err| format!("安装任务执行失败：{err}"))?
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let normalized = kind.trim().to_ascii_lowercase();
+        Err(format!(
+            "{normalized} 暂不支持一键安装，请使用系统包管理器或官方下载页安装。"
+        ))
     }
 }
 
@@ -1141,4 +1300,3 @@ fn open_local_file_directory(path: String) -> Result<(), String> {
     open_shell_path_in_file_manager(&file_path)?;
     Ok(())
 }
-

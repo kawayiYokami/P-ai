@@ -745,6 +745,7 @@ fn main() {
             xcap,
             desktop_wait,
             get_host_runtime_prerequisites,
+            install_host_runtime_prerequisite,
             terminal_self_check,
             list_terminal_shell_candidates,
             open_chat_shell_workspace_dir,

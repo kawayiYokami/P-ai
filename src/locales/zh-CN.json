@@ -173,6 +173,11 @@
       "statusOk": "已设置",
       "statusMissing": "未设置",
       "currentState": "当前状态：",
+      "autoInstall": "一键安装",
+      "manualInstall": "手动安装",
+      "installing": "安装中...",
+      "installSuccess": "安装完成，已重新检测。",
+      "installFailedFallback": "自动安装失败，已打开官方下载页：{err}",
       "stats": {
         "completed": "已完成配置",
         "configurations": "项配置",
@@ -186,7 +191,7 @@
           "title": "Git",
           "summary": "Git 是 PAI 帮你自动跑命令、安装 Skill 的底层工具。装好之后，很多操作可以直接交给 PAI 代办。",
           "currentOk": "已装好，没问题。",
-          "currentMissing": "还没装。点右边按钮去官网下载就行。",
+          "currentMissing": "还没装。点一键安装，失败时会自动打开官网。",
           "action": "去看工具",
           "install": "安装 Git"
         },
@@ -194,7 +199,7 @@
           "title": "Node.js",
           "summary": "Node.js 是 Skill 和工具插件的运行环境。没有它，Skill 装不上也用不了。点右边就能装，一两分钟的事。",
           "currentOk": "已装好，没问题。",
-          "currentMissing": "还没装。点右边按钮去官网下载，一两分钟的事。",
+          "currentMissing": "还没装。点一键安装，失败时会自动打开官网。",
           "action": "去看工具",
           "install": "安装 Node.js"
         },
