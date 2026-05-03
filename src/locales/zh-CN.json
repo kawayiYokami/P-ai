@@ -1420,6 +1420,7 @@
       "idle": "点击录制后按下快捷键。Esc 取消。",
       "recording": "请按下快捷键，Esc 取消。",
       "cancelled": "已取消录制。",
+      "cleared": "已清空录音键。",
       "summonNeedsModifier": "呼唤热键需要至少一个修饰键。",
       "unrecognized": "未识别按键。",
       "recorded": "已录制：{combo}"

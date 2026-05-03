@@ -168,6 +168,13 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     recordingStarted = false;
   }
 
+  function resetPressedState() {
+    hotkeyPressed = false;
+    blockUntilRelease = false;
+    clearStartTimer();
+    recordingStarted = false;
+  }
+
   function unmount() {
     clearStartTimer();
     hotkeyPressed = false;
@@ -188,5 +195,6 @@ export function useRecordHotkey(options: UseRecordHotkeyOptions) {
     mount,
     unmount,
     suppressAfterPopup,
+    resetPressedState,
   };
 }

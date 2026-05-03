@@ -1117,8 +1117,8 @@ const {
   recording,
   recordingMs,
   transcribing,
-  startRecording,
-  stopRecording,
+  startRecording: startSpeechRecording,
+  stopRecording: stopSpeechRecording,
   prewarmMicrophone,
   cleanup: cleanupSpeechRecording,
 } = useSpeechRecording({
@@ -1179,6 +1179,8 @@ const {
     status.value = text;
   },
 });
+type RecordingActivationSource = "foreground" | "background";
+const foregroundRecordingActive = ref(false);
 
 async function tryPrewarmChatMic(reason: string) {
   if (viewMode.value !== "chat") return;
@@ -1191,6 +1193,35 @@ async function tryPrewarmChatMic(reason: string) {
 function isChatWindowActiveNow(): boolean {
   return viewMode.value === "chat" && document.visibilityState === "visible" && document.hasFocus();
 }
+
+async function startRecording(source: RecordingActivationSource = "foreground") {
+  if (!recording.value) {
+    foregroundRecordingActive.value = source === "foreground" && isChatWindowActiveNow();
+  }
+  await startSpeechRecording();
+  if (!recording.value) {
+    foregroundRecordingActive.value = false;
+  }
+}
+
+async function stopRecording(discard: boolean) {
+  foregroundRecordingActive.value = false;
+  await stopSpeechRecording(discard);
+}
+
+function cancelForegroundRecordingOnBackground(reason: string) {
+  void reason;
+  if (!foregroundRecordingActive.value) return;
+  foregroundRecordingActive.value = false;
+  recordHotkey.resetPressedState();
+  void stopSpeechRecording(true);
+}
+
+watch(recording, (active) => {
+  if (!active) {
+    foregroundRecordingActive.value = false;
+  }
+});
 
 function isPrimaryChatWindow(): boolean {
   return tauriWindowLabel.value === "chat" && !detachedChatWindow.value;
@@ -1252,6 +1283,7 @@ function handleWindowFocusForStateSync() {
 }
 
 function handleWindowBlurForStateSync() {
+  cancelForegroundRecordingOnBackground("blur");
   scheduleChatWindowActiveStateSync("blur");
 }
 
@@ -1259,6 +1291,7 @@ function handleVisibilityForStateSync() {
   clearChatWindowActiveSyncTimer();
   clearChatMicPrewarmTimer();
   if (isChatTauriWindow.value && document.visibilityState !== "visible") {
+    cancelForegroundRecordingOnBackground("visibility_hidden");
     freezeForegroundConversation("window_hidden");
   }
   syncChatWindowActiveState("visibilitychange");
@@ -1388,9 +1421,9 @@ async function switchChatConversation(payload: { kind?: ChatConversationKind; co
   await switchUnarchivedConversation(payload.conversationId);
 }
 const recordHotkey = useRecordHotkey({
-  isActive: () => viewMode.value === "chat",
+  isActive: () => isChatWindowActiveNow(),
   getRecordHotkey: () => config.recordHotkey,
-  onStartRecording: () => startRecording(),
+  onStartRecording: () => startRecording("foreground"),
   onStopRecording: (discard) => stopRecording(discard),
   startDelayMs: 0,
 });
@@ -4031,7 +4064,7 @@ const appBootstrap = useAppBootstrap({
     if (!config.recordBackgroundWakeEnabled) return;
     if (state === "pressed") {
       recordHotkeyProbeDown.value = true;
-      void startRecording().then(() => {
+      void startRecording("background").then(() => {
         if (!recordHotkeyProbeDown.value) {
           void stopRecording(false);
         }

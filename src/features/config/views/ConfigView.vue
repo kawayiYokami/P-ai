@@ -620,7 +620,6 @@ function closeCropDialog() {
 // Direct mutation here is intentional and immediately reflected upstream.
 async function onRecordHotkeyChanged(value: string) {
   const next = String(value || "").trim();
-  if (!next) return;
   if (props.config.recordHotkey === next) return;
   props.config.recordHotkey = next;
 }

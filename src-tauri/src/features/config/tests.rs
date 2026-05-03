@@ -160,7 +160,7 @@
             tool_review_api_config_id: None,
         };
         normalize_app_config(&mut cfg);
-        assert_eq!(cfg.record_hotkey, "Alt");
+        assert_eq!(cfg.record_hotkey, "");
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.tool_max_iterations, 1);

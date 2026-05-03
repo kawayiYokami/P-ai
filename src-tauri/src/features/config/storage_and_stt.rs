@@ -1117,9 +1117,6 @@ fn normalize_app_config(config: &mut AppConfig) {
         config.assistant_department_api_config_id.clear();
     }
 
-    if config.record_hotkey.trim().is_empty() {
-        config.record_hotkey = default_record_hotkey();
-    }
     if config.min_record_seconds == 0 {
         config.min_record_seconds = default_min_record_seconds();
     }

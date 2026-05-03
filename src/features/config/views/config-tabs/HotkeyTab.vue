@@ -266,6 +266,7 @@ function startRecordHotkeyCapture() {
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") {
+      emit("update:recordHotkey", "");
       stopRecordHotkeyCapture();
       return;
     }

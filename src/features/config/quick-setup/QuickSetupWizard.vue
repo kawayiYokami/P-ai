@@ -1204,6 +1204,12 @@ function startHotkeyCapture(target: "summon" | "record") {
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") {
+      if (target === "record") {
+        config.recordHotkey = "";
+        hotkeyCaptureHint.value = t("quickSetup.hotkeyHints.cleared");
+        stopHotkeyCapture();
+        return;
+      }
       hotkeyCaptureHint.value = t("quickSetup.hotkeyHints.cancelled");
       stopHotkeyCapture();
       return;

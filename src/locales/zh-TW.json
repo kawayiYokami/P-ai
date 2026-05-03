@@ -1419,6 +1419,7 @@
       "idle": "點擊錄製後按下快捷鍵。Esc 取消。",
       "recording": "請按下快捷鍵，Esc 取消。",
       "cancelled": "已取消錄製。",
+      "cleared": "已清空錄音鍵。",
       "summonNeedsModifier": "呼喚快捷鍵需要至少一個修飾鍵。",
       "unrecognized": "未識別按鍵。",
       "recorded": "已錄製：{combo}"

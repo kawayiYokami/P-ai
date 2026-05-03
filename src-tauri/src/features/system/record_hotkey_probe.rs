@@ -52,9 +52,6 @@ struct RecordHotkeyProbeState {
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn normalize_record_hotkey_text(raw: &str) -> String {
     let mut text = raw.trim().to_string();
-    if text.is_empty() {
-        text = default_record_hotkey();
-    }
     text = text.replace('＋', "+").replace('`', "·");
     text
 }
@@ -284,6 +281,10 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
     let parsed = match parse_record_hotkey(&config.record_hotkey) {
         Some(parsed) => parsed,
+        None if config.record_hotkey.trim().is_empty() => {
+            started.store(false, std::sync::atomic::Ordering::Release);
+            return Ok(());
+        }
         None => {
             started.store(false, std::sync::atomic::Ordering::Release);
             return Err(format!(

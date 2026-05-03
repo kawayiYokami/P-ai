@@ -1405,6 +1405,7 @@
       "idle": "Click Record, then press a hotkey. Esc cancels.",
       "recording": "Press a hotkey. Esc cancels.",
       "cancelled": "Recording cancelled.",
+      "cleared": "Recording key cleared.",
       "summonNeedsModifier": "The summon hotkey needs at least one modifier key.",
       "unrecognized": "Key not recognized.",
       "recorded": "Recorded: {combo}"
