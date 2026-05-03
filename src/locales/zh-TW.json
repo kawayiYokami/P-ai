@@ -1220,6 +1220,10 @@
   },
   "appearance": {
     "theme": "主题",
+    "markdownFontScale": "Markdown 字體",
+    "markdownFontScaleHint": "調整 Markdown 字重。",
+    "markdownFontScaleLight": "正常",
+    "markdownFontScaleHeavy": "粗體",
     "themeBuilderSummary": "保留預設主題切換，同時支援用少量參數即時合成一套穩定的自訂主題。",
     "themeTabs": {
       "preset": "預設",

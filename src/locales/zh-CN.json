@@ -1221,6 +1221,10 @@
   },
   "appearance": {
     "theme": "主题",
+    "markdownFontScale": "Markdown 字体",
+    "markdownFontScaleHint": "调节 Markdown 字重。",
+    "markdownFontScaleLight": "正常",
+    "markdownFontScaleHeavy": "粗体",
     "themeBuilderSummary": "保留预设主题切换，同时支持用少量参数即时合成一套稳定的自定义主题。",
     "themeTabs": {
       "preset": "预设",

@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（markdown-font-weight-toggle）：外观页新增 Markdown 字重切换，支持正常/粗体两档，并统一聊天、归档、审查报告与文件阅读等 Markdown 渲染的字重变量。
 - 功能（welcome-runtime-auto-install）：欢迎页 Git / Node 缺失卡片新增一键安装，Windows 通过 `winget` 自动安装并在失败时打开官方下载页，同时保留手动安装入口。
 - 功能（quick-setup-startup-window）：新增独立快速设置窗口；启动时有可用文本 LLM 直接打开对话窗，缺少必要 LLM 设置时打开快速设置；欢迎页与托盘均可手动进入快速设置。
 - 优化（quick-setup-compact-layout）：快速设置窗口改为紧凑卡片，不显示步骤列表，仅保留上一步、下一步和当前步骤提示；补齐无边框窗口自定义标题栏、拖动、最小化与关闭按钮。

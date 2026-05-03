@@ -1,7 +1,11 @@
 import { createApp } from "vue";
 import FileReaderApp from "./apps/file-reader/FileReaderApp.vue";
 import "./style.css";
+import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
+import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
+
+initMarkdownAppearance();
 
 window.addEventListener("error", (event) => {
   const error = event.error || event;

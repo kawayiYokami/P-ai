@@ -1,0 +1,71 @@
+.ecall-markdown-content {
+  --ecall-md-body-weight: var(--ecall-md-body-weight-setting, 450);
+  --ecall-md-heading-weight: var(--ecall-md-heading-weight-setting, 700);
+  --ecall-md-strong-weight: var(--ecall-md-strong-weight-setting, 700);
+  --ecall-md-code-weight: var(--ecall-md-code-weight-setting, 550);
+  --ecall-md-table-heading-weight: var(--ecall-md-table-heading-weight-setting, 650);
+  --ecall-md-blockquote-opacity: 0.92;
+  color: inherit;
+  font-weight: var(--ecall-md-body-weight);
+  font-variation-settings: "wght" var(--ecall-md-body-weight);
+  text-rendering: optimizeLegibility;
+}
+
+.ecall-markdown-content.prose {
+  --tw-prose-body: currentColor;
+  --tw-prose-headings: currentColor;
+  --tw-prose-lead: currentColor;
+  --tw-prose-links: var(--color-base-content);
+  --tw-prose-bold: currentColor;
+  --tw-prose-counters: currentColor;
+  --tw-prose-bullets: color-mix(in srgb, var(--color-base-content) 54%, transparent);
+  --tw-prose-hr: color-mix(in srgb, var(--color-base-content) 18%, transparent);
+  --tw-prose-quotes: currentColor;
+  --tw-prose-quote-borders: color-mix(in srgb, var(--color-base-content) 24%, transparent);
+  --tw-prose-captions: color-mix(in srgb, var(--color-base-content) 78%, transparent);
+  --tw-prose-code: currentColor;
+  --tw-prose-pre-code: currentColor;
+  --tw-prose-pre-bg: var(--color-base-200);
+  --tw-prose-th-borders: color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  --tw-prose-td-borders: color-mix(in srgb, var(--color-base-content) 15%, transparent);
+  max-width: none;
+}
+
+.ecall-markdown-content .markdown-renderer,
+.ecall-markdown-content .node-slot,
+.ecall-markdown-content .node-content,
+.ecall-markdown-content .text-node,
+.ecall-markdown-content .paragraph-node,
+.ecall-markdown-content .list-node,
+.ecall-markdown-content .list-item,
+.ecall-markdown-content .blockquote,
+.ecall-markdown-content .link-node,
+.ecall-markdown-content .table-node-wrapper,
+.ecall-markdown-content .hr-node {
+  font-weight: inherit;
+}
+
+.ecall-markdown-content :where(h1,h2,h3,h4,.heading-node) {
+  font-weight: var(--ecall-md-heading-weight);
+  font-variation-settings: "wght" var(--ecall-md-heading-weight);
+  letter-spacing: 0;
+}
+
+.ecall-markdown-content :where(strong,.strong-node) {
+  font-weight: var(--ecall-md-strong-weight);
+  font-variation-settings: "wght" var(--ecall-md-strong-weight);
+}
+
+.ecall-markdown-content :where(blockquote,.blockquote) {
+  opacity: var(--ecall-md-blockquote-opacity);
+}
+
+.ecall-markdown-content :where(:not(pre) > code,.inline-code) {
+  font-weight: var(--ecall-md-code-weight);
+  font-variation-settings: "wght" var(--ecall-md-code-weight);
+}
+
+.ecall-markdown-content :where(th,.table-node th) {
+  font-weight: var(--ecall-md-table-heading-weight);
+  font-variation-settings: "wght" var(--ecall-md-table-heading-weight);
+}

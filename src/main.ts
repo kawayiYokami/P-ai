@@ -1,8 +1,12 @@
 import { createApp } from "vue";
 import ConfigApp from "./apps/config/ConfigApp.vue";
 import "./style.css";
+import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
 import { i18n } from "./i18n";
+import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
+
+initMarkdownAppearance();
 
 // 监听全局错误事件
 window.addEventListener("error", (event) => {

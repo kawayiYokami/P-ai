@@ -18,6 +18,35 @@
     </div>
 
     <div class="card bg-base-100 border border-base-300">
+      <div class="card-body gap-3 p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h3 class="card-title text-base">{{ t("appearance.markdownFontScale") }}</h3>
+            <p class="mt-1 text-xs text-base-content/60">{{ t("appearance.markdownFontScaleHint") }}</p>
+          </div>
+        </div>
+        <div class="tabs tabs-box bg-base-200 p-1">
+          <button
+            type="button"
+            class="tab flex-1 rounded-btn"
+            :class="markdownFontScale < 1 ? 'tab-active' : ''"
+            @click="setMarkdownFontScale(0)"
+          >
+            {{ t("appearance.markdownFontScaleLight") }}
+          </button>
+          <button
+            type="button"
+            class="tab flex-1 rounded-btn"
+            :class="markdownFontScale >= 1 ? 'tab-active' : ''"
+            @click="setMarkdownFontScale(1)"
+          >
+            {{ t("appearance.markdownFontScaleHeavy") }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 border border-base-300">
       <div class="card-body gap-4 p-4">
         <h3 class="card-title text-base">{{ t("appearance.theme") }}</h3>
 
@@ -74,6 +103,9 @@ import {
   GENERATED_THEME_DARK_ID,
   GENERATED_THEME_LIGHT_ID,
 } from "../../../shell/theme/theme-generator";
+import {
+  useMarkdownAppearance,
+} from "../../../shell/composables/use-markdown-appearance";
 
 const props = defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
@@ -95,6 +127,10 @@ const { t } = useI18n();
 const activeTab = ref<"preset" | "generated">("generated");
 const lightThemes = computed(() => APP_THEMES.filter((theme) => !DARK_APP_THEMES.has(theme)));
 const darkThemes = computed(() => APP_THEMES.filter((theme) => DARK_APP_THEMES.has(theme)));
+const {
+  markdownFontScale,
+  setMarkdownFontScale,
+} = useMarkdownAppearance();
 
 function isGeneratedTheme(theme: string) {
   return theme === GENERATED_THEME_LIGHT_ID || theme === GENERATED_THEME_DARK_ID;

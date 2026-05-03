@@ -1206,6 +1206,10 @@
   },
   "appearance": {
     "theme": "Theme",
+    "markdownFontScale": "Markdown Font",
+    "markdownFontScaleHint": "Adjust Markdown font weight.",
+    "markdownFontScaleLight": "Normal",
+    "markdownFontScaleHeavy": "Bold",
     "themeBuilderSummary": "Keep preset themes for quick switching, and add a low-friction custom generator for live theme synthesis.",
     "themeTabs": {
       "preset": "Preset",

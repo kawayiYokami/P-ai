@@ -1313,9 +1313,9 @@ function reportExpandedText(report: ToolReviewReportRecord) {
 .assistant-markdown :deep(.ecall-markdown-content :where(h1,h2,h3,h4,.heading-node)) {
   margin-top: 0.7rem;
   margin-bottom: 0.32rem;
-  font-weight: 600;
+  font-weight: var(--ecall-md-heading-weight);
   line-height: 1.5;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(h1,.heading-node.heading-1)) {
@@ -1359,7 +1359,7 @@ function reportExpandedText(report: ToolReviewReportRecord) {
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(strong,.strong-node)) {
-  font-weight: 600;
+  font-weight: var(--ecall-md-strong-weight);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
@@ -1398,7 +1398,7 @@ function reportExpandedText(report: ToolReviewReportRecord) {
     monospace
   );
   font-size: 0.86em;
-  font-weight: 500;
+  font-weight: var(--ecall-md-code-weight);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)) {
@@ -1411,7 +1411,7 @@ function reportExpandedText(report: ToolReviewReportRecord) {
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
   padding: 0.36rem 0.5rem;
   text-align: left;
-  font-weight: 600;
+  font-weight: var(--ecall-md-table-heading-weight);
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(td,.table-node td)) {
