@@ -84,7 +84,8 @@
             v-if="!showAssistantPreStreamingDots(block)"
             :class="[
               'chat-bubble',
-              'self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
+              'self-start text-base-content assistant-markdown ecall-assistant-bubble max-w-full',
+              bubbleBackgroundHidden ? 'ecall-message-bubble-bg-hidden' : 'bg-base-100 border border-base-300/70',
               blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
             ]"
           >
@@ -392,6 +393,17 @@
               <Copy class="h-3.5 w-3.5" />
             </button>
             <button
+              v-if="hideToggleEnabled && !selectionModeEnabled"
+              type="button"
+              class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="bubbleBackgroundHidden ? '显示气泡背景' : '隐藏气泡背景'"
+              :disabled="block.isStreaming"
+              @click="emit('toggleBubbleBackground', selectionKey)"
+            >
+              <EyeOff v-if="bubbleBackgroundHidden" class="h-3.5 w-3.5" />
+              <Eye v-else class="h-3.5 w-3.5" />
+            </button>
+            <button
               v-if="showRegenerateAction"
               type="button"
               class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
@@ -418,10 +430,12 @@
       </div>
       <div :class="[
         'chat-bubble',
+        bubbleBackgroundHidden ? 'ecall-message-bubble-bg-hidden text-base-content' : '',
         isOwnMessage(block)
           ? ''
           : [
-            'self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble max-w-full',
+            'self-start text-base-content assistant-markdown ecall-assistant-bubble max-w-full',
+            bubbleBackgroundHidden ? '' : 'bg-base-100 border border-base-300/70',
             blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
           ],
       ]">
@@ -490,6 +504,17 @@
         ]"
       >
         <button
+          v-if="hideToggleEnabled"
+          type="button"
+          class="ecall-message-recall-action inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content"
+          :title="bubbleBackgroundHidden ? '显示气泡背景' : '隐藏气泡背景'"
+          :disabled="selectionModeEnabled || block.isStreaming"
+          @click="emit('toggleBubbleBackground', selectionKey)"
+        >
+          <EyeOff v-if="bubbleBackgroundHidden" class="h-3 w-3" />
+          <Eye v-else class="h-3 w-3" />
+        </button>
+        <button
           type="button"
           class="ecall-message-recall-action inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content"
           :title="t('chat.recall')"
@@ -506,7 +531,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { CircleCheckBig, Copy, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
+import { CircleCheckBig, Copy, Eye, EyeOff, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
 import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock, MemeMessageSegment } from "../../../types/app";
@@ -569,6 +594,8 @@ const props = defineProps<{
   activeTurnUser: boolean;
   canRegenerate: boolean;
   canConfirmPlan: boolean;
+  bubbleBackgroundHidden: boolean;
+  hideToggleEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -581,6 +608,7 @@ const emit = defineEmits<{
   (e: "openImagePreview", image: { mime: string; bytesBase64?: string; dataUrl?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
+  (e: "toggleBubbleBackground", selectionKey: string): void;
 }>();
 
 const showRegenerateAction = false;
@@ -1902,5 +1930,13 @@ function openResolvedImagePreview(
     opacity: 1;
     transform: translateY(-0.16rem);
   }
+}
+.ecall-message-bubble-bg-hidden {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding-inline: 0 !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 </style>

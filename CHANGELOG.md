@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 功能（chat-message-bubble-background-toggle）：用户消息与助理消息气泡底部新增气泡背景隐藏/显示按钮，用户气泡与助理气泡分别独立切换，状态写入前端本地持久化，不影响消息内容和模型上下文。
 - 修复（user-async-delegate-without-selection）：用户手动发起异步委托时不再强制要求选中消息；选中消息仅作为可选背景，未选择消息时可直接按问题与补充背景创建委托。
 - 优化（chat-conversation-list-floating-scrollbar）：会话列表宽度统一为 `w-80`，移除列表滚动区内边距并改为隐藏原生滚动条、自绘右侧悬浮滚动条，避免滚动条占位挤压列表内容。
 - 修复（api-request-format-legacy-fallback）：旧配置中的 OpenAI 兼容协议别名会映射为 `openai`，缺失或未知协议自动回落到 `auto`，避免供应商设置页协议下拉为空。

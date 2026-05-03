@@ -160,6 +160,8 @@
                       :active-turn-user="false"
                       :can-regenerate="canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
                       :can-confirm-plan="canConfirmPlan(entry.item.block)"
+                      :bubble-background-hidden="isBubbleBackgroundHidden(entry.item.block)"
+                      :hide-toggle-enabled="canToggleBubbleBackground(entry.item.block)"
                       @recall-turn="$emit('recallTurn', $event)"
                       @regenerate-turn="$emit('regenerateTurn', $event)"
                       @confirm-plan="$emit('confirmPlan', $event)"
@@ -169,6 +171,7 @@
                       @open-image-preview="openImagePreview"
                       @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
                       @assistant-link-click="handleAssistantLinkClick"
+                      @toggle-bubble-background="toggleBubbleBackground(entry.item.block)"
                     />
                   </div>
                 </div>
@@ -201,6 +204,8 @@
                         :active-turn-user="false"
                         :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
                         :can-confirm-plan="canConfirmPlan(groupItem.block)"
+                        :bubble-background-hidden="isBubbleBackgroundHidden(groupItem.block)"
+                        :hide-toggle-enabled="canToggleBubbleBackground(groupItem.block)"
                         @recall-turn="$emit('recallTurn', $event)"
                         @regenerate-turn="$emit('regenerateTurn', $event)"
                         @confirm-plan="$emit('confirmPlan', $event)"
@@ -210,6 +215,7 @@
                         @open-image-preview="openImagePreview"
                         @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
                         @assistant-link-click="handleAssistantLinkClick"
+                        @toggle-bubble-background="toggleBubbleBackground(groupItem.block)"
                       />
                     </template>
                   </div>
@@ -494,6 +500,8 @@ type ChatRenderItem =
 
 const MAX_GROUP_ITEM_COUNT = 2;
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
+const USER_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY = "easy_call.user_bubble_background_hidden.v1";
+const ASSISTANT_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY = "easy_call.assistant_bubble_background_hidden.v1";
 const FILE_READER_EXTENSIONS = new Set([
   "md",
   "markdown",
@@ -1136,6 +1144,8 @@ const composerPanelRef = ref<{
 } | null>(null);
 const messageSelectionModeEnabled = ref(false);
 const selectedMessageRenderIds = ref<string[]>([]);
+const userBubbleBackgroundHidden = ref(false);
+const assistantBubbleBackgroundHidden = ref(false);
 const olderHistoryRequestPending = ref(false);
 const LOAD_OLDER_HISTORY_THRESHOLD_PX = 96;
 const observedVirtualItemElements = new Map<string, HTMLElement>();
@@ -1717,6 +1727,67 @@ function getEphemeralBlockRenderId(block: ChatMessageBlock): string {
   return nextId;
 }
 
+function readBooleanLocalStorage(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(key) === "1";
+}
+
+function writeBooleanLocalStorage(key: string, enabled: boolean) {
+  if (typeof window === "undefined") return;
+  if (enabled) {
+    window.localStorage.setItem(key, "1");
+    return;
+  }
+  window.localStorage.removeItem(key);
+}
+
+function isAssistantBubbleBlock(block: ChatMessageBlock): boolean {
+  return String(block.role || "").trim() === "assistant";
+}
+
+function isUserBubbleBlock(block: ChatMessageBlock): boolean {
+  return String(block.role || "").trim() === "user";
+}
+
+function canToggleBubbleBackground(block: ChatMessageBlock): boolean {
+  if (block.isStreaming || block.dividerKind || block.isExtraTextBlock) return false;
+  return isUserBubbleBlock(block) || isAssistantBubbleBlock(block);
+}
+
+function isBubbleBackgroundHidden(block: ChatMessageBlock): boolean {
+  if (isUserBubbleBlock(block)) return userBubbleBackgroundHidden.value;
+  if (isAssistantBubbleBlock(block)) return assistantBubbleBackgroundHidden.value;
+  return false;
+}
+
+function toggleBubbleBackground(block: ChatMessageBlock) {
+  if (!canToggleBubbleBackground(block)) return;
+  if (isUserBubbleBlock(block)) {
+    const next = !userBubbleBackgroundHidden.value;
+    userBubbleBackgroundHidden.value = next;
+    writeBooleanLocalStorage(USER_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY, next);
+    return;
+  }
+  if (isAssistantBubbleBlock(block)) {
+    const next = !assistantBubbleBackgroundHidden.value;
+    assistantBubbleBackgroundHidden.value = next;
+    writeBooleanLocalStorage(ASSISTANT_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY, next);
+  }
+}
+
+function loadBubbleBackgroundHiddenPreferences() {
+  userBubbleBackgroundHidden.value = readBooleanLocalStorage(USER_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY);
+  assistantBubbleBackgroundHidden.value = readBooleanLocalStorage(ASSISTANT_BUBBLE_BACKGROUND_HIDDEN_STORAGE_KEY);
+}
+
+watch(
+  () => props.activeConversationId,
+  () => {
+    loadBubbleBackgroundHiddenPreferences();
+  },
+  { immediate: true },
+);
+
 function blockRenderId(block: ChatMessageBlock): string {
   const rawId = String(block.id || "").trim();
   if (rawId) return rawId;
@@ -1769,6 +1840,8 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
     selected,
     canRegenerate,
     canConfirm,
+    isBubbleBackgroundHidden(block),
+    canToggleBubbleBackground(block),
     requiresInteractionState ? props.chatting : false,
     requiresInteractionState ? props.conversationBusy : false,
     requiresInteractionState ? props.frozen : false,
