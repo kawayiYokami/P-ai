@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 修复（chat-loading-bubble-background-toggle）：助理流式回复前的三点等待气泡同步遵循隐藏气泡背景设置，避免简洁显示时仍保留气泡底色与边框。
+
 ## 发布：v0.9.68
 
 - 优化（markdown-font-weight-toggle）：外观页新增 Markdown 字重切换，支持正常/粗体两档，并统一聊天、归档、审查报告与文件阅读等 Markdown 渲染的字重变量。

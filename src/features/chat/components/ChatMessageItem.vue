@@ -356,7 +356,10 @@
           </div>
           <div
             v-else
-            class="chat-bubble self-start bg-base-100 text-base-content border border-base-300/70 assistant-markdown ecall-assistant-bubble ecall-assistant-loading-bubble max-w-full"
+            :class="[
+              'chat-bubble self-start text-base-content assistant-markdown ecall-assistant-bubble ecall-assistant-loading-bubble max-w-full',
+              bubbleBackgroundHidden ? 'ecall-message-bubble-bg-hidden' : 'bg-base-100 border border-base-300/70',
+            ]"
           >
             <span class="ecall-assistant-loading-dots" aria-hidden="true">
               <span></span>
