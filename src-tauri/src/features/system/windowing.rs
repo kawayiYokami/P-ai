@@ -708,25 +708,13 @@ fn attach_window_layout_persistence(app: &AppHandle) {
     }
 }
 
-fn sync_tray_icon_from_avatar_path(app: &AppHandle, avatar_path: Option<&str>) -> Result<(), String> {
+fn sync_default_tray_icon(app: &AppHandle) -> Result<(), String> {
     let tray = app
         .tray_by_id(MAIN_TRAY_ID)
         .ok_or_else(|| "Tray icon not found".to_string())?;
 
-    let image = avatar_path
-        .and_then(|p| {
-            let bytes = fs::read(p).ok()?;
-            let dyn_img = image::load_from_memory(&bytes).ok()?;
-            let resized = dyn_img
-                .resize_to_fill(32, 32, image::imageops::FilterType::Lanczos3)
-                .to_rgba8();
-            let (w, h) = resized.dimensions();
-            Some(tauri::image::Image::new_owned(resized.into_raw(), w, h))
-        })
-        .or_else(|| app.default_window_icon().cloned());
-
     tray
-        .set_icon(image)
+        .set_icon(app.default_window_icon().cloned())
         .map_err(|err| format!("Set tray icon failed: {err}"))
 }
 

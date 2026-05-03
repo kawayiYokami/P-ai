@@ -927,23 +927,11 @@ fn read_chat_image_data_url(
 
 #[tauri::command]
 fn sync_tray_icon(
-    input: SyncTrayIconInput,
+    _input: SyncTrayIconInput,
     app: AppHandle,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let data = state_read_agents_runtime_snapshot(&state)?;
-    let target_agent_id = input
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(data.assistant_department_agent_id.as_str());
-    let avatar_path = data
-        .agents
-        .iter()
-        .find(|a| a.id == target_agent_id)
-        .and_then(|a| a.avatar_path.clone());
-    sync_tray_icon_from_avatar_path(&app, avatar_path.as_deref())
+    sync_default_tray_icon(&app)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -530,13 +530,6 @@ fn main() {
             if let Err(err) = warm_hidden_skill_snapshot_cache(app_state.inner()) {
                 eprintln!("[启动] 预热技能快照缓存失败: {err}");
             }
-            let data = match state_read_agents_runtime_snapshot(&app_state) {
-                Ok(data) => data,
-                Err(err) => {
-                    eprintln!("[启动] 读取轻量运行数据失败（main::setup）: {err}");
-                    AppData::default()
-                }
-            };
             if let Err(err) = memory_store_open(&app_state.data_path) {
                 eprintln!("[启动] 初始化记忆存储失败: {err}");
             }
@@ -546,12 +539,7 @@ fn main() {
             if let Err(err) = delegate_store_open(&app_state.data_path) {
                 eprintln!("[启动] 初始化委托存储失败：{err}");
             }
-            let avatar_path = data
-                .agents
-                .iter()
-                .find(|a| a.id == data.assistant_department_agent_id)
-                .and_then(|a| a.avatar_path.clone());
-            let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
+            let _ = sync_default_tray_icon(&app_handle);
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
             let startup_window_label = match state_read_config_cached(app_state.inner()) {
