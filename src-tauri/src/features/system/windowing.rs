@@ -826,6 +826,20 @@ fn ensure_hotkey_config_normalized(config: &mut AppConfig) {
     }
 }
 
+fn show_chat_entry_window(app: &AppHandle) -> Result<(), String> {
+    let target = match state_read_config_cached(app.state::<AppState>().inner()) {
+        Ok(mut config) => {
+            normalize_app_config(&mut config);
+            startup_window_label_for_config(&config)
+        }
+        Err(err) => {
+            eprintln!("[托盘] 读取对话入口配置失败: {err}");
+            "quick-setup"
+        }
+    };
+    show_window(app, target)
+}
+
 fn build_tray(app: &AppHandle) -> Result<(), String> {
     let config = MenuItem::with_id(app, "config", "配置", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
@@ -847,22 +861,23 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
     }
 
     tray.tooltip("P-ai")
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let _ = show_chat_entry_window(tray.app_handle());
+            }
+        })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             if id == "config" {
                 let _ = show_window(app, "main");
             } else if id == "chat" {
-                let target = match state_read_config_cached(app.state::<AppState>().inner()) {
-                    Ok(mut config) => {
-                        normalize_app_config(&mut config);
-                        startup_window_label_for_config(&config)
-                    }
-                    Err(err) => {
-                        eprintln!("[托盘] 读取对话入口配置失败: {err}");
-                        "quick-setup"
-                    }
-                };
-                let _ = show_window(app, target);
+                let _ = show_chat_entry_window(app);
             } else if id == "quick-setup" {
                 let _ = show_window(app, "quick-setup");
             } else if id == "archives" {
