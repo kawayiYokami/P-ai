@@ -4,7 +4,7 @@ This file provides guidance to AI coding when working with code in this reposito
 
 ## 项目概述
 
-π师傅 是一个 Windows 优先的桌面 AI 助手，使用全局热键呼出/隐藏对话窗口，常驻系统托盘。技术栈为 Tauri 2 (Rust) + Vue 3 (TypeScript) + Vite + DaisyUI，包管理使用 pnpm。
+PAI 是一个 Windows 优先的桌面 AI 助手，使用全局热键呼出/隐藏对话窗口，常驻系统托盘。技术栈为 Tauri 2 (Rust) + Vue 3 (TypeScript) + Vite + DaisyUI，包管理使用 pnpm。
 
 当前发布策略为 Windows + Linux：
 - Windows 安装版使用 NSIS

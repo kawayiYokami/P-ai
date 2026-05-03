@@ -19,8 +19,8 @@
     "loading": "加载中..."
   },
   "window": {
-    "configTitle": "π师傅 - 配置窗口",
-    "archivesTitle": "π师傅 - 归档窗口",
+    "configTitle": "PAI - 配置窗口",
+    "archivesTitle": "PAI - 归档窗口",
     "chatTitle": "与 {name} 的对话"
   },
   "config": {

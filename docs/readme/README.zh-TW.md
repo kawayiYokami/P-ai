@@ -1,4 +1,4 @@
-# π师傅
+# PAI
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](../../LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8D8?logo=tauri)](https://tauri.app)
@@ -13,7 +13,7 @@
 > 把 LLM 變成真正會幹活的桌面 AI 指揮部。  
 > 它不只是聊天視窗，而是一個能管理自己、管理手下、管理技能、管理工作空間，並長期持續執行任務的桌面 AI 作業系統。
 
-π师傅 的目標，從來都不是「再做一個 AI 聊天網頁」。
+PAI 的目標，從來都不是「再做一個 AI 聊天網頁」。
 
 它要做的是另一件更有野心的事：
 
@@ -24,7 +24,7 @@
 
 ## 核心定位
 
-π师傅 更接近下面這幾樣東西的結合：
+PAI 更接近下面這幾樣東西的結合：
 
 - 桌面 AI 浮窗
 - 長期運行的任務系統

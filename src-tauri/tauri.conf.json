@@ -14,7 +14,7 @@
       {
         "label": "main",
         "url": "index.html",
-        "title": "π师傅 - 配置窗口",
+        "title": "PAI - 配置窗口",
         "width": 900,
         "height": 900,
         "devtools": false,
@@ -27,7 +27,7 @@
       {
         "label": "chat",
         "url": "chat.html",
-        "title": "π师傅 - 对话窗口",
+        "title": "PAI - 对话窗口",
         "width": 618,
         "height": 1000,
         "devtools": false,
@@ -40,7 +40,7 @@
       {
         "label": "archives",
         "url": "archives.html",
-        "title": "π师傅 - 归档窗口",
+        "title": "PAI - 归档窗口",
         "width": 900,
         "height": 900,
         "devtools": false,

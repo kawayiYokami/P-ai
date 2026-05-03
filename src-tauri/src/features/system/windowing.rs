@@ -199,8 +199,8 @@ fn open_detached_chat_window(
     let window_title = title
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| format!("π师傅 - {value}"))
-        .unwrap_or_else(|| "π师傅 - 独立聊天窗口".to_string());
+        .map(|value| format!("PAI - {value}"))
+        .unwrap_or_else(|| "PAI - 独立聊天窗口".to_string());
     register_detached_chat_window(cid, &label)?;
     schedule_detached_chat_window_creation(app, cid.to_string(), label.clone(), window_title)?;
     Ok(label)
@@ -262,7 +262,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
                 FILE_READER_WINDOW_LABEL,
                 tauri::WebviewUrl::App(url.into()),
             )
-            .title("π师傅 - 文件阅读")
+            .title("PAI - 文件阅读")
             .inner_size(1040.0, 760.0)
             .min_inner_size(720.0, 520.0)
             .resizable(true)
