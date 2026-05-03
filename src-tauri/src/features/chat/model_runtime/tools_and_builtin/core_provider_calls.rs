@@ -584,55 +584,6 @@ async fn call_model_openai_non_stream(
     })
 }
 
-async fn call_model_openai_responses_non_stream(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-    app_state: Option<&AppState>,
-) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        resolve_provider_genai_adapter_kind(
-            &api_config,
-            model_name,
-            genai::adapter::AdapterKind::OpenAIResp,
-        ),
-        model_name,
-        request_api_key.clone(),
-    );
-    let request = build_genai_chat_request(&prepared)?;
-    let options = build_provider_genai_chat_options(&api_config, true, false);
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    );
-    let response = client
-        .exec_chat(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai responses non-stream failed: {err}"))?;
-    let assistant_text = response.content.into_texts().join("\n");
-    Ok(ModelReply {
-        assistant_text: assistant_text.clone(),
-        final_response_text: assistant_text,
-        reasoning_standard: response.reasoning_content.unwrap_or_default(),
-        reasoning_inline: String::new(),
-        assistant_provider_meta: None,
-        tool_history_events: Vec::new(),
-        suppress_assistant_message: false,
-        trusted_input_tokens: response
-            .usage
-            .prompt_tokens
-            .and_then(|value| u64::try_from(value).ok())
-            .filter(|value| *value > 0),
-    })
-}
-
 async fn call_model_openai_responses(
     api_config: &ResolvedApiConfig,
     model_name: &str,
@@ -753,55 +704,6 @@ async fn call_model_anthropic(
         .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
         .stream;
     collect_streaming_model_reply_genai(&mut stream, None).await
-}
-
-async fn call_model_anthropic_non_stream(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-    app_state: Option<&AppState>,
-) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        resolve_provider_genai_adapter_kind(
-            &api_config,
-            model_name,
-            genai::adapter::AdapterKind::Anthropic,
-        ),
-        model_name,
-        request_api_key.clone(),
-    );
-    let request = build_genai_chat_request(&prepared)?;
-    let options = build_provider_genai_chat_options(&api_config, true, false);
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    );
-    let response = client
-        .exec_chat(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai anthropic non-stream failed: {err}"))?;
-    let assistant_text = response.content.into_texts().join("\n");
-    Ok(ModelReply {
-        assistant_text: assistant_text.clone(),
-        final_response_text: assistant_text,
-        reasoning_standard: response.reasoning_content.unwrap_or_default(),
-        reasoning_inline: String::new(),
-        assistant_provider_meta: None,
-        tool_history_events: Vec::new(),
-        suppress_assistant_message: false,
-        trusted_input_tokens: response
-            .usage
-            .prompt_tokens
-            .and_then(|value| u64::try_from(value).ok())
-            .filter(|value| *value > 0),
-    })
 }
 
 #[cfg(test)]
