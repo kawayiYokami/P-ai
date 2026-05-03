@@ -7,6 +7,8 @@
       'chat group/user-turn rounded-2xl px-3 transition-colors',
       shouldAnimateEnter(block) ? 'ecall-message-enter' : '',
       isOwnMessage(block) ? 'chat-end' : 'chat-start',
+      !isOwnMessage(block) && bubbleBackgroundHidden && !selectionModeEnabled ? 'ecall-message-simple' : '',
+      isOwnMessage(block) && compactWithPrevious ? 'ecall-message-continued' : '',
       selectionModeEnabled && selected ? 'ecall-message-selected bg-neutral/10 ring-1 ring-neutral/20 shadow-sm' : '',
     ]"
     @click="handleSelectionRowClick"
@@ -29,7 +31,11 @@
       </button>
     </div>
     <div class="chat-image self-start ecall-chat-avatar-col" data-message-avatar-anchor="true">
-      <div class="flex w-7 flex-col items-center gap-2">
+      <div
+        class="flex w-7 flex-col items-center gap-2"
+        :class="compactWithPrevious ? 'invisible pointer-events-none' : ''"
+        :aria-hidden="compactWithPrevious ? 'true' : undefined"
+      >
         <div class="avatar">
           <div class="w-7 rounded-full">
             <img
@@ -419,7 +425,7 @@
       </div>
     </template>
     <template v-else>
-      <div class="chat-header mb-1 flex items-baseline gap-2">
+      <div v-if="!compactWithPrevious" class="chat-header mb-1 flex items-baseline gap-2">
         <span v-if="isOwnMessage(block)" class="text-xs leading-none">
           <time v-if="formattedCreatedAt && !block.isStreaming" class="text-base-content/40 leading-none">{{ formattedCreatedAt }}</time>
         </span>
@@ -495,7 +501,7 @@
         </div>
       </div>
       <div
-        v-if="isOwnMessage(block)"
+        v-if="isOwnMessage(block) && !compactWithPrevious"
         :class="[
           'flex justify-end transition-opacity',
           selectionModeEnabled
@@ -592,6 +598,7 @@ const props = defineProps<{
   markdownIsDark: boolean;
   playingAudioId: string;
   activeTurnUser: boolean;
+  compactWithPrevious: boolean;
   canRegenerate: boolean;
   canConfirmPlan: boolean;
   bubbleBackgroundHidden: boolean;
@@ -1579,6 +1586,29 @@ function openResolvedImagePreview(
 .ecall-message-content-wide {
   width: 100%;
   max-width: none;
+}
+
+.ecall-message-simple {
+  --ecall-chat-avatar-offset: calc(1.75rem + 0.75rem);
+}
+
+.ecall-message-simple .ecall-message-content {
+  width: calc(100% + var(--ecall-chat-avatar-offset));
+  max-width: calc(100% + var(--ecall-chat-avatar-offset));
+  margin-left: calc(var(--ecall-chat-avatar-offset) * -1);
+}
+
+.ecall-message-simple .chat-header {
+  margin-left: var(--ecall-chat-avatar-offset);
+}
+
+.ecall-message-simple .chat-bubble {
+  width: 100%;
+  max-width: none;
+}
+
+.ecall-message-continued {
+  padding-top: 0;
 }
 
 .ecall-meme-segment-flow {

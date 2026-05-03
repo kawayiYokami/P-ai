@@ -1,5 +1,5 @@
 <template>
-  <div class="relative overflow-hidden" @mouseenter="revealScrollbar">
+  <div class="relative overflow-hidden" @mouseenter="revealScrollbar" @mouseleave="hideScrollbar">
     <div
       ref="scrollerRef"
       class="conversation-list-scroll h-full overflow-y-auto"
@@ -9,7 +9,7 @@
     </div>
     <div v-if="canScroll" class="pointer-events-none absolute bottom-1 right-1 top-1 w-1.5">
       <div
-        class="absolute right-0 w-1.5 rounded-full bg-base-content/30 transition-opacity duration-150"
+        class="absolute right-0 w-1.5 rounded-full bg-base-content/30"
         :class="scrollbarVisible ? 'opacity-100' : 'opacity-0'"
         :style="thumbStyle"
       ></div>
@@ -28,8 +28,6 @@ const thumbTop = ref(0);
 
 let resizeObserver: ResizeObserver | null = null;
 let mutationObserver: MutationObserver | null = null;
-let hideTimer: number | undefined;
-
 const thumbStyle = computed(() => ({
   height: `${thumbHeight.value}px`,
   transform: `translateY(${thumbTop.value}px)`,
@@ -57,10 +55,10 @@ function revealScrollbar() {
   updateThumb();
   if (!canScroll.value) return;
   scrollbarVisible.value = true;
-  if (hideTimer !== undefined) window.clearTimeout(hideTimer);
-  hideTimer = window.setTimeout(() => {
-    scrollbarVisible.value = false;
-  }, 900);
+}
+
+function hideScrollbar() {
+  scrollbarVisible.value = false;
 }
 
 function handleScroll() {
@@ -81,7 +79,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (hideTimer !== undefined) window.clearTimeout(hideTimer);
   resizeObserver?.disconnect();
   mutationObserver?.disconnect();
 });

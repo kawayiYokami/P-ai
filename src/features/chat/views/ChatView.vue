@@ -28,13 +28,14 @@
           </div>
         </div>
 
-        <div
-          ref="scrollContainer"
-          class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3 scrollbar-gutter-stable"
-          :class="chatting || frozen || conversationBusy ? 'pointer-events-auto' : ''"
-          :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
-          @scroll="onConversationScroll"
-        >
+        <div class="relative flex min-h-0 flex-1 overflow-hidden" @mouseenter="revealChatScrollbar" @mouseleave="hideChatScrollbar">
+          <div
+            ref="scrollContainer"
+            class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
+            :class="chatting || frozen || conversationBusy ? 'pointer-events-auto' : ''"
+            :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
+            @scroll="onConversationScroll"
+          >
           <div
             v-if="loadingOlderHistory"
             class="pointer-events-none sticky top-0 z-10 flex justify-center pb-2"
@@ -136,7 +137,7 @@
 
                 <div
                   v-else-if="entry.item.kind === 'message'"
-                  v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex)"
+                  v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex, entry.item.compactWithPrevious)"
                 >
                   <div
                     class="ecall-elastic-item-shell"
@@ -158,6 +159,7 @@
                       :markdown-is-dark="markdownIsDark"
                       :playing-audio-id="playingAudioId"
                       :active-turn-user="false"
+                      :compact-with-previous="entry.item.compactWithPrevious"
                       :can-regenerate="canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
                       :can-confirm-plan="canConfirmPlan(entry.item.block)"
                       :bubble-background-hidden="isBubbleBackgroundHidden(entry.item.block)"
@@ -186,7 +188,7 @@
                   >
                     <template v-for="groupItem in entry.item.items" :key="groupItem.renderId">
                       <ChatMessageItem
-                        v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex)"
+                        v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex, groupItem.compactWithPrevious)"
                         :block="groupItem.block"
                         :selection-key="groupItem.renderId"
                         :selection-mode-enabled="messageSelectionModeEnabled"
@@ -202,6 +204,7 @@
                         :markdown-is-dark="markdownIsDark"
                         :playing-audio-id="playingAudioId"
                         :active-turn-user="false"
+                        :compact-with-previous="groupItem.compactWithPrevious"
                         :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
                         :can-confirm-plan="canConfirmPlan(groupItem.block)"
                         :bubble-background-hidden="isBubbleBackgroundHidden(groupItem.block)"
@@ -267,6 +270,14 @@
                 @toggle-tool-review="toggleToolReviewPanel"
               />
             </div>
+          </div>
+          </div>
+          <div v-if="chatCanScroll" class="pointer-events-none absolute bottom-1 right-1 top-1 z-20 w-1.5">
+            <div
+              class="absolute right-0 w-1.5 rounded-full bg-base-content/30"
+              :class="chatScrollbarVisible ? 'opacity-100' : 'opacity-0'"
+              :style="chatScrollThumbStyle"
+            ></div>
           </div>
         </div>
         <div
@@ -469,7 +480,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch, type ComponentPublicInstance } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
@@ -495,8 +506,8 @@ import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link
 type ChatRenderItem =
   | { kind: "compaction"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
   | { kind: "plan_started"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
-  | { kind: "message"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number }
-  | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number }> };
+  | { kind: "message"; id: string; renderId: string; block: ChatMessageBlock; blockIndex: number; compactWithPrevious: boolean }
+  | { kind: "group"; id: string; groupId: string; items: Array<{ renderId: string; block: ChatMessageBlock; blockIndex: number; compactWithPrevious: boolean }> };
 
 const MAX_GROUP_ITEM_COUNT = 2;
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
@@ -964,6 +975,7 @@ const chatStatusBanner = computed<null | { text: string; tone: "default" | "erro
 const chatRenderItems = computed<ChatRenderItem[]>(() => {
   const items: ChatRenderItem[] = [];
   let currentGroup: Extract<ChatRenderItem, { kind: "group" }> | null = null;
+  let previousMessageBlock: ChatMessageBlock | null = null;
 
   const flushGroup = () => {
     if (!currentGroup) return;
@@ -975,14 +987,17 @@ const chatRenderItems = computed<ChatRenderItem[]>(() => {
     const renderId = blockRenderId(block);
     if (block.dividerKind === "plan_started") {
       flushGroup();
+      previousMessageBlock = null;
       items.push({ kind: "plan_started", id: `plan-started-${renderId}`, renderId, block, blockIndex });
       return;
     }
     if (isCompactionBlock(block)) {
       flushGroup();
+      previousMessageBlock = null;
       items.push({ kind: "compaction", id: `compaction-${renderId}`, renderId, block, blockIndex });
       return;
     }
+    const compactWithPrevious = isCompactUserContinuation(block, previousMessageBlock);
     if (isRightAlignedMessage(block)) {
       flushGroup();
       const groupId = blockGroupRenderId(block);
@@ -990,20 +1005,24 @@ const chatRenderItems = computed<ChatRenderItem[]>(() => {
         kind: "group",
         id: `group-${groupId}`,
         groupId,
-        items: [{ renderId, block, blockIndex }],
+        items: [{ renderId, block, blockIndex, compactWithPrevious }],
       };
+      previousMessageBlock = block;
       return;
     }
     if (currentGroup) {
       if (currentGroup.items.length >= MAX_GROUP_ITEM_COUNT) {
         flushGroup();
-        items.push({ kind: "message", id: `message-${renderId}`, renderId, block, blockIndex });
+        items.push({ kind: "message", id: `message-${renderId}`, renderId, block, blockIndex, compactWithPrevious });
+        previousMessageBlock = block;
         return;
       }
-      currentGroup.items.push({ renderId, block, blockIndex });
+      currentGroup.items.push({ renderId, block, blockIndex, compactWithPrevious });
+      previousMessageBlock = block;
       return;
     }
-    items.push({ kind: "message", id: `message-${renderId}`, renderId, block, blockIndex });
+    items.push({ kind: "message", id: `message-${renderId}`, renderId, block, blockIndex, compactWithPrevious });
+    previousMessageBlock = block;
   });
   flushGroup();
   return items;
@@ -1153,6 +1172,11 @@ const measuredVirtualItemHeights = new Map<string, number>();
 let pendingMeasureFrame = 0;
 let pendingPinToBottomFrame = 0;
 let lastConversationScrollTop = 0;
+const chatCanScroll = ref(false);
+const chatScrollbarVisible = ref(false);
+const chatScrollThumbHeight = ref(24);
+const chatScrollThumbTop = ref(0);
+let chatScrollResizeObserver: ResizeObserver | null = null;
 const olderHistoryTriggerReady = ref(true);
 const pendingOlderHistoryAnchor = ref<{ messageId: string; edge: "top" | "bottom"; offset: number } | null>(null);
 const pendingOlderHistoryScrollRestore = ref<{ scrollTop: number; scrollHeight: number } | null>(null);
@@ -1177,6 +1201,37 @@ const {
   onReachedBottom: () => emit("reachedBottom"),
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
+
+const chatScrollThumbStyle = computed(() => ({
+  height: `${chatScrollThumbHeight.value}px`,
+  transform: `translateY(${chatScrollThumbTop.value}px)`,
+}));
+
+function updateChatScrollbarThumb() {
+  const scroller = scrollContainer.value;
+  if (!scroller) return;
+  const { clientHeight, scrollHeight, scrollTop } = scroller;
+  const scrollable = scrollHeight > clientHeight + 1;
+  chatCanScroll.value = scrollable;
+  if (!scrollable) return;
+  const trackHeight = Math.max(clientHeight - 8, 0);
+  const height = Math.max(24, Math.round((clientHeight / scrollHeight) * trackHeight));
+  const maxTop = Math.max(trackHeight - height, 0);
+  chatScrollThumbHeight.value = height;
+  chatScrollThumbTop.value = maxTop === 0
+    ? 0
+    : Math.round((scrollTop / (scrollHeight - clientHeight)) * maxTop);
+}
+
+function revealChatScrollbar() {
+  updateChatScrollbarThumb();
+  if (!chatCanScroll.value) return;
+  chatScrollbarVisible.value = true;
+}
+
+function hideChatScrollbar() {
+  chatScrollbarVisible.value = false;
+}
 
 function refreshObservedVirtualItemElements() {
   const validIds = new Set(virtualRenderItems.value.map((item) => item.id));
@@ -1353,6 +1408,7 @@ function alignLatestOwnMessageToTop(behavior: ScrollBehavior = "smooth") {
 
 function syncViewportMetrics() {
   scheduleVirtualMeasure();
+  void nextTick(updateChatScrollbarThumb);
 }
 
 function findRenderedMessageElement(messageId: string): HTMLElement | null {
@@ -1411,6 +1467,7 @@ function captureVisibleAnchor(edge: "top" | "bottom"): { messageId: string; edge
 function onConversationScroll() {
   const scrollEl = scrollContainer.value;
   onScroll();
+  revealChatScrollbar();
   maybeRequestOlderHistory();
   if (scrollEl) {
     lastConversationScrollTop = scrollEl.scrollTop;
@@ -1455,6 +1512,7 @@ watch(
   () => String(props.activeConversationId || "").trim(),
   () => {
     exitMessageSelectionMode();
+    chatScrollbarVisible.value = false;
     pinToBottomOnNextLayout(false, "activeConversationChanged");
     olderHistoryRequestPending.value = false;
     lastConversationScrollTop = 0;
@@ -1503,6 +1561,7 @@ watch(
   () => props.messageBlocks.length,
   () => {
     refreshObservedVirtualItemElements();
+    void nextTick(updateChatScrollbarThumb);
   },
 );
 
@@ -1718,6 +1777,14 @@ function isRightAlignedMessage(block: ChatMessageBlock): boolean {
   return id === "user-persona";
 }
 
+function isCompactUserContinuation(block: ChatMessageBlock, previousBlock: ChatMessageBlock | null): boolean {
+  if (!previousBlock) return false;
+  if (!isRightAlignedMessage(block) || !isRightAlignedMessage(previousBlock)) return false;
+  if (block.dividerKind || previousBlock.dividerKind) return false;
+  if (block.isExtraTextBlock || previousBlock.isExtraTextBlock) return false;
+  return true;
+}
+
 function getEphemeralBlockRenderId(block: ChatMessageBlock): string {
   const cached = ephemeralBlockRenderIdMap.get(block);
   if (cached) return cached;
@@ -1822,7 +1889,7 @@ function blockGroupRenderId(block: ChatMessageBlock) {
   return `group-${renderId}`;
 }
 
-function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: number) {
+function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: number, compactWithPrevious = false) {
   const selected = selectedMessageRenderIdSet.value.has(renderId);
   const canRegenerate = canRegenerateBlock(block, blockIndex);
   const canConfirm = canConfirmPlan(block);
@@ -1842,6 +1909,7 @@ function messageMemoKey(block: ChatMessageBlock, renderId: string, blockIndex: n
     canConfirm,
     isBubbleBackgroundHidden(block),
     canToggleBubbleBackground(block),
+    compactWithPrevious,
     requiresInteractionState ? props.chatting : false,
     requiresInteractionState ? props.conversationBusy : false,
     requiresInteractionState ? props.frozen : false,
@@ -2174,8 +2242,19 @@ async function handleAssistantLinkClick(event: MouseEvent) {
   }
 }
 
+onMounted(() => {
+  void nextTick(updateChatScrollbarThumb);
+  const scroller = scrollContainer.value;
+  if (typeof ResizeObserver !== "undefined" && scroller) {
+    chatScrollResizeObserver = new ResizeObserver(updateChatScrollbarThumb);
+    chatScrollResizeObserver.observe(scroller);
+  }
+});
+
 onBeforeUnmount(() => {
   clearDelegateStatusesPollTimer();
+  chatScrollResizeObserver?.disconnect();
+  chatScrollResizeObserver = null;
   if (pendingMeasureFrame) {
     cancelAnimationFrame(pendingMeasureFrame);
     pendingMeasureFrame = 0;
@@ -2207,6 +2286,14 @@ onBeforeUnmount(() => {
 .ecall-chat-scroll-container {
   overscroll-behavior-y: contain;
   overflow-anchor: none;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ecall-chat-scroll-container::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .ecall-chat-scroll-container[data-chat-interaction-locked="true"] :deep(.ecall-message-footer),
