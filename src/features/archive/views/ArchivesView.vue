@@ -119,7 +119,7 @@
         </ul>
       </div>
       <div class="flex min-w-0 flex-1 flex-col">
-        <div class="flex-1 min-h-0 overflow-auto space-y-2">
+        <div ref="messageScrollerRef" class="flex-1 min-h-0 overflow-auto space-y-2">
           <div
             v-if="viewMode === 'archive' && archiveSummaryText"
             class="border border-primary/20 rounded p-3 bg-primary/5"
@@ -156,60 +156,118 @@
               {{ t("archives.nextBlock") }}
             </button>
           </div>
-          <div v-for="m in visibleMessages" :key="m.id" class="border border-base-300 rounded p-3 bg-base-100">
-            <div class="flex items-center justify-between mb-1">
-              <div class="badge badge-primary badge-sm">{{ speakerLabel(m) }}</div>
-              <div class="opacity-60 text-sm">{{ formatDate(m.createdAt) }}</div>
+          <div
+            v-for="m in visibleMessages"
+            :key="m.id"
+            class="chat"
+            :class="archiveMessageChatClass(m)"
+          >
+            <div class="chat-header text-xs opacity-60">
+              {{ speakerLabel(m) }}
+              <time v-if="m.createdAt" class="ml-2">{{ formatDate(m.createdAt) }}</time>
             </div>
-            <div
-              v-if="messageMemeSegments(m).length > 0"
-              class="archive-meme-segment-flow"
-            >
-              <template v-for="(segment, index) in messageMemeSegments(m)" :key="`${m.id}-meme-${index}`">
-                <span
-                  v-if="segment.type === 'text' && archiveMemeText(segment)"
-                  class="archive-meme-segment-text"
-                >{{ archiveMemeText(segment) }}</span>
-                <img
-                  v-else-if="segment.type === 'meme'"
-                  :src="archiveMemeSegmentDataUrl(segment)"
-                  :alt="archiveMemeName(segment)"
-                  :title="`:${archiveMemeName(segment)}:`"
-                  class="archive-inline-meme"
-                />
-              </template>
-            </div>
-            <div v-else-if="messageText(m)" class="whitespace-pre-wrap wrap-break-word">{{ messageText(m) }}</div>
-            <div
-              v-if="messageAttachments(m).length > 0"
-              class="mt-2 flex flex-wrap gap-2"
-            >
-              <button
-                v-for="(file, idx) in messageAttachments(m)"
-                :key="`${m.id}-attachment-${idx}`"
-                type="button"
-                class="link link-primary text-sm"
-                :title="file.relativePath"
-                @click="openAttachment(file.relativePath)"
+            <div class="chat-bubble max-w-[82%]" :class="archiveMessageBubbleClass(m)">
+              <div
+                v-if="messageMemeSegments(m).length > 0"
+                class="archive-meme-segment-flow"
               >
-                {{ file.fileName }}
-              </button>
-            </div>
-            <div v-if="toolSummaries(m).length > 0" class="mt-2 space-y-1">
-              <details v-for="(tool, idx) in toolSummaries(m)" :key="`${m.id}-tool-${idx}`" class="collapse collapse-arrow border border-base-300 bg-base-200">
-                <summary class="collapse-title py-2 px-3 min-h-0 text-sm font-medium">{{ t("archives.toolCall", { name: tool.name }) }}</summary>
-                <div class="collapse-content px-3 pb-2">
-                  <div class="whitespace-pre-wrap wrap-break-word text-sm opacity-80">{{ tool.content }}</div>
+                <template v-for="(segment, index) in messageMemeSegments(m)" :key="`${m.id}-meme-${index}`">
+                  <MarkdownRender
+                    v-if="segment.type === 'text' && archiveMemeText(segment)"
+                    class="ecall-markdown-content archive-markdown-content max-w-none"
+                    custom-id="chat-markstream"
+                    :nodes="markdownNodesForText(archiveMemeText(segment), `${m.id}:meme:${index}`)"
+                    :is-dark="markdownIsDark"
+                    :final="true"
+                    :max-live-nodes="0"
+                    :batch-rendering="false"
+                    :initial-render-batch-size="0"
+                    :render-batch-size="0"
+                    :render-batch-delay="0"
+                    :render-batch-budget-ms="0"
+                    :code-block-props="markdownCodeBlockProps"
+                    :mermaid-props="markdownMermaidProps"
+                    :typewriter="false"
+                    @click="handleArchiveMarkdownClick"
+                  />
+                  <img
+                    v-else-if="segment.type === 'meme'"
+                    :src="archiveMemeSegmentDataUrl(segment)"
+                    :alt="archiveMemeName(segment)"
+                    :title="`:${archiveMemeName(segment)}:`"
+                    class="archive-inline-meme"
+                  />
+                </template>
+              </div>
+              <details
+                v-else-if="isCollapsibleArchiveMessage(m)"
+                class="collapse collapse-arrow border border-base-300/70 bg-base-200/60"
+              >
+                <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
+                  {{ collapsibleArchiveMessageTitle(m) }}
+                </summary>
+                <div class="collapse-content px-3 pb-3 pt-0">
+                  <MarkdownRender
+                    class="ecall-markdown-content archive-markdown-content max-w-none"
+                    custom-id="chat-markstream"
+                    :nodes="markdownNodesForMessage(m)"
+                    :is-dark="markdownIsDark"
+                    :final="true"
+                    :max-live-nodes="0"
+                    :batch-rendering="false"
+                    :initial-render-batch-size="0"
+                    :render-batch-size="0"
+                    :render-batch-delay="0"
+                    :render-batch-budget-ms="0"
+                    :code-block-props="markdownCodeBlockProps"
+                    :mermaid-props="markdownMermaidProps"
+                    :typewriter="false"
+                    @click="handleArchiveMarkdownClick"
+                  />
                 </div>
               </details>
-            </div>
-            <div v-if="messageImages(m).length > 0" class="mt-2 grid gap-1">
-              <img
-                v-for="(img, idx) in messageImages(m)"
-                :key="`${img.mime}-${idx}`"
-                :src="resolvedArchiveImageSrc(m.id, img, idx)"
-                class="rounded max-h-32 object-contain bg-base-100/40 border border-base-300"
+              <MarkdownRender
+                v-else-if="messageText(m)"
+                class="ecall-markdown-content archive-markdown-content max-w-none"
+                custom-id="chat-markstream"
+                :nodes="markdownNodesForMessage(m)"
+                :is-dark="markdownIsDark"
+                :final="true"
+                :max-live-nodes="0"
+                :batch-rendering="false"
+                :initial-render-batch-size="0"
+                :render-batch-size="0"
+                :render-batch-delay="0"
+                :render-batch-budget-ms="0"
+                :code-block-props="markdownCodeBlockProps"
+                :mermaid-props="markdownMermaidProps"
+                :typewriter="false"
+                @click="handleArchiveMarkdownClick"
               />
+              <div
+                v-if="messageAttachments(m).length > 0"
+                class="mt-2 flex flex-wrap gap-2"
+              >
+                <button
+                  v-for="(file, idx) in messageAttachments(m)"
+                  :key="`${m.id}-attachment-${idx}`"
+                  type="button"
+                  class="link text-sm"
+                  :class="m.role === 'user' ? 'link-secondary' : 'link-primary'"
+                  :title="file.relativePath"
+                  @click="openAttachment(file.relativePath)"
+                >
+                  {{ file.fileName }}
+                </button>
+              </div>
+              <div v-if="messageImages(m).length > 0" class="mt-2 grid gap-1">
+                <img
+                  v-for="(img, idx) in messageImages(m)"
+                  :key="`${img.mime}-${idx}`"
+                  :src="resolvedArchiveImageSrc(m.id, img, idx)"
+                  class="rounded max-h-44 object-contain bg-base-100/40 border border-base-300"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -236,11 +294,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { Trash2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
+import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
+import "markstream-vue/index.css";
 import { invokeTauri } from "../../../services/tauri-api";
-import { summarizeToolActivityForDisplay } from "../../../utils/chat-message-semantics";
+import { registerChatMarkstreamComponents } from "../../chat/markdown/register-chat-markstream";
+import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../../chat/utils/local-link";
+import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import type {
   ArchiveSummary,
   ChatMessage,
@@ -280,8 +342,40 @@ const props = defineProps<{
   remoteImContactMessages: ChatMessage[];
   userAlias: string;
   personaNameMap?: Record<string, string>;
+  currentTheme: string;
 }>();
 const { t, locale } = useI18n();
+
+enableMermaid();
+enableKatex();
+registerChatMarkstreamComponents();
+
+const MARKDOWN_NODE_CACHE_LIMIT = 120;
+const markstreamMarkdown = getMarkdown();
+const markdownNodeCache = new Map<string, { text: string; nodes: any[] }>();
+const markdownCodeBlockProps = {
+  showHeader: true,
+  showCopyButton: true,
+  showPreviewButton: false,
+  showExpandButton: true,
+  showCollapseButton: true,
+  showFontSizeButtons: false,
+  enableFontSizeControl: false,
+  isShowPreview: false,
+  showTooltips: false,
+};
+const markdownMermaidProps = {
+  showHeader: true,
+  showCopyButton: true,
+  showExportButton: false,
+  showFullscreenButton: true,
+  showCollapseButton: false,
+  showZoomControls: true,
+  showModeToggle: false,
+  enableWheelZoom: true,
+  showTooltips: false,
+};
+const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
 const emit = defineEmits<{
   (e: "loadArchives"): void;
@@ -306,6 +400,7 @@ const ARCHIVE_FOCUS_REQUEST_TTL_MS = 30_000;
 const archiveImageDataUrlCache = new Map<string, string>();
 const archiveImagePendingCache = new Map<string, Promise<string>>();
 const archiveResolvedImageMap = ref<Record<string, string>>({});
+const messageScrollerRef = ref<HTMLElement | null>(null);
 const confirmDialog = ref<HTMLDialogElement | null>(null);
 const confirmDialogState = ref({
   title: "",
@@ -313,14 +408,17 @@ const confirmDialogState = ref({
 });
 let resolveConfirmDialog: ((value: boolean) => void) | null = null;
 
-const visibleMessages = computed(() =>
+const activeMessageSource = computed(() =>
   viewMode.value === "current"
-    ? props.unarchivedMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+    ? props.unarchivedMessages
     : viewMode.value === "delegate"
-      ? props.delegateMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+      ? props.delegateMessages
       : viewMode.value === "remoteIm"
-        ? props.remoteImContactMessages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+        ? props.remoteImContactMessages
         : props.archiveMessages,
+);
+const visibleMessages = computed(() =>
+  activeMessageSource.value.filter(isArchiveDialogueMessage),
 );
 const selectedArchiveBlockSummary = computed(() =>
   props.archiveBlocks.find((item) => item.blockId === props.selectedArchiveBlockId) ?? null,
@@ -395,6 +493,17 @@ const archiveImportInputRef = ref<HTMLInputElement | null>(null);
 
 function switchViewMode(mode: "current" | "delegate" | "archive" | "remoteIm") {
   viewMode.value = mode;
+}
+
+function scrollMessagesToBottom() {
+  void nextTick(() => {
+    const scroller = messageScrollerRef.value;
+    if (!scroller) return;
+    scroller.scrollTop = scroller.scrollHeight;
+    requestAnimationFrame(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+  });
 }
 
 function focusAdjacentArchiveBlock(step: -1 | 1) {
@@ -474,6 +583,25 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => [
+    viewMode.value,
+    props.selectedArchiveId,
+    props.selectedUnarchivedConversationId,
+    props.selectedDelegateConversationId,
+    props.selectedRemoteImContactId,
+    props.selectedArchiveBlockId,
+    props.selectedUnarchivedBlockId,
+    props.selectedRemoteImContactBlockId,
+    visibleMessages.value.length,
+    visibleMessages.value.length > 0 ? visibleMessages.value[visibleMessages.value.length - 1]?.id || "" : "",
+  ],
+  () => {
+    scrollMessagesToBottom();
+  },
+  { flush: "post" },
+);
+
 function handleStorageChange(event: StorageEvent) {
   if (event.key !== ARCHIVE_FOCUS_REQUEST_STORAGE_KEY) return;
   applyPendingArchiveFocusRequest();
@@ -490,6 +618,7 @@ function handleVisibilityChange() {
 
 onMounted(() => {
   applyPendingArchiveFocusRequest();
+  scrollMessagesToBottom();
   if (typeof window !== "undefined") {
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("focus", handleWindowFocus);
@@ -586,6 +715,97 @@ function messageText(msg: ChatMessage): string {
     .trim();
 }
 
+function markdownNodesForText(text: string, cacheKey: string): any[] {
+  const normalized = String(text || "").trim();
+  const key = String(cacheKey || "archive").trim() || "archive";
+  const cached = markdownNodeCache.get(key);
+  if (cached && cached.text === normalized) {
+    markdownNodeCache.delete(key);
+    markdownNodeCache.set(key, cached);
+    return cached.nodes;
+  }
+  const nodes = parseMarkdownToStructure(normalized, markstreamMarkdown, { final: true });
+  if (markdownNodeCache.size >= MARKDOWN_NODE_CACHE_LIMIT) {
+    const oldestKey = markdownNodeCache.keys().next().value;
+    if (typeof oldestKey === "string") markdownNodeCache.delete(oldestKey);
+  }
+  markdownNodeCache.set(key, { text: normalized, nodes });
+  return nodes;
+}
+
+function markdownNodesForMessage(msg: ChatMessage): any[] {
+  return markdownNodesForText(messageText(msg), `${String(msg.id || "")}:main`);
+}
+
+function isContextOrganizationMessage(msg: ChatMessage): boolean {
+  if (msg.role !== "user") return false;
+  return messageText(msg).trimStart().startsWith("[上下文整理]");
+}
+
+function isDelegateTaskMessage(msg: ChatMessage): boolean {
+  return messageText(msg).trimStart().toLowerCase().startsWith("<delegate task>");
+}
+
+function isCollapsibleArchiveMessage(msg: ChatMessage): boolean {
+  return isContextOrganizationMessage(msg) || isDelegateTaskMessage(msg);
+}
+
+function collapsibleArchiveMessageTitle(msg: ChatMessage): string {
+  if (isDelegateTaskMessage(msg)) return "<delegate task>";
+  const firstLine = messageText(msg)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => !!line);
+  return firstLine || "[上下文整理]";
+}
+
+async function handleArchiveMarkdownClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  const anchor = target?.closest("a") as HTMLAnchorElement | null;
+  if (!anchor) return;
+  const href = normalizeLocalLinkHref(anchor.getAttribute("href")?.trim() || "");
+  if (!href) return;
+
+  if (isAbsoluteLocalPath(href)) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await invokeTauri("open_local_file_directory", { path: href });
+    } catch (error) {
+      console.warn("[归档链接] 打开本地路径失败", { href, error });
+    }
+    return;
+  }
+
+  if (href.startsWith("http://") || href.startsWith("https://")) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await invokeTauri("open_external_url", { url: href });
+    } catch (error) {
+      console.warn("[归档链接] 打开外部链接失败", { href, error });
+    }
+  }
+}
+
+function isArchiveDialogueMessage(msg: ChatMessage): boolean {
+  if (msg.role !== "user" && msg.role !== "assistant") return false;
+  return !!messageText(msg)
+    || messageMemeSegments(msg).length > 0
+    || messageAttachments(msg).length > 0
+    || messageImages(msg).length > 0;
+}
+
+function archiveMessageChatClass(msg: ChatMessage): string {
+  return msg.role === "user" ? "chat-end" : "chat-start";
+}
+
+function archiveMessageBubbleClass(msg: ChatMessage): string {
+  return msg.role === "user"
+    ? "chat-bubble-primary text-primary-content"
+    : "bg-base-100 text-base-content border border-base-300";
+}
+
 function messageMemeSegments(msg: ChatMessage): MemeMessageSegment[] {
   const raw = Array.isArray(msg.providerMeta?.memeSegments) ? msg.providerMeta.memeSegments : [];
   return raw
@@ -641,7 +861,6 @@ function speakerLabel(msg: ChatMessage): string {
   if (msg.role === "user") {
     return String(props.userAlias || "").trim() || t("archives.roleUser");
   }
-  if (msg.role === "tool") return t("archives.roleTool");
   return String(msg.role || "").trim() || "-";
 }
 
@@ -668,15 +887,6 @@ function formatDate(value?: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString(locale.value);
-}
-
-function toolSummaries(msg: ChatMessage): Array<{ name: string; content: string }> {
-  return summarizeToolActivityForDisplay(msg).calls.map((tool) => ({
-    name: tool.name,
-    content: tool.argsText && tool.argsText !== "{}"
-      ? t("archives.toolArgs", { value: tool.argsText })
-      : t("archives.toolNoArgs"),
-  }));
 }
 
 function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64?: string; mediaRef?: string }> {
@@ -781,11 +991,6 @@ function resolvedArchiveImageSrc(
   max-width: 100%;
 }
 
-.archive-meme-segment-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .archive-inline-meme {
   display: inline-block;
   max-width: min(14rem, 100%);
@@ -793,5 +998,73 @@ function resolvedArchiveImageSrc(
   border-radius: 0.75rem;
   object-fit: contain;
   vertical-align: bottom;
+}
+
+.archive-markdown-content:deep(.markdown-renderer),
+.archive-markdown-content:deep(.node-slot),
+.archive-markdown-content:deep(.node-content),
+.archive-markdown-content:deep(.text-node) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.archive-markdown-content:deep(> :first-child) {
+  margin-top: 0;
+}
+
+.archive-markdown-content:deep(> :last-child) {
+  margin-bottom: 0;
+}
+
+.archive-markdown-content:deep(:where(p,ul,ol,blockquote,pre,table,figure,.paragraph-node,.list-node,.blockquote,.table-node-wrapper,.code-block-container,._mermaid,.vmr-container)) {
+  margin-top: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.archive-markdown-content:deep(:where(h1,h2,h3,h4,.heading-node)) {
+  margin-top: 0.65rem;
+  margin-bottom: 0.45rem;
+  line-height: 1.35;
+}
+
+.archive-markdown-content:deep(:where(h1,.heading-node.heading-1)) {
+  font-size: 1.18rem;
+}
+
+.archive-markdown-content:deep(:where(h2,.heading-node.heading-2)) {
+  font-size: 1.08rem;
+}
+
+.archive-markdown-content:deep(:where(h3,.heading-node.heading-3,h4,.heading-node.heading-4)) {
+  font-size: 1rem;
+}
+
+.archive-markdown-content:deep(:where(ul,ol,.list-node)) {
+  padding-left: 1.25rem;
+}
+
+.archive-markdown-content:deep(:where(a,.link-node)) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.archive-markdown-content:deep(:where(blockquote,.blockquote)) {
+  border-left: 3px solid color-mix(in oklab, currentColor 35%, transparent);
+  padding-left: 0.75rem;
+  opacity: 0.88;
+}
+
+.archive-markdown-content:deep(:where(:not(pre) > code,.inline-code)) {
+  border-radius: 0.25rem;
+  background: color-mix(in oklab, currentColor 12%, transparent);
+  padding: 0.08rem 0.28rem;
+}
+
+.archive-markdown-content:deep(:where(table,.table-node)) {
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
 }
 </style>

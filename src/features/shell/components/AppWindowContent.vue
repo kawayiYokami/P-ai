@@ -256,6 +256,7 @@
       :remote-im-contact-messages="remoteImContactMessages"
       :user-alias="userAlias"
       :persona-name-map="chatPersonaNameMap"
+      :current-theme="currentTheme"
       @load-archives="loadArchives"
       @select-archive="selectArchive"
       @select-archive-block="selectArchiveBlock"
