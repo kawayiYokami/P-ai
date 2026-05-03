@@ -104,6 +104,7 @@
 
     <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
       <ChatView
+        ref="chatViewRef"
         :user-alias="userAlias"
         :persona-name="selectedPersonaName"
         :user-avatar-url="userAvatarUrl"
@@ -198,7 +199,7 @@
         @selection-action-copy-error="setStatus(props.t('chat.copyFailed'))"
         @selection-action-branch="onBranchConversationFromSelection($event)"
         @selection-action-forward="onForwardConversationFromSelection($event)"
-        @selection-action-delegate="onUserAsyncDelegateFromSelection($event)"
+        @selection-action-delegate="handleUserAsyncDelegateFromSelection"
         @selection-action-share="handleSelectionShareAction($event)"
         @attach-tool-review-report="attachToolReviewReport"
         @lock-workspace="onLockChatWorkspace"
@@ -630,7 +631,7 @@ const props = defineProps<{
   onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
-  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) => void;
+  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectArchiveBlock: (blockId?: number | null) => void;
@@ -664,6 +665,8 @@ const promptPreviewDialogVNodeRef: VNodeRef = (el) => {
   props.setPromptPreviewDialogRef((el as Element | null) ?? null);
 };
 
+const chatViewRef = ref<{ exitMessageSelectionMode: () => void } | null>(null);
+
 function handleDetachConversation() {
   console.info("[独立聊天窗口][前端链路] AppWindowContent 收到 detachConversation，调用顶层处理函数", {
     viewMode: props.viewMode,
@@ -675,6 +678,19 @@ function handleDetachConversation() {
 const selectionShareDialogOpen = ref(false);
 const selectionShareDialogLoading = ref(false);
 const selectionSharePayload = ref<SelectionSharePayload | null>(null);
+
+async function handleUserAsyncDelegateFromSelection(payload: {
+  count: number;
+  messageIds: string[];
+  departmentId: string;
+  presetId: string;
+  background: string;
+  question: string;
+  focus: string;
+}) {
+  const ok = await props.onUserAsyncDelegateFromSelection(payload);
+  if (ok) chatViewRef.value?.exitMessageSelectionMode();
+}
 
 const chatBusyOverlay = computed(() => {
   if (props.branchingConversation) {

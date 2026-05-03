@@ -3735,7 +3735,7 @@ async function userAsyncDelegateFromSelection(payload: {
     : [];
   const question = String(payload?.question || "").trim();
   const focus = String(payload?.focus || "").trim();
-  if (!conversationId || !targetDepartmentId || !question) return;
+  if (!conversationId || !targetDepartmentId || !question) return false;
   try {
     const result = await invokeTauri<{
       delegateId: string;
@@ -3759,8 +3759,10 @@ async function userAsyncDelegateFromSelection(payload: {
     setStatus(selectedCount > 0
       ? `已发起异步委托给 ${targetName}，带入 ${selectedCount} 条消息`
       : `已发起异步委托给 ${targetName}`);
+    return true;
   } catch (error) {
     setStatus(`发起委托失败：${formatI18nError(tr, "status.requestFailed", error)}`);
+    return false;
   }
 }
 

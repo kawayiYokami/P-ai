@@ -2017,6 +2017,10 @@ function exitMessageSelectionMode() {
   selectedMessageRenderIds.value = [];
 }
 
+defineExpose({
+  exitMessageSelectionMode,
+});
+
 function selectionPayload() {
   const blocks = selectedMessageBlocks.value.map((item) => item.block);
   return {
