@@ -19,6 +19,7 @@ export default defineConfig({
         config: resolve(__dirname, "index.html"),
         chat: resolve(__dirname, "chat.html"),
         archives: resolve(__dirname, "archives.html"),
+        quickSetup: resolve(__dirname, "quick-setup.html"),
         fileReader: resolve(__dirname, "file-reader.html"),
       },
     },

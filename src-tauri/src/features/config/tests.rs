@@ -30,6 +30,62 @@
     }
 
     #[test]
+    fn startup_window_label_should_open_quick_setup_without_usable_text_llm() {
+        let mut cfg = AppConfig::default();
+        normalize_app_config(&mut cfg);
+        assert_eq!(startup_window_label_for_config(&cfg), "quick-setup");
+
+        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api = cfg
+            .api_configs
+            .iter_mut()
+            .find(|item| item.id == api_id)
+            .expect("default chat api exists");
+        api.base_url = "https://api.deepseek.com/v1".to_string();
+        api.model = "deepseek-chat".to_string();
+        api.api_key = "sk-test".to_string();
+        assert_eq!(startup_window_label_for_config(&cfg), "chat");
+    }
+
+    #[test]
+    fn startup_window_label_should_allow_codex_local_auth_without_api_key() {
+        let mut cfg = AppConfig::default();
+        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api = cfg
+            .api_configs
+            .iter_mut()
+            .find(|item| item.id == api_id)
+            .expect("default chat api exists");
+        api.request_format = RequestFormat::Codex;
+        api.base_url = DEFAULT_CODEX_BASE_URL.to_string();
+        api.model = "gpt-5.4".to_string();
+        api.api_key.clear();
+        api.codex_auth_mode = CODEX_AUTH_MODE_READ_LOCAL.to_string();
+        normalize_app_config(&mut cfg);
+        assert_eq!(startup_window_label_for_config(&cfg), "chat");
+    }
+
+    #[test]
+    fn startup_window_label_should_require_assistant_department_binding() {
+        let mut cfg = AppConfig::default();
+        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api = cfg
+            .api_configs
+            .iter_mut()
+            .find(|item| item.id == api_id)
+            .expect("default chat api exists");
+        api.api_key = "sk-test".to_string();
+        for department in &mut cfg.departments {
+            if department.id == ASSISTANT_DEPARTMENT_ID {
+                department.api_config_id.clear();
+                department.api_config_ids.clear();
+            }
+        }
+        cfg.assistant_department_api_config_id.clear();
+        assert_eq!(startup_window_label_for_config(&cfg), "quick-setup");
+    }
+
+    #[test]
     fn normalize_app_config_should_fix_invalid_record_and_stt_fields() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),

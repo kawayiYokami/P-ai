@@ -49,6 +49,19 @@
         "visible": false,
         "decorations": false,
         "shadow": true
+      },
+      {
+        "label": "quick-setup",
+        "url": "quick-setup.html",
+        "title": "快速设置",
+        "width": 800,
+        "height": 600,
+        "devtools": false,
+        "dragDropEnabled": false,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

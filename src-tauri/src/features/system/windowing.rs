@@ -69,6 +69,7 @@ fn default_window_size(label: &str) -> (u32, u32) {
         "main" => (900_u32, 900_u32),
         "chat" => (900_u32, 900_u32),
         "archives" => (900_u32, 900_u32),
+        "quick-setup" => (800_u32, 600_u32),
         FILE_READER_WINDOW_LABEL => (1040_u32, 760_u32),
         _ => (900_u32, 900_u32),
     }
@@ -79,13 +80,14 @@ fn minimum_window_size(label: &str) -> (u32, u32) {
         "main" => (520_u32, 520_u32),
         "chat" => (520_u32, 520_u32),
         "archives" => (560_u32, 560_u32),
+        "quick-setup" => (800_u32, 600_u32),
         FILE_READER_WINDOW_LABEL => (720_u32, 520_u32),
         _ => (520_u32, 520_u32),
     }
 }
 
 fn is_fixed_window_size(label: &str) -> bool {
-    matches!(label, "main")
+    matches!(label, "main" | "quick-setup")
 }
 
 fn detached_chat_windows() -> &'static Mutex<std::collections::HashMap<String, String>> {
@@ -433,6 +435,9 @@ fn monitor_logical_size(monitor: &tauri::Monitor) -> tauri::LogicalSize<f64> {
 
 fn default_window_size_for_monitor(label: &str, monitor: &tauri::Monitor) -> (u32, u32) {
     let fallback = default_window_size(label);
+    if matches!(label, "quick-setup") {
+        return fallback;
+    }
     let logical = monitor_logical_size(monitor);
     let min_side = logical.width.min(logical.height);
     if !min_side.is_finite() || min_side <= 1.0 {
@@ -543,6 +548,19 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
     let layouts = load_window_layouts(&state.data_path);
     let saved = layouts.windows.get(label);
     let fallback_monitor = preferred_window_monitor(&window);
+
+    if matches!(label, "quick-setup") {
+        if let Some(monitor) = fallback_monitor.as_ref() {
+            position_window_on_monitor(&window, label, monitor, None, None);
+        } else {
+            let (width, height) = default_window_size(label);
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                width as f64,
+                height as f64,
+            )));
+        }
+        return Ok(());
+    }
 
     if let Some(saved) = saved {
         if let Some(monitor) = fallback_monitor.as_ref() {
@@ -813,12 +831,14 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
     let chat = MenuItem::with_id(app, "chat", "对话", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
+    let quick_setup = MenuItem::with_id(app, "quick-setup", "快速设置", true, None::<&str>)
+        .map_err(|err| format!("Create tray menu item failed: {err}"))?;
     let archives = MenuItem::with_id(app, "archives", "归档", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
 
-    let menu = Menu::with_items(app, &[&config, &chat, &archives, &quit])
+    let menu = Menu::with_items(app, &[&config, &chat, &quick_setup, &archives, &quit])
         .map_err(|err| format!("Create tray menu failed: {err}"))?;
 
     let mut tray = TrayIconBuilder::with_id(MAIN_TRAY_ID).menu(&menu);
@@ -832,7 +852,19 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
             if id == "config" {
                 let _ = show_window(app, "main");
             } else if id == "chat" {
-                let _ = show_window(app, "chat");
+                let target = match state_read_config_cached(app.state::<AppState>().inner()) {
+                    Ok(mut config) => {
+                        normalize_app_config(&mut config);
+                        startup_window_label_for_config(&config)
+                    }
+                    Err(err) => {
+                        eprintln!("[托盘] 读取对话入口配置失败: {err}");
+                        "quick-setup"
+                    }
+                };
+                let _ = show_window(app, target);
+            } else if id == "quick-setup" {
+                let _ = show_window(app, "quick-setup");
             } else if id == "archives" {
                 let _ = show_window(app, "archives");
             } else if id == "quit" {
@@ -846,7 +878,7 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
 }
 
 fn hide_on_close(app: &AppHandle) {
-    for label in ["main", "chat", "archives"] {
+    for label in ["main", "chat", "archives", "quick-setup"] {
         if let Some(window) = app.get_webview_window(label) {
             let cloned = window.clone();
             let _ = window.on_window_event(move |event| {

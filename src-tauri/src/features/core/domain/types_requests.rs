@@ -251,6 +251,18 @@ struct RefreshModelsInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct QuickGenaiChatInput {
+    base_url: String,
+    api_key: String,
+    request_format: RequestFormat,
+    model: String,
+    prompt: String,
+    #[serde(default)]
+    provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FetchModelMetadataInput {
     request_format: RequestFormat,
     model: String,

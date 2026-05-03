@@ -789,6 +789,55 @@ fn is_text_chat_api(api: &ApiConfig) -> bool {
     api.enable_text && api.request_format.is_chat_text()
 }
 
+fn chat_api_has_required_auth(api: &ApiConfig) -> bool {
+    if api.request_format.is_codex()
+        && matches!(
+            normalize_codex_auth_mode(&api.codex_auth_mode).as_str(),
+            CODEX_AUTH_MODE_READ_LOCAL | CODEX_AUTH_MODE_MANAGED_OAUTH
+        )
+    {
+        return true;
+    }
+    !api.api_key.trim().is_empty()
+}
+
+fn is_usable_text_llm_api(api: &ApiConfig) -> bool {
+    is_text_chat_api(api)
+        && !api.base_url.trim().is_empty()
+        && !api.model.trim().is_empty()
+        && chat_api_has_required_auth(api)
+}
+
+fn has_usable_text_llm(config: &AppConfig) -> bool {
+    let usable_api_ids = config
+        .api_configs
+        .iter()
+        .filter(|api| is_usable_text_llm_api(api))
+        .map(|api| api.id.trim().to_string())
+        .collect::<std::collections::HashSet<_>>();
+    if usable_api_ids.is_empty() {
+        return false;
+    }
+    if usable_api_ids.contains(config.assistant_department_api_config_id.trim()) {
+        return true;
+    }
+    assistant_department(config)
+        .map(|department| {
+            department_api_config_ids(department)
+                .into_iter()
+                .any(|id| usable_api_ids.contains(id.trim()))
+        })
+        .unwrap_or(false)
+}
+
+fn startup_window_label_for_config(config: &AppConfig) -> &'static str {
+    if has_usable_text_llm(config) {
+        "chat"
+    } else {
+        "quick-setup"
+    }
+}
+
 fn normalize_departments(config: &mut AppConfig) {
     if config.api_configs.is_empty() {
         return;

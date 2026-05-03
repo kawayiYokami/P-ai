@@ -14,9 +14,14 @@
             </h2>
             <p class="mt-2 text-base opacity-80">{{ t("config.welcome.subtitle") }}</p>
           </div>
-          <!-- 配置完成度 -->
-          <div class="radial-progress shrink-0 text-primary" :style="`--value:${completionRate};--size:5rem`" role="progressbar">
-            {{ completionRate }}%
+          <div class="flex shrink-0 flex-col items-end gap-3">
+            <button class="btn btn-sm btn-primary" type="button" @click="openQuickSetupWindow">
+              {{ t("quickSetup.actions.openQuickSetup") }}
+            </button>
+            <!-- 配置完成度 -->
+            <div class="radial-progress text-primary" :style="`--value:${completionRate};--size:5rem`" role="progressbar">
+              {{ completionRate }}%
+            </div>
           </div>
         </div>
       </div>
@@ -407,5 +412,9 @@ const completionRate = computed(() => {
 
 function openExternalUrl(url: string) {
   void invokeTauri("open_external_url", { url });
+}
+
+function openQuickSetupWindow() {
+  void invokeTauri("show_quick_setup_window");
 }
 </script>

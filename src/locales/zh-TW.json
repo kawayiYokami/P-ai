@@ -1300,6 +1300,130 @@
       "silk": "絲綢"
     }
   },
+  "quickSetup": {
+    "title": "快速設定",
+    "advancedSettings": "進階設定",
+    "minimize": "最小化",
+    "close": "關閉",
+    "stepCounter": "步驟 {current} / {total}",
+    "languages": {
+      "zhCN": "簡中",
+      "zhTW": "繁中",
+      "enUS": "English"
+    },
+    "themeOptions": {
+      "light": "淺色",
+      "dark": "深色"
+    },
+    "providers": {
+      "custom": "自訂"
+    },
+    "steps": {
+      "voiceTheme": {
+        "title": "語音與外觀",
+        "summary": "設定語言、主題和語音喚醒預設值。"
+      },
+      "llm": {
+        "title": "LLM 供應商",
+        "summary": "設定第一個可用文字模型。"
+      },
+      "style": {
+        "title": "對話風格",
+        "summary": "選擇預設回答節奏。"
+      },
+      "identity": {
+        "title": "名稱與頭像",
+        "summary": "設定使用者、助理和主部門身分。"
+      },
+      "workspace": {
+        "title": "AI 私人目錄",
+        "summary": "設定 AI 工具執行時使用的私人目錄。"
+      },
+      "hotkey": {
+        "title": "快捷鍵",
+        "summary": "設定呼喚快捷鍵和錄音鍵。"
+      },
+      "finish": {
+        "title": "完成",
+        "summary": "儲存並開啟對話窗，或繼續進階選項。"
+      },
+      "advancedRerank": {
+        "title": "記憶重排模型",
+        "summary": "推薦 SiliconFlow，設定後自動綁定為記憶重排供應商。"
+      },
+      "advancedEmbedding": {
+        "title": "記憶嵌入模型",
+        "summary": "可選擇 Google 或硅基流動，設定後自動綁定為記憶嵌入供應商。"
+      },
+      "advancedStt": {
+        "title": "語音轉寫模型",
+        "summary": "推薦 SiliconFlow；不需要語音可以跳過。設定後綁定到語音轉寫供應商。"
+      }
+    },
+    "fields": {
+      "backgroundWake": "背景語音喚醒",
+      "provider": "供應商",
+      "providerName": "供應商名稱",
+      "website": "官網",
+      "apiKey": "API Key",
+      "model": "模型",
+      "userName": "使用者名稱",
+      "assistantName": "助理名稱",
+      "departmentName": "主部門名稱",
+      "avatar": "頭像",
+      "workspaceName": "工作區名稱",
+      "privateDirectory": "AI 私人目錄",
+      "summonHotkey": "呼喚快捷鍵",
+      "recordHotkey": "錄音鍵"
+    },
+    "actions": {
+      "enable": "開啟",
+      "disable": "關閉",
+      "openQuickSetup": "開啟快速設定",
+      "getKey": "取得 Key",
+      "showKey": "顯示 Key",
+      "hideKey": "隱藏 Key",
+      "refreshModels": "刷新模型",
+      "testConnection": "測試",
+      "chooseUserAvatar": "選擇使用者頭像",
+      "chooseAssistantAvatar": "選擇助理頭像",
+      "chooseDirectory": "選擇目錄",
+      "record": "錄製",
+      "previous": "上一步",
+      "next": "下一步",
+      "skip": "跳過",
+      "finishAndOpenChat": "完成並開啟對話窗",
+      "continueAdvanced": "繼續設定進階選項"
+    },
+    "status": {
+      "refreshModelsSuccess": "已刷新 {count} 個模型。",
+      "testingConnection": "正在測試模型連通性...",
+      "connectionOk": "連通性測試成功：{reply}"
+    },
+    "errors": {
+      "apiKeyRequiredForRefresh": "請先填寫 API Key，再刷新模型。",
+      "refreshModelsFailed": "刷新模型失敗：{error}",
+      "connectionFieldsRequired": "請先填寫 base_url、API Key 和模型，再測試連通性。",
+      "connectionFailed": "連通性測試失敗：{error}"
+    },
+    "confirmations": {
+      "untestedConnection": "目前測試未通過，是否確定真的要繼續？"
+    },
+    "hints": {
+      "backgroundWake": "開啟後可用錄音鍵觸發語音輸入。",
+      "avatar": "頭像會寫入現有人格頭像儲存。",
+      "privateDirectory": "這是 AI 的私人目錄，用於保存工具執行時需要讀寫的檔案。",
+      "readyToOpenChat": "基礎設定已具備開啟對話窗的條件。"
+    },
+    "hotkeyHints": {
+      "idle": "點擊錄製後按下快捷鍵。Esc 取消。",
+      "recording": "請按下快捷鍵，Esc 取消。",
+      "cancelled": "已取消錄製。",
+      "summonNeedsModifier": "呼喚快捷鍵需要至少一個修飾鍵。",
+      "unrecognized": "未識別按鍵。",
+      "recorded": "已錄製：{combo}"
+    }
+  },
   "about": {
     "version": "版本",
     "checkUpdate": "检查更新",

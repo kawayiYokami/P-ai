@@ -1286,6 +1286,130 @@
       "silk": "silk"
     }
   },
+  "quickSetup": {
+    "title": "Quick Setup",
+    "advancedSettings": "Advanced Settings",
+    "minimize": "Minimize",
+    "close": "Close",
+    "stepCounter": "Step {current} / {total}",
+    "languages": {
+      "zhCN": "简中",
+      "zhTW": "繁中",
+      "enUS": "English"
+    },
+    "themeOptions": {
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "providers": {
+      "custom": "Custom"
+    },
+    "steps": {
+      "voiceTheme": {
+        "title": "Voice & Appearance",
+        "summary": "Set language, theme, and background voice wake defaults."
+      },
+      "llm": {
+        "title": "LLM Provider",
+        "summary": "Configure the first usable text model."
+      },
+      "style": {
+        "title": "Response Style",
+        "summary": "Choose the default response rhythm."
+      },
+      "identity": {
+        "title": "Names & Avatars",
+        "summary": "Set the user, assistant, and primary department identity."
+      },
+      "workspace": {
+        "title": "AI Private Directory",
+        "summary": "Set the private directory used by AI tools."
+      },
+      "hotkey": {
+        "title": "Hotkeys",
+        "summary": "Set the summon hotkey and recording key."
+      },
+      "finish": {
+        "title": "Finish",
+        "summary": "Save and open chat, or continue advanced setup."
+      },
+      "advancedRerank": {
+        "title": "Memory Rerank Model",
+        "summary": "SiliconFlow is recommended. This will bind the memory rerank provider."
+      },
+      "advancedEmbedding": {
+        "title": "Memory Embedding Model",
+        "summary": "Choose Google or SiliconFlow. This will bind the memory embedding provider."
+      },
+      "advancedStt": {
+        "title": "Speech Transcription",
+        "summary": "SiliconFlow is recommended; skip this if voice is not needed."
+      }
+    },
+    "fields": {
+      "backgroundWake": "Background Voice Wake",
+      "provider": "Provider",
+      "providerName": "Provider Name",
+      "website": "Website",
+      "apiKey": "API Key",
+      "model": "Model",
+      "userName": "User Name",
+      "assistantName": "Assistant Name",
+      "departmentName": "Primary Department",
+      "avatar": "Avatar",
+      "workspaceName": "Workspace Name",
+      "privateDirectory": "AI Private Directory",
+      "summonHotkey": "Summon Hotkey",
+      "recordHotkey": "Recording Key"
+    },
+    "actions": {
+      "enable": "Enable",
+      "disable": "Disable",
+      "openQuickSetup": "Open Quick Setup",
+      "getKey": "Get Key",
+      "showKey": "Show Key",
+      "hideKey": "Hide Key",
+      "refreshModels": "Refresh Models",
+      "testConnection": "Test",
+      "chooseUserAvatar": "Choose User Avatar",
+      "chooseAssistantAvatar": "Choose Assistant Avatar",
+      "chooseDirectory": "Choose Directory",
+      "record": "Record",
+      "previous": "Previous",
+      "next": "Next",
+      "skip": "Skip",
+      "finishAndOpenChat": "Finish and Open Chat",
+      "continueAdvanced": "Continue Advanced Setup"
+    },
+    "status": {
+      "refreshModelsSuccess": "Refreshed {count} models.",
+      "testingConnection": "Testing model connectivity...",
+      "connectionOk": "Connectivity test passed: {reply}"
+    },
+    "errors": {
+      "apiKeyRequiredForRefresh": "Enter an API Key before refreshing models.",
+      "refreshModelsFailed": "Refresh models failed: {error}",
+      "connectionFieldsRequired": "Enter base_url, API Key, and model before testing connectivity.",
+      "connectionFailed": "Connectivity test failed: {error}"
+    },
+    "confirmations": {
+      "untestedConnection": "The current test has not passed. Are you sure you want to continue?"
+    },
+    "hints": {
+      "backgroundWake": "When enabled, the recording key can trigger voice input.",
+      "avatar": "Avatars are saved into the existing persona avatar storage.",
+      "privateDirectory": "This is the AI private directory for files used by tool runs.",
+      "readyToOpenChat": "Basic setup is ready to open the chat window."
+    },
+    "hotkeyHints": {
+      "idle": "Click Record, then press a hotkey. Esc cancels.",
+      "recording": "Press a hotkey. Esc cancels.",
+      "cancelled": "Recording cancelled.",
+      "summonNeedsModifier": "The summon hotkey needs at least one modifier key.",
+      "unrecognized": "Key not recognized.",
+      "recorded": "Recorded: {combo}"
+    }
+  },
   "about": {
     "version": "Version",
     "checkUpdate": "Check for Updates",

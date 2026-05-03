@@ -13,6 +13,20 @@ fn show_archives_window(app: AppHandle) -> Result<(), String> {
     show_window(&app, "archives")
 }
 
+#[tauri::command]
+fn show_quick_setup_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "quick-setup")
+}
+
+#[tauri::command]
+fn complete_quick_setup_and_open_chat(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "chat")?;
+    if let Some(window) = app.get_webview_window("quick-setup") {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DetachedChatWindowInput {

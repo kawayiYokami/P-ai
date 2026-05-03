@@ -521,6 +521,97 @@ async fn refresh_models(
 }
 
 #[tauri::command]
+async fn quick_genai_chat(
+    state: State<'_, AppState>,
+    input: QuickGenaiChatInput,
+) -> Result<String, String> {
+    let base_url = input.base_url.trim();
+    let api_key = input.api_key.trim();
+    let model = input.model.trim();
+    let prompt = input.prompt.trim();
+    if base_url.is_empty() {
+        return Err("Base URL is empty.".to_string());
+    }
+    if api_key.is_empty() {
+        return Err("API key is empty.".to_string());
+    }
+    if model.is_empty() {
+        return Err("Model is empty.".to_string());
+    }
+    if prompt.is_empty() {
+        return Err("Prompt is empty.".to_string());
+    }
+    if !input.request_format.is_chat_text() {
+        return Err(format!(
+            "Request format '{}' is not a chat text format.",
+            input.request_format
+        ));
+    }
+
+    let resolved_api = ResolvedApiConfig {
+        provider_id: input.provider_id,
+        provider_api_keys: vec![api_key.to_string()],
+        provider_key_cursor: 0,
+        request_format: input.request_format,
+        allow_concurrent_requests: true,
+        base_url: base_url.to_string(),
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+        reasoning_effort: None,
+        temperature: Some(0.0),
+        max_output_tokens: Some(16),
+        prompt_cache_key: None,
+        extra_headers: Vec::new(),
+        codex_auth: None,
+    };
+    let prepared = PreparedPrompt {
+        preamble: String::new(),
+        history_messages: Vec::new(),
+        latest_user_text: prompt.to_string(),
+        latest_user_meta_text: String::new(),
+        latest_user_extra_text: String::new(),
+        latest_user_extra_blocks: Vec::new(),
+        latest_images: Vec::new(),
+        latest_audios: Vec::new(),
+    };
+    let started_at = std::time::Instant::now();
+    let reply = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        call_model_openai_non_stream(&resolved_api, model, prepared, Some(&state)),
+    )
+    .await
+    .map_err(|_| "Quick setup connectivity test timed out.".to_string())??;
+    push_llm_round_log(
+        Some(&state),
+        None,
+        None,
+        "Quick setup connectivity test",
+        resolved_api.request_format,
+        resolved_api
+            .provider_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("quick-setup"),
+        model,
+        &resolved_api.base_url,
+        masked_auth_headers(&resolved_api.api_key),
+        None,
+        Some(model_reply_to_log_value(&reply)),
+        None,
+        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        None,
+    );
+    let final_text = reply.final_response_text.trim();
+    let text = if final_text.is_empty() {
+        reply.assistant_text.trim().to_string()
+    } else {
+        final_text.to_string()
+    };
+    Ok(text)
+}
+
+#[tauri::command]
 async fn resolve_model_adapter_kind(model_name: String) -> Result<String, String> {
     let stripped = model_name
         .split(['/', ':'])

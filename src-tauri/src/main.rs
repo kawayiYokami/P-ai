@@ -451,7 +451,20 @@ fn main() {
                 .get_webview_window("chat")
                 .and_then(|window| window.is_visible().ok())
                 .unwrap_or(false);
-            let target = if chat_is_visible { "chat" } else { "main" };
+            let target = if chat_is_visible {
+                "chat"
+            } else {
+                match state_read_config_cached(app.state::<AppState>().inner()) {
+                    Ok(mut config) => {
+                        normalize_app_config(&mut config);
+                        startup_window_label_for_config(&config)
+                    }
+                    Err(err) => {
+                        eprintln!("[单实例] 读取启动窗口配置失败: {err}");
+                        "quick-setup"
+                    }
+                }
+            };
             if let Err(err) = show_window(app, target) {
                 eprintln!("[单实例] 激活已有实例失败: target={}, error={}", target, err);
             } else {
@@ -541,9 +554,19 @@ fn main() {
             let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
-            if let Err(err) = show_window(&app_handle, "main") {
-                eprintln!("[启动] 显示主窗口失败: {err}");
-                if let Some(window) = app_handle.get_webview_window("main") {
+            let startup_window_label = match state_read_config_cached(app_state.inner()) {
+                Ok(mut config) => {
+                    normalize_app_config(&mut config);
+                    startup_window_label_for_config(&config)
+                }
+                Err(err) => {
+                    eprintln!("[启动] 读取启动窗口配置失败: {err}");
+                    "quick-setup"
+                }
+            };
+            if let Err(err) = show_window(&app_handle, startup_window_label) {
+                eprintln!("[启动] 显示启动窗口失败: target={startup_window_label}, error={err}");
+                if let Some(window) = app_handle.get_webview_window(startup_window_label) {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
@@ -559,6 +582,8 @@ fn main() {
             show_main_window,
             show_chat_window,
             show_archives_window,
+            show_quick_setup_window,
+            complete_quick_setup_and_open_chat,
             detach_current_conversation_to_window,
             get_detached_chat_window_info,
             focus_detached_chat_window_by_conversation,
@@ -683,6 +708,7 @@ fn main() {
             preview_force_archive_current,
             preview_force_compact_current,
             refresh_models,
+            quick_genai_chat,
             resolve_model_adapter_kind,
             fetch_model_metadata,
             export_config_migration_package,
