@@ -1,189 +1,123 @@
-# P-ai
+# P-ai (PAI)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](../../LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8D8?logo=tauri)](https://tauri.app)
-[![Vue](https://img.shields.io/badge/Vue-3.0-4FC08D?logo=vue.js)](https://vuejs.org)
-[![Rust](https://img.shields.io/badge/Rust-1.0-000000?logo=rust)](https://www.rust-lang.org)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri)](https://tauri.app)
+[![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js)](https://vuejs.org)
+[![Rust](https://img.shields.io/badge/Rust-000000?logo=rust)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/badge/Release-0.9.69-6366f1)](https://github.com/kawayiYokami/P-ai/releases)
 
-**Languages**  
+**Languages / 语言**
 [简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en-US.md) | [日本語](README.ja-JP.md)
 
 ---
 
-> Turn LLMs into a desktop AI command center that actually gets work done.  
-> This is not just a chat overlay. It is a desktop AI operating system that can manage itself, manage subordinates, manage skills, manage workspace state, and keep executing over time.
+> **A self-growing desktop AI work system — ready-to-use, with agent delegation, long-term memory, tool review, MCP, and high-concurrency workspace automation.**
 
-P-ai is not trying to be another AI chat website.
+---
 
-It is trying to do something far more ambitious:
+PAI is an actively evolving desktop AI work system. It is not a chat client — it is a complete desktop system organized around conversations, tasks, memory, departments, tools, review, and remote messaging. The backend uses Rust async concurrency and streaming architecture to guarantee response speed; the frontend uses Vue 3 + DaisyUI for a clean interface. All data is stored locally, with no intermediate servers.
 
-- summon AI to the edge of your desktop with one hotkey
-- give AI stable personas, stable departments, stable skills, stable MCP tools, and a stable workspace
-- let AI do more than answer questions: accept tasks, track tasks, delegate tasks, and collaborate over time
-- make memory sustainable, traceable, archivable, and much cheaper than brute-force context stuffing
+### Entry & Efficiency
 
-If you want a talking webpage, this is not the point.  
-If you want a desktop AI system that can keep working with you for the long run, this is it.
+Global hotkey summon, voice wakeup, background voice input, quick screenshot — PAI brings desktop AI access to "summon anytime, handle anything, continue anywhere." Supports local sessions, remote sessions, and multiple parallel sessions; quick commands can trigger common operations in one keystroke.
 
-## What It Is Now
+### Organization & Personas
 
-P-ai is closer to a combination of:
+Multiple departments and personas can be independently configured, each with its own avatar and private memory. Tasks and sessions are separated by department, identity, and responsibility. Local sessions support multi-agent group chat; remote sessions support WeChat, Feishu, DingTalk, OneBot, and other protocols.
 
-- a desktop AI overlay
-- a long-running task system
-- a department / worker delegation system
-- a Skill + MCP workspace
-- a low-cost persistent memory system
-- a conversation system with auto-archive and context organization
+### Interface & Interaction
 
-In one sentence:
+UI, chat style, colors, and fonts are all customizable, with multiple windows running in parallel. Fast response, clean but not bare-bones.
 
-> It is a summonable, delegatable, executable, accumulative desktop AI work hub.
+### Capabilities & Tools
 
-## Why It Is Different
+A complete capability set is pre-built: LLM can execute operation scripts to control the computer and send reactions proactively; common Skills are built-in; full image-to-text, native PDF and Office reading are supported; tool modifications are reversible; tool execution and code changes can undergo multi-angle AI review. API provider onboarding is streamlined and ready to use.
 
-Most AI products are limited not because the model is weak, but because the system design is primitive:
+### Memory & Context
 
-| Common problem | What it causes |
-|------|------|
-| Chat only, no task model | AI can answer, but cannot keep work moving |
-| One identity, no organization | Everything is forced into one assistant |
-| No stable workspace | Every round feels like a partial reset |
-| Expensive and messy memory | Context grows heavier and more fragile |
-| Blurry tool boundaries | Hard to control, hard to reuse |
+Long conversations are dynamically compressed and archived; a single session can persist indefinitely, with context staying effective through continuous compression and organization. The memory system is low-cost and comprehensive — the more you use it, the better the AI understands you.
 
-P-ai goes in the opposite direction:
+### Engineering & Reliability
 
-- give LLMs identity
-- give LLMs departments
-- give LLMs subordinates
-- give LLMs skills
-- give LLMs tool boundaries
-- give LLMs long-term workspace state
-- give LLMs cost-aware persistent memory
+High performance, concurrent, fast to respond. Local sessions support message delivery, session branching, and manual delegation; remote sessions support sending and receiving files and images. Built-in proactive planning mode, delegation system, and persona system; LLM can autonomously manage MCP, skills, personas, and departments. Tool execution has a review chain; code changes can be validated from multiple angles.
 
-The goal is not to make AI feel more like a chatbot.  
-The goal is to make AI feel more like a living work system.
+---
 
-## Core Capabilities
+### Real Usage Scenarios
 
-### 1. One-hotkey desktop AI
-- summon / hide chat instantly with a global hotkey
-- live in the system tray
-- work at the edge of your screen without breaking your current flow
+The following are not hypotheticals — they actually happened:
 
-### 2. Unified multi-model runtime
-- manage multiple providers and model setups
-- assign different models to different responsibilities
-- unify streaming, tool calling, context handling, and archiving in one backend pipeline
+- Starting from v0.8, PAI has been used to develop PAI itself for over 1 month, producing 407 commits and 496 file changes
+- Users have been using PAI continuously for financial analysis and news monitoring for over 3 months
+- Users have been using PAI via WeChat remote contacts to produce Xiaohongshu content for over 3 months, with over a thousand published posts
+- Users have been using PAI to analyze research papers for over 2 months and published multiple papers based on it
+- Users have been using PAI for scheduled web scraping, accumulating over 500M of data
+- A user ran PAI continuously for 20 hours on a programming task — it reviewed, resolved, researched online, and passed on its own
+- Users have been using PAI long-term to create game guides
+- Users have been using PAI long-term to operate games and complete daily tasks
+- Users run dozens of sessions simultaneously, using PAI to monitor multiple online channels at once
+- After extended use, users consistently report it gets smoother over time — the AI understands them better
 
-### 3. A real task system
-- AI can create, maintain, and complete tasks
-- support run-at, recurring, and persistent tracking flows
-- task board, task detail, and current tracked task
-- long-running work can move in stages instead of being forgotten after one reply
+---
 
-### 4. Department and worker delegation
-- the main assistant can delegate work to subordinate departments
-- departments can keep delegating downward
-- background execution does not block foreground chat
-- results flow back through the chain
+### Project Stats
 
-That means AI is no longer one mind trying to do everything.  
-It starts behaving like an organization.
+- 872 commits, 116 releases
+- 79 plan documents
+- Full-stack evolution across Vue, Rust, and Tauri 2
+- Local sessions, remote sessions, memory, review, delegation, multi-window, and workspace capabilities all shipped
 
-### 5. Skill workspace
-- built-in preset skills
-- install, write, refresh, and inspect skills inside the workspace
-- the Skill page can display both `SKILL.md` summary and full body
-- migrate public skill ideas into local project-native skills
+---
 
-### 6. MCP tool ecosystem
-- connect MCP tools
-- govern tool access by persona and department boundaries
-- treat tools as runtime capabilities instead of a random pile of integrations
+## Tech Stack
 
-### 7. Private departments and personas
-- AI can have its own private organization space beyond the main config
-- private departments, private personas, and private skills can be refreshed into runtime
-- keep the main assistant and private workspace evolving together without cramming everything into one global file
+- Desktop shell: Tauri 2
+- Backend: Rust (async, tokio)
+- Frontend: Vue 3 + TypeScript + Vite
+- UI: DaisyUI + Tailwind CSS
+- Package manager: pnpm
 
-### 8. Efficient, low-cost memory
-- active recall
-- memory categories
-- private memory
-- auto-archive for long conversations
-- context organization and compression
-- backend-driven context usage calculation
+## Platform & Updates
 
-The point is not infinite context.  
-The point is keeping AI alive for the long run without burning money.
+Current release strategy:
 
-## Example Workflows
+- Windows: NSIS installer + zip portable (`PORTABLE` marker), in-app auto-update
+- Linux: `.deb` / `AppImage`, release pipeline maintained
 
-### Quick question
-1. Summon the chat window with a hotkey
-2. Ask, paste, or screenshot
-3. Let AI answer or call tools
-4. Hide it and keep working
+## Data & Privacy
 
-### Long-running task
-1. AI creates a task
-2. Set target time, recurring interval, or persistent goal
-3. Let the system remind and track progress
-4. Update status stage by stage instead of “done and gone”
-
-### Department collaboration
-1. Main assistant receives work
-2. Delegates to a department / worker
-3. Subordinate executes independently
-4. Result flows back upward
-5. Main assistant delivers the final response
-
-### Workspace evolution
-1. AI maintains skills, private personas, and private departments in its workspace
-2. Refresh brings them into runtime
-3. The organization evolves with real work over time
+- API keys are stored locally, never passing through any intermediate server
+- Conversations, tasks, archives, memory, and media are all stored locally
+- Portable version data lives in `data/` next to the executable — plug-and-play from a USB drive
+- You can manage, export, and clean up all your data yourself
 
 ## Who It Is For
 
-- people who want LLMs deeply embedded into desktop workflows
-- people who are not satisfied with one-turn chat
-- people who need long-running task execution
-- people who want AI with organization, delegation, and memory
-- people who want to shape their own AI system instead of living inside someone else’s product rules
+- Developers who want AI truly embedded in their desktop workflow
+- People not satisfied with AI tools that "can only chat"
+- People who need long-running task execution, not one-shot Q&A
+- People who want AI with review capability, not blind delegation
+- People with imagination for AI organizational collaboration
 
 ## Quick Start
 
-1. Launch the app
-2. Open Config from the system tray
-3. Add and save your LLM API config
-4. Choose the main assistant department model and assignee persona
-5. Set the summon hotkey
-6. Start working from the chat window
-7. Expand the system further through Tasks, Departments, Skills, and MCP
+Download the installer or portable version from [Releases](https://github.com/kawayiYokami/P-ai/releases).
 
-## What Has Already Been Built
+Main file locations after installation:
 
-- desktop AI overlay
-- auto-archive
-- unified tool-calling pipeline
-- task system and task board
-- department delegation / worker workflow
-- private organization workspace refresh
-- preset and custom skill workspace
-- MCP integration and capability governance
-- context organization
-- backend-driven context usage calculation
+- Executable: `/usr/bin/p-ai`
+- Desktop entry: `/usr/share/applications/p-ai.desktop`
+- Icon: `/usr/share/pixmaps/p-ai.png`
+- Default data directory: `~/.config/p-ai/`
 
-## Privacy & Data
+## Acknowledgments
 
-- API keys stay on your machine by default
-- conversations, archives, tasks, memory, and workspace data are stored locally by default
-- you can manage, export, and clean your data yourself
+This project relies on these excellent upstream projects and communities: [Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [Linux.do](https://linux.do/) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
+
+The project author has also developed three plugins for the AstrBot ecosystem: [AngelHeart](https://github.com/kawayiYokami/astrbot_plugin_angel_heart) (intelligent group chat) · [AngelMemory](https://github.com/kawayiYokami/astrbot_plugin_angel_memory) (hierarchical memory retrieval) · [AngelSmile](https://github.com/kawayiYokami/astrbot_plugin_angel_smile) (sticker management)
+
+Thanks to everyone who has contributed ideas, testing, feedback, and code to this project.
 
 ## License
 
 This project is licensed under [GNU General Public License v3.0](../../LICENSE).
-
-
