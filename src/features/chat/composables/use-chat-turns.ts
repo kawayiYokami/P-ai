@@ -21,6 +21,12 @@ function streamToolCallsFromProviderMeta(meta: Record<string, unknown>): Array<{
     .filter((item) => !!item.name);
 }
 
+function positiveNumberFromProviderMeta(meta: Record<string, unknown>, key: string): number | undefined {
+  const value = Number(meta[key]);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value);
+}
+
 type UseChatMessageBlocksOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
@@ -92,6 +98,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
         remoteImOrigin: undefined,
         reasoningStandard: "",
         reasoningInline: "",
+        dispatchElapsedMs: undefined,
         toolCallCount: 0,
         lastToolName: "",
         toolCalls: [],
@@ -113,6 +120,8 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const streamTail = String(meta._streamTail ?? "");
     const streamAnimatedDelta = String(meta._streamAnimatedDelta ?? "");
     const streamToolCalls = streamToolCallsFromProviderMeta(meta);
+    const dispatchElapsedMs = positiveNumberFromProviderMeta(meta, "dispatchElapsedMs");
+    const frontendDispatchElapsedMs = positiveNumberFromProviderMeta(meta, "_frontendDispatchElapsedMs");
     const baseBlock = {
       id: message.id,
       sourceMessageId: message.id,
@@ -136,6 +145,8 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       remoteImOrigin: projection.remoteImOrigin,
       reasoningStandard: projection.reasoningStandard,
       reasoningInline: projection.reasoningInline,
+      dispatchElapsedMs,
+      frontendDispatchElapsedMs,
       toolCallCount: projection.toolCallCount,
       lastToolName: projection.lastToolName,
       toolCalls: streamToolCalls.length > 0 ? streamToolCalls : projection.toolCalls,
@@ -184,6 +195,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
           remoteImOrigin: projection.remoteImOrigin,
           reasoningStandard: "",
           reasoningInline: "",
+          dispatchElapsedMs,
           toolCallCount: 0,
           lastToolName: "",
           toolCalls: [],

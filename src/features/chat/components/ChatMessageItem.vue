@@ -423,6 +423,13 @@
             >
               <RotateCcw class="h-3.5 w-3.5" />
             </button>
+            <span
+              v-if="finalDispatchElapsedLabel(block) && !selectionModeEnabled"
+              class="inline-flex h-6 shrink-0 items-center rounded px-1 text-[11px] font-medium text-base-content/60"
+              :title="`本次调度用时 ${finalDispatchElapsedLabel(block)}`"
+            >
+              {{ `用时 ${finalDispatchElapsedLabel(block)}` }}
+            </span>
           </div>
         </div>
       </div>
@@ -727,17 +734,21 @@ function assistantStreamingHeaderStatus(block: ChatMessageBlock): string {
   if (!showStreamingUi(block)) return "";
   const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
   const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
-  if (preStreamingStatusText) return preStreamingStatusText;
+  const withElapsed = (text: string): string => {
+    const elapsed = frontendDispatchElapsedLabel(block);
+    return elapsed ? `${text}（${elapsed}）` : text;
+  };
+  if (preStreamingStatusText) return withElapsed(preStreamingStatusText);
   const toolCalls = toolCallsForBlock(block);
   const doingTool = toolCalls.find((call) => call.status === "doing") || toolCalls[toolCalls.length - 1];
-  if (doingTool?.name) return `正在执行 ${doingTool.name} 中`;
+  if (doingTool?.name) return withElapsed(`正在执行 ${doingTool.name} 中`);
   if (hasStreamingSpeechContent(block)) {
-    return t("chat.statusSpeaking");
+    return withElapsed(t("chat.statusSpeaking"));
   }
   if (String(block.reasoningStandard || resolvedInlineReasoning(block) || "").trim()) {
-    return t("chat.statusThinking");
+    return withElapsed(t("chat.statusThinking"));
   }
-  return t("chat.statusWaitingReply");
+  return withElapsed(t("chat.statusWaitingReply"));
 }
 
 function showAssistantPreStreamingDots(block: ChatMessageBlock): boolean {
@@ -1321,6 +1332,43 @@ function toolNamesLabel(block: ChatMessageBlock): string {
       return total > 1 ? `${name}（+${total - 1}）` : name;
     })
     .join("，");
+}
+
+function formatDispatchElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const padded = (value: number) => String(value).padStart(2, "0");
+  if (days > 0) return `${days}天${padded(hours)}小时${padded(minutes)}分${padded(seconds)}秒`;
+  if (hours > 0) return `${hours}小时${padded(minutes)}分${padded(seconds)}秒`;
+  if (minutes > 0) return `${minutes}分${padded(seconds)}秒`;
+  return `${seconds}秒`;
+}
+
+function numericMetaValue(block: ChatMessageBlock, key: string): number {
+  const fromBlock = Number((block as ChatMessageBlock & Record<string, unknown>)[key]);
+  if (Number.isFinite(fromBlock) && fromBlock > 0) return fromBlock;
+  const meta = (block.providerMeta || {}) as Record<string, unknown>;
+  const fromMeta = Number(meta[key]);
+  return Number.isFinite(fromMeta) && fromMeta > 0 ? fromMeta : 0;
+}
+
+function frontendDispatchElapsedLabel(block: ChatMessageBlock): string {
+  if (!showStreamingUi(block)) return "";
+  const elapsedMs = numericMetaValue(block, "frontendDispatchElapsedMs")
+    || numericMetaValue(block, "_frontendDispatchElapsedMs");
+  const startedAtMs = numericMetaValue(block, "_frontendDispatchStartedAtMs");
+  if (elapsedMs <= 0 && startedAtMs <= 0) return "";
+  return formatDispatchElapsed(elapsedMs);
+}
+
+function finalDispatchElapsedLabel(block: ChatMessageBlock): string {
+  if (block.isStreaming) return "";
+  const elapsedMs = numericMetaValue(block, "dispatchElapsedMs");
+  if (elapsedMs <= 0) return "";
+  return formatDispatchElapsed(elapsedMs);
 }
 
 function formattedBlockTime(value?: string): string {

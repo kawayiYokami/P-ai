@@ -470,6 +470,7 @@ export type ChatMessage = {
   providerMeta?: {
     reasoningStandard?: string;
     reasoningInline?: string;
+    dispatchElapsedMs?: number;
     messageKind?: string;
     hiddenPromptText?: string;
     attachments?: Array<{ fileName: string; relativePath: string; mime?: string }>;
@@ -518,6 +519,8 @@ export type ChatMessageBlock = {
   };
   reasoningStandard: string;
   reasoningInline: string;
+  dispatchElapsedMs?: number;
+  frontendDispatchElapsedMs?: number;
   toolCallCount: number;
   lastToolName: string;
   toolCalls: Array<{ name: string; argsText: string; status?: "doing" | "done" }>;

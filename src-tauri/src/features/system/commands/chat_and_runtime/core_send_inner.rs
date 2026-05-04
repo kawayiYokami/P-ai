@@ -2771,6 +2771,10 @@ async fn send_chat_message_inner(
     } else {
         "standard_conversation"
     };
+    let dispatch_elapsed_ms = chat_started_at
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let mut provider_meta = {
         let standard = reasoning_standard.trim();
         let inline = reasoning_inline.trim();
@@ -2783,11 +2787,14 @@ async fn send_chat_message_inner(
             estimated_prompt_tokens,
             remote_im_reply_decision.is_some(),
         ) {
-            None
+            Some(serde_json::json!({
+                "dispatchElapsedMs": dispatch_elapsed_ms
+            }))
         } else {
             let mut meta = serde_json::json!({
                 "reasoningStandard": standard,
                 "reasoningInline": inline,
+                "dispatchElapsedMs": dispatch_elapsed_ms,
                 "providerPromptTokens": trusted_input_tokens,
                 "estimatedPromptTokens": estimated_prompt_tokens,
                 "effectivePromptTokens": effective_prompt_tokens,
@@ -2830,6 +2837,10 @@ async fn send_chat_message_inner(
                     target.insert(key.clone(), value.clone());
                 }
             }
+            target.insert(
+                "dispatchElapsedMs".to_string(),
+                serde_json::json!(dispatch_elapsed_ms),
+            );
         }
         provider_meta = Some(merged);
     }
