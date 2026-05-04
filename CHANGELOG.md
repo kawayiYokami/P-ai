@@ -2,6 +2,9 @@
 
 ## 进行中
 
+## 发布：v0.9.71
+
+- 发布（release-0.9.71）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.71`，纳入本轮表情贴纸入库 WebP 归一、图转文配置提示与清空保存、硬盘根目录工作区权限修复、会话最大权限开关，以及终端编辑工具提示词约束。
 - 功能（chat-workspace-autonomous-mode）：会话权限卡右上角新增“给予本会话最大权限”开关，开启后当前会话终端与补丁执行可访问任意目录，并跳过目录权限、智能审查与人工审批。
 - 优化（terminal-editing-tool-guidance）：终端工具系统提示词明确要求，如无用户明确指示，禁止使用 python 或终端命令直接修改文件，文件新增、删除、移动或改写必须使用 `apply_patch`。
 - 修复（terminal-drive-root-workspace）：终端工作目录权限判断兼容 Windows 硬盘根目录作为工作区，避免 `D:\` 这类根路径下的子目录被误判为不在合法工作目录。
