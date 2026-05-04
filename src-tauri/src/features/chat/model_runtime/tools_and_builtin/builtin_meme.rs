@@ -52,6 +52,17 @@ struct MemeDetectedImageFormat {
 
 const MEME_DHASH_INDEX_FILE_NAME: &str = "image_dhash_index.json";
 const MEME_DHASH_DISTANCE_THRESHOLD: u32 = 8;
+const MEME_NORMALIZED_MAX_EDGE: u32 = 300;
+const MEME_NORMALIZED_WEBP_QUALITY: f32 = 85.0;
+const MEME_NORMALIZED_MIME: &str = "image/webp";
+const MEME_NORMALIZED_EXT: &str = "webp";
+
+struct MemeNormalizedImage {
+    bytes: Vec<u8>,
+    frame_count: usize,
+    width: u32,
+    height: u32,
+}
 
 fn meme_workspace_root(state: &AppState) -> PathBuf {
     configured_workspace_root_path(state)
@@ -255,6 +266,163 @@ fn meme_detect_image_format_from_path(path: &Path) -> Result<MemeDetectedImageFo
         .map_err(|err| format!("读取表情源文件失败: path={}, err={err}", path.display()))?;
     meme_detect_image_format_from_bytes(&raw)
         .ok_or_else(|| format!("无法识别图片真实格式: {}", path.display()))
+}
+
+fn meme_resized_dimensions(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
+    let longest = width.max(height);
+    if longest <= max_edge || longest == 0 {
+        return (width.max(1), height.max(1));
+    }
+    let new_width = ((width as u64 * max_edge as u64 + longest as u64 / 2) / longest as u64)
+        .max(1) as u32;
+    let new_height = ((height as u64 * max_edge as u64 + longest as u64 / 2) / longest as u64)
+        .max(1) as u32;
+    (new_width, new_height)
+}
+
+fn meme_resize_rgba_frame(image: image::RgbaImage) -> image::RgbaImage {
+    let (width, height) = image.dimensions();
+    let (new_width, new_height) =
+        meme_resized_dimensions(width, height, MEME_NORMALIZED_MAX_EDGE);
+    if (new_width, new_height) == (width, height) {
+        image
+    } else {
+        image::imageops::resize(
+            &image,
+            new_width,
+            new_height,
+            image::imageops::FilterType::Lanczos3,
+        )
+    }
+}
+
+fn meme_encode_static_webp(image: image::RgbaImage) -> Result<MemeNormalizedImage, String> {
+    let width = image.width();
+    let height = image.height();
+    let encoded = webp::Encoder::from_rgba(image.as_raw(), width, height)
+        .encode_simple(false, MEME_NORMALIZED_WEBP_QUALITY)
+        .map_err(|err| format!("编码 WebP 贴纸失败: {err:?}"))?;
+    Ok(MemeNormalizedImage {
+        bytes: encoded.to_vec(),
+        frame_count: 1,
+        width,
+        height,
+    })
+}
+
+fn meme_encode_animated_webp(
+    frames: Vec<(image::RgbaImage, u32)>,
+) -> Result<MemeNormalizedImage, String> {
+    let Some((first, _)) = frames.first() else {
+        return Err("动图没有可用帧".to_string());
+    };
+    let width = first.width();
+    let height = first.height();
+    let mut config = webp::WebPConfig::new()
+        .map_err(|err| format!("初始化 WebP 动图编码配置失败: {err:?}"))?;
+    config.lossless = 0;
+    config.quality = MEME_NORMALIZED_WEBP_QUALITY;
+    config.method = 6;
+    config.alpha_compression = 1;
+    let mut encoder = webp::AnimEncoder::new(width, height, &config);
+    encoder.set_loop_count(0);
+    let mut timestamp_ms = 0i32;
+    for (frame, duration_ms) in &frames {
+        if frame.width() != width || frame.height() != height {
+            return Err("动图帧尺寸不一致，无法编码 WebP".to_string());
+        }
+        let frame = webp::AnimFrame::from_rgba(frame.as_raw(), width, height, timestamp_ms);
+        encoder.add_frame(frame);
+        let duration = (*duration_ms).max(20).min(i32::MAX as u32) as i32;
+        timestamp_ms = timestamp_ms.saturating_add(duration);
+    }
+    let encoded = encoder
+        .try_encode()
+        .map_err(|err| format!("编码 WebP 动图贴纸失败: {err:?}"))?;
+    Ok(MemeNormalizedImage {
+        bytes: encoded.to_vec(),
+        frame_count: frames.len(),
+        width,
+        height,
+    })
+}
+
+fn meme_decode_animation_frames(
+    raw: &[u8],
+    detected: &MemeDetectedImageFormat,
+) -> Result<Option<Vec<(image::RgbaImage, u32)>>, String> {
+    use image::AnimationDecoder;
+
+    let cursor = std::io::Cursor::new(raw);
+    let frames = match detected.ext.as_str() {
+        "gif" => {
+            let decoder = image::codecs::gif::GifDecoder::new(cursor)
+                .map_err(|err| format!("解码 GIF 贴纸失败: {err}"))?;
+            decoder
+                .into_frames()
+                .collect_frames()
+                .map_err(|err| format!("读取 GIF 贴纸帧失败: {err}"))?
+        }
+        "webp" => {
+            let decoder = image::codecs::webp::WebPDecoder::new(cursor)
+                .map_err(|err| format!("解码 WebP 贴纸失败: {err}"))?;
+            decoder
+                .into_frames()
+                .collect_frames()
+                .map_err(|err| format!("读取 WebP 贴纸帧失败: {err}"))?
+        }
+        _ => return Ok(None),
+    };
+    if frames.len() <= 1 {
+        return Ok(None);
+    }
+    let mut out = Vec::<(image::RgbaImage, u32)>::new();
+    for frame in frames {
+        let (numerator, denominator) = frame.delay().numer_denom_ms();
+        let duration = if denominator == 0 {
+            40
+        } else {
+            ((numerator as u64 + denominator as u64 / 2) / denominator as u64)
+                .max(20)
+                .min(i32::MAX as u64) as u32
+        };
+        out.push((meme_resize_rgba_frame(frame.into_buffer()), duration));
+    }
+    Ok(Some(out))
+}
+
+fn meme_normalize_image_to_webp(path: &Path) -> Result<MemeNormalizedImage, String> {
+    let raw = std::fs::read(path)
+        .map_err(|err| format!("读取表情源文件失败: path={}, err={err}", path.display()))?;
+    let detected = meme_detect_image_format_from_bytes(&raw)
+        .ok_or_else(|| format!("无法识别图片真实格式: {}", path.display()))?;
+    if let Some(frames) = meme_decode_animation_frames(&raw, &detected)? {
+        return meme_encode_animated_webp(frames);
+    }
+    let image = image::load_from_memory_with_format(
+        &raw,
+        match detected.ext.as_str() {
+            "png" => image::ImageFormat::Png,
+            "jpg" => image::ImageFormat::Jpeg,
+            "gif" => image::ImageFormat::Gif,
+            "webp" => image::ImageFormat::WebP,
+            _ => {
+                return Err(format!(
+                    "暂不支持用 `{}` 解码表情图: {}",
+                    detected.ext,
+                    path.display()
+                ))
+            }
+        },
+    )
+    .map_err(|err| {
+        format!(
+            "解码表情图失败: path={}, format={}, err={err}",
+            path.display(),
+            detected.ext
+        )
+    })?;
+    meme_encode_static_webp(meme_resize_rgba_frame(image.to_rgba8()))
 }
 
 fn meme_decode_dynamic_image_from_path(path: &Path) -> Result<image::DynamicImage, String> {
@@ -704,7 +872,6 @@ impl RuntimeJsonTool for BuiltinMemeTool {
                 meme_resolve_source_path(&self.app_state, &args.path).map_err(ToolInvokeError::from)?;
             let detected =
                 meme_detect_image_format_from_path(&source_path).map_err(ToolInvokeError::from)?;
-            let mime = detected.mime.clone();
             let source_hash = compute_meme_dhash_hex(&source_path).map_err(ToolInvokeError::from)?;
             let grouped = meme_available_assets(&self.app_state).map_err(ToolInvokeError::from)?;
             let mut dhash_index = meme_sync_dhash_index(&self.app_state, &grouped);
@@ -727,7 +894,7 @@ impl RuntimeJsonTool for BuiltinMemeTool {
                     "duplicate": true,
                     "name": duplicate.name,
                     "category": duplicate.category,
-                    "mime": mime,
+                    "mime": MEME_NORMALIZED_MIME,
                     "relativePath": duplicate.relative_path,
                     "variantCount": variant_count,
                     "distance": duplicate.distance,
@@ -752,6 +919,8 @@ impl RuntimeJsonTool for BuiltinMemeTool {
                     detected.source
                 ));
             }
+            let normalized =
+                meme_normalize_image_to_webp(&source_path).map_err(ToolInvokeError::from)?;
             let target_dir = meme_workspace_root(&self.app_state).join(&category);
             std::fs::create_dir_all(&target_dir).map_err(|err| {
                 ToolInvokeError::from(format!(
@@ -763,15 +932,26 @@ impl RuntimeJsonTool for BuiltinMemeTool {
                 "{}__{}.{}",
                 name,
                 Uuid::new_v4().simple(),
-                detected.ext
+                MEME_NORMALIZED_EXT
             ));
-            std::fs::copy(&source_path, &target_path).map_err(|err| {
+            std::fs::write(&target_path, &normalized.bytes).map_err(|err| {
                 ToolInvokeError::from(format!(
-                    "保存表情失败: from={}, to={}, err={err}",
+                    "保存 WebP 表情失败: from={}, to={}, err={err}",
                     source_path.display(),
                     target_path.display()
                 ))
             })?;
+            runtime_log_info(format!(
+                "[表情贴纸] 归一化入库 完成: source={}, target={}, original_mime={}, target_mime={}, width={}, height={}, frame_count={}, output_size={}",
+                source_path.display(),
+                target_path.display(),
+                detected.mime,
+                MEME_NORMALIZED_MIME,
+                normalized.width,
+                normalized.height,
+                normalized.frame_count,
+                normalized.bytes.len()
+            ));
             let relative_path = workspace_relative_path(&self.app_state, &target_path);
             dhash_index.insert(relative_path.clone(), source_hash);
             if let Err(err) = meme_persist_dhash_index(&self.app_state, &dhash_index) {
@@ -790,8 +970,11 @@ impl RuntimeJsonTool for BuiltinMemeTool {
                 "action": "steal",
                 "name": name,
                 "category": category,
-                "mime": mime,
+                "mime": MEME_NORMALIZED_MIME,
                 "relativePath": relative_path,
+                "width": normalized.width,
+                "height": normalized.height,
+                "frameCount": normalized.frame_count,
                 "variantCount": variants,
             }))
         })
@@ -929,7 +1112,11 @@ mod builtin_meme_tests {
     }
 
     fn write_test_png(path: &Path) {
-        let image = image::RgbImage::from_fn(32, 32, |x, y| {
+        write_test_png_with_size(path, 32, 32);
+    }
+
+    fn write_test_png_with_size(path: &Path, width: u32, height: u32) {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
             let r = ((x * 7 + y * 3) % 255) as u8;
             let g = ((x * 11 + y * 5) % 255) as u8;
             let b = ((x * 13 + y * 17) % 255) as u8;
@@ -939,6 +1126,35 @@ mod builtin_meme_tests {
             std::fs::create_dir_all(parent).expect("create image parent");
         }
         image.save(path).expect("save png");
+    }
+
+    #[test]
+    fn meme_normalize_image_to_webp_should_resize_static_image() {
+        let state = meme_test_state();
+        let source = state.llm_workspace_path.join("downloads").join("large.png");
+        write_test_png_with_size(&source, 640, 320);
+
+        let normalized = meme_normalize_image_to_webp(&source).expect("normalize image");
+        let features = webp::BitstreamFeatures::new(&normalized.bytes).expect("webp features");
+
+        assert_eq!(normalized.frame_count, 1);
+        assert_eq!(features.width().max(features.height()), MEME_NORMALIZED_MAX_EDGE);
+        assert!(!features.has_animation());
+    }
+
+    #[test]
+    fn meme_encode_animated_webp_should_preserve_frames() {
+        let frames = vec![
+            (image::RgbaImage::from_pixel(80, 60, image::Rgba([255, 0, 0, 255])), 30),
+            (image::RgbaImage::from_pixel(80, 60, image::Rgba([0, 255, 0, 255])), 40),
+        ];
+
+        let normalized = meme_encode_animated_webp(frames).expect("encode animated webp");
+        let features = webp::BitstreamFeatures::new(&normalized.bytes).expect("webp features");
+
+        assert_eq!(normalized.frame_count, 2);
+        assert_eq!((features.width(), features.height()), (80, 60));
+        assert!(features.has_animation());
     }
 
     #[test]
