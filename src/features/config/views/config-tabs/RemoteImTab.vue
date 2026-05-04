@@ -529,8 +529,8 @@
                       <div class="min-w-0 flex-1 text-left">
                         <div class="flex flex-wrap items-center gap-2">
                           <span class="inline-block w-40 truncate font-medium align-middle" :title="ws.path">{{ ws.name }}</span>
-                          <span class="badge" :class="ws.level === 'main' ? 'badge-primary' : 'badge-secondary'">
-                            {{ ws.level === 'main' ? t("config.tools.workspaceLevelMain") : t("config.tools.workspaceLevelSecondary") }}
+                          <span v-if="ws.level === 'main'" class="badge badge-primary">
+                            {{ t("config.tools.workspaceLevelMain") }}
                           </span>
                           <span class="badge" :class="ws.access === 'full_access' ? 'badge-success' : ws.access === 'approval' ? 'badge-warning' : 'badge-ghost'">
                             {{ ws.access === 'full_access' ? t("config.tools.workspaceAccessFullAccess") : ws.access === 'approval' ? t("config.tools.workspaceAccessApproval") : t("config.tools.workspaceAccessReadOnly") }}
@@ -545,7 +545,7 @@
                           :title="t('config.tools.setWorkspaceAsMain')"
                           @click="setContactWorkspaceMain(ws.id)"
                         >
-                          <ArrowUpDown class="h-3.5 w-3.5" />
+                          <SquareTerminal class="h-3.5 w-3.5" />
                         </button>
                         <button
                           v-else
@@ -555,7 +555,7 @@
                           tabindex="-1"
                           :title="t('config.tools.currentMainWorkspace')"
                         >
-                          <House class="h-3.5 w-3.5" />
+                          <SquareTerminal class="h-3.5 w-3.5" />
                         </button>
                         <select
                           class="select select-sm select-bordered w-32"
@@ -609,7 +609,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUpDown, House, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-vue-next";
+import { Plus, RefreshCw, RotateCcw, Save, SquareTerminal, Trash2 } from "lucide-vue-next";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";

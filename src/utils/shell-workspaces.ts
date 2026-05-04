@@ -10,6 +10,9 @@ const LEGACY_SYSTEM_NAMES = [
 ];
 
 const LEGACY_MAIN_NAMES = [
+  "shell directory",
+  "终端目录",
+  "終端目錄",
   "main workspace",
   "主要工作目录",
   "主要工作目錄",
@@ -66,6 +69,6 @@ export function inferWorkspaceName(level: ShellWorkspaceLevel, path: string, ind
   const fromPath = defaultWorkspaceNameFromPath(path);
   if (fromPath) return fromPath;
   if (level === "system") return "assistant-private";
-  if (level === "main") return "main";
+  if (level === "main") return "shell";
   return `secondary-${index + 1}`;
 }

@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 优化（shell-directory-permission-card）：会话权限与远程 IM 工作目录文案改为“终端目录 / Shell Directory”，隐藏非终端目录层级标签，并用终端图标标识当前默认执行目录；没有显式终端目录时，助理私人目录显示为当前终端目录。
+
 ## 发布：v0.9.71
 
 - 发布（release-0.9.71）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.71`，纳入本轮表情贴纸入库 WebP 归一、图转文配置提示与清空保存、硬盘根目录工作区权限修复、会话最大权限开关，以及终端编辑工具提示词约束。

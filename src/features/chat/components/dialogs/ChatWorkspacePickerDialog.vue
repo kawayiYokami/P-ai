@@ -42,30 +42,30 @@
               <div class="min-w-0 flex-1 text-left">
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="inline-block w-40 truncate font-medium align-middle" :title="item.path">{{ item.name }}</span>
-                  <span class="badge" :class="levelClass(item.level)">{{ levelLabel(item.level) }}</span>
+                  <span v-if="levelLabel(item.level)" class="badge" :class="levelClass(item.level)">{{ levelLabel(item.level) }}</span>
                   <span class="badge" :class="accessClass(item.access)">{{ accessLabel(item.access) }}</span>
                 </div>
               </div>
               <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
-                  v-if="item.level !== 'system' && item.level !== 'main'"
+                  v-if="canSetAsTerminalDirectory(item)"
                   class="btn btn-sm btn-ghost"
                   type="button"
                   :disabled="saving"
                   :title="t('config.tools.setWorkspaceAsMain')"
                   @click="emit('setMain', item.id)"
                 >
-                  <House class="h-4 w-4" />
+                  <SquareTerminal class="h-4 w-4" />
                 </button>
                 <button
-                  v-else-if="item.level === 'main'"
+                  v-else-if="isCurrentTerminalDirectory(item)"
                   class="btn btn-sm btn-primary pointer-events-none opacity-100"
                   type="button"
                   aria-disabled="true"
                   tabindex="-1"
                   :title="t('config.tools.currentMainWorkspace')"
                 >
-                  <House class="h-4 w-4" />
+                  <SquareTerminal class="h-4 w-4" />
                 </button>
                 <select
                   v-if="item.level !== 'system'"
@@ -111,11 +111,12 @@
 </template>
 
 <script setup lang="ts">
-import { House, Trash2 } from "lucide-vue-next";
+import { computed } from "vue";
+import { SquareTerminal, Trash2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   saving: boolean;
   workspaces: ChatWorkspaceChoice[];
@@ -134,15 +135,24 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+const hasExplicitTerminalDirectory = computed(() => props.workspaces.some((item) => item.level === "main"));
+
+function isCurrentTerminalDirectory(item: ChatWorkspaceChoice): boolean {
+  return item.level === "main" || (item.level === "system" && !hasExplicitTerminalDirectory.value);
+}
+
+function canSetAsTerminalDirectory(item: ChatWorkspaceChoice): boolean {
+  return item.level !== "system" && !isCurrentTerminalDirectory(item);
+}
+
 function levelLabel(level: string): string {
   if (level === "system") return t("config.tools.workspaceLevelSystem");
   if (level === "main") return t("config.tools.workspaceLevelMain");
-  return t("config.tools.workspaceLevelSecondary");
+  return "";
 }
 
 function levelClass(level: string): string {
   if (level === "main") return "badge-primary";
-  if (level === "secondary") return "badge-secondary";
   return "badge-ghost";
 }
 
