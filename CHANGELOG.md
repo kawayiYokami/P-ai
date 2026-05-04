@@ -2,6 +2,9 @@
 
 ## 进行中
 
+## 发布：v0.9.72
+
+- 发布（release-0.9.72）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.72`，纳入本轮终端目录标识优化与 GitHub 更新方法选择。
 - 功能（github-update-method）：关于页版本卡新增更新方法三选一，支持自动、直连与中转；自动沿用现有代理优先再直连策略，直连禁用代理，中转强制使用代理地址。
 - 优化（shell-directory-permission-card）：会话权限与远程 IM 工作目录文案改为“终端目录 / Shell Directory”，隐藏非终端目录层级标签，并用终端图标标识当前默认执行目录；没有显式终端目录时，助理私人目录显示为当前终端目录。
 
