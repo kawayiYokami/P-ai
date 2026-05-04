@@ -939,14 +939,73 @@ fn sync_tray_icon(
 struct ConversationApiSettingsPatch {
     #[serde(default)]
     assistant_department_api_config_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
     vision_api_config_id: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
     tool_review_api_config_id: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
     stt_api_config_id: Option<Option<String>>,
     #[serde(default)]
     stt_auto_send: Option<bool>,
+}
+
+fn deserialize_nullable_string_patch<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(Some(None)),
+        Some(serde_json::Value::String(text)) => Ok(Some(Some(text))),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected string or null, got {other}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod conversation_api_settings_patch_tests {
+    use super::*;
+
+    #[test]
+    fn conversation_api_settings_patch_distinguishes_missing_null_and_string() {
+        let missing: ConversationApiSettingsPatch =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(missing.vision_api_config_id, None);
+        assert_eq!(missing.tool_review_api_config_id, None);
+        assert_eq!(missing.stt_api_config_id, None);
+
+        let cleared: ConversationApiSettingsPatch = serde_json::from_value(serde_json::json!({
+            "visionApiConfigId": null,
+            "toolReviewApiConfigId": null,
+            "sttApiConfigId": null
+        }))
+        .unwrap();
+        assert_eq!(cleared.vision_api_config_id, Some(None));
+        assert_eq!(cleared.tool_review_api_config_id, Some(None));
+        assert_eq!(cleared.stt_api_config_id, Some(None));
+
+        let selected: ConversationApiSettingsPatch = serde_json::from_value(serde_json::json!({
+            "visionApiConfigId": "vision-api",
+            "toolReviewApiConfigId": "review-api",
+            "sttApiConfigId": "stt-api"
+        }))
+        .unwrap();
+        assert_eq!(
+            selected.vision_api_config_id,
+            Some(Some("vision-api".to_string()))
+        );
+        assert_eq!(
+            selected.tool_review_api_config_id,
+            Some(Some("review-api".to_string()))
+        );
+        assert_eq!(
+            selected.stt_api_config_id,
+            Some(Some("stt-api".to_string()))
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
