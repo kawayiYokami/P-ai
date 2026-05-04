@@ -231,6 +231,60 @@ fn prepared_history_to_genai_messages(
     Ok(chat_history)
 }
 
+fn genai_assistant_message_has_provider_content(message: &genai::chat::ChatMessage) -> bool {
+    if !matches!(message.role, genai::chat::ChatRole::Assistant) {
+        return true;
+    }
+    if message
+        .content
+        .texts()
+        .into_iter()
+        .any(|text| !text.trim().is_empty())
+    {
+        return true;
+    }
+    if !message.content.binaries().is_empty() {
+        return true;
+    }
+    if message
+        .content
+        .reasoning_contents()
+        .into_iter()
+        .any(|text| !text.trim().is_empty())
+    {
+        return true;
+    }
+    message
+        .content
+        .tool_calls()
+        .into_iter()
+        .any(|call| !call.call_id.trim().is_empty() && !call.fn_name.trim().is_empty())
+}
+
+fn sanitize_genai_messages_before_request(
+    messages: Vec<genai::chat::ChatMessage>,
+    scene: &str,
+) -> Vec<genai::chat::ChatMessage> {
+    let mut dropped = 0usize;
+    let sanitized = messages
+        .into_iter()
+        .filter(|message| {
+            let keep = genai_assistant_message_has_provider_content(message);
+            if !keep {
+                dropped += 1;
+            }
+            keep
+        })
+        .collect::<Vec<_>>();
+    if dropped > 0 {
+        runtime_log_warn(format!(
+            "[聊天] 请求前过滤空 assistant 消息: scene={}, dropped_count={}",
+            scene, dropped
+        ));
+    }
+    sanitized
+}
+
 fn build_genai_chat_request(prepared: &PreparedPrompt) -> Result<genai::chat::ChatRequest, String> {
     let history_messages = prepared_history_to_genai_messages(prepared)?;
     let latest_parts = genai_content_parts_from_text_and_binary(
@@ -238,11 +292,12 @@ fn build_genai_chat_request(prepared: &PreparedPrompt) -> Result<genai::chat::Ch
         &prepared.latest_images,
         &prepared.latest_audios,
     );
-    let mut request = genai::chat::ChatRequest::from_messages(history_messages).append_message(
-        genai::chat::ChatMessage::user(genai::chat::MessageContent::from_parts(
-            latest_parts,
-        )),
-    );
+    let mut request = genai::chat::ChatRequest::from_messages(
+        sanitize_genai_messages_before_request(history_messages, "prepared_history"),
+    )
+    .append_message(genai::chat::ChatMessage::user(
+        genai::chat::MessageContent::from_parts(latest_parts),
+    ));
     if !prepared.preamble.trim().is_empty() {
         request = request.with_system(prepared.preamble.clone());
     }
@@ -861,6 +916,71 @@ mod openai_responses_genai_request_tests {
         assert_eq!(
             request.messages[2].content.reasoning_contents(),
             vec!["已有思维链"]
+        );
+    }
+
+    #[test]
+    fn build_genai_chat_request_should_filter_empty_assistant_history() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "assistant".to_string(),
+                text: String::new(),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: Vec::new(),
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            }],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
+
+        assert_eq!(request.messages.len(), 1);
+        assert_eq!(request.messages[0].role, genai::chat::ChatRole::User);
+        assert_eq!(request.messages[0].content.texts(), vec!["继续"]);
+    }
+
+    #[test]
+    fn build_genai_chat_request_should_keep_reasoning_only_assistant_history() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "assistant".to_string(),
+                text: String::new(),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: Vec::new(),
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: Some("只保留推理上下文".to_string()),
+            }],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
+
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.messages[0].role, genai::chat::ChatRole::Assistant);
+        assert_eq!(
+            request.messages[0].content.reasoning_contents(),
+            vec!["只保留推理上下文"]
         );
     }
 

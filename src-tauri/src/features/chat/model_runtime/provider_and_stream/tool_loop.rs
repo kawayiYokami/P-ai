@@ -862,7 +862,9 @@ async fn run_genai_tool_loop(
             let mut round_trusted_input_tokens = None;
 
             let mut stream = {
-                let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+                let mut request = genai::chat::ChatRequest::from_messages(
+                    sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_stream"),
+                );
                 if let Some(system) = system_prompt
                     .as_deref()
                     .map(str::trim)
@@ -1426,7 +1428,9 @@ async fn run_genai_tool_loop_non_stream(
 
         let mut stop_after_remote_im_done_in_turn = false;
         let round = {
-            let mut request = genai::chat::ChatRequest::from_messages(messages.clone());
+            let mut request = genai::chat::ChatRequest::from_messages(
+                sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_non_stream"),
+            );
             if let Some(system) = system_prompt
                 .as_deref()
                 .map(str::trim)
@@ -1610,6 +1614,11 @@ async fn run_genai_tool_loop_non_stream(
                 "tool_call_id": tool_call_id,
                 "content": history_content
             }));
+            sync_completed_tool_history_cache(
+                tool_abort_state,
+                chat_session_key,
+                &tool_history_events,
+            );
 
             if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
                 runtime_log_info(format!(
@@ -1721,6 +1730,11 @@ async fn run_genai_tool_loop_non_stream(
                     "screenshotArtifactMaxRetained": SCREENSHOT_ARTIFACT_MAX_ITEMS,
                     "screenshotImageCount": cached.images.len()
                 }));
+                sync_completed_tool_history_cache(
+                    tool_abort_state,
+                    chat_session_key,
+                    &tool_history_events,
+                );
             }
             if stop_after_remote_im_done_in_turn {
                 break;

@@ -950,6 +950,39 @@ fn collect_recall_payload_for_user_message(
     Ok(UserMessageRecallPayload { stored_ids, raw_ids })
 }
 
+fn persist_failed_chat_completed_tool_history(
+    state: &AppState,
+    requested_conversation_id: Option<&str>,
+    requested_department_id: Option<&str>,
+    agent_id: &str,
+    chat_key: &str,
+    error: &str,
+) -> Result<bool, String> {
+    let completed_tool_history = inflight_completed_tool_history(state, chat_key)?;
+    if completed_tool_history.is_empty() {
+        return Ok(false);
+    }
+    let persist_result = conversation_service().persist_stop_chat_partial_message(
+        state,
+        requested_conversation_id,
+        requested_department_id,
+        agent_id,
+        "",
+        "",
+        "",
+        &completed_tool_history,
+    )?;
+    runtime_log_info(format!(
+        "[聊天] 失败前工具历史落盘检查 完成 session={} persisted={} conversation_id={} tool_event_count={} error={}",
+        chat_key,
+        persist_result.persisted,
+        persist_result.conversation_id.as_deref().unwrap_or(""),
+        completed_tool_history.len(),
+        error
+    ));
+    Ok(persist_result.persisted)
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -1703,6 +1736,9 @@ async fn send_chat_message_inner(
     let chat_session_key_for_log = chat_session_key.clone();
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();
+    let requested_conversation_id_for_failure_persist = requested_conversation_id.clone();
+    let requested_department_id_for_failure_persist = requested_department_id.clone();
+    let effective_agent_id_for_failure_persist = effective_agent_id.clone();
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
     let run = async move {
@@ -2991,12 +3027,34 @@ async fn send_chat_message_inner(
             Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
         }
     };
-    if final_result
+    let should_clear_completed_tool_history = final_result
         .as_ref()
         .err()
         .map(|err| err != CHAT_ABORTED_BY_USER_ERROR)
-        .unwrap_or(true)
-    {
+        .unwrap_or(true);
+    if let Err(err) = final_result.as_ref() {
+        if err != CHAT_ABORTED_BY_USER_ERROR {
+            match persist_failed_chat_completed_tool_history(
+                state,
+                requested_conversation_id_for_failure_persist.as_deref(),
+                requested_department_id_for_failure_persist.as_deref(),
+                &effective_agent_id_for_failure_persist,
+                &chat_key,
+                err,
+            ) {
+                Ok(true) => runtime_log_info(format!(
+                    "[聊天] 模型失败前工具历史已落盘: session={} error={}",
+                    chat_key, err
+                )),
+                Ok(false) => {}
+                Err(persist_err) => runtime_log_warn(format!(
+                    "[聊天] 模型失败前工具历史落盘失败: session={} original_error={} persist_error={}",
+                    chat_key, err, persist_err
+                )),
+            }
+        }
+    }
+    if should_clear_completed_tool_history {
         if let Err(err) = clear_inflight_completed_tool_history(state, &chat_key) {
             eprintln!(
                 "[聊天] 清理已完成工具历史缓存失败 (session={}): {}",

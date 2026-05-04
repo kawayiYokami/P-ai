@@ -1833,6 +1833,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     setRound({ phase: "idle" });
     options.chatting.value = false;
     reasoningStartedAtMs.value = 0;
+    await options.onReloadMessages();
   }
 
   function applyPendingTerminalEvent(gen: number) {
