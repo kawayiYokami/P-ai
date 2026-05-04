@@ -383,14 +383,6 @@ fn remote_im_contact_by_activation_source_in_runtime<'a>(
     })
 }
 
-#[cfg(test)]
-fn remote_im_contact_by_activation_source<'a>(
-    data: &'a AppData,
-    source: &RemoteImActivationSource,
-) -> Option<&'a RemoteImContact> {
-    remote_im_contact_by_activation_source_in_runtime(&data.remote_im_contacts, source)
-}
-
 fn remote_im_contact_matches_reply_target(
     source: &RemoteImActivationSource,
     target: &RemoteImReplyTarget,

@@ -918,12 +918,6 @@ fn state_read_app_data_cached(state: &AppState) -> Result<AppData, String> {
 }
 
 #[cfg(test)]
-fn ensure_app_data_cache_ready_with_detail(state: &AppState) -> Result<CacheReadDetail, String> {
-    let (_data, detail) = ensure_app_data_cache_ready_inner(state, false)?;
-    Ok(detail)
-}
-
-#[cfg(test)]
 fn ensure_app_data_cache_ready_inner(
     state: &AppState,
     return_data: bool,
