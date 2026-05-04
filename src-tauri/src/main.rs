@@ -587,6 +587,7 @@ fn main() {
             run_message_store_migration,
             load_app_bootstrap_snapshot,
             list_system_fonts,
+            set_webview_zoom_percent,
             save_config,
             load_agents,
             save_agents,

@@ -218,6 +218,7 @@
       :update-instruction-presets="updateInstructionPresets"
       :patch-conversation-api-settings="patchConversationApiSettings"
       :patch-chat-settings="patchChatSettings"
+      :update-webview-zoom-percent="updateWebviewZoomPercent"
       :set-theme="setTheme"
       :activate-generated-theme="activateGeneratedTheme"
       :update-generated-theme-controls="updateGeneratedThemeControls"
@@ -409,7 +410,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "./services/tauri-api";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
@@ -574,6 +574,7 @@ const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
   uiFont: "auto",
+  webviewZoomPercent: 100,
   recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
   recordBackgroundWakeEnabled: true,
   minRecordSeconds: 1,
@@ -602,15 +603,18 @@ const detachedChatWindow = ref(false);
 const detachedChatConversationId = ref("");
 const detachedTemporaryApiConfigId = ref("");
 const webviewZoomFactor = ref(1);
-const WEBVIEW_ZOOM_MIN = 0.8;
-const WEBVIEW_ZOOM_MAX = 2.0;
-const WEBVIEW_ZOOM_STEP = 0.1;
+const WEBVIEW_ZOOM_PERCENT_OPTIONS = [80, 90, 100, 110, 120, 150] as const;
+const WEBVIEW_ZOOM_APPLY_DELAY_MS = 500;
 let chatHistoryFlushedUnlisten: UnlistenFn | null = null;
 let chatRoundStartedUnlisten: UnlistenFn | null = null;
 let chatRoundCompletedUnlisten: UnlistenFn | null = null;
+let webviewZoomApplyTimer: ReturnType<typeof window.setTimeout> | null = null;
+let webviewZoomWatcherReady = false;
+let suppressNextWebviewZoomApply = false;
 let chatRoundFailedUnlisten: UnlistenFn | null = null;
 let chatAssistantDeltaUnlisten: UnlistenFn | null = null;
 let chatStreamRebindRequiredUnlisten: UnlistenFn | null = null;
+let webviewZoomUpdatedUnlisten: UnlistenFn | null = null;
 let chatConversationMessagesAfterSyncedUnlisten: UnlistenFn | null = null;
 let chatConversationMessageAppendedUnlisten: UnlistenFn | null = null;
 let chatConversationTodosUpdatedUnlisten: UnlistenFn | null = null;
@@ -3967,6 +3971,9 @@ const appBootstrap = useAppBootstrap({
     if ("uiFont" in payload) {
       config.uiFont = String(payload.uiFont ?? "");
     }
+    if ("webviewZoomPercent" in payload) {
+      config.webviewZoomPercent = normalizeWebviewZoomPercent(payload.webviewZoomPercent);
+    }
     if ("recordHotkey" in payload) {
       config.recordHotkey = String(payload.recordHotkey ?? "");
     }
@@ -4086,17 +4093,69 @@ function handleVisibilityForMicPrewarm() {
   scheduleChatMicPrewarm("visibility_visible", CHAT_WINDOW_MIC_PREWARM_DEBOUNCE_MS);
 }
 
-function clampWebviewZoom(value: number) {
-  return Math.min(WEBVIEW_ZOOM_MAX, Math.max(WEBVIEW_ZOOM_MIN, value));
+function normalizeWebviewZoomPercent(value: unknown) {
+  const numeric = Math.round(Number(value));
+  if (!Number.isFinite(numeric)) return 100;
+  return WEBVIEW_ZOOM_PERCENT_OPTIONS.reduce((best, item) => (
+    Math.abs(item - numeric) < Math.abs(best - numeric) ? item : best
+  ), 100);
 }
 
-async function applyWebviewZoom(nextZoom: number) {
-  const normalized = Number(nextZoom);
-  if (!Number.isFinite(normalized)) return;
-  const clamped = clampWebviewZoom(normalized);
-  if (Math.abs(clamped - webviewZoomFactor.value) < 0.001) return;
-  await getCurrentWebview().setZoom(clamped);
-  webviewZoomFactor.value = clamped;
+async function applyWebviewZoomPercent(percent: unknown) {
+  const normalizedPercent = normalizeWebviewZoomPercent(percent);
+  const nextFactor = normalizedPercent / 100;
+  if (Math.abs(nextFactor - webviewZoomFactor.value) < 0.001) return;
+  const appliedPercent = await invokeTauri<number>("set_webview_zoom_percent", {
+    percent: normalizedPercent,
+  });
+  const appliedFactor = normalizeWebviewZoomPercent(appliedPercent) / 100;
+  webviewZoomFactor.value = appliedFactor;
+}
+
+function scheduleWebviewZoomPercentApply(percent: unknown, delayMs = WEBVIEW_ZOOM_APPLY_DELAY_MS) {
+  if (webviewZoomApplyTimer) {
+    window.clearTimeout(webviewZoomApplyTimer);
+    webviewZoomApplyTimer = null;
+  }
+  webviewZoomApplyTimer = window.setTimeout(() => {
+    webviewZoomApplyTimer = null;
+    void applyWebviewZoomPercent(percent).catch((error) => {
+      console.error("[外观] WebView 缩放失败", error);
+    });
+  }, delayMs);
+}
+
+function syncWebviewZoomPercentFromBackend(percent: unknown) {
+  const normalizedPercent = normalizeWebviewZoomPercent(percent);
+  if (webviewZoomApplyTimer) {
+    window.clearTimeout(webviewZoomApplyTimer);
+    webviewZoomApplyTimer = null;
+  }
+  webviewZoomFactor.value = normalizedPercent / 100;
+  if (config.webviewZoomPercent !== normalizedPercent) {
+    suppressNextWebviewZoomApply = true;
+    config.webviewZoomPercent = normalizedPercent;
+  }
+}
+
+function updateWebviewZoomPercent(value: unknown) {
+  config.webviewZoomPercent = normalizeWebviewZoomPercent(value);
+}
+
+function webviewZoomOptionIndex(percent: unknown) {
+  const normalizedPercent = normalizeWebviewZoomPercent(percent);
+  const index = WEBVIEW_ZOOM_PERCENT_OPTIONS.findIndex((item) => item === normalizedPercent);
+  return index >= 0 ? index : 2;
+}
+
+function stepWebviewZoomPercent(direction: number) {
+  const currentPercent = Number(config.webviewZoomPercent ?? Math.round(webviewZoomFactor.value * 100));
+  const currentIndex = webviewZoomOptionIndex(currentPercent);
+  const nextIndex = Math.min(
+    WEBVIEW_ZOOM_PERCENT_OPTIONS.length - 1,
+    Math.max(0, currentIndex + (direction > 0 ? 1 : -1)),
+  );
+  updateWebviewZoomPercent(WEBVIEW_ZOOM_PERCENT_OPTIONS[nextIndex]);
 }
 
 function hasZoomModifier(event: WheelEvent | KeyboardEvent) {
@@ -4107,9 +4166,7 @@ function handleGlobalZoomWheel(event: WheelEvent) {
   if (!hasZoomModifier(event)) return;
   event.preventDefault();
   const direction = event.deltaY < 0 ? 1 : -1;
-  void applyWebviewZoom(webviewZoomFactor.value + direction * WEBVIEW_ZOOM_STEP).catch((error) => {
-    console.error("[外观] WebView 缩放失败", error);
-  });
+  stepWebviewZoomPercent(direction);
 }
 
 function handleGlobalZoomKeydown(event: KeyboardEvent) {
@@ -4117,23 +4174,17 @@ function handleGlobalZoomKeydown(event: KeyboardEvent) {
   const key = String(event.key || "").trim();
   if (key === "+" || key === "=") {
     event.preventDefault();
-    void applyWebviewZoom(webviewZoomFactor.value + WEBVIEW_ZOOM_STEP).catch((error) => {
-      console.error("[外观] WebView 缩放失败", error);
-    });
+    stepWebviewZoomPercent(1);
     return;
   }
   if (key === "-" || key === "_") {
     event.preventDefault();
-    void applyWebviewZoom(webviewZoomFactor.value - WEBVIEW_ZOOM_STEP).catch((error) => {
-      console.error("[外观] WebView 缩放失败", error);
-    });
+    stepWebviewZoomPercent(-1);
     return;
   }
   if (key === "0") {
     event.preventDefault();
-    void applyWebviewZoom(1).catch((error) => {
-      console.error("[外观] WebView 缩放失败", error);
-    });
+    updateWebviewZoomPercent(100);
   }
 }
 
@@ -4327,6 +4378,15 @@ onMounted(() => {
       });
 
   }
+  void listen<{ percent?: unknown }>("easy-call:webview-zoom-updated", (event) => {
+    syncWebviewZoomPercentFromBackend(event.payload?.percent);
+  })
+    .then((unlisten) => {
+      webviewZoomUpdatedUnlisten = unlisten;
+    })
+    .catch((error) => {
+      console.error("[外观] WebView 缩放同步监听器注册失败", error);
+    });
   scheduleChatWindowActiveStateSync("mounted");
   startSupervisionTaskPolling();
   void refreshActiveSupervisionTask({ silent: true });
@@ -4388,6 +4448,10 @@ onBeforeUnmount(() => {
     chatConversationOverviewUpdatedUnlisten();
     chatConversationOverviewUpdatedUnlisten = null;
   }
+  if (webviewZoomUpdatedUnlisten) {
+    webviewZoomUpdatedUnlisten();
+    webviewZoomUpdatedUnlisten = null;
+  }
   window.removeEventListener("focus", handleWindowFocusForStateSync);
   window.removeEventListener("blur", handleWindowBlurForStateSync);
   document.removeEventListener("visibilitychange", handleVisibilityForStateSync);
@@ -4405,6 +4469,10 @@ onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", handleVisibilityForMicPrewarm);
   window.removeEventListener("wheel", handleGlobalZoomWheel);
   window.removeEventListener("keydown", handleGlobalZoomKeydown);
+  if (webviewZoomApplyTimer) {
+    window.clearTimeout(webviewZoomApplyTimer);
+    webviewZoomApplyTimer = null;
+  }
   cancelPendingRewindConfirm();
 });
 
@@ -4484,6 +4552,30 @@ watch(
   () => ({ uiFont: config.uiFont, uiLanguage: config.uiLanguage }),
   ({ uiFont, uiLanguage }) => {
     applyUiFont(uiFont, uiLanguage);
+  },
+  { immediate: true },
+);
+
+watch(
+  () => config.webviewZoomPercent,
+  (percent) => {
+    const normalizedPercent = normalizeWebviewZoomPercent(percent);
+    if (config.webviewZoomPercent !== normalizedPercent) {
+      config.webviewZoomPercent = normalizedPercent;
+      return;
+    }
+    if (!webviewZoomWatcherReady) {
+      webviewZoomWatcherReady = true;
+      void applyWebviewZoomPercent(normalizedPercent).catch((error) => {
+        console.error("[外观] WebView 缩放失败", error);
+      });
+      return;
+    }
+    if (suppressNextWebviewZoomApply) {
+      suppressNextWebviewZoomApply = false;
+      return;
+    }
+    scheduleWebviewZoomPercentApply(normalizedPercent);
   },
   { immediate: true },
 );

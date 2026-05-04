@@ -108,6 +108,15 @@ function normalizeLlmRoundLogCapacity(value: unknown): 1 | 3 | 10 {
   return 10;
 }
 
+function normalizeWebviewZoomPercent(value: unknown): number {
+  const numeric = Math.round(Number(value));
+  const options = [80, 90, 100, 110, 120, 150];
+  if (!Number.isFinite(numeric)) return 100;
+  return options.reduce((best, item) => (
+    Math.abs(item - numeric) < Math.abs(best - numeric) ? item : best
+  ), 100);
+}
+
 function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
   const platformRaw = String((item as { platform?: unknown })?.platform || "").trim().toLowerCase();
   const platform =
@@ -233,6 +242,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.hotkey = cfg.hotkey;
     options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
     options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
+    options.config.webviewZoomPercent = normalizeWebviewZoomPercent((cfg as { webviewZoomPercent?: unknown }).webviewZoomPercent);
     options.locale.value = options.config.uiLanguage;
     options.config.recordHotkey = String(cfg.recordHotkey ?? "");
     options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
@@ -436,6 +446,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.hotkey = saved.hotkey;
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
+      options.config.webviewZoomPercent = normalizeWebviewZoomPercent((saved as { webviewZoomPercent?: unknown }).webviewZoomPercent);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = String(saved.recordHotkey ?? "");
       options.config.recordBackgroundWakeEnabled = !!saved.recordBackgroundWakeEnabled;

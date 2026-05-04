@@ -511,6 +511,18 @@ fn default_ui_font() -> String {
     "auto".to_string()
 }
 
+fn default_webview_zoom_percent() -> u32 {
+    100
+}
+
+fn normalize_webview_zoom_percent(value: u32) -> u32 {
+    const OPTIONS: [u32; 6] = [80, 90, 100, 110, 120, 150];
+    OPTIONS
+        .into_iter()
+        .min_by_key(|option| option.abs_diff(value))
+        .unwrap_or(default_webview_zoom_percent())
+}
+
 fn default_terminal_shell_kind() -> String {
     "auto".to_string()
 }
@@ -645,6 +657,8 @@ struct AppConfig {
     ui_language: String,
     #[serde(default = "default_ui_font")]
     ui_font: String,
+    #[serde(default = "default_webview_zoom_percent")]
+    webview_zoom_percent: u32,
     #[serde(default = "default_record_hotkey")]
     record_hotkey: String,
     #[serde(default = "default_record_background_wake_enabled")]
@@ -693,6 +707,7 @@ impl Default for AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
             ui_font: default_ui_font(),
+            webview_zoom_percent: default_webview_zoom_percent(),
             record_hotkey: default_record_hotkey(),
             record_background_wake_enabled: default_record_background_wake_enabled(),
             min_record_seconds: default_min_record_seconds(),

@@ -27,6 +27,41 @@ fn complete_quick_setup_and_open_chat(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebviewZoomUpdatedPayload {
+    percent: u32,
+}
+
+fn emit_webview_zoom_percent_updated(app: &AppHandle, percent: u32) {
+    let _ = app.emit(
+        "easy-call:webview-zoom-updated",
+        WebviewZoomUpdatedPayload { percent },
+    );
+}
+
+fn apply_webview_zoom_percent(app: &AppHandle, percent: u32) -> Result<u32, String> {
+    let normalized = normalize_webview_zoom_percent(percent);
+    let scale_factor = normalized as f64 / 100.0;
+    let mut failed = Vec::new();
+    for (label, window) in app.webview_windows() {
+        if let Err(err) = window.set_zoom(scale_factor) {
+            failed.push(format!("{label}: {err}"));
+        }
+    }
+    if !failed.is_empty() {
+        return Err(format!("应用界面缩放失败：{}", failed.join("；")));
+    }
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn set_webview_zoom_percent(percent: u32, app: AppHandle) -> Result<u32, String> {
+    let normalized = apply_webview_zoom_percent(&app, percent)?;
+    emit_webview_zoom_percent_updated(&app, normalized);
+    Ok(normalized)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DetachedChatWindowInput {
@@ -402,6 +437,10 @@ fn save_config(
         }
     }
     register_hotkey_from_config(&app, &config)?;
+    match apply_webview_zoom_percent(&app, config.webview_zoom_percent) {
+        Ok(percent) => emit_webview_zoom_percent_updated(&app, percent),
+        Err(err) => eprintln!("[外观] 应用界面缩放失败：{}", err),
+    }
     let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)

@@ -1224,6 +1224,8 @@
     "markdownFontScaleHint": "調整 Markdown 字重。",
     "markdownFontScaleLight": "正常",
     "markdownFontScaleHeavy": "粗體",
+    "webviewZoom": "介面縮放",
+    "webviewZoomHint": "調整整個 WebView 的真實縮放比例。",
     "themeBuilderSummary": "保留預設主題切換，同時支援用少量參數即時合成一套穩定的自訂主題。",
     "themeTabs": {
       "preset": "預設",

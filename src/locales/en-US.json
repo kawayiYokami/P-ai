@@ -1210,6 +1210,8 @@
     "markdownFontScaleHint": "Adjust Markdown font weight.",
     "markdownFontScaleLight": "Normal",
     "markdownFontScaleHeavy": "Bold",
+    "webviewZoom": "Interface Zoom",
+    "webviewZoomHint": "Adjust the real WebView zoom level.",
     "themeBuilderSummary": "Keep preset themes for quick switching, and add a low-friction custom generator for live theme synthesis.",
     "themeTabs": {
       "preset": "Preset",

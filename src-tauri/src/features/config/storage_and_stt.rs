@@ -1072,6 +1072,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     };
     // Font compatibility is disabled in UI; ignore persisted custom font values.
     config.ui_font = default_ui_font();
+    config.webview_zoom_percent = normalize_webview_zoom_percent(config.webview_zoom_percent);
 
     normalize_api_tools(config);
 

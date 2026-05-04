@@ -213,6 +213,7 @@ export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont: string;
+  webviewZoomPercent?: number;
   recordHotkey: string;
   recordBackgroundWakeEnabled: boolean;
   minRecordSeconds: number;

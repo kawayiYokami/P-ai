@@ -208,7 +208,9 @@
           :current-theme="currentTheme"
           :generated-theme-controls="generatedThemeControls"
           :generated-theme-tokens="generatedThemeTokens"
+          :webview-zoom-percent="webviewZoomPercent"
           @update:ui-language="$emit('update:uiLanguage', $event)"
+          @update:webview-zoom-percent="$emit('update:webviewZoomPercent', $event)"
           @set-theme="$emit('setTheme', $event)"
           @activate-generated-theme="$emit('activateGeneratedTheme')"
           @update-generated-theme-controls="$emit('updateGeneratedThemeControls', $event)"
@@ -373,6 +375,7 @@ const props = defineProps<{
   currentTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
+  webviewZoomPercent: number;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -422,6 +425,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:uiLanguage", value: string): void;
+  (e: "update:webviewZoomPercent", value: number): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;
