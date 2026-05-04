@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 优化（chat-settings-vision-api-hint）：图转文 AI 配置补充说明，明确只有驱动模型不支持图片输入时才会触发图转文，支持图片的模型会直接接收图片。
 - 修复（meme-normalize-webp-on-import）：表情贴纸入库不再原样复制源图，统一转为最长边 300 像素以内、质量 85 的 WebP；GIF / WebP 动图保留多帧并输出 animated WebP，避免扩展名与真实格式不一致或原图过大导致远程发送异常。
 
 ## 发布：v0.9.70

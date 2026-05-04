@@ -497,6 +497,7 @@
     "chatSettings": {
       "chatLlmProvider": "Assistant Department Model",
       "visionApi": "Vision API (Optional)",
+      "visionApiHint": "Used only when the active driving model does not support image input. If the driving model supports images, images are sent directly.",
       "toolReviewApi": "Tool Review Model (Optional)",
       "toolReviewApiHint": "Used to generate a safety assessment, command purpose, and review opinion before executing terminal commands that are not obviously safe.\nA token-based model is recommended. Do not use a per-request priced model, because usage will be very small.",
       "sttTitle": "Speech-to-Text (STT)",

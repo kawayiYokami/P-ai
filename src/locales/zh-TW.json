@@ -497,6 +497,7 @@
     "chatSettings": {
       "chatLlmProvider": "助理部門驅動模型",
       "visionApi": "图转文AI（可选）",
+      "visionApiHint": "僅當目前驅動模型不支援圖片輸入時，才會使用這裡配置的圖轉文 AI 把圖片轉成文字；驅動模型支援圖片時會直接發送圖片。",
       "toolReviewApi": "工具審查模型（可選）",
       "toolReviewApiHint": "用於在執行非明顯安全的終端命令前，先生成安全性評估、功能說明與審查意見。\n推薦使用 token 計費的模型，不要使用次數計費的模型，用量會非常小。",
       "sttTitle": "語音轉寫（STT）",

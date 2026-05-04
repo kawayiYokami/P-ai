@@ -8,6 +8,7 @@
           <option value="">{{ t("config.chatSettings.noVision") }}</option>
           <option v-for="a in imageCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
+        <div class="mt-3 text-xs opacity-70">{{ t("config.chatSettings.visionApiHint") }}</div>
       </div>
     </div>
 

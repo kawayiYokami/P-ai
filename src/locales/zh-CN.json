@@ -491,6 +491,7 @@
     "chatSettings": {
       "chatLlmProvider": "助理部门驱动模型",
       "visionApi": "图转文AI（可选）",
+      "visionApiHint": "仅当当前驱动模型不支持图片输入时，才会使用这里配置的图转文AI把图片转成文本；驱动模型支持图片时会直接发送图片。",
       "toolReviewApi": "工具审查模型（可选）",
       "toolReviewApiHint": "用于在执行非明显安全的终端命令前，先生成安全性评估、功能说明和审查意见。\n推荐使用 token 计费的模型，不要使用次数计费的模型，用量会非常小。",
       "sttTitle": "语音转写（STT）",
