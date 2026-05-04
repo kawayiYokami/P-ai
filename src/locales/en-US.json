@@ -1428,6 +1428,10 @@
   "about": {
     "version": "Version",
     "checkUpdate": "Check for Updates",
+    "updateMethod": "Update Method",
+    "updateMethodAuto": "Auto",
+    "updateMethodDirect": "Direct",
+    "updateMethodProxy": "Proxy",
     "repository": "Git Repository",
     "changelog": "Changelog",
     "changelogLoading": "Loading remote changelog...",

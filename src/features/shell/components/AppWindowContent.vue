@@ -73,6 +73,7 @@
       @patch-conversation-api-settings="patchConversationApiSettings"
       @patch-chat-settings="patchChatSettings"
       @update:webview-zoom-percent="updateWebviewZoomPercent"
+      @update:github-update-method="updateGithubUpdateMethod"
       @set-theme="setTheme"
       @activate-generated-theme="activateGeneratedTheme"
       @update-generated-theme-controls="updateGeneratedThemeControls"
@@ -572,6 +573,7 @@ const props = defineProps<{
   patchConversationApiSettings: (value: import("../../../types/app").ConversationApiSettingsPatch) => void;
   patchChatSettings: (value: import("../../../types/app").ChatSettingsPatch) => void;
   updateWebviewZoomPercent: (value: number) => void;
+  updateGithubUpdateMethod: (value: import("../../../types/app").GithubUpdateMethod) => void;
   setTheme: (value: string) => void;
   activateGeneratedTheme: () => void;
   updateGeneratedThemeControls: (patch: Partial<GeneratedThemeControls>) => void;

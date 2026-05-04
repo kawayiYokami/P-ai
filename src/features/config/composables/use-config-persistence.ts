@@ -117,6 +117,11 @@ function normalizeWebviewZoomPercent(value: unknown): number {
   ), 100);
 }
 
+function normalizeGithubUpdateMethod(value: unknown): AppConfig["githubUpdateMethod"] {
+  const text = String(value || "").trim();
+  return text === "direct" || text === "proxy" ? text : "auto";
+}
+
 function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
   const platformRaw = String((item as { platform?: unknown })?.platform || "").trim().toLowerCase();
   const platform =
@@ -243,6 +248,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
     options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
     options.config.webviewZoomPercent = normalizeWebviewZoomPercent((cfg as { webviewZoomPercent?: unknown }).webviewZoomPercent);
+    options.config.githubUpdateMethod = normalizeGithubUpdateMethod((cfg as { githubUpdateMethod?: unknown }).githubUpdateMethod);
     options.locale.value = options.config.uiLanguage;
     options.config.recordHotkey = String(cfg.recordHotkey ?? "");
     options.config.recordBackgroundWakeEnabled = !!cfg.recordBackgroundWakeEnabled;
@@ -447,6 +453,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
       options.config.webviewZoomPercent = normalizeWebviewZoomPercent((saved as { webviewZoomPercent?: unknown }).webviewZoomPercent);
+      options.config.githubUpdateMethod = normalizeGithubUpdateMethod((saved as { githubUpdateMethod?: unknown }).githubUpdateMethod);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = String(saved.recordHotkey ?? "");
       options.config.recordBackgroundWakeEnabled = !!saved.recordBackgroundWakeEnabled;

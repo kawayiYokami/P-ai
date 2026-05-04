@@ -1443,6 +1443,10 @@
   "about": {
     "version": "版本",
     "checkUpdate": "检查更新",
+    "updateMethod": "更新方法",
+    "updateMethodAuto": "自动",
+    "updateMethodDirect": "直连",
+    "updateMethodProxy": "中转",
     "repository": "Git 仓库",
     "changelog": "更新日志",
     "changelogLoading": "正在读取远程更新日志...",

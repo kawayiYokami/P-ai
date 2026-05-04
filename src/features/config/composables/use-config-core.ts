@@ -11,6 +11,11 @@ function normalizeRemoteImPlatform(value: unknown): RemoteImPlatform {
   return "onebot_v11";
 }
 
+function normalizeGithubUpdateMethod(value: unknown): AppConfig["githubUpdateMethod"] {
+  const text = String(value || "").trim();
+  return text === "direct" || text === "proxy" ? text : "auto";
+}
+
 type UseConfigCoreOptions = {
   config: AppConfig;
   textCapableApiConfigs: ComputedRef<ApiConfigItem[]>;
@@ -261,6 +266,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: options.config.uiFont,
       webviewZoomPercent: options.config.webviewZoomPercent,
+      githubUpdateMethod: normalizeGithubUpdateMethod(options.config.githubUpdateMethod),
       recordHotkey: options.config.recordHotkey,
       recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,
       minRecordSeconds: options.config.minRecordSeconds,
@@ -373,6 +379,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: options.config.uiFont,
       webviewZoomPercent: options.config.webviewZoomPercent,
+      githubUpdateMethod: normalizeGithubUpdateMethod(options.config.githubUpdateMethod),
       recordHotkey: options.config.recordHotkey,
       recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,
       minRecordSeconds: options.config.minRecordSeconds,

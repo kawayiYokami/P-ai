@@ -4,6 +4,21 @@
       <div class="card-body p-4">
         <h3 class="card-title text-base">{{ t("about.version") }}</h3>
         <p class="text-sm mb-3">{{ `P-ai v${appVersion}` }}</p>
+        <div class="mb-3 space-y-2">
+          <div class="text-xs font-medium text-base-content/70">{{ t("about.updateMethod") }}</div>
+          <div class="tabs tabs-box bg-base-200 p-1">
+            <button
+              v-for="option in updateMethodOptions"
+              :key="option.value"
+              type="button"
+              class="tab flex-1 rounded-btn"
+              :class="normalizedGithubUpdateMethod === option.value ? 'tab-active' : ''"
+              @click="setGithubUpdateMethod(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
         <button
           class="btn btn-sm"
           :disabled="checkingUpdate"
@@ -40,15 +55,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
+import type { GithubUpdateMethod } from "../../../../types/app";
 
-defineProps<{
+const props = defineProps<{
+  githubUpdateMethod: GithubUpdateMethod;
   checkingUpdate: boolean;
 }>();
 
 const emit = defineEmits<{
+  (e: "update:githubUpdateMethod", value: GithubUpdateMethod): void;
   (e: "checkUpdate"): void;
 }>();
 
@@ -59,6 +77,15 @@ const updateDialogTitle = ref("检查更新");
 const updateDialogBody = ref("");
 const updateDialogReleaseUrl = ref("");
 const appVersion = ref("...");
+const updateMethodOptions = computed<Array<{ value: GithubUpdateMethod; label: string }>>(() => [
+  { value: "auto", label: t("about.updateMethodAuto") },
+  { value: "direct", label: t("about.updateMethodDirect") },
+  { value: "proxy", label: t("about.updateMethodProxy") },
+]);
+const normalizedGithubUpdateMethod = computed<GithubUpdateMethod>(() => {
+  const value = props.githubUpdateMethod;
+  return value === "direct" || value === "proxy" ? value : "auto";
+});
 
 onMounted(async () => {
   try {
@@ -80,6 +107,10 @@ async function openRepository() {
 
 function handleCheckUpdate() {
   emit("checkUpdate");
+}
+
+function setGithubUpdateMethod(value: GithubUpdateMethod) {
+  emit("update:githubUpdateMethod", value);
 }
 
 function openUpdateRelease() {

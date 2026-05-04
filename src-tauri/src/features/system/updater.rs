@@ -59,6 +59,23 @@ impl UpdateRuntimeKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GithubUpdateMethod {
+    Auto,
+    Direct,
+    Proxy,
+}
+
+impl GithubUpdateMethod {
+    fn from_raw(value: Option<String>) -> Self {
+        match value.unwrap_or_default().trim() {
+            "direct" => Self::Direct,
+            "proxy" => Self::Proxy,
+            _ => Self::Auto,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GithubUpdateInfo {
@@ -156,36 +173,71 @@ fn updater_proxy_url(origin: &str) -> String {
     format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}")
 }
 
-fn updater_release_api_fallback_urls() -> Vec<String> {
-    vec![
-        format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
-        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
-        UPDATER_GITHUB_RELEASE_API_ORIGIN.to_string(),
-    ]
+fn updater_release_page_url(origin: &str, method: GithubUpdateMethod) -> String {
+    match method {
+        GithubUpdateMethod::Direct => origin.to_string(),
+        GithubUpdateMethod::Auto | GithubUpdateMethod::Proxy => updater_proxy_url(origin),
+    }
 }
 
-fn updater_changelog_api_fallback_urls() -> Vec<String> {
-    vec![
-        format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
-        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
-        UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN.to_string(),
-    ]
+fn updater_release_api_fallback_urls(method: GithubUpdateMethod) -> Vec<String> {
+    match method {
+        GithubUpdateMethod::Auto => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+            UPDATER_GITHUB_RELEASE_API_ORIGIN.to_string(),
+        ],
+        GithubUpdateMethod::Direct => vec![UPDATER_GITHUB_RELEASE_API_ORIGIN.to_string()],
+        GithubUpdateMethod::Proxy => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_RELEASE_API_ORIGIN}"),
+        ],
+    }
 }
 
-fn updater_manifest_fallback_urls(origin: &str) -> Vec<String> {
-    vec![
-        format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
-        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
-        origin.to_string(),
-    ]
+fn updater_changelog_api_fallback_urls(method: GithubUpdateMethod) -> Vec<String> {
+    match method {
+        GithubUpdateMethod::Auto => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+            UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN.to_string(),
+        ],
+        GithubUpdateMethod::Direct => vec![UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN.to_string()],
+        GithubUpdateMethod::Proxy => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{UPDATER_GITHUB_CHANGELOG_RAW_ORIGIN}"),
+        ],
+    }
 }
 
-fn updater_download_fallback_urls(origin: &str) -> Vec<String> {
-    vec![
-        format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
-        format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
-        origin.to_string(),
-    ]
+fn updater_manifest_fallback_urls(origin: &str, method: GithubUpdateMethod) -> Vec<String> {
+    match method {
+        GithubUpdateMethod::Auto => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+            origin.to_string(),
+        ],
+        GithubUpdateMethod::Direct => vec![origin.to_string()],
+        GithubUpdateMethod::Proxy => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+        ],
+    }
+}
+
+fn updater_download_fallback_urls(origin: &str, method: GithubUpdateMethod) -> Vec<String> {
+    match method {
+        GithubUpdateMethod::Auto => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+            origin.to_string(),
+        ],
+        GithubUpdateMethod::Direct => vec![origin.to_string()],
+        GithubUpdateMethod::Proxy => vec![
+            format!("{UPDATER_GITHUB_PROXY_PREFIX}{origin}"),
+            format!("{UPDATER_GITHUB_HK_PROXY_PREFIX}{origin}"),
+        ],
+    }
 }
 
 fn strip_known_proxy_prefix(url: &str) -> &str {
@@ -312,13 +364,15 @@ fn normalize_release_version(input: &str) -> String {
     input.trim().trim_start_matches(['v', 'V']).to_string()
 }
 
-async fn fetch_latest_release_payload() -> Result<GithubLatestReleasePayload, String> {
+async fn fetch_latest_release_payload(
+    method: GithubUpdateMethod,
+) -> Result<GithubLatestReleasePayload, String> {
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_secs(8))
         .build()
         .map_err(|err| format!("初始化更新检查客户端失败：{err}"))?;
     let mut last_error = String::new();
-    for endpoint in updater_release_api_fallback_urls() {
+    for endpoint in updater_release_api_fallback_urls(method) {
         for attempt in 1..=3 {
             let response = client
                 .get(&endpoint)
@@ -358,13 +412,13 @@ async fn fetch_latest_release_payload() -> Result<GithubLatestReleasePayload, St
     Err(last_error)
 }
 
-async fn fetch_remote_changelog_markdown() -> Result<String, String> {
+async fn fetch_remote_changelog_markdown(method: GithubUpdateMethod) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_secs(8))
         .build()
         .map_err(|err| format!("初始化更新日志客户端失败：{err}"))?;
     let mut last_error = String::new();
-    for endpoint in updater_changelog_api_fallback_urls() {
+    for endpoint in updater_changelog_api_fallback_urls(method) {
         for attempt in 1..=3 {
             let response = client
                 .get(&endpoint)
@@ -442,21 +496,16 @@ fn extract_latest_changelog_section(markdown: &str) -> Option<String> {
     Some(result)
 }
 
-async fn fetch_latest_changelog_notes() -> Result<String, String> {
-    let markdown = fetch_remote_changelog_markdown().await?;
-    extract_latest_changelog_section(&markdown)
-        .ok_or_else(|| "CHANGELOG.md 中未找到可展示的最新节".to_string())
-}
-
 #[tauri::command]
 async fn fetch_project_changelog_markdown() -> Result<String, String> {
-    fetch_remote_changelog_markdown().await
+    fetch_remote_changelog_markdown(GithubUpdateMethod::Auto).await
 }
 
 #[tauri::command]
-async fn check_github_update() -> Result<GithubUpdateInfo, String> {
+async fn check_github_update(update_method: Option<String>) -> Result<GithubUpdateInfo, String> {
+    let method = GithubUpdateMethod::from_raw(update_method);
     let runtime = detect_update_runtime_paths()?;
-    let payload = fetch_latest_release_payload().await?;
+    let payload = fetch_latest_release_payload(method).await?;
     let latest_version = payload
         .tag_name
         .as_deref()
@@ -465,7 +514,12 @@ async fn check_github_update() -> Result<GithubUpdateInfo, String> {
         .filter(|v| !v.is_empty())
         .ok_or_else(|| "GitHub Release 未返回有效版本号".to_string())?;
     let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let release_notes = match fetch_latest_changelog_notes().await {
+    let release_notes = match fetch_remote_changelog_markdown(method)
+        .await
+        .and_then(|markdown| {
+            extract_latest_changelog_section(&markdown)
+                .ok_or_else(|| "CHANGELOG.md 中未找到可展示的最新节".to_string())
+        }) {
         Ok(notes) => notes,
         Err(err) => {
             eprintln!("[自动更新] 远程更新日志读取失败：{err}");
@@ -476,11 +530,12 @@ async fn check_github_update() -> Result<GithubUpdateInfo, String> {
         current_version: current_version.clone(),
         latest_version: latest_version.clone(),
         has_update: is_newer_version(&current_version, &latest_version),
-        release_url: updater_proxy_url(
+        release_url: updater_release_page_url(
             payload
                 .html_url
                 .as_deref()
                 .unwrap_or(UPDATER_GITHUB_RELEASE_PAGE_ORIGIN),
+            method,
         ),
         update_source: "github".to_string(),
         release_notes,
@@ -643,6 +698,7 @@ async fn check_updater_with_manifest_fallbacks(
     runtime_kind: UpdateRuntimeKind,
     target: Option<String>,
     manifest_origin: &str,
+    method: GithubUpdateMethod,
     force: bool,
     current_version: &str,
     checking_message: &str,
@@ -662,7 +718,7 @@ async fn check_updater_with_manifest_fallbacks(
         ),
     );
     let mut last_error = String::new();
-    for endpoint in updater_manifest_fallback_urls(manifest_origin) {
+    for endpoint in updater_manifest_fallback_urls(manifest_origin, method) {
         for attempt in 1..=3 {
             let mut builder = app.updater_builder().pubkey(updater_public_key()?);
             if let Some(ref target) = target {
@@ -723,6 +779,7 @@ async fn check_updater_with_manifest_fallbacks(
 
 async fn download_update_with_proxy_fallbacks<C, D>(
     update: &tauri_plugin_updater::Update,
+    method: GithubUpdateMethod,
     mut on_chunk: C,
     on_download_finish: D,
     download_failed_prefix: &str,
@@ -734,7 +791,7 @@ where
     let origin_url = strip_known_proxy_prefix(update.download_url.as_str()).to_string();
     let mut on_download_finish = Some(on_download_finish);
     let mut last_error = String::new();
-    for endpoint in updater_download_fallback_urls(&origin_url) {
+    for endpoint in updater_download_fallback_urls(&origin_url, method) {
         for attempt in 1..=3 {
             let mut retry_update = update.clone();
             retry_update.download_url = reqwest::Url::parse(&endpoint)
@@ -764,7 +821,11 @@ where
     Err(last_error)
 }
 
-async fn prepare_installer_update(app: &AppHandle, force: bool) -> Result<(), String> {
+async fn prepare_installer_update(
+    app: &AppHandle,
+    force: bool,
+    method: GithubUpdateMethod,
+) -> Result<(), String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let runtime_kind = UpdateRuntimeKind::Installer;
     let update = check_updater_with_manifest_fallbacks(
@@ -772,6 +833,7 @@ async fn prepare_installer_update(app: &AppHandle, force: bool) -> Result<(), St
         runtime_kind,
         None,
         UPDATER_GITHUB_INSTALLER_MANIFEST_ORIGIN,
+        method,
         force,
         &current_version,
         "正在检查安装版更新",
@@ -799,49 +861,50 @@ async fn prepare_installer_update(app: &AppHandle, force: bool) -> Result<(), St
     );
     let bytes = download_update_with_proxy_fallbacks(
         &update,
-            {
-                let downloaded = downloaded.clone();
-                move |chunk_length, content_length| {
-                    let total = downloaded.fetch_add(chunk_length as u64, Ordering::Relaxed)
-                        + chunk_length as u64;
-                    emit_update_progress(
-                        app,
-                        build_update_progress(
-                            runtime_kind,
-                            UPDATE_STAGE_DOWNLOADING,
-                            format!("正在下载安装版更新 {download_progress_target_version}"),
-                            Some(download_progress_current_version.clone()),
-                            Some(download_progress_target_version.clone()),
-                            Some(total),
-                            content_length,
-                            None,
-                        ),
-                    );
-                }
-            },
-            {
-                let downloaded = downloaded.clone();
-                move || {
-                    let total = downloaded.load(Ordering::Relaxed);
-                    emit_update_progress(
-                        app,
-                        build_update_progress(
-                            runtime_kind,
-                            UPDATE_STAGE_INSTALLING,
-                            format!("安装包下载完成，正在安装 {install_progress_target_version}"),
-                            Some(install_progress_current_version.clone()),
-                            Some(install_progress_target_version.clone()),
-                            Some(total),
-                            None,
-                            None,
-                        ),
-                    );
-                }
-            },
-            "下载安装版更新失败",
-        )
-        .await
-        .map_err(|err| format!("下载安装版更新失败：{err}"))?;
+        method,
+        {
+            let downloaded = downloaded.clone();
+            move |chunk_length, content_length| {
+                let total =
+                    downloaded.fetch_add(chunk_length as u64, Ordering::Relaxed) + chunk_length as u64;
+                emit_update_progress(
+                    app,
+                    build_update_progress(
+                        runtime_kind,
+                        UPDATE_STAGE_DOWNLOADING,
+                        format!("正在下载安装版更新 {download_progress_target_version}"),
+                        Some(download_progress_current_version.clone()),
+                        Some(download_progress_target_version.clone()),
+                        Some(total),
+                        content_length,
+                        None,
+                    ),
+                );
+            }
+        },
+        {
+            let downloaded = downloaded.clone();
+            move || {
+                let total = downloaded.load(Ordering::Relaxed);
+                emit_update_progress(
+                    app,
+                    build_update_progress(
+                        runtime_kind,
+                        UPDATE_STAGE_INSTALLING,
+                        format!("安装包下载完成，正在安装 {install_progress_target_version}"),
+                        Some(install_progress_current_version.clone()),
+                        Some(install_progress_target_version.clone()),
+                        Some(total),
+                        None,
+                        None,
+                    ),
+                );
+            }
+        },
+        "下载安装版更新失败",
+    )
+    .await
+    .map_err(|err| format!("下载安装版更新失败：{err}"))?;
     store_prepared_github_update(PreparedGithubUpdate::Installer(PreparedInstallerUpdate {
         update,
         bytes,
@@ -864,7 +927,11 @@ async fn prepare_installer_update(app: &AppHandle, force: bool) -> Result<(), St
     Ok(())
 }
 
-async fn prepare_portable_update(app: &AppHandle, force: bool) -> Result<(), String> {
+async fn prepare_portable_update(
+    app: &AppHandle,
+    force: bool,
+    method: GithubUpdateMethod,
+) -> Result<(), String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let runtime = detect_update_runtime_paths()?;
     let update = check_updater_with_manifest_fallbacks(
@@ -872,6 +939,7 @@ async fn prepare_portable_update(app: &AppHandle, force: bool) -> Result<(), Str
         runtime.runtime_kind,
         Some(current_portable_target()),
         UPDATER_GITHUB_PORTABLE_MANIFEST_ORIGIN,
+        method,
         force,
         &current_version,
         "正在检查便携版更新",
@@ -906,49 +974,50 @@ async fn prepare_portable_update(app: &AppHandle, force: bool) -> Result<(), Str
     );
     let bytes = download_update_with_proxy_fallbacks(
         &update,
-            {
-                let downloaded = downloaded.clone();
-                move |chunk_length, content_length| {
-                    let total = downloaded.fetch_add(chunk_length as u64, Ordering::Relaxed)
-                        + chunk_length as u64;
-                    emit_update_progress(
-                        app,
-                        build_update_progress(
-                            runtime.runtime_kind,
-                            UPDATE_STAGE_DOWNLOADING,
-                            format!("正在下载便携版更新 {download_progress_target_version}"),
-                            Some(download_progress_current_version.clone()),
-                            Some(download_progress_target_version.clone()),
-                            Some(total),
-                            content_length,
-                            None,
-                        ),
-                    );
-                }
-            },
-            {
-                let downloaded = downloaded.clone();
-                move || {
-                    let total = downloaded.load(Ordering::Relaxed);
-                    emit_update_progress(
-                        app,
-                        build_update_progress(
-                            runtime.runtime_kind,
-                            UPDATE_STAGE_VERIFYING,
-                            format!("便携版更新 {verify_progress_target_version} 下载完成，正在校验"),
-                            Some(verify_progress_current_version.clone()),
-                            Some(verify_progress_target_version.clone()),
-                            Some(total),
-                            None,
-                            None,
-                        ),
-                    );
-                }
-            },
-            "下载便携版更新失败",
-        )
-        .await
-        .map_err(|err| format!("下载便携版更新失败：{err}"))?;
+        method,
+        {
+            let downloaded = downloaded.clone();
+            move |chunk_length, content_length| {
+                let total =
+                    downloaded.fetch_add(chunk_length as u64, Ordering::Relaxed) + chunk_length as u64;
+                emit_update_progress(
+                    app,
+                    build_update_progress(
+                        runtime.runtime_kind,
+                        UPDATE_STAGE_DOWNLOADING,
+                        format!("正在下载便携版更新 {download_progress_target_version}"),
+                        Some(download_progress_current_version.clone()),
+                        Some(download_progress_target_version.clone()),
+                        Some(total),
+                        content_length,
+                        None,
+                    ),
+                );
+            }
+        },
+        {
+            let downloaded = downloaded.clone();
+            move || {
+                let total = downloaded.load(Ordering::Relaxed);
+                emit_update_progress(
+                    app,
+                    build_update_progress(
+                        runtime.runtime_kind,
+                        UPDATE_STAGE_VERIFYING,
+                        format!("便携版更新 {verify_progress_target_version} 下载完成，正在校验"),
+                        Some(verify_progress_current_version.clone()),
+                        Some(verify_progress_target_version.clone()),
+                        Some(total),
+                        None,
+                        None,
+                    ),
+                );
+            }
+        },
+        "下载便携版更新失败",
+    )
+    .await
+    .map_err(|err| format!("下载便携版更新失败：{err}"))?;
     std_fs::write(&zip_path, &bytes).map_err(|err| {
         format!("写入便携版更新包失败（{}）：{err}", zip_path.display())
     })?;
@@ -1013,13 +1082,18 @@ async fn prepare_portable_update(app: &AppHandle, force: bool) -> Result<(), Str
 }
 
 #[tauri::command]
-async fn start_github_update(app: AppHandle, force: bool) -> Result<(), String> {
+async fn start_github_update(
+    app: AppHandle,
+    force: bool,
+    update_method: Option<String>,
+) -> Result<(), String> {
     let _guard = UpdateInProgressGuard::acquire()?;
     clear_prepared_github_update();
+    let method = GithubUpdateMethod::from_raw(update_method);
     let runtime = detect_update_runtime_paths()?;
     let result = match runtime.runtime_kind {
-        UpdateRuntimeKind::Installer => prepare_installer_update(&app, force).await,
-        UpdateRuntimeKind::Portable => prepare_portable_update(&app, force).await,
+        UpdateRuntimeKind::Installer => prepare_installer_update(&app, force, method).await,
+        UpdateRuntimeKind::Portable => prepare_portable_update(&app, force, method).await,
     };
     if let Err(err) = &result {
         emit_update_progress(

@@ -1442,6 +1442,10 @@
   "about": {
     "version": "版本",
     "checkUpdate": "检查更新",
+    "updateMethod": "更新方法",
+    "updateMethodAuto": "自動",
+    "updateMethodDirect": "直連",
+    "updateMethodProxy": "中轉",
     "repository": "Git 倉庫",
     "changelog": "更新日誌",
     "changelogLoading": "正在讀取遠端更新日誌...",

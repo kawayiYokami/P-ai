@@ -515,6 +515,17 @@ fn default_webview_zoom_percent() -> u32 {
     100
 }
 
+fn default_github_update_method() -> String {
+    "auto".to_string()
+}
+
+fn normalize_github_update_method(value: &str) -> String {
+    match value.trim() {
+        "direct" | "proxy" => value.trim().to_string(),
+        _ => default_github_update_method(),
+    }
+}
+
 fn normalize_webview_zoom_percent(value: u32) -> u32 {
     const OPTIONS: [u32; 6] = [80, 90, 100, 110, 120, 150];
     OPTIONS
@@ -659,6 +670,8 @@ struct AppConfig {
     ui_font: String,
     #[serde(default = "default_webview_zoom_percent")]
     webview_zoom_percent: u32,
+    #[serde(default = "default_github_update_method")]
+    github_update_method: String,
     #[serde(default = "default_record_hotkey")]
     record_hotkey: String,
     #[serde(default = "default_record_background_wake_enabled")]
@@ -708,6 +721,7 @@ impl Default for AppConfig {
             ui_language: default_ui_language(),
             ui_font: default_ui_font(),
             webview_zoom_percent: default_webview_zoom_percent(),
+            github_update_method: default_github_update_method(),
             record_hotkey: default_record_hotkey(),
             record_background_wake_enabled: default_record_background_wake_enabled(),
             min_record_seconds: default_min_record_seconds(),

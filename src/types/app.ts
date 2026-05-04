@@ -138,6 +138,7 @@ export type ApiProviderConfigItem = {
 export type ShellWorkspaceLevel = "system" | "main" | "secondary";
 
 export type ShellWorkspaceAccess = "approval" | "full_access" | "read_only";
+export type GithubUpdateMethod = "auto" | "direct" | "proxy";
 
 export type ShellWorkspace = {
   id: string;
@@ -222,6 +223,7 @@ export type AppConfig = {
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont: string;
   webviewZoomPercent?: number;
+  githubUpdateMethod?: GithubUpdateMethod;
   recordHotkey: string;
   recordBackgroundWakeEnabled: boolean;
   minRecordSeconds: number;

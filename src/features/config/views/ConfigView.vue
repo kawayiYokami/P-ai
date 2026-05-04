@@ -223,7 +223,9 @@
 
         <AboutTab
           v-else-if="props.configTab === 'about'"
+          :github-update-method="props.config.githubUpdateMethod || 'auto'"
           :checking-update="checkingUpdate"
+          @update:github-update-method="$emit('update:githubUpdateMethod', $event)"
           @check-update="$emit('checkUpdate')"
           @open-github="$emit('openGithub')"
         />
@@ -426,6 +428,7 @@ const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:uiLanguage", value: string): void;
   (e: "update:webviewZoomPercent", value: number): void;
+  (e: "update:githubUpdateMethod", value: AppConfig["githubUpdateMethod"]): void;
   (e: "update:personaEditorId", value: string): void;
   (e: "update:assistantDepartmentAgentId", value: string): void;
   (e: "update:responseStyleId", value: string): void;

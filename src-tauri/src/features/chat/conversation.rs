@@ -1540,6 +1540,7 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
         ui_language: String::new(),
         ui_font: String::new(),
         webview_zoom_percent: default_webview_zoom_percent(),
+        github_update_method: default_github_update_method(),
         record_hotkey: String::new(),
         record_background_wake_enabled: false,
         min_record_seconds: 0,

@@ -219,6 +219,7 @@
       :patch-conversation-api-settings="patchConversationApiSettings"
       :patch-chat-settings="patchChatSettings"
       :update-webview-zoom-percent="updateWebviewZoomPercent"
+      :update-github-update-method="updateGithubUpdateMethod"
       :set-theme="setTheme"
       :activate-generated-theme="activateGeneratedTheme"
       :update-generated-theme-controls="updateGeneratedThemeControls"
@@ -577,6 +578,7 @@ const config = reactive<AppConfig>({
   uiLanguage: "zh-CN",
   uiFont: "auto",
   webviewZoomPercent: 100,
+  githubUpdateMethod: "auto",
   recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
   recordBackgroundWakeEnabled: true,
   minRecordSeconds: 1,
@@ -805,6 +807,7 @@ const {
 } = useGithubUpdate({
   viewMode,
   status,
+  updateMethod: computed(() => config.githubUpdateMethod || "auto"),
 });
 const showUpdateToLatestButton = computed(() => hasAvailableUpdate.value);
 const updateToLatestLabel = computed(() =>
@@ -3980,6 +3983,9 @@ const appBootstrap = useAppBootstrap({
     if ("webviewZoomPercent" in payload) {
       config.webviewZoomPercent = normalizeWebviewZoomPercent(payload.webviewZoomPercent);
     }
+    if ("githubUpdateMethod" in payload) {
+      updateGithubUpdateMethod(payload.githubUpdateMethod);
+    }
     if ("recordHotkey" in payload) {
       config.recordHotkey = String(payload.recordHotkey ?? "");
     }
@@ -4146,6 +4152,11 @@ function syncWebviewZoomPercentFromBackend(percent: unknown) {
 
 function updateWebviewZoomPercent(value: unknown) {
   config.webviewZoomPercent = normalizeWebviewZoomPercent(value);
+}
+
+function updateGithubUpdateMethod(value: unknown) {
+  const normalized = String(value || "").trim();
+  config.githubUpdateMethod = normalized === "direct" || normalized === "proxy" ? normalized : "auto";
 }
 
 function webviewZoomOptionIndex(percent: unknown) {

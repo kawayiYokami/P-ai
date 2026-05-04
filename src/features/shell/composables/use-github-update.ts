@@ -2,12 +2,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, onBeforeUnmount, ref, type Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { GithubUpdateInfo, UpdateProgressPayload } from "../types/update";
+import type { GithubUpdateMethod } from "../../../types/app";
 
 type ViewModeRef = Ref<"chat" | "archives" | "config">;
 
 type UseGithubUpdateOptions = {
   viewMode: ViewModeRef;
   status: Ref<string>;
+  updateMethod: Ref<GithubUpdateMethod | undefined>;
 };
 
 function formatBytes(value?: number) {
@@ -122,6 +124,11 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     }, msUntilNextFourAm());
   }
 
+  function currentUpdateMethod(): GithubUpdateMethod {
+    const value = options.updateMethod.value;
+    return value === "direct" || value === "proxy" ? value : "auto";
+  }
+
   function syncDialogFromProgress(payload: UpdateProgressPayload) {
     const previousUiMode = updateUiMode.value;
     updateRuntimeKind.value = payload.runtimeKind;
@@ -191,7 +198,7 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       if (!silent) {
         options.status.value = "检查更新中...";
       }
-      const result = await invokeTauri<GithubUpdateInfo>("check_github_update");
+      const result = await invokeTauri<GithubUpdateInfo>("check_github_update", { updateMethod: currentUpdateMethod() });
       latestCheckResult.value = result;
       updateRuntimeKind.value = result.runtimeKind;
       if (!result?.hasUpdate) {
@@ -231,7 +238,7 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       updateDialogOpen.value = true;
     }
     try {
-      await invokeTauri("start_github_update", { force });
+      await invokeTauri("start_github_update", { force, updateMethod: currentUpdateMethod() });
     } catch (error) {
       updateInProgress.value = false;
       updateUiMode.value = null;
