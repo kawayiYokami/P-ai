@@ -535,7 +535,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     if (options.streamToolCalls) {
       if (cache.streamToolCalls.length > 0 || options.streamToolCalls.value.length === 0) {
-        options.streamToolCalls.value = cache.streamToolCalls.map((item) => ({ ...item }));
+        options.streamToolCalls.value = mergeStreamToolCallsForward(
+          options.streamToolCalls.value,
+          cache.streamToolCalls,
+        );
       }
     }
     streamToolCallCount = Math.max(streamToolCallCount, cache.streamToolCallCount);
@@ -550,6 +553,90 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return text === "running" || text === "done" || text === "failed" ? text : "";
   }
 
+  function normalizeStreamToolCallView(item: unknown): StreamToolCallView | null {
+    const raw = item && typeof item === "object" ? item as Record<string, unknown> : null;
+    const name = String(raw?.name || "").trim();
+    if (!name) return null;
+    return {
+      name,
+      argsText: String(raw?.argsText || ""),
+      status: String(raw?.status || "") === "doing" ? "doing" : "done",
+    };
+  }
+
+  function sameStreamToolCallIdentity(left: StreamToolCallView, right: StreamToolCallView): boolean {
+    return left.name === right.name && left.argsText === right.argsText;
+  }
+
+  function mergeStreamToolCallsForward(
+    currentCalls: StreamToolCallView[],
+    incomingCalls: StreamToolCallView[],
+  ): StreamToolCallView[] {
+    const current = currentCalls.map((item) => ({ ...item }));
+    const incoming = incomingCalls.map((item) => ({ ...item }));
+    if (incoming.length === 0) return current;
+    if (current.length === 0) return incoming;
+
+    if (
+      current.length === incoming.length
+      && incoming.every((item, idx) => sameStreamToolCallIdentity(current[idx], item))
+    ) {
+      return current.map((item, idx) => {
+        return { ...item, status: incoming[idx].status };
+      });
+    }
+
+    const maxOverlap = Math.min(current.length, incoming.length);
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+      const currentStart = current.length - overlap;
+      const overlaps = incoming.slice(0, overlap).every((item, idx) =>
+        sameStreamToolCallIdentity(current[currentStart + idx], item)
+      );
+      if (!overlaps) continue;
+      const merged = current.map((item, idx) => {
+        if (idx < currentStart) return item;
+        return { ...item, status: incoming[idx - currentStart].status };
+      });
+      const tail = incoming.slice(overlap);
+      if (tail.length === 0) return merged;
+      return [
+        ...merged.map((item, idx) =>
+          idx === merged.length - 1 && item.status !== "done"
+            ? { ...item, status: "done" as const }
+            : item
+        ),
+        ...tail,
+      ];
+    }
+
+    if (incoming.length > current.length) {
+      return incoming;
+    }
+
+    const latest = incoming[incoming.length - 1];
+    const currentLast = current[current.length - 1];
+    if (latest && !sameStreamToolCallIdentity(currentLast, latest)) {
+      return [
+        ...current.map((item, idx) =>
+          idx === current.length - 1 && item.status !== "done"
+            ? { ...item, status: "done" as const }
+            : item
+        ),
+        latest,
+      ];
+      }
+
+    return current;
+  }
+
+  function normalizeStreamToolCallViews(items: unknown): StreamToolCallView[] {
+    return Array.isArray(items)
+      ? items
+        .map((item) => normalizeStreamToolCallView(item))
+        .filter((item): item is StreamToolCallView => !!item)
+      : [];
+  }
+
   function loadStreamToolCallsFromDraft(draftId: string) {
     if (!options.streamToolCalls) return;
     if (!draftId) {
@@ -558,19 +645,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
     const draft = options.allMessages.value.find((item) => item.id === draftId);
     const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
-    const calls = Array.isArray(meta._streamToolCalls)
-      ? (meta._streamToolCalls as unknown[])
-        .map((item) => {
-          const raw = item && typeof item === "object" ? item as Record<string, unknown> : null;
-          return {
-            name: String(raw?.name || "").trim(),
-            argsText: String(raw?.argsText || ""),
-            status: String(raw?.status || "") === "doing" ? "doing" as const : "done" as const,
-          };
-        })
-        .filter((item) => !!item.name)
-      : [];
-    options.streamToolCalls.value = calls;
+    const calls = normalizeStreamToolCallViews(meta._streamToolCalls);
+    options.streamToolCalls.value = mergeStreamToolCallsForward(options.streamToolCalls.value, calls);
   }
 
   function streamCacheHasVisibleProgress(cache?: ConversationRuntimeStreamCacheSnapshot | ConversationStreamCache | null): boolean {
@@ -601,15 +677,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
       reasoningInline: String(snapshot.reasoningInline || ""),
       toolStatusText: String(snapshot.toolStatusText || ""),
       toolStatusState: normalizeToolStatusState(snapshot.toolStatusState),
-      streamToolCalls: Array.isArray(snapshot.streamToolCalls)
-        ? snapshot.streamToolCalls
-          .map((item) => ({
-            name: String(item?.name || "").trim(),
-            argsText: String(item?.argsText || ""),
-            status: String(item?.status || "") === "done" ? "done" as const : "doing" as const,
-          }))
-          .filter((item) => !!item.name)
-        : [],
+      streamToolCalls: mergeStreamToolCallsForward(
+        current.streamToolCalls,
+        normalizeStreamToolCallViews(snapshot.streamToolCalls),
+      ),
       streamToolCallCount: Math.max(0, Math.round(Number(snapshot.streamToolCallCount || 0))),
       streamLastToolName: String(snapshot.streamLastToolName || ""),
     }));
@@ -629,7 +700,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
         requestId: String(parsed.requestId || parsed.activationId || current.requestId || activeActivationId || "").trim(),
         frontendDispatchStartedAtMs,
         frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-        streamToolCalls: current.streamToolCalls.map((item) => ({ ...item })),
+        streamToolCalls: mergeStreamToolCallsForward(
+          current.streamToolCalls,
+          Array.isArray(options.streamToolCalls?.value) ? options.streamToolCalls.value : [],
+        ),
       };
       const delta = readDeltaMessage(parsed);
       if (parsed.kind === "tool_status") {
