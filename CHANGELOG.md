@@ -2,7 +2,17 @@
 
 ## 进行中
 
-- 优化（docs-readme-intro-rewrite）：按新口径重写 README 介绍，去掉“这不是聊天框”式对比表达，改成直接描述产品形态、系统组织方式和能力落点，语气更克制、更硬朗。
+- 暂无。
+
+## 发布：v0.9.70
+
+- 发布（release-0.9.70）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.70`，纳入本轮调度计时、界面缩放档位、README 多语言改写、失败时工具历史保留与流式工具列表累积显示修复。
+- 功能（chat-dispatch-elapsed）：聊天流式调度期间显示前端计时，消息完成同步后以后台调度耗时覆盖，工具执行过的消息在气泡操作区显示最终用时。
+- 功能（appearance-webview-zoom-levels）：外观页字体设置下方新增 WebView 缩放档位，支持 `80% / 90% / 100% / 110% / 120% / 150%`，并同步到全部窗口。
+- 修复（chat-failed-tool-history-persist）：模型续调或流式解析失败时，先落盘已完成工具历史再清理运行态；GenAI 请求前过滤空 assistant 历史时保留 reasoning-only assistant 上下文，避免切换模型或失败恢复后丢失有效历史。
+- 修复（chat-stream-toolcalls-cumulative）：前端从草稿、运行缓存或后端快照恢复流式工具状态时改为前进合并，避免调度期间只显示最新工具、完成后才一次性刷出全部工具。
+- 优化（docs-readme-intro-rewrite）：按新口径重写 README 与多语言 README 介绍，直接描述产品形态、系统组织方式和能力落点，语气更克制、更硬朗。
+- 清理（rust-dead-code-cleanup）：移除不再使用的 Rust 测试辅助与远程 IM 旧辅助代码，减少维护噪音。
 
 ## 发布：v0.9.69
 
