@@ -148,6 +148,14 @@ export type ShellWorkspace = {
   builtIn?: boolean;
 };
 
+export type ChatShellWorkspaceState = {
+  sessionId: string;
+  workspaceName: string;
+  rootPath: string;
+  workspaces?: ShellWorkspace[];
+  autonomousMode?: boolean;
+};
+
 export type McpToolPolicy = {
   toolName: string;
   enabled: boolean;

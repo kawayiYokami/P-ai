@@ -853,6 +853,8 @@
     "defaultWorkspace": "Default workspace",
     "workspacePickerTitle": "Directories AI Can Access",
     "workspacePickerHint": "Configure which directories the AI can access in this conversation. The default shell path is used when no path is specified.",
+    "workspacePickerAutonomous": "Grant maximum permissions to this conversation",
+    "workspacePickerAutonomousHint": "When enabled, terminal and patch tools can access any directory and skip directory permissions, smart review, and manual approval.",
     "workspacePickerEmpty": "No conversation workspace has been added yet. Add one to continue.",
     "workspaceCurrent": "Current",
     "allowedWorkspaceButton": "Directories AI Can Access",

@@ -21,6 +21,7 @@ pub(super) struct ConversationPersistMeta {
     user_profile_snapshot: String,
     shell_workspace_path: Option<String>,
     shell_workspaces: Vec<ShellWorkspaceConfig>,
+    shell_autonomous_mode: bool,
     archived_at: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
     memory_recall_table: Vec<String>,
@@ -90,6 +91,8 @@ pub(super) struct ConversationShardMeta {
     #[serde(default)]
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     #[serde(default)]
+    shell_autonomous_mode: bool,
+    #[serde(default)]
     archived_at: Option<String>,
     #[serde(default)]
     current_todos: Vec<ConversationTodoItem>,
@@ -139,6 +142,7 @@ impl ConversationShardMeta {
             user_profile_snapshot: conversation.user_profile_snapshot.clone(),
             shell_workspace_path: conversation.shell_workspace_path.clone(),
             shell_workspaces: conversation.shell_workspaces.clone(),
+            shell_autonomous_mode: conversation.shell_autonomous_mode,
             archived_at: conversation.archived_at.clone(),
             current_todos: conversation.current_todos.clone(),
             memory_recall_table: conversation.memory_recall_table.clone(),
@@ -169,6 +173,7 @@ impl ConversationShardMeta {
             user_profile_snapshot: meta.user_profile_snapshot.clone(),
             shell_workspace_path: meta.shell_workspace_path.clone(),
             shell_workspaces: meta.shell_workspaces.clone(),
+            shell_autonomous_mode: meta.shell_autonomous_mode,
             archived_at: meta.archived_at.clone(),
             current_todos: meta.current_todos.clone(),
             memory_recall_table: meta.memory_recall_table.clone(),
@@ -199,6 +204,7 @@ impl ConversationShardMeta {
             user_profile_snapshot: self.user_profile_snapshot.clone(),
             shell_workspace_path: self.shell_workspace_path.clone(),
             shell_workspaces: self.shell_workspaces.clone(),
+            shell_autonomous_mode: self.shell_autonomous_mode,
             archived_at: self.archived_at.clone(),
             current_todos: self.current_todos.clone(),
             memory_recall_table: self.memory_recall_table.clone(),
@@ -229,6 +235,7 @@ impl ConversationShardMeta {
             user_profile_snapshot: self.user_profile_snapshot,
             shell_workspace_path: self.shell_workspace_path,
             shell_workspaces: self.shell_workspaces,
+            shell_autonomous_mode: self.shell_autonomous_mode,
             archived_at: self.archived_at,
             messages,
             current_todos: self.current_todos,
@@ -308,6 +315,7 @@ mod message_store_meta_tests {
                 access: "workspace-write".to_string(),
                 built_in: false,
             }],
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: vec![test_message("m1"), test_message("m2")],
             current_todos: vec![ConversationTodoItem {

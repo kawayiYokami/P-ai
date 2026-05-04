@@ -2153,6 +2153,7 @@ mod archive_pipeline_tests {
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: vec![
                 test_message("m1", "user", "前置问题"),

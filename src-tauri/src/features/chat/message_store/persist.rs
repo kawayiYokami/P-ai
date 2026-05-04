@@ -824,6 +824,7 @@ mod message_store_persist_tests {
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
             archived_at: None,
             messages,
             current_todos: Vec::new(),

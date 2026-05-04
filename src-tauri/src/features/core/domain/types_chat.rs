@@ -139,6 +139,8 @@ struct Conversation {
     #[serde(default)]
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     #[serde(default)]
+    shell_autonomous_mode: bool,
+    #[serde(default)]
     archived_at: Option<String>,
     messages: Vec<ChatMessage>,
     #[serde(default)]

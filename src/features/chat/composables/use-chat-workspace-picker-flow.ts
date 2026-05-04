@@ -4,9 +4,10 @@ import type { ChatWorkspaceChoice } from "./use-chat-workspace";
 
 type UseChatWorkspacePickerFlowOptions = {
   chatWorkspaceChoices: Ref<ChatWorkspaceChoice[]>;
+  chatWorkspaceAutonomousMode: Ref<boolean>;
   openChatWorkspacePickerBase: () => void;
   closeChatWorkspacePickerBase: () => void;
-  saveChatWorkspaces: (items: ChatWorkspaceChoice[]) => Promise<void>;
+  saveChatWorkspaces: (items: ChatWorkspaceChoice[], autonomousMode?: boolean) => Promise<void>;
   setStatus: (message: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   workspaceAlreadyExistsText: string;
@@ -14,6 +15,7 @@ type UseChatWorkspacePickerFlowOptions = {
 
 export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOptions) {
   const chatWorkspaceDraftChoices = ref<ChatWorkspaceChoice[]>([]);
+  const chatWorkspaceDraftAutonomousMode = ref(false);
   const chatWorkspacePickerSaving = ref(false);
 
   function cloneChatWorkspaceChoices(items: ChatWorkspaceChoice[]): ChatWorkspaceChoice[] {
@@ -28,6 +30,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
 
   function syncChatWorkspaceDraftFromCurrentState() {
     chatWorkspaceDraftChoices.value = cloneChatWorkspaceChoices(options.chatWorkspaceChoices.value);
+    chatWorkspaceDraftAutonomousMode.value = Boolean(options.chatWorkspaceAutonomousMode.value);
   }
 
   function openChatWorkspacePicker() {
@@ -113,12 +116,16 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     chatWorkspaceDraftChoices.value = draft;
   }
 
+  function setChatWorkspaceAutonomousMode(enabled: boolean) {
+    chatWorkspaceDraftAutonomousMode.value = Boolean(enabled);
+  }
+
   async function saveChatWorkspacePicker() {
     if (chatWorkspacePickerSaving.value) return;
     chatWorkspacePickerSaving.value = true;
     try {
       const draft = cloneChatWorkspaceChoices(chatWorkspaceDraftChoices.value);
-      await options.saveChatWorkspaces(draft);
+      await options.saveChatWorkspaces(draft, chatWorkspaceDraftAutonomousMode.value);
       options.closeChatWorkspacePickerBase();
       syncChatWorkspaceDraftFromCurrentState();
     } finally {
@@ -128,12 +135,14 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
 
   return {
     chatWorkspaceDraftChoices,
+    chatWorkspaceDraftAutonomousMode,
     chatWorkspacePickerSaving,
     openChatWorkspacePicker,
     closeChatWorkspacePicker,
     addChatWorkspace,
     setChatWorkspaceAsMain,
     setChatWorkspaceAccess,
+    setChatWorkspaceAutonomousMode,
     removeChatWorkspace,
     saveChatWorkspacePicker,
   };

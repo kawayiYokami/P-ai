@@ -548,6 +548,8 @@ struct SaveChatShellWorkspacesInput {
     conversation_id: Option<String>,
     #[serde(default)]
     workspaces: Vec<ShellWorkspaceConfig>,
+    #[serde(default)]
+    autonomous_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -585,6 +587,7 @@ struct ChatShellWorkspaceOutput {
     workspace_name: String,
     root_path: String,
     workspaces: Vec<ShellWorkspaceConfig>,
+    autonomous_mode: bool,
 }
 
 fn resolve_chat_tool_session_id(
@@ -638,6 +641,7 @@ fn apply_conversation_chat_workspace_changes(
     conversation_id: &str,
     shell_workspace_path: Option<Option<String>>,
     shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+    shell_autonomous_mode: Option<bool>,
 ) -> Result<Conversation, String> {
     if delegate_runtime_thread_conversation_get(state, conversation_id)?.is_some() {
         let next_path = shell_workspace_path.clone();
@@ -645,11 +649,15 @@ fn apply_conversation_chat_workspace_changes(
         delegate_runtime_thread_modify(state, conversation_id, move |thread| {
             let original_path = thread.conversation.shell_workspace_path.clone();
             let original_workspaces = thread.conversation.shell_workspaces.clone();
+            let original_autonomous_mode = thread.conversation.shell_autonomous_mode;
             if let Some(value) = next_path.clone() {
                 thread.conversation.shell_workspace_path = value;
             }
             if let Some(value) = next_workspaces.clone() {
                 thread.conversation.shell_workspaces = value;
+            }
+            if let Some(value) = shell_autonomous_mode {
+                thread.conversation.shell_autonomous_mode = value;
             }
             if thread.conversation.shell_workspace_path.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
                 && terminal_workspace_path_from_conversation(state, &thread.conversation).is_none()
@@ -658,6 +666,7 @@ fn apply_conversation_chat_workspace_changes(
             }
             if thread.conversation.shell_workspace_path == original_path
                 && thread.conversation.shell_workspaces == original_workspaces
+                && thread.conversation.shell_autonomous_mode == original_autonomous_mode
             {
                 return Ok(());
             }
@@ -676,6 +685,7 @@ fn apply_conversation_chat_workspace_changes(
         conversation_id,
         shell_workspace_path,
         shell_workspaces,
+        shell_autonomous_mode,
     )?;
     mark_prompt_cache_rebuild_for_system_environment_by_conversation(state, conversation_id);
     Ok(updated)
@@ -735,6 +745,7 @@ fn build_chat_shell_workspace_output(
         workspace_name: resolve_workspace_display_name_for_conversation(state, conversation, &root),
         root_path: root.to_string_lossy().to_string(),
         workspaces: build_chat_shell_workspace_list(state, conversation),
+        autonomous_mode: conversation.map(|value| value.shell_autonomous_mode).unwrap_or(false),
     }
 }
 
@@ -1155,6 +1166,7 @@ fn update_chat_shell_workspace_layout(
         &conversation_id,
         Some(None),
         Some(normalized_workspaces),
+        input.autonomous_mode,
     )?;
     {
         let mut roots = state

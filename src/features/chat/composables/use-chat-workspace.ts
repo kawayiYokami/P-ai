@@ -1,7 +1,7 @@
 import { computed, ref, type ComputedRef } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ShellWorkspace } from "../../../types/app";
+import type { ChatShellWorkspaceState, ShellWorkspace } from "../../../types/app";
 import {
   defaultWorkspaceNameFromPath,
   inferWorkspaceName,
@@ -9,13 +9,6 @@ import {
   normalizeWorkspaceLevel,
   workspaceLevelRank,
 } from "../../../utils/shell-workspaces";
-
-type ChatShellWorkspaceState = {
-  sessionId: string;
-  workspaceName: string;
-  rootPath: string;
-  workspaces?: ShellWorkspace[];
-};
 
 export type ChatWorkspaceChoice = {
   id: string;
@@ -41,6 +34,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspaceRootPath = ref("");
   const chatWorkspacePickerOpen = ref(false);
   const chatWorkspaceItems = ref<ShellWorkspace[]>([]);
+  const chatWorkspaceAutonomousMode = ref(false);
 
   function normalizeWorkspaceChoice(item: ShellWorkspace, index: number): ChatWorkspaceChoice {
     const path = String(item.path || "").trim();
@@ -85,6 +79,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     const nextPath = String(state.rootPath || "").trim();
     chatWorkspaceRootPath.value = nextPath;
     chatWorkspaceItems.value = Array.isArray(state.workspaces) ? state.workspaces : [];
+    chatWorkspaceAutonomousMode.value = Boolean(state.autonomousMode);
     chatWorkspaceName.value = resolveWorkspaceDisplayName(nextPath, String(state.workspaceName || "").trim());
     chatWorkspacePath.value = nextPath;
   }
@@ -113,6 +108,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspacePath.value = "";
       chatWorkspaceRootPath.value = "";
       chatWorkspaceItems.value = [];
+      chatWorkspaceAutonomousMode.value = false;
       return;
     }
     try {
@@ -133,20 +129,23 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspacePickerOpen.value = false;
   }
 
-  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[]) {
+  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean) {
     const apiConfigId = String(options.activeApiConfigId.value || "").trim();
     const agentId = String(options.activeAgentId.value || "").trim();
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!apiConfigId || !agentId) return;
     const previousItems = [...chatWorkspaceItems.value];
     const previousName = chatWorkspaceName.value;
+    const previousAutonomousMode = chatWorkspaceAutonomousMode.value;
     applyChatWorkspaceDraft(workspaces);
+    chatWorkspaceAutonomousMode.value = Boolean(autonomousMode);
     try {
       const state = await invokeTauri<ChatShellWorkspaceState>("update_chat_shell_workspace_layout", {
         input: {
           apiConfigId,
           agentId,
           conversationId: conversationId || null,
+          autonomousMode: Boolean(autonomousMode),
           workspaces: workspaces
             .filter((item) => item.level !== "system")
             .map((item) => ({
@@ -163,6 +162,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     } catch (error) {
       chatWorkspaceItems.value = previousItems;
       chatWorkspaceName.value = previousName;
+      chatWorkspaceAutonomousMode.value = previousAutonomousMode;
       options.setStatusError("status.requestFailed", error);
       throw error;
     }
@@ -174,6 +174,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceRootPath,
     chatWorkspacePickerOpen,
     chatWorkspaceChoices,
+    chatWorkspaceAutonomousMode,
     refreshChatWorkspaceState,
     openChatWorkspacePicker,
     closeChatWorkspacePicker,

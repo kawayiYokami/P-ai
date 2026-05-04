@@ -1332,6 +1332,7 @@ fn build_branch_conversation_record_from_selection_runtime(
     conversation.plan_mode_enabled = source.plan_mode_enabled;
     conversation.shell_workspace_path = source.shell_workspace_path.clone();
     conversation.shell_workspaces = source.shell_workspaces.clone();
+    conversation.shell_autonomous_mode = source.shell_autonomous_mode;
     conversation.current_todos = source.current_todos.clone();
     let user_profile_snapshot = agents
         .iter()

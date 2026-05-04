@@ -966,21 +966,24 @@ async fn builtin_shell_exec(
     if cmd.is_empty() {
         return Err("shell_exec.command is empty".to_string());
     }
-    if let Some(reason) = terminal_command_block_reason(cmd) {
-        let review = terminal_local_review_value(&ui_language, terminal_local_rule_reason_message(&ui_language, reason));
-        return Ok(serde_json::json!({
-            "ok": false,
-            "approved": false,
-            "blockedReason": "local_rule_blocked",
-            "message": terminal_localized_text(
-                &ui_language,
-                "本地规则已直接拦截此命令，存在明确风险，不进入 AI 审查。",
-                "本地規則已直接攔截此命令，存在明確風險，不進入 AI 審查。",
-                "This command was blocked by local rules because it has a clearly identified risk and does not go to AI review.",
-            ),
-            "toolReview": review,
-            "command": cmd,
-        }));
+    let autonomous_mode = terminal_session_shell_autonomous_mode(state, &normalized_session)?;
+    if !autonomous_mode {
+        if let Some(reason) = terminal_command_block_reason(cmd) {
+            let review = terminal_local_review_value(&ui_language, terminal_local_rule_reason_message(&ui_language, reason));
+            return Ok(serde_json::json!({
+                "ok": false,
+                "approved": false,
+                "blockedReason": "local_rule_blocked",
+                "message": terminal_localized_text(
+                    &ui_language,
+                    "本地规则已直接拦截此命令，存在明确风险，不进入 AI 审查。",
+                    "本地規則已直接攔截此命令，存在明確風險，不進入 AI 審查。",
+                    "This command was blocked by local rules because it has a clearly identified risk and does not go to AI review.",
+                ),
+                "toolReview": review,
+                "command": cmd,
+            }));
+        }
     }
     let allowed_project_roots = terminal_allowed_project_roots_for_session_canonical(state, &normalized_session)?
         .iter()
@@ -1794,6 +1797,7 @@ mod terminal_exec_tests {
                     built_in: false,
                 },
             ],
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: Vec::new(),
             current_todos: Vec::new(),

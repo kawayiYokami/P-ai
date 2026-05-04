@@ -359,10 +359,12 @@
       :open="chatWorkspacePickerOpen"
       :saving="chatWorkspacePickerSaving"
       :workspaces="chatWorkspaceDraftChoices"
+      :autonomous-mode="chatWorkspaceDraftAutonomousMode"
       @close="closeChatWorkspacePicker"
       @add-workspace="addChatWorkspace"
       @set-main="setChatWorkspaceAsMain"
       @set-access="setChatWorkspaceAccess"
+      @set-autonomous-mode="setChatWorkspaceAutonomousMode"
       @remove-workspace="removeChatWorkspace"
       @save="saveChatWorkspacePicker"
     />
@@ -1721,6 +1723,7 @@ const {
   chatWorkspaceRootPath,
   chatWorkspacePickerOpen,
   chatWorkspaceChoices,
+  chatWorkspaceAutonomousMode,
   refreshChatWorkspaceState,
   openChatWorkspacePicker: openChatWorkspacePickerBase,
   closeChatWorkspacePicker: closeChatWorkspacePickerBase,
@@ -1734,16 +1737,19 @@ const {
 });
 const {
   chatWorkspaceDraftChoices,
+  chatWorkspaceDraftAutonomousMode,
   chatWorkspacePickerSaving,
   openChatWorkspacePicker,
   closeChatWorkspacePicker,
   addChatWorkspace,
   setChatWorkspaceAsMain,
   setChatWorkspaceAccess,
+  setChatWorkspaceAutonomousMode,
   removeChatWorkspace,
   saveChatWorkspacePicker,
 } = useChatWorkspacePickerFlow({
   chatWorkspaceChoices,
+  chatWorkspaceAutonomousMode,
   openChatWorkspacePickerBase,
   closeChatWorkspacePickerBase,
   saveChatWorkspaces,

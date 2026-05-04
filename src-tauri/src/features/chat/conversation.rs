@@ -233,6 +233,7 @@ fn build_conversation_record(
         user_profile_snapshot: String::new(),
         shell_workspace_path: None,
         shell_workspaces: Vec::new(),
+        shell_autonomous_mode: false,
         archived_at: None,
         messages: Vec::new(),
         current_todos: Vec::new(),
@@ -1725,7 +1726,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
         "exec" => (
             "exec tool rule",
             "何时必须用：当必须通过命令、程序或脚本来搜索文件、读取信息、检查环境、运行验证或执行脚本时，使用 exec。很多 skill 会要求执行脚本。\n\
-             何时不要用：一般情况下禁止使用 exec 创建、覆盖或改写文件；文件创建与修改应优先使用正常编辑能力，而不是把 exec 当成文件编辑器。\n\
+             何时不要用：如无用户明确指示，严格禁止使用 python 或终端命令直接修改文件；新增、删除、移动或改写文件必须使用 apply_patch 工具。一般情况下禁止使用 exec 创建、覆盖或改写文件；文件创建与修改应优先使用正常编辑能力，而不是把 exec 当成文件编辑器。\n\
              如何使用：优先把 exec 用于搜索、读取、检查、运行和验证；执行前先判断是否存在更低风险替代，并尽量缩小命令影响范围。若任务是新增或修改文件，应先使用 apply_patch；若 apply_patch 失败，应先修正补丁格式或路径问题重试，而不是改用 exec 通过 cat、echo、重定向、heredoc 等方式写文件。若 exec 报告工作区、路径授权或 shell_switch_workspace 相关错误，应先解决工作区与授权前提，再继续当前工具链，不要在 exec 与 apply_patch 之间来回试错。\n\
              为什么：exec 负责命令执行与脚本运行，但副作用风险更高，因此默认不承担常规文件编辑职责。",
         ),
@@ -2374,6 +2375,7 @@ fn build_prompt_with_mode(
         user_profile_snapshot: conversation.user_profile_snapshot.clone(),
         shell_workspace_path: conversation.shell_workspace_path.clone(),
         shell_workspaces: conversation.shell_workspaces.clone(),
+        shell_autonomous_mode: conversation.shell_autonomous_mode,
         archived_at: conversation.archived_at.clone(),
         messages: enriched_messages,
         current_todos: conversation.current_todos.clone(),

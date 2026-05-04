@@ -341,6 +341,7 @@ fn build_branch_conversation_record_from_selection(
     conversation.plan_mode_enabled = source.plan_mode_enabled;
     conversation.shell_workspace_path = source.shell_workspace_path.clone();
     conversation.shell_workspaces = source.shell_workspaces.clone();
+    conversation.shell_autonomous_mode = source.shell_autonomous_mode;
     conversation.current_todos = source.current_todos.clone();
     let user_profile_snapshot = data
         .agents
@@ -1882,6 +1883,7 @@ mod unarchived_conversations_tests {
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: vec![build_test_message("m1", "hello"), build_test_message("m2", "world")],
             current_todos: Vec::new(),

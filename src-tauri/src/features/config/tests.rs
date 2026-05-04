@@ -1115,6 +1115,7 @@ maxOutputTokens = 8192
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: vec![ChatMessage {
                 id: format!("{id}-message-1"),

@@ -115,6 +115,7 @@ fn delegate_runtime_thread_build(
     ) {
         conversation.shell_workspace_path = parent_workspace.shell_workspace_path;
         conversation.shell_workspaces = parent_workspace.shell_workspaces;
+        conversation.shell_autonomous_mode = parent_workspace.shell_autonomous_mode;
     }
     DelegateRuntimeThread {
         delegate_id: delegate.delegate_id.clone(),

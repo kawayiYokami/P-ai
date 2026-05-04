@@ -894,6 +894,8 @@
     "defaultWorkspace": "默认工作空间",
     "workspacePickerTitle": "允许 AI 访问的目录",
     "workspacePickerHint": "在这里设置当前会话允许 AI 访问的目录；默认 shell 路径用于未指定路径时的执行位置。",
+    "workspacePickerAutonomous": "给予本会话最大权限",
+    "workspacePickerAutonomousHint": "开启后，终端与补丁工具可访问任意目录，并跳过目录权限、智能审查与人工审批。",
     "workspacePickerEmpty": "当前还没有会话工作目录，先添加一个即可。",
     "workspaceCurrent": "当前",
     "allowedWorkspaceButton": "允许 AI 访问的目录",

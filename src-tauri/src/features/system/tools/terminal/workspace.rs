@@ -225,6 +225,37 @@ struct TerminalWorkspaceResolved {
     path: PathBuf,
 }
 
+fn terminal_conversation_shell_autonomous_mode(conversation: Option<&Conversation>) -> bool {
+    conversation
+        .map(|value| value.shell_autonomous_mode)
+        .unwrap_or(false)
+}
+
+fn terminal_session_shell_autonomous_mode(state: &AppState, session_id: &str) -> Result<bool, String> {
+    let conversation = terminal_session_conversation(state, session_id)?;
+    Ok(terminal_conversation_shell_autonomous_mode(conversation.as_ref()))
+}
+
+fn terminal_autonomous_workspace_for_target(target: &Path) -> TerminalWorkspaceResolved {
+    let normalized = terminal_normalize_for_access_check(target);
+    let path = if normalized.is_file() {
+        normalized
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| normalized.clone())
+    } else {
+        normalized
+    };
+    TerminalWorkspaceResolved {
+        id: "conversation-autonomous".to_string(),
+        name: "给予本会话最大权限".to_string(),
+        level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+        access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+        built_in: false,
+        path,
+    }
+}
+
 fn terminal_paths_match(left: &Path, right: &Path) -> bool {
     if let (Ok(left_canonical), Ok(right_canonical)) = (left.canonicalize(), right.canonicalize()) {
         return normalize_terminal_path_for_compare(&left_canonical)
@@ -767,6 +798,9 @@ fn terminal_match_workspace_for_target_in_conversation(
     conversation: Option<&Conversation>,
     target: &Path,
 ) -> Result<Option<TerminalWorkspaceResolved>, String> {
+    if terminal_conversation_shell_autonomous_mode(conversation) {
+        return Ok(Some(terminal_autonomous_workspace_for_target(target)));
+    }
     let normalized = terminal_normalize_for_access_check(target);
     let mut best_match: Option<TerminalWorkspaceResolved> = None;
     let mut best_len = 0usize;
@@ -831,6 +865,9 @@ fn terminal_prompt_trusted_roots_block(
     let mut lines = Vec::<String>::new();
     lines.push(format!("当前操作系统: {}", std::env::consts::OS));
     lines.push(format!("当前 shell: {}", terminal_shell_runtime_label(&runtime_shell)));
+    if terminal_conversation_shell_autonomous_mode(conversation) {
+        lines.push("当前会话已开启“给予本会话最大权限”：终端与补丁工具可访问任意目录，并跳过目录权限、智能审查与人工审批。".to_string());
+    }
     if let Some(system) = &system_workspace {
         lines.push(format!(
             "助理私人目录: {} [{} / {}] {}",
@@ -1198,6 +1235,7 @@ mod terminal_workspace_tests {
                 access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
                 built_in: false,
             }],
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: Vec::new(),
             current_todos: Vec::new(),
@@ -1273,6 +1311,7 @@ mod terminal_workspace_tests {
                 access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
                 built_in: false,
             }],
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: Vec::new(),
             current_todos: Vec::new(),
@@ -1291,6 +1330,52 @@ mod terminal_workspace_tests {
             normalize_terminal_path_for_compare(&resolved),
             normalize_terminal_path_for_compare(&main_workspace_path)
         );
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn terminal_match_workspace_should_grant_any_path_when_conversation_autonomous() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-terminal-workspace-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("p-ai").join("llm-workspace");
+        let outside_path = temp_root.join("outside-root").join("write-target.txt");
+        std::fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        std::fs::create_dir_all(outside_path.parent().expect("outside parent")).expect("create outside root");
+        let state = build_test_state(llm_workspace_path.clone());
+        let mut config = AppConfig::default();
+        config.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "system-workspace".to_string(),
+            name: "系统工作目录".to_string(),
+            path: terminal_path_for_user(&llm_workspace_path),
+            level: SHELL_WORKSPACE_LEVEL_SYSTEM.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: true,
+        }];
+        state_write_config_cached(&state, &config).expect("write config");
+        let mut conversation = build_conversation_record(
+            "api-1",
+            "agent-1",
+            ASSISTANT_DEPARTMENT_ID,
+            "Conversation",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        conversation.shell_autonomous_mode = true;
+
+        let workspace = terminal_match_workspace_for_target_in_conversation(
+            &state,
+            Some(&conversation),
+            &outside_path,
+        )
+        .expect("match workspace")
+        .expect("autonomous workspace");
+
+        assert_eq!(workspace.access, SHELL_WORKSPACE_ACCESS_FULL_ACCESS);
+        assert_eq!(workspace.name, "给予本会话最大权限");
 
         let _ = std::fs::remove_dir_all(temp_root);
     }

@@ -382,6 +382,7 @@ impl ConversationService {
         conversation_id: &str,
         shell_workspace_path: Option<Option<String>>,
         shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+        shell_autonomous_mode: Option<bool>,
     ) -> Result<Conversation, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
@@ -392,11 +393,15 @@ impl ConversationService {
             .map_err(|_| format!("指定会话不存在：{normalized_conversation_id}"))?;
         let original_path = conversation.shell_workspace_path.clone();
         let original_workspaces = conversation.shell_workspaces.clone();
+        let original_autonomous_mode = conversation.shell_autonomous_mode;
         if let Some(value) = shell_workspace_path {
             conversation.shell_workspace_path = value;
         }
         if let Some(value) = shell_workspaces {
             conversation.shell_workspaces = value;
+        }
+        if let Some(value) = shell_autonomous_mode {
+            conversation.shell_autonomous_mode = value;
         }
         if conversation
             .shell_workspace_path
@@ -410,6 +415,7 @@ impl ConversationService {
         }
         if conversation.shell_workspace_path == original_path
             && conversation.shell_workspaces == original_workspaces
+            && conversation.shell_autonomous_mode == original_autonomous_mode
         {
             return Ok(conversation);
         }

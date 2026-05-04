@@ -898,6 +898,8 @@
     "defaultWorkspace": "預設工作空間",
     "workspacePickerTitle": "允許 AI 存取的目錄",
     "workspacePickerHint": "在這裡設定目前會話允許 AI 存取的目錄；預設 shell 路徑用於未指定路徑時的執行位置。",
+    "workspacePickerAutonomous": "給予本會話最大權限",
+    "workspacePickerAutonomousHint": "開啟後，終端與補丁工具可存取任意目錄，並跳過目錄權限、智慧審查與人工審批。",
     "workspacePickerEmpty": "目前還沒有會話工作目錄，先新增一個即可。",
     "workspaceCurrent": "目前",
     "allowedWorkspaceButton": "允許 AI 存取的目錄",

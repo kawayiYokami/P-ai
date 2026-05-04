@@ -5,9 +5,24 @@
     @click.self="emit('close')"
   >
     <div class="w-full max-w-2xl rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
-      <div class="border-b border-base-300 px-4 py-3">
-        <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
-        <div class="mt-1 text-xs opacity-70">{{ t("chat.workspacePickerHint") }}</div>
+      <div class="flex items-start justify-between gap-3 border-b border-base-300 px-4 py-3">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
+          <div class="mt-1 text-xs opacity-70">{{ t("chat.workspacePickerHint") }}</div>
+        </div>
+        <label
+          class="flex max-w-[14rem] shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
+          :title="t('chat.workspacePickerAutonomousHint')"
+        >
+          <span class="whitespace-normal">{{ t("chat.workspacePickerAutonomous") }}</span>
+          <input
+            type="checkbox"
+            class="toggle toggle-primary toggle-sm"
+            :checked="autonomousMode"
+            :disabled="saving"
+            @change="onAutonomousModeChange"
+          />
+        </label>
       </div>
       <div class="max-h-[65vh] overflow-y-auto">
         <div
@@ -104,6 +119,7 @@ defineProps<{
   open: boolean;
   saving: boolean;
   workspaces: ChatWorkspaceChoice[];
+  autonomousMode: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -111,6 +127,7 @@ const emit = defineEmits<{
   (e: "addWorkspace"): void;
   (e: "setMain", workspaceId: string): void;
   (e: "setAccess", workspaceId: string, access: ChatWorkspaceChoice["access"]): void;
+  (e: "setAutonomousMode", enabled: boolean): void;
   (e: "removeWorkspace", workspaceId: string): void;
   (e: "save"): void;
 }>();
@@ -147,5 +164,9 @@ function onAccessChange(workspaceId: string, event: Event) {
     return;
   }
   emit("setAccess", workspaceId, nextAccess);
+}
+
+function onAutonomousModeChange(event: Event) {
+  emit("setAutonomousMode", Boolean((event.target as HTMLInputElement | null)?.checked));
 }
 </script>

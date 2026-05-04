@@ -484,6 +484,7 @@ mod prompt_assembly_tests {
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: workspaces,
+            shell_autonomous_mode: false,
             archived_at: None,
             messages: Vec::new(),
             current_todos: Vec::new(),

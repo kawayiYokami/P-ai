@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 功能（chat-workspace-autonomous-mode）：会话权限卡右上角新增“给予本会话最大权限”开关，开启后当前会话终端与补丁执行可访问任意目录，并跳过目录权限、智能审查与人工审批。
+- 优化（terminal-editing-tool-guidance）：终端工具系统提示词明确要求，如无用户明确指示，禁止使用 python 或终端命令直接修改文件，文件新增、删除、移动或改写必须使用 `apply_patch`。
 - 修复（terminal-drive-root-workspace）：终端工作目录权限判断兼容 Windows 硬盘根目录作为工作区，避免 `D:\` 这类根路径下的子目录被误判为不在合法工作目录。
 - 修复（conversation-api-clear-selection）：图转文 AI 与工具审查模型选择“不配置”时，后端正确识别显式清空请求并保存为空配置。
 - 优化（chat-settings-vision-api-hint）：图转文 AI 配置补充说明，明确只有驱动模型不支持图片输入时才会触发图转文，支持图片的模型会直接接收图片。
