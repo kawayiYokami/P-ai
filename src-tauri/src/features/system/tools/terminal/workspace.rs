@@ -150,10 +150,13 @@ fn path_is_within(base: &Path, target: &Path) -> bool {
     let base_norm = normalize_terminal_path_for_compare(base);
     let target_norm = normalize_terminal_path_for_compare(target);
     let separator = std::path::MAIN_SEPARATOR.to_string();
+    let base_prefix = if base_norm.ends_with(&separator) {
+        base_norm.clone()
+    } else {
+        format!("{base_norm}{separator}")
+    };
     target_norm == base_norm
-        || target_norm
-            .strip_prefix(&(base_norm.clone() + &separator))
-            .is_some()
+        || target_norm.strip_prefix(&base_prefix).is_some()
 }
 
 fn resolve_terminal_path(base_dir: &Path, raw: &str) -> Result<PathBuf, String> {
@@ -1011,6 +1014,20 @@ mod terminal_workspace_tests {
             migration_preview_dirs: Arc::new(Mutex::new(HashMap::new())),
             delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn path_is_within_should_allow_descendants_of_drive_root() {
+        assert!(path_is_within(
+            Path::new(r"D:\"),
+            Path::new(r"D:\projects\demo")
+        ));
+        assert!(path_is_within(Path::new(r"D:\"), Path::new(r"D:\")));
+        assert!(!path_is_within(
+            Path::new(r"D:\"),
+            Path::new(r"E:\projects\demo")
+        ));
     }
 
     #[test]

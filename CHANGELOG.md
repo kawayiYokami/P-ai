@@ -2,6 +2,7 @@
 
 ## 进行中
 
+- 修复（terminal-drive-root-workspace）：终端工作目录权限判断兼容 Windows 硬盘根目录作为工作区，避免 `D:\` 这类根路径下的子目录被误判为不在合法工作目录。
 - 修复（conversation-api-clear-selection）：图转文 AI 与工具审查模型选择“不配置”时，后端正确识别显式清空请求并保存为空配置。
 - 优化（chat-settings-vision-api-hint）：图转文 AI 配置补充说明，明确只有驱动模型不支持图片输入时才会触发图转文，支持图片的模型会直接接收图片。
 - 修复（meme-normalize-webp-on-import）：表情贴纸入库不再原样复制源图，统一转为最长边 300 像素以内、质量 85 的 WebP；GIF / WebP 动图保留多帧并输出 animated WebP，避免扩展名与真实格式不一致或原图过大导致远程发送异常。
