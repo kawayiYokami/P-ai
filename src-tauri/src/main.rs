@@ -100,6 +100,7 @@ include!("features/delegate.rs");
 include!("features/monitor_events.rs");
 
 include!("features/system/commands.rs");
+include!("features/system/headless_cli.rs");
 
 #[cfg(target_os = "windows")]
 fn windows_set_process_app_user_model_id() {
@@ -1005,13 +1006,26 @@ fn graceful_restart_app(app: &AppHandle) {
 }
 
 fn main() {
+    // 用 args_os 兜住非 UTF-8 参数：std::env::args 在迭代时会 panic，会绕开退出码约定。
+    let argv: Vec<String> = std::env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    if headless_cli_invocation(&argv) {
+        let parsed = match parse_headless_cli_args(&argv) {
+            Ok(parsed) => parsed,
+            Err(err) => std::process::exit(headless_cli_fail(&err)),
+        };
+        headless_cli_enter_mode(parsed.minimal_tools);
+        std::process::exit(run_headless_cli(parsed));
+    }
+
     #[cfg(target_os = "windows")]
     windows_set_process_app_user_model_id();
     init_backend_file_logging();
     install_backend_file_panic_hook();
     unix_extend_process_path_from_login_shell();
 
-    if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
+    if argv.iter().any(|arg| arg.as_str() == MCP_SCREENSHOT_SERVER_FLAG) {
         if let Err(err) = run_desktop_screenshot_mcp_server() {
             runtime_log_info(format!("{err}"));
         }

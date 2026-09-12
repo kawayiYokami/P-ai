@@ -429,7 +429,9 @@ fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
 
 fn runtime_log_push(level: &str, message: String) {
     let message = shorten_uuids_in_log(&message);
-    let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
+    if !headless_cli_console_logging_suppressed() {
+        let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
+    }
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
     append_backend_log_line(&normalized_level, &normalized_message);
     let created_at = now_log_local_rfc3339();

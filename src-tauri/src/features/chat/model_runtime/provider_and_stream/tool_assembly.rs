@@ -670,6 +670,9 @@ fn runtime_tool_denied_reason(
     tool: &CachedRuntimeToolSchema,
 ) -> Option<String> {
     let tool_name = tool.definition.name.trim();
+    if let Some(reason) = headless_cli_tool_denied_reason(tool_name) {
+        return Some(reason);
+    }
     if !selected_api.enable_tools {
         return Some("当前模型未启用工具调用".to_string());
     }
