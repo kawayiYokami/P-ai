@@ -33,8 +33,9 @@
         </Transition>
       </div>
       <span
-        v-if="!hasVisibleContent"
+        v-if="!answerLine"
         class="flex items-center gap-1 leading-5 text-base-content/70"
+        :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''"
       >
         <ArrowDownToLine class="h-3.5 w-3.5" />
         {{ t("chat.jumpToBottom") }}
@@ -123,8 +124,10 @@ function windowLine(line: string): string {
 }
 
 // ==================== 节点队列 ====================
-// 一个节点 = 一段思维链 + 一段正文。节点内先把思维链按阅读速度逐行走完，
-// 等下一个节点出现才认定本节点输出完毕，此时才把正文显示出来。
+// 一个节点 = 一段思维链 + 一段正文。
+// 思维链行走阅读节奏（下面那条窗口按阅读速度推进）；
+// 正文行不参与这个节奏——它直接跟随「最新一段已输出的正文」，
+// 否则长思维链会把正文行一直卡在开头，表现为正文已经输出、预览里却看不到正文。
 
 const activeBlockIndex = ref(0);
 const consumedLineCount = ref(0);
@@ -132,10 +135,6 @@ const remainingMs = ref(0);
 const answerLine = ref("");
 let alignedToLatest = false;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
-
-const hasVisibleContent = computed(
-  () => (props.streaming && reasoningWindowLines.value.length > 0) || !!answerLine.value,
-);
 
 const activeReasoningLines = computed(() =>
   nonEmptyLines(props.blocks[activeBlockIndex.value]?.reasoning || ""),
@@ -179,11 +178,6 @@ function stopTicking() {
   tickTimer = null;
 }
 
-function commitFinishedAnswer() {
-  const text = finalBodyLine(props.blocks[activeBlockIndex.value]?.text || "");
-  if (text) answerLine.value = windowLine(text);
-}
-
 function advanceTick() {
   const total = props.blocks.length;
   if (activeBlockIndex.value >= total) return;
@@ -199,10 +193,9 @@ function advanceTick() {
     return;
   }
 
-  // 思维链读完；只有后面已经出现新节点，才认定本节点输出完毕
+  // 思维链读完；只有后面已经出现新节点，才推进到下一节点
   if (activeBlockIndex.value >= total - 1) return;
 
-  commitFinishedAnswer();
   activeBlockIndex.value += 1;
   consumedLineCount.value = 0;
   remainingMs.value = 0;
@@ -224,6 +217,16 @@ const blocksFingerprint = computed(() =>
   props.blocks.map((block) => `${block.reasoning?.length ?? 0}:${block.text?.length ?? 0}`).join("|"),
 );
 
+// 流式期间正文行的数据源：最后一段有正文的节点（纯工具节点会被跳过）。
+// 直接盯最新，不排队——否则思维链一长，正文行就永远停在开头。
+const latestBodyLine = computed(() => {
+  for (let i = props.blocks.length - 1; i >= 0; i -= 1) {
+    const text = finalBodyLine(props.blocks[i]?.text || "");
+    if (text) return windowLine(text);
+  }
+  return "";
+});
+
 // 对齐到最新块：挂载时（含切回历史会话）不重放已有内容
 function alignToLatest() {
   const total = props.blocks.length;
@@ -242,6 +245,9 @@ function restartFromBeginning() {
   activeBlockIndex.value = 0;
   consumedLineCount.value = 0;
   remainingMs.value = 0;
+  // 上一回合结束时 applyIdleAnswer 写入的正文末行必须清掉，
+  // 否则新回合的正文行会先显示上一条消息的正文。
+  answerLine.value = "";
 }
 
 // 非流式：收起思维链，只显示最新一条助理消息的正文末行
@@ -262,15 +268,9 @@ function applyIdleAnswer() {
   answerLine.value = "";
 }
 
-// 挂载对齐时补一段已完成节点的正文
-function applyFinishedAnswer() {
-  for (let i = props.blocks.length - 2; i >= 0; i -= 1) {
-    const text = finalBodyLine(props.blocks[i]?.text || "");
-    if (text) {
-      answerLine.value = windowLine(text);
-      return;
-    }
-  }
+// 流式期间把正文行同步到最新一段已输出的正文（挂载对齐与每次内容增长都走这里）
+function applyStreamingAnswer() {
+  answerLine.value = latestBodyLine.value;
 }
 
 watch(
@@ -280,7 +280,7 @@ watch(
       alignedToLatest = true;
       if (streaming) {
         alignToLatest();
-        applyFinishedAnswer();
+        applyStreamingAnswer();
       } else {
         applyIdleAnswer();
       }
@@ -296,6 +296,7 @@ watch(
     } else if (activeBlockIndex.value >= props.blocks.length) {
       alignToLatest();
     }
+    applyStreamingAnswer();
     ensureTicking();
   },
   { immediate: true },

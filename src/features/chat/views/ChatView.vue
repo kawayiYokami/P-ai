@@ -2809,13 +2809,15 @@ function handleJumpToBottomWithFollow() {
 
 // 思维链预览：数据源取当前回合最后一条助理块的内容源（contentBlocks），按节点顺序交给预览条。
 // activityItems 在流式期 text 为空，不能作为流式预览来源。
+// 必须停在最新一条助理消息上，即使它此刻 contentBlocks 还是空的：新回合首个旁白出现前
+// contentBlocks 为空，若继续往前找非空块，会回退取到「上一条助理消息」的内容，正文行跟着串台。
 const thinkingPreviewBlocks = computed<AssistantStreamBlock[]>(() => {
   const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     if (block.isExtraTextBlock || block.remoteImOrigin) continue;
-    const contentBlocks = block.contentBlocks || [];
-    if (contentBlocks.length > 0) return contentBlocks;
+    if (String(block.role || "") !== "assistant") return [];
+    return block.contentBlocks || [];
   }
   return [];
 });
