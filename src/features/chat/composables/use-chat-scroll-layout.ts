@@ -41,21 +41,16 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   let pointerScrollIntentActive = false;
   let sessionControlPanelHideTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const showJumpToBottom = computed(() => !lastBottomState.value && userScrollingDown.value);
-  const jumpToBottomStyle = computed(() => ({
-    bottom: `${jumpToBottomOffset.value}px`,
-  }));
-  const jumpAboveBottomStyle = computed(() => ({
-    bottom: `${jumpToBottomOffset.value + 44}px`,
+  // 会话悬浮操作区：工作区 bar、思维链预览 bar、时间线按钮共用同一容器，
+  // 统一锚定在输入框上沿并留 8px（p-2）底部间距，横向跟随容器宽度
+  const sessionFloatDockStyle = computed(() => ({
+    bottom: `${composerReservedHeight.value + 8}px`,
   }));
   const toolbarReservedHeight = computed(() => {
     const measuredHeight = toolbarContainer.value?.offsetHeight ?? 0;
     if (measuredHeight <= 0) return 0;
     return Math.max(FLOATING_TOOLBAR_MIN_RESERVE, measuredHeight);
   });
-  const floatingToolbarStyle = computed(() => ({
-    bottom: `${jumpToBottomOffset.value}px`,
-  }));
 
   function updateJumpToBottomOffset() {
     const composerHeight = composerContainer.value?.offsetHeight ?? 0;
@@ -331,7 +326,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     chatLayoutRoot,
     latestOwnElasticMinHeight,
     composerReservedHeight,
-    showJumpToBottom,
     atConversationBottom: lastBottomState,
     followBottom,
     startFollowBottom,
@@ -339,10 +333,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     userScrollingDown,
     userScrollingUp,
     sessionControlPanelVisible,
-    jumpToBottomStyle,
-    jumpAboveBottomStyle,
+    sessionFloatDockStyle,
     toolbarReservedHeight,
-    floatingToolbarStyle,
     onScroll,
     noteWheelScrollIntent,
     beginPointerScrollIntent,

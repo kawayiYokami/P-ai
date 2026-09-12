@@ -22,7 +22,7 @@
     </div>
 
     <div class="relative rounded-box border border-base-300 bg-base-200/60 px-4 pb-4 pt-32">
-      <div class="absolute inset-x-0 top-0">
+      <div class="absolute inset-x-0 top-0 px-2">
         <ChatThinkingPreviewBar
           :blocks="blocks"
           :idle-text="idleText"

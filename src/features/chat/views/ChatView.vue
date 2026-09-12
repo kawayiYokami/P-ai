@@ -207,17 +207,22 @@
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
           </div>
         </div>
+        <!-- 会话悬浮操作区：下排工作区 bar（贴底时出现），上排预览条 + 时间线按钮（离底时出现），两排各自动画进出 -->
+        <div
+          data-session-float-dock="true"
+          class="pointer-events-none absolute inset-x-0 z-30"
+          :style="sessionFloatDockStyle"
+        >
         <div
           v-if="supportsFloatingSessionToolbar"
           ref="toolbarContainer"
-          class="absolute inset-x-0 z-20 transition-all duration-150 ease-out"
+          class="absolute inset-x-0 bottom-0 z-20 transition-all duration-150 ease-out"
           :class="showFloatingSessionToolbar
             ? 'pointer-events-auto opacity-100 translate-y-0'
             : 'pointer-events-none opacity-0 translate-y-2'"
-          :style="floatingToolbarStyle"
           :aria-hidden="showFloatingSessionToolbar ? undefined : 'true'"
         >
-          <div class="ecall-chat-toolbar-shell mx-auto w-full max-w-225 px-4">
+          <div class="ecall-chat-toolbar-shell w-full px-2">
             <ChatWorkspaceToolbar
               class="transition-opacity duration-150 ease-out"
               :class="showFloatingSessionToolbar ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'"
@@ -262,6 +267,67 @@
             />
           </div>
         </div>
+        <!-- 上排：离底时出现（预览条 + 时间线按钮），始终位于工作区 bar 上方 -->
+        <div
+          class="pointer-events-none absolute inset-x-0 transition-[bottom] duration-200 ease-out"
+          :style="{ bottom: `${sessionFloatTopRowBottom}px` }"
+        >
+        <div class="flex w-full items-end justify-between gap-2 px-2">
+          <div class="pointer-events-none min-w-0 flex-1">
+            <ChatThinkingPreviewBar
+              :blocks="thinkingPreviewBlocks"
+              :idle-text="idlePreviewText"
+              :avatar-url="previewAvatarUrl"
+              :visible="!atConversationBottom && !chatStatusBanner && !showTimelineFloatPanel"
+              :streaming="chatting"
+              @jump-to-bottom="handleJumpToBottomWithFollow"
+            />
+          </div>
+          <!-- 时间线按钮：与预览条底边齐平；卡片已 Teleport 到 body 视口锚定，本容器仅提供锚点定位 -->
+          <div class="relative h-10 w-10 shrink-0">
+            <TimelineSnakeBoard
+              :visible="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
+              :anchors="timelineAnchors"
+              :active-index="activeTimelineIndex"
+              :hovered-index="hoveredTimelineIndex"
+              :anchor-el="timelineBoardAnchorEl"
+              @hover="hoveredTimelineIndex = $event"
+              @enter-zone="handleTimelineFloatEnter"
+              @leave-zone="handleTimelineFloatLeave"
+              @jump="handleTimelineJumpAndClose($event)"
+            />
+            <Transition
+              enter-active-class="transition duration-200 ease-out"
+              enter-from-class="opacity-0 translate-y-1"
+              leave-active-class="transition duration-200 ease-out"
+              leave-to-class="opacity-0 translate-y-1"
+            >
+              <button
+                v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
+                ref="timelineFloatWrapRef"
+                type="button"
+                class="absolute bottom-0 right-0 btn btn-md btn-circle border border-base-300/50 bg-base-100/55 text-base-content/80 shadow-sm backdrop-blur-md backdrop-saturate-150 hover:bg-base-100/75 pointer-events-auto"
+                :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
+                :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
+                @mouseenter="handleTimelineFloatEnter"
+                @mouseleave="handleTimelineFloatLeave"
+                @click="handleTimelineFloatToggle"
+                @keydown.enter.prevent="handleTimelineFloatToggle"
+                @keydown.space.prevent="handleTimelineFloatToggle"
+              >
+                <GanttChart class="h-5 w-5" />
+              </button>
+            </Transition>
+            <div
+              v-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
+              ref="timelineFloatPlaceholderRef"
+              class="absolute bottom-0 right-0 h-10 w-10 invisible pointer-events-none"
+              aria-hidden="true"
+            />
+          </div>
+        </div>
+        </div>
+        </div>
         <CompactionSummaryCard
           :visible="conversationSummaryCard.visible"
           :text="conversationSummaryCard.text"
@@ -295,43 +361,6 @@
           @update:enabled="autoPushEnabled = $event"
           @update:selected-contact-id="autoPushSelectedContactId = $event"
         />
-        <!-- bottom-right: 时间线按钮 + 回到底部，绝对定位钉死各自偏移，显隐互不影响位置 -->
-        <!-- 卡片已 Teleport 到 body 视口锚定，按钮容器仅提供锚点定位 -->
-        <div class="pointer-events-none absolute bottom-3 right-5 z-31" :style="jumpToBottomStyle">
-          <TimelineSnakeBoard
-            :visible="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
-            :anchors="timelineAnchors"
-            :active-index="activeTimelineIndex"
-            :hovered-index="hoveredTimelineIndex"
-            :anchor-el="timelineBoardAnchorEl"
-            @hover="hoveredTimelineIndex = $event"
-            @enter-zone="handleTimelineFloatEnter"
-            @leave-zone="handleTimelineFloatLeave"
-            @jump="handleTimelineJumpAndClose($event)"
-          />
-          <button
-            v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
-            ref="timelineFloatWrapRef"
-            type="button"
-            class="absolute bottom-0 right-0 btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto"
-            :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
-            :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
-            @mouseenter="handleTimelineFloatEnter"
-            @mouseleave="handleTimelineFloatLeave"
-            @click="handleTimelineFloatToggle"
-            @keydown.enter.prevent="handleTimelineFloatToggle"
-            @keydown.space.prevent="handleTimelineFloatToggle"
-          >
-            <GanttChart class="h-4 w-4" />
-          </button>
-          <div
-            v-else-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
-            ref="timelineFloatPlaceholderRef"
-            class="absolute bottom-0 right-0 h-8 w-8 invisible pointer-events-none"
-            aria-hidden="true"
-          />
-        </div>
-
         <div
           ref="composerContainer"
           class="relative shrink-0 bg-base-200 p-0"
@@ -392,19 +421,6 @@
               </div>
             </div>
           </Transition>
-          <div
-            v-if="!chatStatusBanner && !showTimelineFloatPanel"
-            class="pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full pb-2"
-          >
-            <ChatThinkingPreviewBar
-              :blocks="thinkingPreviewBlocks"
-              :idle-text="idlePreviewText"
-              :avatar-url="previewAvatarUrl"
-              :visible="!atConversationBottom"
-              :streaming="chatting"
-              @jump-to-bottom="handleJumpToBottomWithFollow"
-            />
-          </div>
           <ChatQuestionPanel
             v-if="activeConversationTerminalApprovals.length > 0"
             :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
@@ -1685,7 +1701,7 @@ const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
-  sessionControlPanelVisible, jumpToBottomStyle, jumpAboveBottomStyle, toolbarReservedHeight, floatingToolbarStyle, onScroll,
+  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
@@ -2153,6 +2169,12 @@ const showFloatingSessionToolbar = computed(() => {
   if (!supportsFloatingSessionToolbar.value) return false;
   return sessionControlPanelVisible.value;
 });
+
+// 会话悬浮操作区上排（预览条 + 时间线按钮）的底边偏移：
+// 下排工作区 bar 可见时抬起一个 bar 高 + 8px 间隔，不可见时落到容器底边
+const sessionFloatTopRowBottom = computed(() =>
+  showFloatingSessionToolbar.value ? toolbarReservedHeight.value + 8 : 0,
+);
 
 const showConversationTodoBar = computed(() => {
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");

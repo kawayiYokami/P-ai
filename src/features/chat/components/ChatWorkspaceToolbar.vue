@@ -1,7 +1,7 @@
 <template>
   <div
     v-bind="attrs"
-    class="rounded-box bg-base-100/70 px-2 py-1.5 shadow backdrop-blur-md flex items-center justify-between gap-2 text-xs"
+    class="rounded-box border border-base-300/50 bg-base-100/55 px-2 py-1.5 shadow backdrop-blur-md backdrop-saturate-150 flex items-center justify-between gap-2 text-xs"
   >
     <div class="flex min-w-0 flex-1 items-center gap-1.5">
       <div

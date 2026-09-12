@@ -1,11 +1,17 @@
 <template>
-  <div v-if="visible" class="pointer-events-none flex justify-start px-2">
+  <Transition
+    enter-active-class="transition duration-200 ease-out"
+    enter-from-class="opacity-0 translate-y-1"
+    leave-active-class="transition duration-200 ease-out"
+    leave-to-class="opacity-0 translate-y-1"
+  >
+  <div v-if="visible" class="pointer-events-none flex justify-start">
     <button
       type="button"
-      class="ecall-thinking-preview-bar pointer-events-auto w-fit max-w-[min(720px,100%)] cursor-pointer rounded-2xl border border-base-300/50 bg-base-100/55 px-3 py-2 text-left text-xs shadow-sm backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-base-100/75"
+      class="ecall-thinking-preview-bar pointer-events-auto w-fit cursor-pointer rounded-2xl border border-base-300/50 bg-base-100/55 px-3 py-2 text-left text-xs shadow-sm backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-base-100/75"
       @click="emit('jumpToBottom')"
     >
-      <div v-if="streaming && reasoningWindowLines.length > 0" class="block max-h-20 max-w-[min(720px,100%)] overflow-hidden">
+      <div v-if="streaming && reasoningWindowLines.length > 0" class="block max-h-20 overflow-hidden">
         <TransitionGroup
           :name="lineTransitionName"
           tag="div"
@@ -18,7 +24,7 @@
           ><InlineMarkdownText :text="line.text" /></span>
         </TransitionGroup>
       </div>
-      <div v-if="answerLine" class="block max-w-[min(720px,100%)] overflow-hidden" :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''">
+      <div v-if="answerLine" class="block overflow-hidden" :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''">
         <Transition :name="lineTransitionName" mode="out-in">
           <span :key="answerLine" class="flex min-w-0 items-center gap-1.5">
             <img
@@ -42,6 +48,7 @@
       </span>
     </button>
   </div>
+  </Transition>
 </template>
 
 <script setup lang="ts">
