@@ -15,7 +15,7 @@
             v-for="line in reasoningWindowLines"
             :key="line.key"
             class="block truncate leading-5 text-base-content/55"
-          >{{ line.text }}</span>
+          ><InlineMarkdownText :text="line.text" /></span>
         </TransitionGroup>
       </div>
       <div v-if="answerLine" class="block max-w-[min(720px,100%)] overflow-hidden" :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''">
@@ -27,7 +27,7 @@
               alt=""
               class="h-4 w-4 shrink-0 rounded-full object-cover"
             />
-            <span class="truncate leading-5 text-base-content/85">{{ answerLine }}</span>
+            <span class="truncate leading-5 text-base-content/85"><InlineMarkdownText :text="answerLine" /></span>
             <ArrowDownToLine class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
           </span>
         </Transition>
@@ -48,6 +48,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ArrowDownToLine } from "@lucide/vue";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
+import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 
 const { t } = useI18n();
 
