@@ -39,17 +39,69 @@ const PREVIEW_GAP = 4;
 const PREVIEW_H = 152;
 
 const hostRef = ref<HTMLElement | null>(null);
-const viewport = ref({
+const winSize = ref({
   w: typeof window !== "undefined" ? window.innerWidth : 1920,
   h: typeof window !== "undefined" ? window.innerHeight : 1080,
 });
+// 布局基准视口：聊天中间对话区（data-chat-center-pane），而不是整个窗口。
+// 窗口里除了聊天区还可能有左右分栏，按窗口算会让蛇板和预览卡飘出聊天区。
+const containerRect = ref<Rect | null>(null);
 const anchorRect = ref<DOMRect | null>(null);
 let anchorRo: ResizeObserver | null = null;
 let viewportTimer: number | null = null;
 
+type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+
+function resolveContainerEl(): HTMLElement | null {
+  const el = props.anchorEl;
+  if (!el) return null;
+  return el.closest('[data-chat-center-pane="true"]') as HTMLElement | null;
+}
+
 function updateViewport() {
   if (typeof window === "undefined") return;
-  viewport.value = { w: window.innerWidth, h: window.innerHeight };
+  winSize.value = { w: window.innerWidth, h: window.innerHeight };
+  const container = resolveContainerEl();
+  if (container) {
+    const r = container.getBoundingClientRect();
+    containerRect.value = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+    return;
+  }
+  // 兜底：拿不到聊天区时退回整窗视口
+  containerRect.value = {
+    left: 0,
+    top: 0,
+    right: winSize.value.w,
+    bottom: winSize.value.h,
+    width: winSize.value.w,
+    height: winSize.value.h,
+  };
+}
+
+const viewport = computed<Rect>(() => containerRect.value ?? {
+  left: 0,
+  top: 0,
+  right: winSize.value.w,
+  bottom: winSize.value.h,
+  width: winSize.value.w,
+  height: winSize.value.h,
+});
+
+// 把「距窗口右边/下边的距离」限制在聊天区之内
+function clampRight(desired: number, cardW: number): number {
+  const vw = winSize.value.w;
+  const vp = viewport.value;
+  const min = vw - vp.right + SAFE;
+  const max = vw - vp.left - cardW - SAFE;
+  return Math.min(Math.max(desired, min), Math.max(min, max));
+}
+
+function clampBottom(desired: number, cardH: number): number {
+  const vh = winSize.value.h;
+  const vp = viewport.value;
+  const min = vh - vp.bottom + SAFE;
+  const max = vh - vp.top - cardH - SAFE;
+  return Math.min(Math.max(desired, min), Math.max(min, max));
 }
 
 function updateAnchorRect() {
@@ -90,6 +142,8 @@ watch(
       anchorRo.observe(el);
       const parent = el.parentElement;
       if (parent) anchorRo.observe(parent);
+      const container = resolveContainerEl();
+      if (container) anchorRo.observe(container);
     }
     scheduleMeasure();
   },
@@ -121,11 +175,10 @@ onBeforeUnmount(() => {
 
 const layout = computed(() => {
   const N = props.anchors.length;
-  const vw = viewport.value.w;
-  const vh = viewport.value.h;
+  const vp = viewport.value;
   const ar = anchorRect.value;
-  const availW = vw - SAFE * 2;
-  const availH = ar ? Math.max(32, ar.bottom - SAFE) : vh - SAFE * 2;
+  const availW = vp.width - SAFE * 2;
+  const availH = ar ? Math.max(32, ar.bottom - vp.top - SAFE) : vp.height - SAFE * 2;
   if (N === 0 || availW < MIN_GAP || availH < MIN_GAP) return null;
   let gap = MAX_GAP;
   let cols = 1;
@@ -167,15 +220,13 @@ const layout = computed(() => {
 });
 
 const boardFixedStyle = computed(() => {
-  const vw = viewport.value.w;
-  const vh = viewport.value.h;
+  const vw = winSize.value.w;
+  const vh = winSize.value.h;
   if (!layout.value) {
     const ar = anchorRect.value;
     if (ar) {
-      let right = vw - ar.right;
-      let bottom = vh - ar.bottom;
-      right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
-      bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
+      const right = clampRight(vw - ar.right, 32);
+      const bottom = clampBottom(vh - ar.bottom, 32);
       return {
         position: "fixed",
         right: `${Math.round(right)}px`,
@@ -186,8 +237,8 @@ const boardFixedStyle = computed(() => {
     }
     return {
       position: "fixed",
-      right: `${SAFE}px`,
-      bottom: `${SAFE + 40}px`,
+      right: `${clampRight(vw - SAFE - 32, 32)}px`,
+      bottom: `${clampBottom(vh - SAFE - 40 - 32, 32)}px`,
       width: "32px",
       height: "32px",
     } as Record<string, string>;
@@ -204,13 +255,9 @@ const boardFixedStyle = computed(() => {
       height: `${cardH}px`,
     } as Record<string, string>;
   }
-  // 蛇板底边对齐 anchor 底边：从按钮原位展开，不悬浮
-  let right = vw - ar.right;
-  let bottom = vh - ar.bottom;
-  const maxRight = vw - cardW - SAFE;
-  const maxBottom = vh - cardH - SAFE;
-  right = Math.min(Math.max(right, SAFE), Math.max(SAFE, maxRight));
-  bottom = Math.min(Math.max(bottom, SAFE), Math.max(SAFE, maxBottom));
+  // 蛇板底边对齐 anchor 底边：从按钮原位展开，不悬浮；边界限制在聊天区内
+  const right = clampRight(vw - ar.right, cardW);
+  const bottom = clampBottom(vh - ar.bottom, cardH);
   return {
     position: "fixed",
     right: `${Math.round(right)}px`,
@@ -221,24 +268,20 @@ const boardFixedStyle = computed(() => {
 });
 
 const boardViewportPos = computed(() => {
+  const vw = winSize.value.w;
+  const vh = winSize.value.h;
   if (!layout.value) {
     const ar = anchorRect.value;
-    const vw = viewport.value.w;
-    const vh = viewport.value.h;
     if (ar) {
-      let right = vw - ar.right;
-      let bottom = vh - ar.bottom;
-      right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
-      bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
+      const right = clampRight(vw - ar.right, 32);
+      const bottom = clampBottom(vh - ar.bottom, 32);
       return { left: vw - right - 32, top: vh - bottom - 32 };
     }
-    return { left: vw - SAFE - 32, top: vh - SAFE - 40 - 32 };
+    return { left: vw - clampRight(vw - SAFE - 32, 32) - 32, top: vh - clampBottom(vh - SAFE - 40 - 32, 32) - 32 };
   }
   const s = boardFixedStyle.value;
   const right = parseFloat(String(s.right).replace("px", "")) || 0;
   const bottom = parseFloat(String(s.bottom).replace("px", "")) || 0;
-  const vw = viewport.value.w;
-  const vh = viewport.value.h;
   return {
     left: vw - right - layout.value.cardW,
     top: vh - bottom - layout.value.cardH,
@@ -370,42 +413,45 @@ const tooltipW = computed(() => {
 
 const tooltipBelow = computed(() => {
   const y = mouseLocal.value.y;
-  const vh = viewport.value.h;
+  const vp = viewport.value;
   const boardTop = boardViewportPos.value.top;
   const cursorY = boardTop + y;
   const aboveTop = cursorY - 14 - PREVIEW_H;
   const belowBottom = cursorY + 18 + PREVIEW_H;
-  const aboveOkViewport = aboveTop >= SAFE;
-  const belowOkViewport = belowBottom <= vh - SAFE;
+  const aboveOkViewport = aboveTop >= vp.top + SAFE;
+  const belowOkViewport = belowBottom <= vp.bottom - SAFE;
   if (aboveOkViewport) return false;
   if (belowOkViewport) return true;
-  const spaceAbove = cursorY - SAFE;
-  const spaceBelow = vh - SAFE - cursorY;
+  const spaceAbove = cursorY - (vp.top + SAFE);
+  const spaceBelow = (vp.bottom - SAFE) - cursorY;
   return spaceBelow > spaceAbove;
 });
 
 const tooltipStyle = computed(() => {
   const w = tooltipW.value;
-  const vw = viewport.value.w;
-  const vh = viewport.value.h;
+  const vp = viewport.value;
   const boardPos = boardViewportPos.value;
   const cardW = layout.value?.cardW ?? w;
   const half = w / 2 + 6;
   const clampedInsideX = Math.min(Math.max(mouseLocal.value.x, half), Math.max(half, cardW - half));
   const desiredViewportX = boardPos.left + clampedInsideX;
-  const clampedViewportX = Math.min(Math.max(desiredViewportX, SAFE + w / 2), vw - SAFE - w / 2);
+  const minX = vp.left + SAFE + w / 2;
+  const maxX = vp.right - SAFE - w / 2;
+  const clampedViewportX = Math.min(Math.max(desiredViewportX, minX), Math.max(minX, maxX));
   const cursorViewportY = boardPos.top + mouseLocal.value.y;
+  const minTop = vp.top + SAFE;
+  const maxTop = Math.max(minTop, vp.bottom - SAFE - PREVIEW_H);
   let top: number;
   if (tooltipBelow.value) {
     top = cursorViewportY + 18;
-    if (top + PREVIEW_H > vh - SAFE) {
-      top = Math.max(SAFE, vh - SAFE - PREVIEW_H);
+    if (top + PREVIEW_H > vp.bottom - SAFE) {
+      top = maxTop;
     }
   } else {
     top = cursorViewportY - 14 - PREVIEW_H;
-    if (top < SAFE) top = SAFE;
-    if (top + PREVIEW_H > vh - SAFE) {
-      top = Math.max(SAFE, vh - SAFE - PREVIEW_H);
+    if (top < minTop) top = minTop;
+    if (top + PREVIEW_H > vp.bottom - SAFE) {
+      top = maxTop;
     }
   }
   return {
