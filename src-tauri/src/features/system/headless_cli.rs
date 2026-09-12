@@ -173,6 +173,12 @@ fn headless_cli_shell_workspaces() -> Result<Vec<ShellWorkspaceConfig>, String> 
 async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     let locked_model_id = args.model_config_id.trim().to_string();
     let state = AppState::new()?;
+    // 无头入口不走前端就绪回调，必须在此主动加载工作区：否则 skills 目录不铺、
+    // 快照缓存为空、prompt 里没有 skill 索引，MCP 也不会启动。
+    let workspace_result = load_workspace(&state)
+        .await
+        .map_err(|err| format!("加载工作区（skill/MCP）失败: {err}"))?;
+    log_workspace_load_result("[工作区加载]", &workspace_result);
     let runtime_org = load_runtime_organization_snapshot(&state)?;
     let app_config = runtime_org.config.clone();
     if !app_config
@@ -193,6 +199,10 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     {
         return Err(format!("主部门执行人格不可用: agent_id={agent_id}"));
     }
+
+    // 等到这里再等 MCP 探测落定：等待只需早于首轮工具装配，不必早于参数校验，
+    // 否则 --model 写错这种常见误操作也要先付出整个探测耗时。
+    headless_cli_wait_mcp_ready(&state).await;
 
     let title: String = args.task.chars().take(30).collect();
     let conversation = create_unarchived_conversation_inner(
@@ -289,6 +299,62 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     println!("{}", final_text.trim());
     headless_cli_wait_background_tasks(&state, &conversation_id).await;
     Ok(())
+}
+
+/// 等待已启用 MCP 服务器的探测落定。
+///
+/// `load_workspace` 只负责派发探测（内部 detached spawn），返回时运行态仍停在 `starting`；
+/// 而工具装配仅在 schema 缓存为空时才重建，内置工具又保证缓存非空，所以那一轮会固定拿不到
+/// MCP 工具。CLI 只有一轮对话，必须在发首轮前等到探测完成。
+///
+/// 启用清单只取一次：探测是否落定只由运行态决定，没必要每轮重扫目录并重解析 JSON
+/// （那会在存在坏 definition 文件时被 200ms 轮询放大成成百条重复告警）。
+///
+/// 兜底上限：探测自身有连接(30s)/请求(60s)超时，但存在「探测任务提前 return 而运行态停在
+/// `starting`」的路径（例如探测期间该服务器的 definition 被改写），届时状态可能永远不落终态。
+/// 所以这里设一个上限，超过只记警告并继续，让模型带着非 MCP 工具作答，而不是把整个 CLI 挂死。
+const HEADLESS_CLI_MCP_READY_WAIT_LIMIT: std::time::Duration =
+    std::time::Duration::from_secs(120);
+
+async fn headless_cli_wait_mcp_ready(state: &AppState) {
+    let enabled_ids: Vec<String> = match load_workspace_mcp_servers(state) {
+        Ok(servers) => servers
+            .into_iter()
+            .filter(|server| server.enabled)
+            .map(|server| server.id)
+            .collect(),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[工作区加载] 读取 MCP 服务器清单失败，跳过探测等待：{err}"
+            ));
+            Vec::new()
+        }
+    };
+
+    let started = std::time::Instant::now();
+    let mut logged_pending = false;
+    while enabled_ids.iter().any(|id| {
+        mcp_runtime_state_get(id)
+            .map(|runtime| runtime.last_status == "starting")
+            .unwrap_or(false)
+    }) {
+        if !logged_pending {
+            runtime_log_info("[工作区加载] 等待 MCP 探测落定".to_string());
+            logged_pending = true;
+        }
+        if started.elapsed() >= HEADLESS_CLI_MCP_READY_WAIT_LIMIT {
+            runtime_log_warn(format!(
+                "[工作区加载] 等待 MCP 探测超过上限，继续执行（本轮可能缺少 MCP 工具），elapsed_ms={}",
+                started.elapsed().as_millis()
+            ));
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    // 探测完成时的 refresh 与状态翻转之间存在极短竞态，这里显式刷新一次，
+    // 确保首轮装配拿到的 schema 缓存已包含 MCP 工具。
+    refresh_global_tool_schema_cache(state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(state);
 }
 
 /// 收尾清账：等本会话仍在运行的后台 shell 任务自然结束。

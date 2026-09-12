@@ -439,6 +439,15 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
         runtime_log_error(format!("[启动-延迟] 启动会话后台持久化服务失败: {err}"));
     }
+    // 工作区加载（铺 skills、填快照缓存、派发 MCP 探测）只依赖 AppState，与前端无耦合，
+    // 因此归入后端阶段 2 启动序列，不再搭前端就绪回调的便车；无头入口走同一条加载。
+    // 该函数不等待 MCP 探测（探测是内部 detached spawn），await 段只有同步文件与内存操作，
+    // 所以内联 await 不会拖住阶段 2 后续步骤，也保留了「加载先于后续启动步骤」的串行顺序。
+    log_step("加载工作区（skill/MCP）");
+    match load_workspace(app_state.inner()).await {
+        Ok(result) => log_workspace_load_result("[工作区加载]", &result),
+        Err(err) => runtime_log_error(format!("[工作区加载] 状态=失败，error={err}")),
+    }
     let recovery_state = app_state.inner().clone();
     tauri::async_runtime::spawn(async move {
         for attempt in 0..6u8 {
@@ -588,10 +597,8 @@ async fn start_background_services_after_frontend_ready(
             probe_release_source_once(&probe_state).await;
         }
     });
-    match load_workspace(&startup_state).await {
-        Ok(result) => log_workspace_load_result("[工作区加载]", &result),
-        Err(err) => runtime_log_error(format!("[工作区加载] 状态=失败，error={err}")),
-    }
+    // 工作区加载已移到后端阶段 2（run_deferred_setup），此处只负责远程 IM 等
+    // 确实需要等前端就绪的服务，不再顺带加载 skill/MCP。
     start_remote_im_services_after_frontend_ready(app_handle.clone()).await;
 }
 
