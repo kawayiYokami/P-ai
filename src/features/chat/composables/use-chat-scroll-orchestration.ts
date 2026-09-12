@@ -9,6 +9,8 @@ export interface UseChatScrollOrchestrationOptions {
   scheduleVirtualMeasure: () => void;
   resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
   scrollConversationToBottomLightweight: (behavior?: "auto" | "smooth") => void;
+  // 手动「回到底部」时按当前离底距离解析真实滚动行为（近平滑、远瞬移）
+  resolveManualScrollToBottomBehavior?: () => "auto" | "smooth";
   olderHistoryCorrectionAllowed?: Ref<boolean>;
   props: {
     hasMoreHistory: Ref<boolean>;
@@ -18,7 +20,7 @@ export interface UseChatScrollOrchestrationOptions {
     frozen: Ref<boolean>;
     activeConversationId: Ref<string>;
     conversationScrollToBottomRequest: Ref<number>;
-    scrollToBottomBehavior: Ref<"auto" | "smooth" | "smooth_light">;
+    scrollToBottomBehavior: Ref<"auto" | "smooth" | "smooth_light" | "manual">;
     renderItems: Ref<ChatRenderItem[]>;
   };
   emit: {
@@ -36,6 +38,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     scheduleVirtualMeasure,
     resetConversationToBottom,
     scrollConversationToBottomLightweight,
+    resolveManualScrollToBottomBehavior,
     olderHistoryCorrectionAllowed,
     props,
     emit,
@@ -182,8 +185,8 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     scrollConversationToBottomLightweight(behavior);
   }
 
-  function handleJumpToBottom() {
-    doScrollToBottom();
+  function handleJumpToBottom(behavior: "auto" | "smooth" = "auto") {
+    doScrollToBottom(behavior);
     if (props.chatting.value || props.conversationBusy.value || props.frozen.value) return;
     emit.jumpToConversationBottom();
   }
@@ -207,6 +210,10 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       if (!nextValue || nextValue === prevValue) return;
       if (props.scrollToBottomBehavior.value === "smooth_light") {
         doLightweightScrollToBottom("smooth");
+        return;
+      }
+      if (props.scrollToBottomBehavior.value === "manual") {
+        doScrollToBottom(resolveManualScrollToBottomBehavior?.() ?? "auto");
         return;
       }
       doScrollToBottom(props.scrollToBottomBehavior.value);

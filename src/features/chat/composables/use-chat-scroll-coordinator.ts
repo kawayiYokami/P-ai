@@ -6,7 +6,7 @@ type UseChatScrollCoordinatorOptions = {
 
 export function useChatScrollCoordinator(options: UseChatScrollCoordinatorOptions) {
   const conversationScrollToBottomRequest = ref(0);
-  const scrollToBottomBehavior = ref<"auto" | "smooth" | "smooth_light">("auto");
+  const scrollToBottomBehavior = ref<"auto" | "smooth" | "smooth_light" | "manual">("auto");
   let pendingConversationScrollToBottomConversationId = "";
   let pendingConversationScrollToBottomTimer = 0;
   let pendingManualScrollToBottomConversationId = "";
@@ -59,7 +59,7 @@ export function useChatScrollCoordinator(options: UseChatScrollCoordinatorOption
   function triggerConversationScrollToBottom(
     conversationId: string,
     reason: string,
-    behavior: "auto" | "smooth" | "smooth_light" = "auto",
+    behavior: "auto" | "smooth" | "smooth_light" | "manual" = "auto",
   ) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;

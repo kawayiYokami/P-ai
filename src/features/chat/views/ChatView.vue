@@ -313,7 +313,7 @@
             v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
             ref="timelineFloatWrapRef"
             type="button"
-            class="absolute bottom-10 right-0 btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto"
+            class="absolute bottom-0 right-0 btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto"
             :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
             :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
             @mouseenter="handleTimelineFloatEnter"
@@ -327,16 +327,9 @@
           <div
             v-else-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
             ref="timelineFloatPlaceholderRef"
-            class="absolute bottom-10 right-0 h-8 w-8 invisible pointer-events-none"
+            class="absolute bottom-0 right-0 h-8 w-8 invisible pointer-events-none"
             aria-hidden="true"
           />
-          <Transition name="chat-jump-action">
-            <div v-show="showJumpToBottom" class="pointer-events-auto absolute bottom-0 right-0">
-              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottomWithFollow">
-                <ArrowDownToLine class="h-4 w-4" />
-              </button>
-            </div>
-          </Transition>
         </div>
 
         <div
@@ -399,6 +392,19 @@
               </div>
             </div>
           </Transition>
+          <div
+            v-if="!chatStatusBanner && !showTimelineFloatPanel"
+            class="pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full pb-2"
+          >
+            <ChatThinkingPreviewBar
+              :blocks="thinkingPreviewBlocks"
+              :idle-text="idlePreviewText"
+              :avatar-url="previewAvatarUrl"
+              :visible="!atConversationBottom"
+              :streaming="chatting"
+              @jump-to-bottom="handleJumpToBottomWithFollow"
+            />
+          </div>
           <ChatQuestionPanel
             v-if="activeConversationTerminalApprovals.length > 0"
             :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
@@ -734,7 +740,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { ArrowDownToLine, Check, CircleAlert, Copy, GanttChart, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import { Check, CircleAlert, Copy, GanttChart, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -749,10 +755,11 @@ import {
   resolveLocalFileUrl,
   saveTransportChatImageAs,
 } from "../../../services/tauri-api";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace, ShellWorkMode } from "../../../types/app";
+import type { ApiConfigItem, AssistantStreamBlock, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
+import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
@@ -824,7 +831,7 @@ const props = defineProps<{
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
-  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "smooth_light";
+  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "smooth_light" | "manual";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
@@ -1675,7 +1682,7 @@ const isWebRoundedMode = ref(false);
 
 const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
-  latestOwnElasticMinHeight, showJumpToBottom, atConversationBottom, userScrollingUp,
+  latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom,
   sessionControlPanelVisible, jumpToBottomStyle, jumpAboveBottomStyle, toolbarReservedHeight, floatingToolbarStyle, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
@@ -2696,6 +2703,7 @@ const {
   onScroll, scheduleVirtualMeasure,
   scrollConversationToBottomLightweight: scrollVirtualizerToConversationBottomLightweight,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
+  resolveManualScrollToBottomBehavior,
   olderHistoryCorrectionAllowed,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
@@ -2751,11 +2759,57 @@ watch(chatContentRoot, (el, _prev, onCleanup) => {
   });
 });
 
+// 手动「回到底部」的滚动行为：与底部相隔在当前可视项 10 项以内走平滑，否则瞬移
+function resolveManualScrollToBottomBehavior(): "auto" | "smooth" {
+  const len = virtualRenderItems.value.length;
+  return len > 0 && resolveVirtualSmooth(len - 1, "smooth") ? "smooth" : "auto";
+}
+
 // 「回到底部」是显式贴底意图：进入跟随后再执行定位滚动
 function handleJumpToBottomWithFollow() {
   startFollowBottom();
-  handleJumpToBottom();
+  handleJumpToBottom(resolveManualScrollToBottomBehavior());
 }
+
+// 思维链预览：数据源取当前回合最后一条助理块的内容源（contentBlocks），按节点顺序交给预览条。
+// activityItems 在流式期 text 为空，不能作为流式预览来源。
+const thinkingPreviewBlocks = computed<AssistantStreamBlock[]>(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    const contentBlocks = block.contentBlocks || [];
+    if (contentBlocks.length > 0) return contentBlocks;
+  }
+  return [];
+});
+
+// 非流式预览：取最新一条助理消息的正文。
+// 不能只看 contentBlocks——历史消息常常没有这个字段，会取成空。
+const idlePreviewText = computed(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    if (String(block.role || "") !== "assistant") continue;
+    const text = String(block.text || "").trim();
+    if (text) return text;
+  }
+  return "";
+});
+
+// 预览条正文行前的头像：与聊天气泡同源，取最新一条助理消息的人格头像
+const previewAvatarUrl = computed(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    if (String(block.role || "") !== "assistant") continue;
+    const speakerId = String(block.speakerAgentId || "").trim();
+    return speakerId ? String(props.personaAvatarUrlMap?.[speakerId] || "").trim() : "";
+  }
+  return "";
+});
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {
   if (!target) return;
@@ -3280,17 +3334,6 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: none;
   }
-}
-
-.chat-jump-action-enter-active,
-.chat-jump-action-leave-active {
-  transition: opacity 120ms ease-out, transform 120ms ease-out;
-}
-
-.chat-jump-action-enter-from,
-.chat-jump-action-leave-to {
-  opacity: 0;
-  transform: translateY(4px) scale(0.98);
 }
 
 .todo-bar-slide-enter-active,

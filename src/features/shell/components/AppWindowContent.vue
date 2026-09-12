@@ -668,7 +668,7 @@ const props = defineProps<{
   chatLoadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
-  scrollToBottomBehavior: "auto" | "smooth" | "smooth_light";
+  scrollToBottomBehavior: "auto" | "smooth" | "smooth_light" | "manual";
   currentChatWorkspaceName: string;
   currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;

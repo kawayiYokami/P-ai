@@ -376,7 +376,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
         && conversationId === bindings.getPendingManualScrollToBottomConversationId()
       ) {
         bindings.clearPendingManualScrollToBottom();
-        bindings.triggerConversationScrollToBottom(conversationId, "manual_after_synced");
+        bindings.triggerConversationScrollToBottom(conversationId, "manual_after_synced", "manual");
       }
     }
   }

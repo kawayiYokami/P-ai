@@ -497,7 +497,7 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     if (!conversationId) return;
     if (bindings.foregroundTailLatestReady.value) {
-      bindings.triggerConversationScrollToBottom(conversationId, "manual_ready");
+      bindings.triggerConversationScrollToBottom(conversationId, "manual_ready", "manual");
       return;
     }
     try {
@@ -509,19 +509,19 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
         },
       });
       if (!result?.accepted) {
-        bindings.triggerConversationScrollToBottom(conversationId, "manual_request_rejected");
+        bindings.triggerConversationScrollToBottom(conversationId, "manual_request_rejected", "manual");
         return;
       }
       bindings.setPendingManualScrollState(conversationId, String(result.requestId || "").trim());
       if (!String(result.requestId || "").trim()) {
-        bindings.triggerConversationScrollToBottom(conversationId, "manual_request_missing_id");
+        bindings.triggerConversationScrollToBottom(conversationId, "manual_request_missing_id", "manual");
       }
     } catch (error) {
       console.warn("[会话切换] 手动滚到底前请求尾部增量失败", {
         conversationId,
         error,
       });
-      bindings.triggerConversationScrollToBottom(conversationId, "manual_request_failed");
+      bindings.triggerConversationScrollToBottom(conversationId, "manual_request_failed", "manual");
     }
   }
 
