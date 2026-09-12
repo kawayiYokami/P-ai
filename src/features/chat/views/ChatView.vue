@@ -1994,8 +1994,9 @@ function handleTimelineJump(virtualIndex: number) {
 const timelineFloatWrapRef = ref<HTMLElement | null>(null);
 const timelineFloatPlaceholderRef = ref<HTMLElement | null>(null);
 const timelineFloatOpen = ref(false);
+// 托盘收起前的逗留时间：鼠标短暂移出不会立刻消失（展开仍然是即时的）
+const TIMELINE_FLOAT_CLOSE_DELAY_MS = 320;
 let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
-let timelineFloatExpandUntil = 0;
 
 const showTimelineFloatPanel = computed(() => timelineFloatOpen.value && timelineAnchors.value.length >= 2);
 const timelineBoardAnchorEl = computed(() => {
@@ -2030,15 +2031,13 @@ function handleTimelineFloatEnter() {
   if (showTimelineFloatPanel.value) return;
   if (timelineAnchors.value.length < 2) return;
   timelineFloatOpen.value = true;
-  timelineFloatExpandUntil = Date.now() + 320;
 }
 function handleTimelineFloatLeave() {
   if (timelineFloatCloseTimer) clearTimeout(timelineFloatCloseTimer);
-  const waitForExpand = Math.max(0, timelineFloatExpandUntil - Date.now());
   timelineFloatCloseTimer = setTimeout(() => {
     timelineFloatOpen.value = false;
     timelineFloatCloseTimer = null;
-  }, waitForExpand > 0 ? waitForExpand + 80 : 160);
+  }, TIMELINE_FLOAT_CLOSE_DELAY_MS);
 }
 function handleTimelineFloatToggle() {
   if (timelineFloatCloseTimer) {
@@ -2050,7 +2049,6 @@ function handleTimelineFloatToggle() {
   } else {
     if (timelineAnchors.value.length < 2) return;
     timelineFloatOpen.value = true;
-    timelineFloatExpandUntil = Date.now() + 320;
   }
 }
 function handleTimelineJumpAndClose(virtualIndex: number) {
