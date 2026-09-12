@@ -94,7 +94,7 @@
             @pointerdown="beginPointerScrollIntent"
           >
           <Transition name="chat-conversation-switch" mode="out-in">
-          <div :key="activeConversationId || 'conversation-empty'" class="flex min-w-0 shrink-0 flex-col">
+          <div ref="chatContentRoot" :key="activeConversationId || 'conversation-empty'" class="flex min-w-0 shrink-0 flex-col">
           <DraftRecipientCard
             v-if="activeConversationIsDraft"
             :options="props.createConversationDepartmentOptions"
@@ -332,7 +332,7 @@
           />
           <Transition name="chat-jump-action">
             <div v-show="showJumpToBottom" class="pointer-events-auto absolute bottom-0 right-0">
-              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottom">
+              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottomWithFollow">
                 <ArrowDownToLine class="h-4 w-4" />
               </button>
             </div>
@@ -1676,6 +1676,7 @@ const isWebRoundedMode = ref(false);
 const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, showJumpToBottom, atConversationBottom, userScrollingUp,
+  followBottom, startFollowBottom,
   sessionControlPanelVisible, jumpToBottomStyle, jumpAboveBottomStyle, toolbarReservedHeight, floatingToolbarStyle, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
@@ -2719,6 +2720,41 @@ function handleConversationWheelInput(event: WheelEvent) {
   }
   noteWheelScrollIntent();
   onConversationWheel(event);
+}
+
+// ==================== bottom follow (intent-driven) ====================
+
+const chatContentRoot = ref<HTMLElement | null>(null);
+let contentResizeObserver: ResizeObserver | null = null;
+
+// 跟随模式下内容尺寸变化（流式增长、气泡变高）时同步贴底。
+// virtua 不会在内容增长时自动维持贴底，这里补上；未进入跟随则保持视口不动。
+function pinChatToBottomWhileFollowing() {
+  if (!followBottom.value) return;
+  const el = scrollContainer.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+  chatScrollbarRef.value?.updateThumb();
+}
+
+watch(chatContentRoot, (el, _prev, onCleanup) => {
+  contentResizeObserver?.disconnect();
+  contentResizeObserver = null;
+  if (!el || typeof ResizeObserver === "undefined") return;
+  contentResizeObserver = new ResizeObserver(() => {
+    pinChatToBottomWhileFollowing();
+  });
+  contentResizeObserver.observe(el);
+  onCleanup(() => {
+    contentResizeObserver?.disconnect();
+    contentResizeObserver = null;
+  });
+});
+
+// 「回到底部」是显式贴底意图：进入跟随后再执行定位滚动
+function handleJumpToBottomWithFollow() {
+  startFollowBottom();
+  handleJumpToBottom();
 }
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {

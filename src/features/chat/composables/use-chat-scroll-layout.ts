@@ -26,6 +26,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const composerReservedHeight = ref(0);
   const jumpToBottomOffset = ref(96);
   const lastBottomState = ref(false);
+  // 贴底跟随：默认关闭。只有用户主动滚动到达底部、或点击「回到底部」时才开启；
+  // 内容增长时据此决定是否持续贴底，向上滚离底部即退出。
+  const followBottom = ref(false);
   const lastScrollTop = ref(0);
   const userScrollingDown = ref(false);
   const userScrollingUp = ref(false);
@@ -153,7 +156,17 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       }
     }
     lastScrollTop.value = nextScrollTop;
-    updateScrollPositionState(el, { notifyReachedBottom: true });
+    const nearBottom = updateScrollPositionState(el, { notifyReachedBottom: true });
+    // 只有用户主动滚动才改变跟随意图：滚到底进入、离开底部退出；
+    // 程序化滚动（切会话、发送定位、跟随自身贴底）不改动它
+    if (userInitiatedScroll) {
+      followBottom.value = nearBottom;
+    }
+  }
+
+  // 显式表达贴底意图（如点击「回到底部」）：进入跟随
+  function startFollowBottom() {
+    followBottom.value = true;
   }
 
   function noteWheelScrollIntent() {
@@ -272,6 +285,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
           lastScrollTop.value = el.scrollTop;
           userScrollingDown.value = false;
           userScrollingUp.value = false;
+          // 切换会话属于「定位到新消息」，不继承上一会话的跟随意图
+          followBottom.value = false;
         }
       });
     },
@@ -302,6 +317,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     composerReservedHeight,
     showJumpToBottom,
     atConversationBottom: lastBottomState,
+    followBottom,
+    startFollowBottom,
     userScrollingDown,
     userScrollingUp,
     sessionControlPanelVisible,
