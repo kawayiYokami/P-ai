@@ -1,5 +1,6 @@
 import type { ChatRenderItem } from "../utils/chat-render";
 import { nextTick, onBeforeUnmount, ref, watch, type Ref } from "vue";
+import { probeChatScroll } from "./chat-scroll-probe";
 
 export interface UseChatScrollOrchestrationOptions {
   scrollContainer: Ref<HTMLElement | null>;
@@ -8,7 +9,8 @@ export interface UseChatScrollOrchestrationOptions {
   onScroll: () => void;
   scheduleVirtualMeasure: () => void;
   resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
-  scrollConversationToBottomLightweight: (behavior?: "auto" | "smooth") => void;
+  // 把最新用户消息对齐到视口顶部（与时间线跳转同一套 align: "start"）
+  alignLatestOwnMessageToTop?: () => void;
   // 手动「回到底部」时按当前离底距离解析真实滚动行为（近平滑、远瞬移）
   resolveManualScrollToBottomBehavior?: () => "auto" | "smooth";
   olderHistoryCorrectionAllowed?: Ref<boolean>;
@@ -20,7 +22,7 @@ export interface UseChatScrollOrchestrationOptions {
     frozen: Ref<boolean>;
     activeConversationId: Ref<string>;
     conversationScrollToBottomRequest: Ref<number>;
-    scrollToBottomBehavior: Ref<"auto" | "smooth" | "smooth_light" | "manual">;
+    scrollToBottomBehavior: Ref<"auto" | "smooth" | "own_top" | "manual">;
     renderItems: Ref<ChatRenderItem[]>;
   };
   emit: {
@@ -37,7 +39,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     onScroll,
     scheduleVirtualMeasure,
     resetConversationToBottom,
-    scrollConversationToBottomLightweight,
+    alignLatestOwnMessageToTop,
     resolveManualScrollToBottomBehavior,
     olderHistoryCorrectionAllowed,
     props,
@@ -180,11 +182,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     });
   }
 
-  function doLightweightScrollToBottom(behavior: "auto" | "smooth" = "auto") {
-    armProgrammaticScrollPaginationSuppression();
-    scrollConversationToBottomLightweight(behavior);
-  }
-
   function handleJumpToBottom(behavior: "auto" | "smooth" = "auto") {
     doScrollToBottom(behavior);
     if (props.chatting.value || props.conversationBusy.value || props.frozen.value) return;
@@ -208,8 +205,10 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     () => props.conversationScrollToBottomRequest.value,
     (nextValue, prevValue) => {
       if (!nextValue || nextValue === prevValue) return;
-      if (props.scrollToBottomBehavior.value === "smooth_light") {
-        doLightweightScrollToBottom("smooth");
+      probeChatScroll("滚动请求", { behavior: props.scrollToBottomBehavior.value, request: nextValue });
+      if (props.scrollToBottomBehavior.value === "own_top") {
+        armProgrammaticScrollPaginationSuppression();
+        alignLatestOwnMessageToTop?.();
         return;
       }
       if (props.scrollToBottomBehavior.value === "manual") {

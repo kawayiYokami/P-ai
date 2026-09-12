@@ -1,8 +1,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref, watch } from "vue";
 import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { isDesktopTauriHost } from "../../../services/tauri-api";
+import { probeChatScroll } from "./chat-scroll-probe";
 
-const TODO_DROPDOWN_SAFE_GAP = 30;
 const FLOATING_TOOLBAR_MIN_RESERVE = 24;
 const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 
@@ -78,15 +78,11 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       }
       return;
     }
+    // 尾部留白要让「最新用户消息」能正好顶到视口顶部：
+    // 需要 留白 = 可滚动高度 − 尾段内容高，故这里的上限取视口高扣掉容器底部内边距。
     const scrollStyles = window.getComputedStyle(scrollEl);
-    const scrollViewportHeight =
-      scrollEl.clientHeight
-      - parseFloat(scrollStyles.paddingTop || "0")
-      - parseFloat(scrollStyles.paddingBottom || "0");
-    const nextMinHeight = Math.max(
-      0,
-      Math.round((scrollViewportHeight - toolbarReservedHeight.value - TODO_DROPDOWN_SAFE_GAP) * 0.95),
-    );
+    const paddingBottom = parseFloat(scrollStyles.paddingBottom || "0");
+    const nextMinHeight = Math.max(0, Math.round(scrollEl.clientHeight - paddingBottom));
     if (latestOwnElasticMinHeight.value !== nextMinHeight) {
       latestOwnElasticMinHeight.value = nextMinHeight;
     }
@@ -160,13 +156,33 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     // 只有用户主动滚动才改变跟随意图：滚到底进入、离开底部退出；
     // 程序化滚动（切会话、发送定位、跟随自身贴底）不改动它
     if (userInitiatedScroll) {
+      const before = followBottom.value;
       followBottom.value = nearBottom;
+      if (before !== followBottom.value) {
+        probeChatScroll("followBottom变化", {
+          to: followBottom.value,
+          nearBottom,
+          scrollTop: Math.round(nextScrollTop),
+          delta: Math.round(nextScrollTop - previousScrollTop),
+        });
+      }
     }
   }
 
   // 显式表达贴底意图（如点击「回到底部」）：进入跟随
   function startFollowBottom() {
+    if (!followBottom.value) {
+      probeChatScroll("startFollowBottom", { followBottom: true });
+    }
     followBottom.value = true;
+  }
+
+  // 显式退出贴底跟随（发送消息后改为对齐到顶部，不再贴底）
+  function stopFollowBottom() {
+    if (followBottom.value) {
+      probeChatScroll("stopFollowBottom", {});
+    }
+    followBottom.value = false;
   }
 
   function noteWheelScrollIntent() {
@@ -319,6 +335,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     atConversationBottom: lastBottomState,
     followBottom,
     startFollowBottom,
+    stopFollowBottom,
     userScrollingDown,
     userScrollingUp,
     sessionControlPanelVisible,

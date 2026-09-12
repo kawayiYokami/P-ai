@@ -195,7 +195,7 @@ export function useChatWindowApp() {
     latestOwnMessageAlignRequest.value = pendingOwnMessageAlignToken;
     clearPendingOwnMessageAlignTimer();
     if (!conversationId) return;
-    triggerConversationScrollToBottom(conversationId, "draft_inserted", "smooth_light");
+    triggerConversationScrollToBottom(conversationId, "draft_inserted", "own_top");
   }
 
   function consumeOrQueueOwnMessageAlign() {
@@ -206,7 +206,7 @@ export function useChatWindowApp() {
     pendingOwnMessageAlignToken = token;
     latestOwnMessageAlignRequest.value = token;
     clearPendingOwnMessageAlignTimer();
-    triggerConversationScrollToBottom(conversationId, "own_message_aligned", "smooth_light");
+    triggerConversationScrollToBottom(conversationId, "own_message_aligned", "own_top");
   }
   const {
     messageStoreMigration,

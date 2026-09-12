@@ -364,11 +364,11 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     },
     onReloadMessages: loadSnapshot,
     onOwnUserDraftInserted: ({ conversationId }) => {
-      triggerConversationScrollToBottom(conversationId, "draft_inserted", "smooth_light");
+      triggerConversationScrollToBottom(conversationId, "draft_inserted", "own_top");
     },
     onStreamingAssistantBubbleInserted: () => {
       const cid = currentConversationId();
-      if (cid) triggerConversationScrollToBottom(cid, "assistant_bubble_inserted", "smooth_light");
+      if (cid) triggerConversationScrollToBottom(cid, "assistant_bubble_inserted", "own_top");
     },
     onHistoryFlushed: async ({ conversationId, pendingMessages }) => {
       if (conversationId !== currentConversationId()) return;

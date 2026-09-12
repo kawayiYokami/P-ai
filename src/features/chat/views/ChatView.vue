@@ -786,6 +786,7 @@ import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
+import { probeChatScroll } from "../composables/chat-scroll-probe";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { buildConversationSections, buildWorkspaceConversationSections, canonicalWorkspaceRootForComparison, type ConversationSection } from "../utils/conversation-sections";
@@ -831,7 +832,7 @@ const props = defineProps<{
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
-  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "smooth_light" | "manual";
+  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "own_top" | "manual";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
@@ -1683,7 +1684,7 @@ const isWebRoundedMode = ref(false);
 const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
-  followBottom, startFollowBottom,
+  followBottom, startFollowBottom, stopFollowBottom,
   sessionControlPanelVisible, jumpToBottomStyle, jumpAboveBottomStyle, toolbarReservedHeight, floatingToolbarStyle, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
@@ -1740,28 +1741,51 @@ function scrollVirtualizerToIndex(
   const approxOffset = clampedTarget * 320;
   el.scrollTo({ top: approxOffset, behavior: smooth ? "smooth" : "auto" });
 }
-function scrollVirtualizerToConversationBottomLightweight(behavior: "auto" | "smooth" = "auto") {
-  const el = scrollContainer.value;
-  if (!el) {
-    const len = virtualRenderItems.value.length;
-    if (len <= 0 || !virtuaRef.value) return;
-    try { virtuaRef.value.scrollToIndex(len - 1, { align: "end", smooth: resolveVirtualSmooth(len - 1, behavior) } as any); } catch {}
-    return;
-  }
-  // 新消息/气泡插入时直接置底，确保“上推”可见；等待尾部留白与 virtua 测量稳定后再做最终置底
-  const attempt = (retries = 4) => {
-    const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
-    el.scrollTo({ top: targetTop, behavior });
-    chatScrollbarRef.value?.updateThumb();
-    if (retries > 0) {
-      const needTail = !!String(latestOwnElasticItemId.value || "").trim() && !latestOwnTailContentMeasured.value;
-      const v = virtuaRef.value as unknown as { cache?: unknown } | null;
-      const sizes = (v as any)?.cache?.[0] as number[] | undefined;
-      const hasUnmeasured = Array.isArray(sizes) && sizes.slice(-4).some((h: number) => h === -1);
-      if (needTail || hasUnmeasured) {
-        requestAnimationFrame(() => attempt(retries - 1));
-      }
+// 对齐落点抽样：确认平滑滚动到位后没有别的机制再把它挪走
+function traceAlignLanding(index: number) {
+  let step = 0;
+  const tick = () => {
+    step += 1;
+    probeChatScroll("对齐后", {
+      index,
+      step,
+      scrollTop: Math.round(scrollContainer.value?.scrollTop ?? -1),
+      scrollHeight: scrollContainer.value?.scrollHeight ?? -1,
+      followBottom: followBottom.value,
+    });
+    if (step < 6) window.setTimeout(tick, 150);
+  };
+  window.setTimeout(tick, 150);
+}
+// 最新用户消息对齐到视口顶部：与时间线跳转同一套 align: "start"。
+// 新消息刚插入时尾段尚未测量，落点会被夹到底部，这里按帧重试到找到锚点且尾段测量完成。
+function alignLatestOwnMessageToTop() {
+  let lastIndex = -1;
+  let lastMeasured = false;
+  // 对齐到顶部就是「不贴底」：先退出跟随，否则流式内容一长就会被贴底顶走
+  stopFollowBottom();
+  probeChatScroll("对齐请求", { itemId: String(latestOwnElasticItemId.value || "").trim() });
+  const attempt = (retries = 24) => {
+    const itemId = String(latestOwnElasticItemId.value || "").trim();
+    const index = itemId ? virtualRenderItems.value.findIndex((item) => item.id === itemId) : -1;
+    const measured = latestOwnTailContentMeasured.value;
+    const canScroll = index >= 0 && !!virtuaRef.value;
+    // 找到锚点先落一次；尾段测量完成、留白到位后再落一次终稿
+    if (canScroll && (index !== lastIndex || (measured && !lastMeasured))) {
+      lastIndex = index;
+      lastMeasured = measured;
+      try { virtuaRef.value!.scrollToIndex(index, { align: "start", smooth: true } as any); } catch {}
+      probeChatScroll("对齐落点", {
+        index,
+        measured,
+        scrollTop: Math.round(scrollContainer.value?.scrollTop ?? -1),
+        followBottom: followBottom.value,
+        chatting: props.chatting,
+      });
+      if (measured) traceAlignLanding(index);
     }
+    if (canScroll && measured) return;
+    if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
   };
   void nextTick(() => requestAnimationFrame(() => attempt()));
 }
@@ -2068,17 +2092,20 @@ watch(
     const next = Math.max(0, targetHeight - tailContentHeight);
     if (latestOwnTailSpacerMinHeight.value !== next) {
       latestOwnTailSpacerMinHeight.value = next;
-      // 尾部留白变化后，若当前在底部附近，自动跟随置底，保证新消息上推到位
+      // 留白重算只改高度，不再补滚到底：
+      // 对齐语义是「最新用户消息停在视口顶部」，这里再滚一次会把它顶出可视区（跟随贴底另有 pin 负责）。
       void nextTick(() => {
         requestAnimationFrame(() => {
           const el = scrollContainer.value;
           if (!el) return;
           const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-          if (distanceToBottom <= 120) {
-            const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
-            el.scrollTo({ top: targetTop, behavior: "auto" });
-            chatScrollbarRef.value?.updateThumb();
-          }
+          probeChatScroll("留白重算", {
+            spacer: next,
+            tailContentHeight,
+            targetHeight,
+            distanceToBottom: Math.round(distanceToBottom),
+            followBottom: followBottom.value,
+          });
         });
       });
     }
@@ -2701,7 +2728,7 @@ const {
   scrollContainer, chatScrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void; hide?: () => void } | null>,
   prepareBottomAlignmentLayout,
   onScroll, scheduleVirtualMeasure,
-  scrollConversationToBottomLightweight: scrollVirtualizerToConversationBottomLightweight,
+  alignLatestOwnMessageToTop,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   resolveManualScrollToBottomBehavior,
   olderHistoryCorrectionAllowed,
@@ -2741,7 +2768,16 @@ function pinChatToBottomWhileFollowing() {
   if (!followBottom.value) return;
   const el = scrollContainer.value;
   if (!el) return;
+  const before = el.scrollTop;
   el.scrollTop = el.scrollHeight;
+  if (Math.abs(el.scrollTop - before) > 1) {
+    probeChatScroll("跟随贴底", {
+      before: Math.round(before),
+      after: Math.round(el.scrollTop),
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    });
+  }
   chatScrollbarRef.value?.updateThumb();
 }
 
