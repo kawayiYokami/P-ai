@@ -227,8 +227,9 @@
               class="transition-opacity duration-150 ease-out"
               :class="showFloatingSessionToolbar ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'"
                   :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
-                  :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceDisplayName || currentWorkspaceName"
+                  :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
                   :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
+                  :workspace-work-mode="currentWorkspaceWorkMode || 'directory'"
                   :workspace-permission-kind="currentWorkspacePermissionKind"
                   :auto-push-active="!!String(activeConversationSummary?.autoPushRemoteContactId || '').trim()"
                   :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
@@ -237,12 +238,10 @@
               :show-forward-menu-item="showConversationActions"
               :show-auto-push-menu-item="showConversationActions && !activeConversationIsRemoteContact && !activeConversationIsSystemNotification"
               :show-share-menu-item="showConversationActions"
-              :show-workspace-menu-item="true"
               :show-open-in-browser-button="showOpenInBrowserButton && !activeConversationIsSystemNotification"
               :open-in-browser-disabled="!activeConversationId || activeConversationIsSystemNotification"
               :show-code-review-menu-item="true"
               :side-chat-enabled="sideChatPanelEnabled"
-              :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
               :delegate-statuses="delegateStatuses"
               :running-task-count="runningTaskCount"
               :running-shell-count="runningShellCount"
@@ -256,14 +255,6 @@
               @open-code-review="openCodeReviewDialog"
               @open-branch-from-current="openBranchFromCurrentMessage"
               @open-side-chat="selectChatRightPanelMode('sideChat')"
-              @mention-entry="(entry) => {
-                const agentId = String(entry?.agentId || '').trim();
-                const departmentId = String(entry?.departmentId || '').trim();
-                if (!agentId || !departmentId) return;
-                const mentionKey = `${agentId}:${departmentId}`;
-                if (selectedMentionKeys.includes(mentionKey)) { emit('removeMention', { agentId, departmentId }); return; }
-                emit('addMention', { agentId, agentName: String(entry?.agentName || '').trim() || agentId, departmentId, departmentName: String(entry?.departmentName || '').trim() || departmentId, avatarUrl: String(entry?.avatarUrl || '').trim() || undefined });
-              }"
             />
           </div>
         </div>
@@ -306,7 +297,8 @@
                 v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
                 ref="timelineFloatWrapRef"
                 type="button"
-                class="absolute bottom-0 right-0 btn btn-md btn-circle border border-base-300/50 bg-base-100/55 text-base-content/80 shadow-sm backdrop-blur-md backdrop-saturate-150 hover:bg-base-100/75 pointer-events-auto"
+                class="absolute bottom-0 right-0 pointer-events-auto"
+                :class="SESSION_FLOAT_FROST_CIRCLE"
                 :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
                 :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
                 @mouseenter="handleTimelineFloatEnter"
@@ -776,6 +768,7 @@ import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
+import { SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
@@ -1052,7 +1045,7 @@ const {
   markdownIsDark, normalizedConversationTodos,
   activeConversationSummary, isCurrentConversationCompacting,
   activeConversationTerminalApprovals, goalButtonTitle,
-  isOrganizingContextBusy, chatStatusBanner: baseChatStatusBanner, selectedMentionKeys,
+  isOrganizingContextBusy, chatStatusBanner: baseChatStatusBanner,
   latestPendingPlanMessageId,
 } = useChatConversationCtx(props, isDarkAppTheme, t);
 

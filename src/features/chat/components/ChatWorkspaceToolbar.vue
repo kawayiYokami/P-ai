@@ -1,9 +1,14 @@
 <template>
   <div
     v-bind="attrs"
-    class="rounded-box border border-base-300/50 bg-base-100/55 px-2 py-1.5 shadow backdrop-blur-md backdrop-saturate-150 flex items-center justify-between gap-2 text-xs"
+    class="flex flex-wrap items-center gap-2 text-xs"
   >
-    <div class="flex min-w-0 flex-1 items-center gap-1.5">
+    <Transition
+      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0 translate-y-1"
+      leave-active-class="transition duration-200 ease-out"
+      leave-to-class="opacity-0 translate-y-1"
+    >
       <div
         v-if="!hideMenuButton"
         ref="menuDropdownRef"
@@ -15,11 +20,11 @@
           ref="menuButtonRef"
           type="button"
           tabindex="0"
-          class="btn btn-sm btn-ghost btn-circle shrink-0"
+          :class="SESSION_FLOAT_FROST_CIRCLE"
           :title="t('chat.conversationMenu.title')"
           @mousedown="updateMenuPlacement"
         >
-          <Grip class="h-4 w-4" />
+          <Grip class="h-5 w-5" />
         </button>
         <ul
           tabindex="0"
@@ -205,12 +210,13 @@
           </li>
         </ul>
       </div>
-      <SessionControlPanel
-        v-if="showSessionControlPanel"
-        class="min-w-0 flex-1"
+    </Transition>
+      <SessionControlItems
+        :show-workspace-button="!hideWorkspaceButton"
         :workspace-button-label="workspaceButtonLabel"
         :workspace-button-name="workspaceButtonName"
         :workspace-button-disabled="workspaceButtonDisabled"
+        :workspace-work-mode="workspaceWorkMode || 'directory'"
         :workspace-permission-kind="workspacePermissionKind"
         :auto-push-active="autoPushActive"
         :delegates="delegateStatuses || []"
@@ -219,158 +225,26 @@
         @lock-workspace="emit('lockWorkspace')"
         @open-delegate-summary="emit('openDelegateSummary')"
       />
-    </div>
-    <div class="flex min-w-0 items-center justify-end gap-1.5">
-      <button
-        v-if="uniqueMentionEntries.length > 0"
-        ref="mentionListButtonRef"
-        type="button"
-        class="btn btn-ghost btn-sm btn-circle shrink-0 border-0 bg-transparent shadow-none hover:bg-base-200"
-        :title="t('chat.toolbar.personaList')"
-        @click="toggleMentionListPopup"
-      >
-        <span class="text-base font-semibold leading-none">@</span>
-      </button>
-    </div>
   </div>
-  <Teleport to="body">
-    <div
-      v-if="mentionListPopupOpen"
-      ref="mentionListPopupRef"
-      class="fixed z-1200"
-      :style="mentionListPopupStyle"
-    >
-      <div class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl">
-        <OverlayScrollArea
-          ref="mentionListAreaRef"
-          scroller-class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] min-w-56 max-w-[min(80vw,20rem)] overscroll-contain p-1"
-        >
-          <ul class="flex flex-col gap-1">
-            <li
-              v-for="entry in uniqueMentionEntries"
-              :key="entry.agentId"
-            >
-              <button
-                type="button"
-                class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors hover:bg-base-200/80"
-                :disabled="chatting || frozen"
-                @click="handleCompactPersonaEntryClick($event, entry)"
-              >
-                <div class="indicator shrink-0">
-                  <span
-                    v-if="entry.selected"
-                    class="indicator-item indicator-top indicator-end inline-flex h-4 w-4 translate-x-1/4 -translate-y-1/4 items-center justify-center rounded-full bg-primary text-micro font-bold text-primary-content"
-                  >
-                    @
-                  </span>
-                  <span
-                    v-else-if="entry.hasBackgroundTask"
-                    class="indicator-item indicator-bottom indicator-end inline-flex min-w-5 translate-x-1/4 translate-y-1/4 items-center justify-center rounded-full border border-base-300 bg-base-100 px-1 py-0.5 text-micro text-base-content shadow-sm"
-                  >
-                    <span class="loading loading-dots loading-xs"></span>
-                  </span>
-                  <div class="avatar">
-                    <div class="w-7 rounded-full">
-                      <img
-                        v-if="entry.avatarUrl"
-                        :src="entry.avatarUrl"
-                        :alt="entry.agentName"
-                        class="w-7 h-7 rounded-full object-cover"
-                        :class="frontSpeakingMuted(entry) ? 'grayscale opacity-75' : ''"
-                      />
-                      <div
-                        v-else
-                        class="w-7 h-7 rounded-full flex items-center justify-center text-caption"
-                        :class="frontSpeakingMuted(entry)
-                          ? 'bg-base-300 text-base-content/70'
-                          : 'bg-neutral text-neutral-content'"
-                      >
-                        {{ avatarInitial(entry.agentName) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="min-w-0 flex-1 pr-0.5">
-                  <div class="truncate text-sm leading-5">@{{ entry.agentName }}</div>
-                  <div class="truncate text-xs leading-4 text-base-content/60">
-                    {{ entry.departmentName || t("chat.defaultDepartment") }}
-                  </div>
-                </div>
-              </button>
-            </li>
-          </ul>
-        </OverlayScrollArea>
-      </div>
-    </div>
-  </Teleport>
-  <Teleport to="body">
-    <div
-      v-if="avatarPopupTarget"
-      class="fixed z-1200"
-      :style="avatarPopupStyle"
-    >
-      <div
-        ref="avatarPopupPanelRef"
-        class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
-      >
-        <OverlayScrollArea
-          ref="avatarPopupAreaRef"
-          scroller-class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overscroll-contain p-1"
-        >
-        <ul class="flex flex-col gap-1">
-          <li
-            v-for="entry in filteredAvatarPopupOptions"
-            :key="`${entry.agentId}:${entry.departmentId}`"
-          >
-            <button
-              type="button"
-              class="flex min-h-0 w-full items-start gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors hover:bg-base-200/80"
-              @click="applyAvatarPopupSelection(entry)"
-            >
-              <div class="avatar shrink-0">
-                <div class="w-7 rounded-full">
-                  <img
-                    v-if="entry.avatarUrl"
-                    :src="entry.avatarUrl"
-                    :alt="entry.agentName"
-                    class="w-7 h-7 rounded-full object-cover"
-                  />
-                  <div v-else class="bg-neutral text-neutral-content w-7 h-7 rounded-full flex items-center justify-center text-caption">
-                    {{ avatarInitial(entry.agentName) }}
-                  </div>
-                </div>
-              </div>
-              <div class="min-w-0 flex-1 pr-0.5">
-                <div class="truncate text-sm leading-5">@{{ entry.agentName }}</div>
-                <div class="truncate text-xs leading-4 text-base-content/60">
-                  {{ entry.departmentName || t("chat.defaultDepartment") }}
-                </div>
-              </div>
-            </button>
-          </li>
-        </ul>
-        </OverlayScrollArea>
-      </div>
-    </div>
-  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
-import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
-import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
+import type { ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
-import SessionControlPanel from "./SessionControlPanel.vue";
+import SessionControlItems from "./SessionControlItems.vue";
+import { SESSION_FLOAT_FROST_CIRCLE } from "./session-float-styles";
 import SegmentedControl from "../../config/components/SegmentedControl.vue";
 
 defineOptions({
   inheritAttrs: false,
 });
 
+// 与思维链预览条同一套磨砂外观；圆钮用这个底座
 const props = withDefaults(defineProps<{
   chatting: boolean;
   frozen: boolean;
@@ -380,8 +254,7 @@ const props = withDefaults(defineProps<{
   workspaceButtonDisabled?: boolean;
   workspacePermissionKind?: "approval" | "full_access" | "autonomous";
   autoPushActive?: boolean;
-  mentionEntries: ChatMentionEntry[];
-  selectedMentionKeys: string[];
+  workspaceWorkMode?: ShellWorkMode;
   hideMenuButton?: boolean;
   hideWorkspaceButton?: boolean;
   showTaskCreateMenuItem?: boolean;
@@ -391,7 +264,6 @@ const props = withDefaults(defineProps<{
   showForwardMenuItem?: boolean;
   showAutoPushMenuItem?: boolean;
   showShareMenuItem?: boolean;
-  showWorkspaceMenuItem?: boolean;
   showOpenInBrowserButton?: boolean;
   openInBrowserDisabled?: boolean;
   sideChatEnabled?: boolean;
@@ -406,7 +278,6 @@ const props = withDefaults(defineProps<{
   showForwardMenuItem: true,
   showAutoPushMenuItem: true,
   showShareMenuItem: true,
-  showWorkspaceMenuItem: true,
   showOpenInBrowserButton: false,
 });
 
@@ -423,7 +294,6 @@ const emit = defineEmits<{
   (e: "openConversationInBrowser"): void;
   (e: "openBranchFromCurrent"): void;
   (e: "openSideChat"): void;
-  (e: "mentionEntry", entry: ChatMentionEntry): void;
 }>();
 
 const attrs = useAttrs();
@@ -448,7 +318,6 @@ const {
   fileReaderLineWrapEnabled,
   setFileReaderLineWrapEnabled,
 } = useFileReaderAppearance();
-const busy = computed(() => props.chatting || props.frozen || !!props.conversationBusy);
 const showTaskCreateMenuItem = computed(() => props.showTaskCreateMenuItem);
 const showDelegateMenuItem = computed(() => props.showDelegateMenuItem);
 const showBranchMenuItem = computed(() => props.showBranchMenuItem);
@@ -456,7 +325,6 @@ const showCodeReviewMenuItem = computed(() => props.showCodeReviewMenuItem);
 const showForwardMenuItem = computed(() => props.showForwardMenuItem);
 const showAutoPushMenuItem = computed(() => props.showAutoPushMenuItem);
 const showShareMenuItem = computed(() => props.showShareMenuItem);
-const showWorkspaceMenuItem = computed(() => props.showWorkspaceMenuItem);
 type SubmenuKey = "delegate" | "branch" | "interaction" | "appearance";
 const activeSubmenu = ref<SubmenuKey | null>(null);
 /** details 原生展开/收起与 activeSubmenu 双向同步，保证同时只展开一组 */
@@ -520,214 +388,6 @@ const hasBranchMenuItems = computed(
 const hasInteractionMenuItems = computed(
   () => props.showAutoPushMenuItem || props.showForwardMenuItem,
 );
-const hasDelegateStatuses = computed(() => (props.delegateStatuses || []).length > 0);
-const showSessionControlPanel = computed(() => !props.hideWorkspaceButton || hasDelegateStatuses.value);
-const POPUP_OFFSET = 8;
-const POPUP_VIEWPORT_PADDING = 8;
-
-// ========== 头像栏去重 + 部门弹出 ==========
-
-const mentionListButtonRef = ref<HTMLButtonElement | null>(null);
-const mentionListPopupOpen = ref(false);
-const mentionListPopupRef = ref<HTMLElement | null>(null);
-const mentionListAreaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
-const mentionListPopupStyle = ref<Record<string, string>>({
-  left: "0px",
-  top: "0px",
-});
-
-const uniqueMentionEntries = computed(() => {
-  const seen = new Map<string, ChatMentionEntry>();
-  for (const entry of props.mentionEntries || []) {
-    if (!entry.mentionable) continue;
-    const agentId = String(entry.agentId || "").trim();
-    if (!agentId) continue;
-    if (!seen.has(agentId)) {
-      seen.set(agentId, { ...entry, selected: false });
-    }
-  }
-  const result = Array.from(seen.values());
-  for (const entry of result) {
-    const agentId = String(entry.agentId || "").trim();
-    entry.selected = agentId ? props.selectedMentionKeys.some((key) => String(key || "").trim().startsWith(`${agentId}:`)) : false;
-  }
-  return result;
-});
-
-const avatarPopupTarget = ref<{
-  agentId: string;
-  agentName: string;
-  avatarUrl?: string;
-} | null>(null);
-const avatarPopupAnchorEl = ref<HTMLElement | null>(null);
-const avatarPopupPanelRef = ref<HTMLElement | null>(null);
-const avatarPopupAreaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
-
-const avatarPopupStyle = ref<Record<string, string>>({
-  left: "0px",
-  top: "0px",
-});
-
-const filteredAvatarPopupOptions = computed(() => {
-  const target = avatarPopupTarget.value;
-  if (!target) return [];
-  return (props.mentionEntries || [])
-    .filter((entry) => String(entry.agentId || "").trim() === target.agentId && entry.mentionable)
-    .map((entry) => ({
-      agentId: String(entry.agentId || "").trim(),
-      agentName: String(entry.agentName || "").trim(),
-      departmentId: String(entry.departmentId || "").trim(),
-      departmentName: String(entry.departmentName || "").trim(),
-      avatarUrl: String(entry.avatarUrl || "").trim() || undefined,
-    }))
-    .filter((entry) => !!entry.agentId && !!entry.departmentId);
-});
-
-function handleMentionEntryClick(event: MouseEvent, entry: ChatMentionEntry & { selected?: boolean }) {
-  const agentId = String(entry.agentId || "").trim();
-  const deptEntries = (props.mentionEntries || []).filter(
-    (e) => String(e.agentId || "").trim() === agentId && e.mentionable,
-  );
-  if (deptEntries.length <= 1) {
-    mentionListPopupOpen.value = false;
-    emit('mentionEntry', deptEntries[0] || entry);
-    return;
-  }
-  mentionListPopupOpen.value = false;
-  avatarPopupTarget.value = { agentId: entry.agentId, agentName: entry.agentName, avatarUrl: entry.avatarUrl };
-  const el = event.currentTarget as HTMLElement | null;
-  if (el) {
-    avatarPopupAnchorEl.value = el;
-    void updateAvatarPopupPlacement(el.getBoundingClientRect());
-  }
-}
-
-function clampPopupPosition(anchorRect: DOMRect, panelEl: HTMLElement | null, options?: {
-  preferredWidth?: number;
-  alignRight?: boolean;
-}) {
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const measuredWidth = Math.round(panelEl?.offsetWidth || options?.preferredWidth || 0);
-  const measuredHeight = Math.round(panelEl?.offsetHeight || 0);
-  const spaceAbove = Math.max(0, anchorRect.top - POPUP_VIEWPORT_PADDING - POPUP_OFFSET);
-  const spaceBelow = Math.max(0, viewportHeight - anchorRect.bottom - POPUP_VIEWPORT_PADDING - POPUP_OFFSET);
-  const openUpward = spaceAbove >= measuredHeight || spaceAbove > spaceBelow;
-  const maxLeft = Math.max(
-    POPUP_VIEWPORT_PADDING,
-    viewportWidth - measuredWidth - POPUP_VIEWPORT_PADDING,
-  );
-  const preferredLeft = options?.alignRight
-    ? Math.round(anchorRect.right - measuredWidth)
-    : Math.round(anchorRect.left);
-  const left = Math.min(
-    Math.max(POPUP_VIEWPORT_PADDING, preferredLeft),
-    maxLeft,
-  );
-  const top = openUpward
-    ? Math.max(POPUP_VIEWPORT_PADDING, Math.round(anchorRect.top) - measuredHeight - POPUP_OFFSET)
-    : Math.min(
-      Math.round(anchorRect.bottom) + POPUP_OFFSET,
-      Math.max(POPUP_VIEWPORT_PADDING, viewportHeight - measuredHeight - POPUP_VIEWPORT_PADDING),
-    );
-  return {
-    left: `${left}px`,
-    top: `${top}px`,
-  };
-}
-
-async function updateMentionListPopupPlacement(anchorRect?: DOMRect) {
-  const rect = anchorRect || mentionListButtonRef.value?.getBoundingClientRect();
-  if (!rect) return;
-  await nextTick();
-  mentionListPopupStyle.value = clampPopupPosition(rect, mentionListPopupRef.value, {
-    preferredWidth: 320,
-    alignRight: true,
-  });
-  mentionListAreaRef.value?.updateThumb();
-}
-
-async function updateAvatarPopupPlacement(anchorRect?: DOMRect) {
-  const rect = anchorRect || avatarPopupAnchorEl.value?.getBoundingClientRect();
-  if (!rect) return;
-  await nextTick();
-  avatarPopupStyle.value = clampPopupPosition(rect, avatarPopupPanelRef.value, {
-    preferredWidth: 320,
-    alignRight: true,
-  });
-  avatarPopupAreaRef.value?.updateThumb();
-}
-
-function handleCompactPersonaEntryClick(event: MouseEvent, entry: ChatMentionEntry & { selected?: boolean }) {
-  handleMentionEntryClick(event, entry);
-}
-
-function applyAvatarPopupSelection(entry: {
-  agentId: string;
-  agentName: string;
-  departmentId: string;
-  departmentName: string;
-  avatarUrl?: string;
-}) {
-  avatarPopupTarget.value = null;
-  const matched = (props.mentionEntries || []).find(
-    (e) => String(e.agentId || "").trim() === entry.agentId && String(e.departmentId || "").trim() === entry.departmentId,
-  );
-  if (matched) {
-    emit('mentionEntry', matched);
-  }
-}
-
-function closeAvatarPopup() {
-  avatarPopupTarget.value = null;
-  avatarPopupAnchorEl.value = null;
-}
-
-function closeMentionListPopup() {
-  mentionListPopupOpen.value = false;
-}
-
-function toggleMentionListPopup() {
-  if (busy.value) return;
-  mentionListPopupOpen.value = !mentionListPopupOpen.value;
-  if (mentionListPopupOpen.value) {
-    closeAvatarPopup();
-    void updateMentionListPopupPlacement();
-  }
-}
-
-function handleAvatarClickOutside(event: MouseEvent) {
-  const target = event.target as HTMLElement | null;
-  if (!target) {
-    closeAvatarPopup();
-    closeMentionListPopup();
-    return;
-  }
-  if (
-    mentionListPopupOpen.value
-    && !mentionListButtonRef.value?.contains(target)
-    && !mentionListPopupRef.value?.contains(target)
-  ) {
-    closeMentionListPopup();
-  }
-  if (
-    avatarPopupTarget.value
-    && !avatarPopupPanelRef.value?.contains(target)
-  ) {
-    closeAvatarPopup();
-  }
-}
-
-function handleMentionPopupViewportChange() {
-  if (!mentionListPopupOpen.value) return;
-  void updateMentionListPopupPlacement();
-}
-
-function handleAvatarPopupViewportChange() {
-  if (!avatarPopupTarget.value) return;
-  void updateAvatarPopupPlacement();
-}
-
 const menuButtonRef = ref<HTMLButtonElement | null>(null);
 const menuPlacement = ref<"top" | "bottom">("top");
 
@@ -743,43 +403,16 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 
-function frontSpeakingMuted(entry: ChatMentionEntry): boolean {
-  return props.selectedMentionKeys.length > 0 && entry.isFrontSpeaking;
-}
-
 onMounted(() => {
   updateMenuPlacement();
   window.addEventListener("resize", updateMenuPlacement);
   window.addEventListener("scroll", updateMenuPlacement, true);
-  window.addEventListener("resize", handleMentionPopupViewportChange);
-  window.addEventListener("scroll", handleMentionPopupViewportChange, true);
-  window.addEventListener("resize", handleAvatarPopupViewportChange);
-  window.addEventListener("scroll", handleAvatarPopupViewportChange, true);
-  window.addEventListener("click", handleAvatarClickOutside, true);
   window.addEventListener("pointerdown", handleGlobalPointerDown, true);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateMenuPlacement);
   window.removeEventListener("scroll", updateMenuPlacement, true);
-  window.removeEventListener("resize", handleMentionPopupViewportChange);
-  window.removeEventListener("scroll", handleMentionPopupViewportChange, true);
-  window.removeEventListener("resize", handleAvatarPopupViewportChange);
-  window.removeEventListener("scroll", handleAvatarPopupViewportChange, true);
-  window.removeEventListener("click", handleAvatarClickOutside, true);
   window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
 });
 </script>
-
-<style scoped>
-.ecall-toolbar-mention-scroll {
-  scrollbar-gutter: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.ecall-toolbar-mention-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-</style>
