@@ -1567,7 +1567,7 @@
       "noChanges": "No changes",
       "noWorkspace": "No workspace",
       "workspace": "Workspace",
-      "shellLabel": "Background terminal",
+      "shellLabel": "Terminal",
       "delegateLabel": "Delegate",
       "taskLabel": "Task",
       "toolLabel": "Recent tools",

@@ -1,7 +1,7 @@
 <template>
   <CardShell
     variant="wide"
-    tone="info"
+    tone="warning"
     :icon="History"
     :label="t('chat.homePanel.gitCommits')"
     interactive

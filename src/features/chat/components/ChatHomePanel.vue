@@ -9,6 +9,7 @@
           :changes="gitChanges"
           :change-count="changeCount"
           @open-changes="emit('openGitChanges')"
+          @open-file="(path) => emit('openFile', path)"
         />
         <HomeGitCommitsCard
           v-if="workspaceRootPath"
@@ -85,8 +86,28 @@
           @open="emit('openMonitorTab', 'tasks')"
         />
       </div>
-      <div v-else class="flex h-full items-center justify-center px-6 text-center text-xs text-base-content/40">
-        {{ t("chat.homePanel.emptyAll") }}
+      <div v-else class="flex h-full flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-xs space-y-3">
+          <div class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-base-300/40 text-base-content/50">
+            <LayoutGrid class="size-6" />
+          </div>
+          <div class="space-y-1">
+            <div class="text-sm font-medium text-base-content/80">{{ t("chat.homePanel.emptyAll") }}</div>
+            <div class="text-xs text-base-content/50 leading-relaxed">
+              绑定工作区或在对话中产出代码、任务与工具后，此处将自动聚合展示实时看板。
+            </div>
+          </div>
+          <div class="pt-2">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline border-base-300 gap-1.5"
+              @click="emit('openWorkspace')"
+            >
+              <FolderTree class="size-4" />
+              {{ t("chat.homePanel.workspace") }}
+            </button>
+          </div>
+        </div>
       </div>
     </OverlayScrollArea>
   </div>
@@ -95,6 +116,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { FolderTree, LayoutGrid } from "@lucide/vue";
 import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
@@ -255,10 +277,19 @@ onBeforeUnmount(() => {
   --ecall-home-tile: 8.75rem;
   /* 卡片间距与圆角（--radius-box: 1rem）对齐 */
   --ecall-home-gap: 1rem;
+  container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--ecall-home-tile), 1fr));
+  grid-auto-flow: dense;
   gap: var(--ecall-home-gap);
   align-content: start;
+}
+
+/* 窄容器下（如侧边栏单列时），宽卡自适应退化为单列，防止横向撑裂 */
+@container (max-width: 320px) {
+  :deep(.ecall-home-card-wide) {
+    grid-column: span 1 !important;
+  }
 }
 
 .ecall-home-flow > * {

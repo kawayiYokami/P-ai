@@ -1,6 +1,6 @@
 <template>
   <CardShell
-    tone="neutral"
+    tone="success"
     :icon="ListTodo"
     :label="t('chat.homePanel.taskLabel')"
     interactive

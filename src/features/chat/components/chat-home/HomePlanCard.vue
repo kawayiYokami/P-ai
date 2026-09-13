@@ -7,6 +7,15 @@
     interactive
     @select="emit('open', plan.path)"
   >
+    <template #trailing>
+      <span
+        v-if="taskProgress"
+        class="shrink-0 text-xs font-mono font-medium px-1.5 py-0.5 rounded-full"
+        :class="taskProgress.isDone ? 'bg-success/15 text-success' : 'bg-primary/15 text-primary'"
+      >
+        {{ taskProgress.done }}/{{ taskProgress.total }}
+      </span>
+    </template>
     <div class="flex min-w-0 flex-col gap-1.5">
       <!-- 计划标题行 -->
       <div class="flex items-center justify-between gap-1 min-w-0">
@@ -121,6 +130,17 @@ const effectiveMarkdown = computed(() => props.plan?.markdownContent || props.ma
 const outline = computed(() => parsePlanMarkdown(effectiveMarkdown.value, props.plan.path));
 
 const visibleItems = computed<ParsedPlanItem[]>(() => outline.value.items.slice(0, MAX_VISIBLE_ITEMS));
+
+const taskProgress = computed(() => {
+  const checkboxes = outline.value.items.filter((item) => item.kind === "checkbox");
+  if (!checkboxes.length) return null;
+  const done = checkboxes.filter((item) => item.status === "completed").length;
+  return {
+    done,
+    total: checkboxes.length,
+    isDone: done === checkboxes.length,
+  };
+});
 
 const displayPath = computed(() => {
   const raw = String(props.plan.path || "").replace(/\\/g, "/").trim();

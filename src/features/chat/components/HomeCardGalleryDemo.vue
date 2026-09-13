@@ -15,9 +15,14 @@
         </button>
       </div>
       <span class="text-xs text-base-content/50">{{ currentPreset.width }}px</span>
+      <span class="mx-1 h-4 w-px bg-base-300"></span>
+      <label class="flex cursor-pointer items-center gap-1 text-xs">
+        <input v-model="showEmptyState" type="checkbox" class="checkbox checkbox-xs" />
+        空态看板
+      </label>
     </div>
     <div class="ecall-gallery-wall" :style="{ width: currentPreset.width + 'px' }">
-      <ChatHomePanel v-bind="wallCards" />
+      <ChatHomePanel v-bind="activeWallCards" />
     </div>
   </div>
 </template>
@@ -187,11 +192,13 @@ function makeTask(index: number): TaskEntry {
 }
 
 const widthPresets = [
+  { key: "sidebar", label: "侧栏窄屏", width: 300 },
   { key: "phone", label: "手机", width: 390 },
   { key: "tablet", label: "平板", width: 768 },
   { key: "pc", label: "PC", width: 1200 },
 ];
 const activeWidth = ref("pc");
+const showEmptyState = ref(false);
 const currentPreset = computed(
   () => widthPresets.find((preset) => preset.key === activeWidth.value) || widthPresets[0],
 );
@@ -211,6 +218,8 @@ const wallCards = {
   runningTasks: [makeTask(0), makeTask(1)],
   toolBatches: MOCK_TOOL_BATCHES.toolBatches,
 };
+
+const activeWallCards = computed(() => (showEmptyState.value ? {} : wallCards));
 </script>
 
 <style scoped>

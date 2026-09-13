@@ -12,10 +12,15 @@
     </template>
     <ul v-if="changes.length" class="menu menu-xs w-full gap-0.5 p-0">
       <li v-for="change in visibleChanges" :key="change.path">
-        <div class="min-w-0 gap-2 font-normal" :title="change.path">
+        <button
+          type="button"
+          class="min-w-0 gap-2 font-normal hover:bg-base-200/80 rounded"
+          :title="change.path"
+          @click.stop="handleOpenFile(change.path)"
+        >
           <span class="ecall-home-status w-2.5" :class="statusClass(change.status)">{{ statusLabel(change.status) }}</span>
-          <span class="min-w-0 flex-1 truncate text-base-content/80">{{ baseName(change.path) }}</span>
-        </div>
+          <span class="min-w-0 flex-1 truncate text-left text-base-content/80">{{ baseName(change.path) }}</span>
+        </button>
       </li>
     </ul>
     <div v-else class="flex flex-1 items-center justify-center text-xs text-base-content/40">
@@ -46,7 +51,15 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: "openChanges"): void;
+  (e: "openFile", path: string): void;
 }>();
+
+function handleOpenFile(path: string) {
+  const root = String(props.workspaceRootPath || "").replace(/[\\/]+$/, "");
+  const rel = String(path || "").replace(/^[\\/]+/, "");
+  const fullPath = root ? `${root}/${rel}` : rel;
+  emit("openFile", fullPath);
+}
 
 const { t } = useI18n();
 

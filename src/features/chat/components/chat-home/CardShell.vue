@@ -1,11 +1,11 @@
 <template>
   <div
-    class="ecall-home-card flex min-w-0 flex-col gap-3 overflow-hidden rounded-box bg-base-100 p-3.5 shadow-md transition-colors duration-200"
+    class="ecall-home-card flex min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-300/50 bg-base-100 p-3.5 transition-all duration-150"
     :class="[
       variant === 'wide' ? 'ecall-home-card-wide' : 'ecall-home-card-small',
       layout === 'tile' ? 'ecall-home-card-tile' : '',
       interactive
-        ? 'cursor-pointer hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
+        ? 'cursor-pointer hover:border-base-content/25 hover:shadow-sm active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
         : '',
     ]"
     :role="interactive ? 'button' : undefined"
@@ -15,16 +15,18 @@
     @keydown.space.prevent="handleSelect"
   >
     <template v-if="layout === 'tile'">
-      <span class="ecall-home-card-icon ecall-home-card-icon-tile text-base-content/70">
+      <span class="ecall-home-card-icon ecall-home-card-icon-tile" :class="toneTileClass">
         <component :is="icon" class="size-5" aria-hidden="true" />
       </span>
       <span class="min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
       <slot />
     </template>
     <template v-else>
-      <div class="flex min-w-0 shrink-0 items-center gap-1.5">
-        <component :is="icon" class="size-3.5 shrink-0 text-base-content/55" aria-hidden="true" />
-        <span class="min-w-0 flex-1 truncate text-xs font-medium text-base-content/55">{{ label }}</span>
+      <div class="flex min-w-0 shrink-0 items-center gap-2">
+        <span class="ecall-home-card-icon" :class="toneRowClass">
+          <component :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">{{ label }}</span>
         <slot name="trailing" />
       </div>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -35,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Component } from "vue";
+import { computed, type Component } from "vue";
 
 const props = withDefaults(defineProps<{
   label: string;
@@ -56,6 +58,36 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "select"): void;
 }>();
+
+const toneMap: Record<string, { tile: string; row: string }> = {
+  primary: {
+    tile: "bg-primary/15 text-primary",
+    row: "bg-primary/10 text-primary",
+  },
+  secondary: {
+    tile: "bg-secondary/15 text-secondary",
+    row: "bg-secondary/10 text-secondary",
+  },
+  info: {
+    tile: "bg-info/15 text-info",
+    row: "bg-info/10 text-info",
+  },
+  success: {
+    tile: "bg-success/15 text-success",
+    row: "bg-success/10 text-success",
+  },
+  warning: {
+    tile: "bg-warning/15 text-warning",
+    row: "bg-warning/10 text-warning",
+  },
+  neutral: {
+    tile: "bg-base-content/10 text-base-content/75",
+    row: "bg-base-content/8 text-base-content/65",
+  },
+};
+
+const toneTileClass = computed(() => toneMap[props.tone]?.tile || toneMap.neutral.tile);
+const toneRowClass = computed(() => toneMap[props.tone]?.row || toneMap.neutral.row);
 
 function handleSelect() {
   if (!props.interactive) return;
