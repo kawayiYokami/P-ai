@@ -78,13 +78,6 @@
             </div>
           </Transition>
           <div
-            v-if="showInitialMeasureOverlay"
-            class="absolute inset-0 z-10 flex items-center justify-center bg-base-200"
-            aria-hidden="true"
-          >
-            <span class="loading loading-spinner loading-md text-primary" />
-          </div>
-          <div
             ref="scrollContainer"
             class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
             :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
@@ -1593,41 +1586,8 @@ const virtuaShift = computed(() => {
   if (virtualRenderItems.value.length === 0) return false;
   return !!props.loadingOlderHistory || olderHistoryCorrectionAllowed.value;
 });
-// 初始覆盖层：virtua 内部已用 ResizeObserver 实时测量，首帧不再因 1px 估计重叠
-// 仅会话切换后短暂遮挡 300ms 防首帧测量抖动，超时兜底。
-const initialMeasureOverlayForceHidden = ref(false);
-let initialMeasureOverlayTimeout: ReturnType<typeof setTimeout> | undefined;
-watch(
-  () => String(props.activeConversationId || "").trim(),
-  () => {
-    initialMeasureOverlayForceHidden.value = false;
-    if (initialMeasureOverlayTimeout) {
-      clearTimeout(initialMeasureOverlayTimeout);
-      initialMeasureOverlayTimeout = undefined;
-    }
-    if (typeof window !== "undefined") {
-      initialMeasureOverlayTimeout = setTimeout(() => {
-        initialMeasureOverlayTimeout = undefined;
-        initialMeasureOverlayForceHidden.value = true;
-      }, 400);
-    }
-  },
-  { immediate: true },
-);
-const measurementSettled = ref(true);
-const showInitialMeasureOverlay = computed(() =>
-  !!String(props.activeConversationId || "").trim()
-  && virtualRenderItems.value.length > 0
-  && !props.chatting
-  && !measurementSettled.value
-  && !initialMeasureOverlayForceHidden.value,
-);
-onBeforeUnmount(() => {
-  if (initialMeasureOverlayTimeout) {
-    clearTimeout(initialMeasureOverlayTimeout);
-    initialMeasureOverlayTimeout = undefined;
-  }
-});
+// 初始测高覆盖层已删除：virtua 内部用 ResizeObserver 实时测量，首帧不再出现
+// 估计高度导致的行重叠，这层遮挡没有可挡的对象（停用于 9d3429a35 迁移 virtua 时）。
 
 const showNoMoreHistoryDivider = computed(() =>
   !!String(props.activeConversationId || "").trim()
