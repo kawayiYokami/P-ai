@@ -1702,7 +1702,8 @@
       "toolMoreFiles": "还有 {n} 个文件被修改",
       "planLabel": "最近计划",
       "planLoading": "正在加载计划…",
-      "emptyAll": "暂无进行中的内容"
+      "emptyAll": "暂无进行中的内容",
+      "emptyAllHint": "绑定工作区或在对话中产出代码、任务与工具后，此处将自动聚合展示实时看板。"
     },
     "sideChat": {
       "title": "追问",

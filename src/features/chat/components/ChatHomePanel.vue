@@ -94,7 +94,7 @@
           <div class="space-y-1">
             <div class="text-sm font-medium text-base-content/80">{{ t("chat.homePanel.emptyAll") }}</div>
             <div class="text-xs text-base-content/50 leading-relaxed">
-              绑定工作区或在对话中产出代码、任务与工具后，此处将自动聚合展示实时看板。
+              {{ t("chat.homePanel.emptyAllHint") }}
             </div>
           </div>
           <div class="pt-2">

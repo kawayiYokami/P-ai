@@ -1575,7 +1575,8 @@
       "toolMoreFiles": "{n} more files changed",
       "planLabel": "Recent Plan",
       "planLoading": "Loading plan…",
-      "emptyAll": "Nothing in progress"
+      "emptyAll": "Nothing in progress",
+      "emptyAllHint": "Bind a workspace, or produce code, tasks and tools in a conversation, and the live board will be aggregated here automatically."
     },
     "sideChat": {
       "title": "Follow-up",
