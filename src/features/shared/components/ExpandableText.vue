@@ -19,17 +19,17 @@ const overflowing = ref(false);
 const expanded = ref(false);
 const contentHeight = ref(0);
 
-const clamped = computed(() => overflowing.value && !props.follow && !expanded.value);
+const clamped = computed(() => !props.follow && !expanded.value);
 
 const shellStyle = computed(() => {
-  if (!overflowing.value || props.follow) return undefined;
+  if (props.follow) return undefined;
   const vars = { "--ecall-preview-height": `${props.previewHeight}px` } as Record<string, string>;
   if (clamped.value) {
-    return { ...vars, height: `${props.previewHeight}px` } as any;
+    return { ...vars, maxHeight: `${props.previewHeight}px` } as any;
   }
   if (expanded.value) {
-    const h = contentHeight.value > 0 ? `${contentHeight.value}px` : "auto";
-    return { ...vars, height: h } as any;
+    const h = contentHeight.value > 0 ? `${contentHeight.value}px` : "none";
+    return { ...vars, maxHeight: h } as any;
   }
   return vars as any;
 });
@@ -79,13 +79,13 @@ onBeforeUnmount(() => {
         <div
           ref="bodyRef"
           class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
-          :class="[props.textClass, { 'ecall-expandable-text-clamped': clamped }]"
+          :class="[props.textClass, { 'ecall-expandable-text-clamped': clamped && overflowing }]"
         >{{ text }}</div>
       </div>
     </div>
-    <div v-if="clamped || expanded" class="mt-0.5">
+    <div v-if="overflowing" class="mt-0.5">
       <button
-        v-if="clamped"
+        v-if="!expanded"
         type="button"
         class="inline-flex items-center text-xs text-base-content/45 hover:text-base-content/80"
         data-selection-ignore="true"

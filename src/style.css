@@ -431,18 +431,18 @@ body {
   --overflow-delay: 0s;
 }
 .ecall-expandable--clamped .ecall-expandable__shell {
-  height: var(--ecall-preview-height, 160px);
+  max-height: var(--ecall-preview-height, 160px);
   overflow: hidden;
 }
 .ecall-expandable--expanded .ecall-expandable__shell {
-  height: auto;
+  max-height: none;
   overflow: visible;
   --overflow-delay: var(--duration-fold);
 }
 .ecall-expandable__content { min-height: 0; overflow: clip; }
 @media (prefers-reduced-motion: no-preference) {
   .ecall-expandable__shell {
-    transition: height var(--duration-fold) ease, overflow var(--duration-fold) allow-discrete var(--overflow-delay, 0s);
+    transition: max-height var(--duration-fold) ease, height var(--duration-fold) ease, overflow var(--duration-fold) allow-discrete var(--overflow-delay, 0s);
   }
 }
 .ecall-expandable-text-clamped {
