@@ -108,4 +108,31 @@ describe("followBottom intent", () => {
     layout.stopFollowBottom();
     expect(layout.followBottom.value).toBe(false);
   });
+
+  it("补载历史期间的程序化抬高：不进入跟随", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 0, scrollHeight: 1599, clientHeight: 874 });
+    layout.scrollContainer.value = scroller;
+    layout.noteWheelScrollIntent();
+
+    (scroller as { scrollTop: number }).scrollTop = 1830;
+    layout.onScroll({ suppressFollowIntent: true });
+    expect(layout.followBottom.value).toBe(false);
+  });
+
+  it("抑制结束后朝底部方向滚动：恢复解锁", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 0, scrollHeight: 4000, clientHeight: 874 });
+    layout.scrollContainer.value = scroller;
+    layout.noteWheelScrollIntent();
+
+    (scroller as { scrollTop: number }).scrollTop = 1830;
+    layout.onScroll({ suppressFollowIntent: true });
+    expect(layout.followBottom.value).toBe(false);
+
+    layout.noteWheelScrollIntent();
+    (scroller as { scrollTop: number }).scrollTop = 1900;
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(true);
+  });
 });

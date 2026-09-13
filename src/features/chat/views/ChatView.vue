@@ -2800,10 +2800,16 @@ let contentResizeObserver: ResizeObserver | null = null;
 
 // 跟随模式下内容尺寸变化（流式增长、气泡变高）时同步贴底。
 // virtua 不会在内容增长时自动维持贴底，这里补上；未进入跟随则保持视口不动。
+// 另外要求视口确实仍贴着底：补载历史等程序化滚动会把 followBottom 误置真，
+// 此时视口停在上方，若照样下拉会把用户从历史位置直接拽到最底。
+// 容差取自实测：跟随状态下距底距离基本为 0，偶发瞬态最大 54px。
+const PIN_TO_BOTTOM_TOLERANCE_PX = 64;
 function pinChatToBottomWhileFollowing() {
   if (!followBottom.value) return;
   const el = scrollContainer.value;
   if (!el) return;
+  const distanceToBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+  if (distanceToBottom > PIN_TO_BOTTOM_TOLERANCE_PX) return;
   const before = el.scrollTop;
   el.scrollTop = el.scrollHeight;
   if (Math.abs(el.scrollTop - before) > 1) {

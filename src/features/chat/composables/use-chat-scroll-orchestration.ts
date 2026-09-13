@@ -6,7 +6,7 @@ export interface UseChatScrollOrchestrationOptions {
   scrollContainer: Ref<HTMLElement | null>;
   chatScrollbarRef: Ref<{ updateThumb: () => void; hide?: () => void } | null>;
   prepareBottomAlignmentLayout?: () => Promise<void> | void;
-  onScroll: () => void;
+  onScroll: (options?: { suppressFollowIntent?: boolean }) => void;
   scheduleVirtualMeasure: () => void;
   resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
   // 把最新用户消息对齐到视口顶部（与时间线跳转同一套 align: "start"）
@@ -53,6 +53,9 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   const OLDER_HISTORY_MAX_COOLDOWN_MS = 1000;
   const SCROLL_SETTLE_DELAY_MS = 120;
   const olderHistoryRequestPending = ref(false);
+  // 补载历史期间 virtua 会程序化抬高 scrollTop 保持视口锚定，这期间的滚动事件不是用户手势，
+  // 不得据此翻转 followBottom（否则紧随其后的内容增高会把视口一把拽到最底）
+  const olderHistoryPrependScrollActive = ref(false);
   const suppressOlderHistoryPaginationOnce = ref(false);
   let pendingProgrammaticScrollPaginationResetFrame = 0;
   let pendingScrollSettleTimer = 0;
@@ -84,6 +87,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     clearOlderHistoryReleaseTimer();
     olderHistoryCooldownUntil = 0;
     olderHistoryRequestPending.value = false;
+    olderHistoryPrependScrollActive.value = false;
     if (olderHistoryCorrectionAllowed) {
       olderHistoryCorrectionAllowed.value = false;
     }
@@ -92,6 +96,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   function armOlderHistoryRequestGate() {
     clearOlderHistoryReleaseTimer();
     olderHistoryRequestPending.value = true;
+    olderHistoryPrependScrollActive.value = true;
     if (olderHistoryCorrectionAllowed) {
       olderHistoryCorrectionAllowed.value = true;
     }
@@ -163,7 +168,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   }
 
   function onConversationScroll() {
-    onScroll();
+    onScroll({ suppressFollowIntent: olderHistoryPrependScrollActive.value });
     chatScrollbarRef.value?.updateThumb();
     if (suppressOlderHistoryPaginationOnce.value) {
       suppressOlderHistoryPaginationOnce.value = false;

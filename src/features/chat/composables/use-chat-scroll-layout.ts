@@ -138,7 +138,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     return nearBottom;
   }
 
-  function onScroll() {
+  // suppressFollowIntent：补载历史期间 virtua 会程序化抬高 scrollTop 保持视口锚定，
+  // 这时的滚动事件不是用户手势，不得据此翻转跟随意图
+  function onScroll(options: { suppressFollowIntent?: boolean } = {}) {
     const el = scrollContainer.value;
     if (!el) return;
     const nextScrollTop = el.scrollTop;
@@ -160,9 +162,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     if (userInitiatedScroll) {
       const before = followBottom.value;
       if (nextScrollTop > previousScrollTop) {
-        followBottom.value = true;
+        if (!options.suppressFollowIntent) followBottom.value = true;
       } else if (nextScrollTop < previousScrollTop) {
-        followBottom.value = false;
+        if (!options.suppressFollowIntent) followBottom.value = false;
       }
       if (before !== followBottom.value) {
         probeChatScroll("followBottom变化", {
