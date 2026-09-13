@@ -279,16 +279,16 @@
               @jump="handleTimelineJumpAndClose($event)"
             />
             <Transition
-              enter-active-class="transition duration-200 ease-out"
-              enter-from-class="opacity-0 translate-y-1"
-              leave-active-class="transition duration-200 ease-out"
-              leave-to-class="opacity-0 translate-y-1"
+              enter-active-class="transition duration-180 ease-out"
+              enter-from-class="opacity-0 scale-90"
+              leave-active-class="transition duration-100 ease-in"
+              leave-to-class="opacity-0 scale-90"
             >
               <button
                 v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
                 ref="timelineFloatWrapRef"
                 type="button"
-                class="absolute bottom-0 right-0 pointer-events-auto"
+                class="group absolute bottom-0 right-0 pointer-events-auto"
                 :class="SESSION_FLOAT_FROST_CIRCLE"
                 :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
                 :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
@@ -298,7 +298,12 @@
                 @keydown.enter.prevent="handleTimelineFloatToggle"
                 @keydown.space.prevent="handleTimelineFloatToggle"
               >
-                <GanttChart class="h-5 w-5" />
+                <Route class="h-4.5 w-4.5 transition-transform duration-150 group-hover:scale-110" />
+                <span
+                  class="badge badge-xs bg-primary text-primary-content font-mono font-semibold absolute -top-1 -right-1 h-4 min-w-4 px-1 text-micro leading-none shadow-sm pointer-events-none"
+                >
+                  {{ timelineAnchors.length }}
+                </span>
               </button>
             </Transition>
             <div
@@ -741,7 +746,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { Check, CircleAlert, Copy, GanttChart, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import { Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -1956,9 +1961,19 @@ function handleTimelineJump(virtualIndex: number) {
 const timelineFloatWrapRef = ref<HTMLElement | null>(null);
 const timelineFloatPlaceholderRef = ref<HTMLElement | null>(null);
 const timelineFloatOpen = ref(false);
-// 托盘收起前的逗留时间：鼠标短暂移出不会立刻消失（展开仍然是即时的）
+// 托盘收起前的逗留时间：鼠标短暂移出不会立刻消失
 const TIMELINE_FLOAT_CLOSE_DELAY_MS = 320;
 let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
+// 鼠标悬停展开的微防抖：避免光标扫过右下角误触弹开
+const TIMELINE_FLOAT_OPEN_DELAY_MS = 120;
+let timelineFloatOpenTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 取消待展开的悬停防抖：触发源消失（离开、锚点数跌破 2、工具栏出现、卸载）时统一走这里 */
+function clearTimelineFloatOpenTimer() {
+  if (!timelineFloatOpenTimer) return;
+  clearTimeout(timelineFloatOpenTimer);
+  timelineFloatOpenTimer = null;
+}
 
 const showTimelineFloatPanel = computed(() => timelineFloatOpen.value && timelineAnchors.value.length >= 2);
 const timelineBoardAnchorEl = computed(() => {
@@ -1992,9 +2007,18 @@ function handleTimelineFloatEnter() {
   }
   if (showTimelineFloatPanel.value) return;
   if (timelineAnchors.value.length < 2) return;
-  timelineFloatOpen.value = true;
+  if (timelineFloatOpenTimer) return;
+  timelineFloatOpenTimer = setTimeout(() => {
+    timelineFloatOpenTimer = null;
+    // 延时窗口里触发源可能已经消失（锚点数跌破 2、工具栏出现），执行前重新校验
+    if (showTimelineFloatPanel.value) return;
+    if (timelineAnchors.value.length < 2) return;
+    if (showFloatingSessionToolbar.value) return;
+    timelineFloatOpen.value = true;
+  }, TIMELINE_FLOAT_OPEN_DELAY_MS);
 }
 function handleTimelineFloatLeave() {
+  clearTimelineFloatOpenTimer();
   if (timelineFloatCloseTimer) clearTimeout(timelineFloatCloseTimer);
   timelineFloatCloseTimer = setTimeout(() => {
     timelineFloatOpen.value = false;
@@ -2002,6 +2026,7 @@ function handleTimelineFloatLeave() {
   }, TIMELINE_FLOAT_CLOSE_DELAY_MS);
 }
 function handleTimelineFloatToggle() {
+  clearTimelineFloatOpenTimer();
   if (timelineFloatCloseTimer) {
     clearTimeout(timelineFloatCloseTimer);
     timelineFloatCloseTimer = null;
@@ -2018,6 +2043,8 @@ function handleTimelineJumpAndClose(virtualIndex: number) {
 }
 
 function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
+  // 待展开也要取消，所以清理放在早退守卫之前
+  clearTimelineFloatOpenTimer();
   if (!showTimelineFloatPanel.value) return;
   const target = event.target as Node | null;
   if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
@@ -2027,10 +2054,11 @@ function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) 
   if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 }
 function handleTimelineFloatKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape" && showTimelineFloatPanel.value) {
-    timelineFloatOpen.value = false;
-    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
-  }
+  if (event.key !== "Escape") return;
+  clearTimelineFloatOpenTimer();
+  if (!showTimelineFloatPanel.value) return;
+  timelineFloatOpen.value = false;
+  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 }
 onMounted(() => {
   window.addEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
@@ -2039,13 +2067,15 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
   window.removeEventListener("keydown", handleTimelineFloatKeydown);
+  clearTimelineFloatOpenTimer();
   if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 });
 watch(() => timelineAnchors.value.length, (n) => {
-  if (n < 2 && timelineFloatOpen.value) {
-    timelineFloatOpen.value = false;
-    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
-  }
+  if (n >= 2) return;
+  clearTimelineFloatOpenTimer();
+  if (!timelineFloatOpen.value) return;
+  timelineFloatOpen.value = false;
+  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 });
 
 const latestOwnTailSpacerMinHeight = ref(0);
@@ -2143,10 +2173,11 @@ const showConversationTodoBar = computed(() => {
 });
 
 watch(showFloatingSessionToolbar, (visible) => {
-  if (visible && timelineFloatOpen.value) {
-    timelineFloatOpen.value = false;
-    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
-  }
+  if (!visible) return;
+  clearTimelineFloatOpenTimer();
+  if (!timelineFloatOpen.value) return;
+  timelineFloatOpen.value = false;
+  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 });
 
 // ==================== previous user message jump ====================

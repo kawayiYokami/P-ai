@@ -31,8 +31,8 @@ const MAX_GAP = 31;
 const MIN_GAP = 21;
 const PADDING = 21;
 const DOT_HIT = 23;
-const DOT_SMALL = 10;
-const DOT_FOCUSED = 21;
+const DOT_SMALL = 8;
+const DOT_FOCUSED = 14;
 const PREVIEW_MAX_W = 440;
 const PREVIEW_PAD = 10;
 const PREVIEW_GAP = 4;
@@ -288,9 +288,42 @@ const boardViewportPos = computed(() => {
   };
 });
 
-const polylinePoints = computed(() => {
-  if (!layout.value) return "";
-  return layout.value.ordered.map((p) => `${p.x},${p.y}`).join(" ");
+const smoothSnakePath = computed(() => {
+  const ordered = layout.value?.ordered;
+  if (!ordered || ordered.length < 2) return "";
+  if (ordered.length === 2) return `M ${ordered[0].x} ${ordered[0].y} L ${ordered[1].x} ${ordered[1].y}`;
+
+  let d = `M ${ordered[0].x} ${ordered[0].y}`;
+  for (let i = 1; i < ordered.length - 1; i++) {
+    const pPrev = ordered[i - 1]!;
+    const pCurr = ordered[i]!;
+    const pNext = ordered[i + 1]!;
+
+    const v1x = pCurr.x - pPrev.x;
+    const v1y = pCurr.y - pPrev.y;
+    const v2x = pNext.x - pCurr.x;
+    const v2y = pNext.y - pCurr.y;
+
+    const cross = v1x * v2y - v1y * v2x;
+    if (Math.abs(cross) < 1e-4) {
+      d += ` L ${pCurr.x} ${pCurr.y}`;
+      continue;
+    }
+
+    const d1 = Math.hypot(v1x, v1y);
+    const d2 = Math.hypot(v2x, v2y);
+    const r = Math.min(8, d1 / 2, d2 / 2);
+
+    const entryX = (pCurr.x - (v1x / d1) * r).toFixed(1);
+    const entryY = (pCurr.y - (v1y / d1) * r).toFixed(1);
+    const exitX = (pCurr.x + (v2x / d2) * r).toFixed(1);
+    const exitY = (pCurr.y + (v2y / d2) * r).toFixed(1);
+
+    d += ` L ${entryX} ${entryY} Q ${pCurr.x} ${pCurr.y} ${exitX} ${exitY}`;
+  }
+  const last = ordered[ordered.length - 1]!;
+  d += ` L ${last.x} ${last.y}`;
+  return d;
 });
 
 const focusedIndex = computed(() => props.hoveredIndex ?? props.activeIndex);
@@ -302,8 +335,6 @@ function isFocused(index: number) {
 function isActive(index: number) {
   return props.activeIndex === index;
 }
-
-const TRI_OUTER = 18;
 
 function dotStyle(anchor: TimelineAnchor): Record<string, string> {
   const p = layout.value?.posByIndex.get(anchor.index);
@@ -470,7 +501,7 @@ const tooltipStyle = computed(() => {
       <div
         v-if="visible && layout"
         ref="hostRef"
-        class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl bg-base-100/70 shadow backdrop-blur-md select-none touch-none"
+        class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl border border-base-300/60 bg-base-100/80 shadow-lg backdrop-blur-md backdrop-saturate-150 select-none touch-none"
         :style="boardFixedStyle"
         @mousemove="handleBoardMouseMove"
         @pointerdown="handleBoardPointerDown"
@@ -482,17 +513,18 @@ const tooltipStyle = computed(() => {
       >
         <div class="ecall-snake-board-content relative h-full w-full overflow-hidden rounded-2xl">
           <svg
-            v-if="polylinePoints"
+            v-if="smoothSnakePath"
             class="pointer-events-none absolute inset-0 h-full w-full"
             :viewBox="`0 0 ${layout.cardW} ${layout.cardH}`"
           >
-            <polyline
-              :points="polylinePoints"
+            <path
+              :d="smoothSnakePath"
               fill="none"
               stroke="var(--color-base-300)"
-              stroke-width="2"
+              stroke-width="2.5"
               stroke-linecap="round"
               stroke-linejoin="round"
+              class="opacity-70"
             />
           </svg>
           <button
@@ -506,24 +538,28 @@ const tooltipStyle = computed(() => {
             @focus="emit('hover', anchor.index)"
             @click.stop="handleDotClick(anchor)"
           >
+            <!-- 当前激活锚点：双层脉冲光环定位标 -->
             <span
               v-if="isActive(anchor.index)"
-              class="pointer-events-none flex items-center justify-center transition-transform duration-150"
-              :style="isFocused(anchor.index) ? 'transform: scale(1.15)' : ''"
+              class="relative flex items-center justify-center pointer-events-none transition-transform duration-150"
+              :style="isFocused(anchor.index) ? 'transform: scale(1.18)' : ''"
               :aria-hidden="true"
             >
-              <svg :width="TRI_OUTER" :height="TRI_OUTER" viewBox="0 0 20 18" class="overflow-visible drop-shadow-sm" shape-rendering="geometricPrecision">
-                <path d="M10 2 L18.5 16 L1.5 16 Z" fill="none" stroke="var(--color-primary)" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" />
-                <path d="M10 7.2 L14.6 14.2 L5.4 14.2 Z" fill="var(--color-base-100)" stroke="none" />
-              </svg>
+              <span class="absolute h-5 w-5 rounded-full bg-primary/20 animate-ping opacity-60 pointer-events-none" style="animation-duration: 2.4s" />
+              <span class="absolute h-4 w-4 rounded-full border-2 border-primary bg-primary/10 shadow-sm" />
+              <span class="h-1.5 w-1.5 rounded-full bg-primary shadow" />
             </span>
+            <!-- 其他普通/悬停锚点 -->
             <span
               v-else
-              class="rounded-full transition-[width,height,background-color] duration-150"
-              :class="isFocused(anchor.index) ? 'bg-primary' : 'bg-base-content/55'"
-              :style="isFocused(anchor.index)
-                ? `width:${DOT_FOCUSED}px;height:${DOT_FOCUSED}px`
-                : `width:${DOT_SMALL}px;height:${DOT_SMALL}px`"
+              class="rounded-full transition-all duration-150"
+              :class="isFocused(anchor.index)
+                ? 'bg-primary shadow-sm ring-4 ring-primary/25 scale-125'
+                : 'bg-base-content/40 hover:bg-base-content/70'"
+              :style="{
+                width: isFocused(anchor.index) ? `${DOT_FOCUSED}px` : `${DOT_SMALL}px`,
+                height: isFocused(anchor.index) ? `${DOT_FOCUSED}px` : `${DOT_SMALL}px`,
+              }"
             />
           </button>
         </div>
@@ -535,22 +571,22 @@ const tooltipStyle = computed(() => {
         class="pointer-events-none fixed z-[101]"
         :style="tooltipStyle"
       >
-        <div v-if="tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-t border-l border-base-200 bg-base-100" />
-        <div class="overflow-hidden rounded-xl border border-base-200 bg-base-100 shadow-lg" :style="{ padding: `${PREVIEW_PAD}px` }">
+        <div v-if="tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-t border-l border-base-300/60 bg-base-100" />
+        <div class="overflow-hidden rounded-xl border border-base-300/60 bg-base-100/95 shadow-xl backdrop-blur-md" :style="{ padding: `${PREVIEW_PAD}px` }">
           <div class="flex min-w-0 flex-col overflow-hidden" :style="{ maxHeight: `calc(5 * 1.25rem + ${PREVIEW_GAP}px)` }">
-            <span class="block shrink-0 truncate font-bold leading-5 text-base-content" style="height: 1.25rem; line-height: 1.25rem">
+            <span class="block shrink-0 truncate font-semibold leading-5 text-base-content" style="height: 1.25rem; line-height: 1.25rem">
               <TimelinePreviewMarkdown :text="previewAnchor.userText" :clamp="80" />
             </span>
             <span
               v-if="(previewAnchor.assistantTail || '').trim()"
-              class="block overflow-hidden leading-5 text-base-content/60"
+              class="block overflow-hidden leading-5 text-base-content/65"
               :style="{ marginTop: `${PREVIEW_GAP}px`, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', maxHeight: 'calc(4 * 1.25rem)' }"
             >
               <TimelinePreviewMarkdown :text="previewAnchor.assistantTail" :clamp="320" />
             </span>
           </div>
         </div>
-        <div v-if="!tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-b border-r border-base-200 bg-base-100" />
+        <div v-if="!tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-b border-r border-base-300/60 bg-base-100" />
       </div>
     </Transition>
   </Teleport>
@@ -559,33 +595,31 @@ const tooltipStyle = computed(() => {
 <style scoped>
 .ecall-snake-board-enter-active {
   transition:
-    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    right 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    bottom 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 280ms ease;
+    width 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    right 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    bottom 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-radius 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease-out;
 }
 .ecall-snake-board-leave-active {
   transition:
-    width 200ms ease,
-    height 200ms ease,
-    right 200ms ease,
-    bottom 200ms ease,
-    border-radius 200ms ease,
-    background-color 200ms ease,
-    opacity 160ms ease;
+    width 180ms ease-in,
+    height 180ms ease-in,
+    right 180ms ease-in,
+    bottom 180ms ease-in,
+    border-radius 180ms ease-in,
+    opacity 150ms ease-in;
 }
 .ecall-snake-board-enter-from,
 .ecall-snake-board-leave-to {
-  width: 2rem !important;
-  height: 2rem !important;
+  width: 2.25rem !important;
+  height: 2.25rem !important;
   border-radius: 9999px !important;
-  background-color: var(--color-neutral);
-  opacity: 1;
+  opacity: 0;
 }
 .ecall-snake-board-content {
-  transition: opacity 220ms ease 60ms;
+  transition: opacity 180ms ease 60ms;
 }
 .ecall-snake-board-enter-from .ecall-snake-board-content,
 .ecall-snake-board-leave-to .ecall-snake-board-content {
@@ -593,10 +627,11 @@ const tooltipStyle = computed(() => {
 }
 .ecall-timeline-preview-enter-active,
 .ecall-timeline-preview-leave-active {
-  transition: opacity 160ms ease;
+  transition: opacity 150ms ease, transform 150ms ease;
 }
 .ecall-timeline-preview-enter-from,
 .ecall-timeline-preview-leave-to {
   opacity: 0;
+  transform: translateX(-50%) scale(0.96);
 }
 </style>
