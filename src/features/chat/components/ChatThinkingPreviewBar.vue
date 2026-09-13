@@ -89,13 +89,15 @@ const props = withDefaults(
 
 const emit = defineEmits<{ jumpToBottom: [] }>();
 
+// 预览思维链更新速度：相对基准阅读节奏整体提升 30%
+const PREVIEW_SPEED_RATE = 1.3;
 // 阅读速度：中文每秒 12 字，英文每秒 5 个词（按空格切分）
-const CJK_CHARS_PER_SECOND = 12;
-const ENGLISH_WORDS_PER_SECOND = 5;
+const CJK_CHARS_PER_SECOND = 12 * PREVIEW_SPEED_RATE;
+const ENGLISH_WORDS_PER_SECOND = 5 * PREVIEW_SPEED_RATE;
 // 推进粒度：每 100ms 结算一次阅读进度
 const TICK_MS = 100;
-// 单行最短停留，避免短行一闪而过
-const MIN_LINE_MS = 300;
+// 单行最短停留，避免短行一闪而过；跟着同一个倍率缩放，否则短行会卡在下限、整体到不了 30%
+const MIN_LINE_MS = 300 / PREVIEW_SPEED_RATE;
 
 const lineTransitionName = "ecall-thinking-line";
 
