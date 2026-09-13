@@ -299,11 +299,6 @@
                 @keydown.space.prevent="handleTimelineFloatToggle"
               >
                 <Route class="h-4.5 w-4.5 transition-transform duration-150 group-hover:scale-110" />
-                <span
-                  class="badge badge-xs bg-primary text-primary-content font-mono font-semibold absolute -top-1 -right-1 h-4 min-w-4 px-1 text-micro leading-none shadow-sm pointer-events-none"
-                >
-                  {{ timelineAnchors.length }}
-                </span>
               </button>
             </Transition>
             <div

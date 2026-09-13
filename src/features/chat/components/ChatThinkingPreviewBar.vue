@@ -34,16 +34,22 @@
               class="h-4 w-4 shrink-0 rounded-full object-cover"
             />
             <span class="truncate leading-5 text-base-content/85"><InlineMarkdownText :text="answerLine" /></span>
-            <ArrowDownToLine class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
+            <ArrowDownToLine
+              class="h-4 w-4 shrink-0 text-base-content/75"
+              :stroke-width="2.5"
+            />
           </span>
         </Transition>
       </div>
       <span
         v-if="!answerLine"
-        class="flex items-center gap-1 leading-5 text-base-content/70"
+        class="flex items-center gap-1.5 leading-5 font-medium text-base-content/85"
         :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''"
       >
-        <ArrowDownToLine class="h-3.5 w-3.5" />
+        <ArrowDownToLine
+          class="h-4 w-4 shrink-0 text-base-content/75"
+          :stroke-width="2.5"
+        />
         {{ t("chat.jumpToBottom") }}
       </span>
     </button>
