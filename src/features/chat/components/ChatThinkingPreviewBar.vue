@@ -8,7 +8,7 @@
   <div v-if="visible" class="pointer-events-none flex justify-start">
     <button
       type="button"
-      class="ecall-thinking-preview-bar pointer-events-auto w-fit cursor-pointer rounded-2xl border border-base-300/50 bg-base-100/55 px-3 py-2 text-left text-xs shadow-sm backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-base-100/75"
+      class="ecall-thinking-preview-bar pointer-events-auto w-fit min-w-0 max-w-full cursor-pointer rounded-2xl border border-base-300/50 bg-base-100/55 px-3 py-2 text-left text-xs shadow-sm backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-base-100/75"
       @click="emit('jumpToBottom')"
     >
       <div v-if="streaming && reasoningWindowLines.length > 0" class="block max-h-20 overflow-hidden">
