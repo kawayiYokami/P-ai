@@ -19,6 +19,10 @@
         <input v-model="showWorkspace" type="checkbox" class="checkbox checkbox-xs" />
         工作区
       </label>
+      <label v-if="showWorkspace" class="flex cursor-pointer items-center gap-1">
+        <input v-model="longWorkspaceName" type="checkbox" class="checkbox checkbox-xs" />
+        长路径名
+      </label>
       <label class="flex cursor-pointer items-center gap-1">
         <input v-model="showAutoPush" type="checkbox" class="checkbox checkbox-xs" />
         自动推送
@@ -175,7 +179,12 @@ const workspaceWorkMode = ref<ShellWorkMode>("worktree");
 const workspacePermission = ref<"approval" | "full_access" | "autonomous">("approval");
 const monitorPreset = ref<"empty" | "delegate" | "task" | "shell" | "mixed">("mixed");
 
-const workspaceName = "easy_call_ai";
+const longWorkspaceName = ref(false);
+const workspaceName = computed(() =>
+  longWorkspaceName.value
+    ? "easy_call_ai/src/features/chat/super-long-module-directory"
+    : "easy_call_ai",
+);
 
 // 上排预览条内容：一段思维链 + 一段正文，够长到能看出宽度表现
 const previewBlocks = ref<Array<{ reasoning?: string; text?: string }>>([

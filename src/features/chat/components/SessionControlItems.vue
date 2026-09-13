@@ -9,7 +9,7 @@
     <button
       v-if="showWorkspaceButton"
       type="button"
-      :class="[SESSION_FLOAT_FROST_PILL, 'relative max-w-[min(32rem,100%)]']"
+      :class="[SESSION_FLOAT_FROST_PILL, 'relative max-w-[min(24rem,100%)]']"
       :disabled="workspaceButtonDisabled"
       :title="workspaceTitle"
       @click="emit('lockWorkspace')"
@@ -22,7 +22,7 @@
       </span>
       <span class="shrink-0 text-base-content/60">{{ workspacePermissionText }}</span>
       <span class="h-4 w-px shrink-0 bg-base-300"></span>
-      <span class="truncate">{{ workspaceButtonName || workspaceButtonLabel }}</span>
+      <span class="truncate max-w-[min(14rem,40vw)]">{{ workspaceButtonName || workspaceButtonLabel }}</span>
     </button>
   </Transition>
 
@@ -35,7 +35,7 @@
   >
     <span
       v-if="autoPushActive"
-      class="inline-flex h-8 shrink-0 items-center rounded-full border border-info/25 bg-info/15 px-2 text-xs font-medium text-info"
+      class="inline-flex h-8 shrink-0 items-center rounded-full border border-info/30 bg-info/15 px-2.5 text-xs font-medium text-info backdrop-blur-md"
       :title="autoPushTitle"
     >
       {{ autoPushLabel }}
@@ -52,11 +52,20 @@
     <button
       v-if="hasMonitor"
       type="button"
-      :class="[SESSION_FLOAT_FROST_PILL, 'max-w-full']"
+      :class="[SESSION_FLOAT_FROST_PILL, 'max-w-full gap-1.5']"
       :title="delegateTitle"
       @click="emit('openRunSummary')"
     >
-      <span v-if="activeKindCount >= 2" class="truncate">{{ monitorSummaryText }}</span>
+      <!-- 活动脉冲指示灯 -->
+      <span class="relative flex h-2 w-2 shrink-0 items-center justify-center">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75"></span>
+        <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary"></span>
+      </span>
+
+      <span v-if="activeKindCount >= 2" class="truncate font-medium">
+        {{ monitorSummaryText }}
+        <span v-if="elapsedMs > 0" class="ml-1 opacity-70 tabular-nums">· {{ elapsedText }}</span>
+      </span>
       <template v-else>
         <span class="shrink-0 font-semibold tabular-nums">{{ monitorPrimaryText }}</span>
         <template v-if="delegateRunningCount > 0">
