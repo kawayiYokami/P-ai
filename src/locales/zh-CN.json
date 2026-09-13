@@ -62,6 +62,14 @@
       "migration": "储存",
       "about": "关于"
     },
+    "navGroups": {
+      "general": "常规设置",
+      "ai": "模型能力",
+      "agents": "智能体",
+      "remote": "远程",
+      "data": "数据与任务",
+      "system": "系统与维护"
+    },
     "search": {
       "placeholder": "搜索设置并跳转...",
       "noResults": "没有找到相关设置"

@@ -62,6 +62,14 @@
       "migration": "Storage",
       "about": "About"
     },
+    "navGroups": {
+      "general": "General",
+      "ai": "Model Capabilities",
+      "agents": "Agents",
+      "remote": "Remote",
+      "data": "Data & Tasks",
+      "system": "System & Maintenance"
+    },
     "search": {
       "placeholder": "Search settings...",
       "noResults": "No matching settings"

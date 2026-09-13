@@ -7,18 +7,52 @@
   <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
     <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col bg-base-200 px-2">
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
-        <ul class="menu w-full gap-1 p-0 pt-2 [&>li>a]:w-full">
-          <li v-for="item in visibleConfigNavItems" :key="item.tab">
-            <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
-              <component :is="item.icon" class="h-4 w-4 shrink-0" />
-              <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
-              <span
-                v-if="item.tab === 'about' && props.hasAvailableUpdate"
-                class="ml-auto inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-error"
-                :title="t('about.updateAvailableBadge')"
-              ></span>
-            </a>
-          </li>
+        <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
+          <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
+            <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
+              <div
+                v-if="group.collapsible"
+                role="button"
+                tabindex="0"
+                class="flex w-full cursor-pointer items-center justify-between gap-1 rounded px-1.5 py-1 text-caption font-medium tracking-wider text-base-content/50 uppercase select-none hover:text-base-content/80 hover:bg-base-300/40 transition-colors"
+                @click="toggleNavGroup(group)"
+                @keydown.enter.prevent="toggleNavGroup(group)"
+                @keydown.space.prevent="toggleNavGroup(group)"
+              >
+                <span class="min-w-0 truncate">{{ t(group.titleKey) }}</span>
+                <span class="flex shrink-0 items-center gap-1">
+                  <span
+                    v-if="isNavGroupCollapsed(group) && groupHasBadge(group)"
+                    class="inline-flex h-2 w-2 shrink-0 rounded-full bg-error"
+                    :title="t('about.updateAvailableBadge')"
+                  ></span>
+                  <ChevronRight
+                    class="h-3 w-3 shrink-0 transition-transform duration-150"
+                    :class="{ 'rotate-90': !isNavGroupCollapsed(group) }"
+                  />
+                </span>
+              </div>
+              <div
+                v-else
+                class="px-1.5 py-1 text-caption font-medium tracking-wider text-base-content/50 uppercase select-none"
+              >
+                <span class="min-w-0 truncate">{{ t(group.titleKey) }}</span>
+              </div>
+            </li>
+            <template v-if="!isNavGroupCollapsed(group)">
+              <li v-for="item in group.items" :key="item.tab">
+                <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
+                  <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                  <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
+                  <span
+                    v-if="item.tab === 'about' && props.hasAvailableUpdate"
+                    class="ml-auto inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-error"
+                    :title="t('about.updateAvailableBadge')"
+                  ></span>
+                </a>
+              </li>
+            </template>
+          </template>
         </ul>
       </OverlayScrollArea>
     </aside>
@@ -36,18 +70,52 @@
         class="fixed inset-y-0 left-0 z-40 flex h-full w-44 flex-col bg-base-200 px-2 shadow-xl md:hidden"
       >
         <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
-          <ul class="menu w-full gap-1 p-0 pt-2 [&>li>a]:w-full">
-            <li v-for="item in visibleConfigNavItems" :key="item.tab">
-              <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
-                <component :is="item.icon" class="h-4 w-4 shrink-0" />
-                <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
-                <span
-                  v-if="item.tab === 'about' && props.hasAvailableUpdate"
-                  class="ml-auto inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-error"
-                  :title="t('about.updateAvailableBadge')"
-                ></span>
-              </a>
-            </li>
+          <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
+            <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
+              <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
+                <div
+                  v-if="group.collapsible"
+                  role="button"
+                  tabindex="0"
+                  class="flex w-full cursor-pointer items-center justify-between gap-1 rounded px-1.5 py-1 text-caption font-medium tracking-wider text-base-content/50 uppercase select-none hover:text-base-content/80 hover:bg-base-300/40 transition-colors"
+                  @click="toggleNavGroup(group)"
+                  @keydown.enter.prevent="toggleNavGroup(group)"
+                  @keydown.space.prevent="toggleNavGroup(group)"
+                >
+                  <span class="min-w-0 truncate">{{ t(group.titleKey) }}</span>
+                  <span class="flex shrink-0 items-center gap-1">
+                    <span
+                      v-if="isNavGroupCollapsed(group) && groupHasBadge(group)"
+                      class="inline-flex h-2 w-2 shrink-0 rounded-full bg-error"
+                      :title="t('about.updateAvailableBadge')"
+                    ></span>
+                    <ChevronRight
+                      class="h-3 w-3 shrink-0 transition-transform duration-150"
+                      :class="{ 'rotate-90': !isNavGroupCollapsed(group) }"
+                    />
+                  </span>
+                </div>
+                <div
+                  v-else
+                  class="px-1.5 py-1 text-caption font-medium tracking-wider text-base-content/50 uppercase select-none"
+                >
+                  <span class="min-w-0 truncate">{{ t(group.titleKey) }}</span>
+                </div>
+              </li>
+              <template v-if="!isNavGroupCollapsed(group)">
+                <li v-for="item in group.items" :key="item.tab">
+                  <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
+                    <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                    <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
+                    <span
+                      v-if="item.tab === 'about' && props.hasAvailableUpdate"
+                      class="ml-auto inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-error"
+                      :title="t('about.updateAvailableBadge')"
+                    ></span>
+                  </a>
+                </li>
+              </template>
+            </template>
           </ul>
         </OverlayScrollArea>
       </aside>
@@ -360,7 +428,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Component } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
@@ -388,7 +456,7 @@ import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import SimpleSetupPanel from "./config-tabs/SimpleSetupPanel.vue";
 import { toErrorMessage } from "../../../utils/error";
-import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Network, Palette, Puzzle, Radio, ScrollText, Star, User, Wifi } from "@lucide/vue";
+import { ArrowLeftRight, Beaker, Bell, Building2, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Network, Palette, Puzzle, Radio, ScrollText, Star, User, Wifi } from "@lucide/vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
@@ -400,30 +468,79 @@ type ConfigNavItem = {
   label?: string;
   devOnly?: boolean;
 };
+type ConfigNavGroup = {
+  id: string;
+  titleKey: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
+  items: ConfigNavItem[];
+};
 const SHOW_DEV_DEMO_TAB = import.meta.env.DEV;
 
-const CONFIG_NAV_ITEMS: ConfigNavItem[] = [
-  { tab: "welcome", icon: Home, labelKey: "config.tabs.welcome" },
-  { tab: "chatSettings", icon: Star, labelKey: "config.tabs.chatSettings" },
-  { tab: "notification", icon: Bell, labelKey: "config.tabs.notification" },
-  { tab: "networkAccess", icon: Wifi, labelKey: "config.tabs.networkAccess" },
-  { tab: "hotkey", icon: Keyboard, labelKey: "config.tabs.hotkey" },
-  { tab: "api", icon: Cpu, labelKey: "config.tabs.api" },
-  { tab: "mcp", icon: Puzzle, labelKey: "config.tabs.mcp" },
-  { tab: "skill", icon: Code, labelKey: "config.tabs.skill" },
-  { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
-  { tab: "department", icon: Building2, labelKey: "config.tabs.department" },
-  { tab: "departmentTree", icon: Network, labelKey: "config.tabs.departmentTree" },
-  { tab: "remoteIm", icon: Radio, labelKey: "config.tabs.remoteIm" },
-  { tab: "memory", icon: Database, labelKey: "config.tabs.memory" },
-  { tab: "task", icon: ClipboardList, labelKey: "config.tabs.task" },
-  { tab: "logs", icon: ScrollText, labelKey: "config.tabs.logs" },
-  { tab: "appearance", icon: Palette, labelKey: "config.tabs.appearance" },
-  { tab: "migration", icon: ArrowLeftRight, labelKey: "config.tabs.migration" },
-  { tab: "usage", icon: ScrollText, labelKey: "config.tabs.usage" },
-  { tab: "about", icon: Info, labelKey: "config.tabs.about" },
-  { tab: "demo", icon: Beaker, labelKey: "config.tabs.demo", devOnly: true },
+const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
+  {
+    id: "general",
+    titleKey: "config.navGroups.general",
+    items: [
+      { tab: "welcome", icon: Home, labelKey: "config.tabs.welcome" },
+      { tab: "chatSettings", icon: Star, labelKey: "config.tabs.chatSettings" },
+      { tab: "appearance", icon: Palette, labelKey: "config.tabs.appearance" },
+      { tab: "hotkey", icon: Keyboard, labelKey: "config.tabs.hotkey" },
+      { tab: "notification", icon: Bell, labelKey: "config.tabs.notification" },
+    ],
+  },
+  {
+    id: "ai",
+    titleKey: "config.navGroups.ai",
+    items: [
+      { tab: "api", icon: Cpu, labelKey: "config.tabs.api" },
+      { tab: "mcp", icon: Puzzle, labelKey: "config.tabs.mcp" },
+      { tab: "skill", icon: Code, labelKey: "config.tabs.skill" },
+    ],
+  },
+  {
+    id: "agents",
+    titleKey: "config.navGroups.agents",
+    items: [
+      { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
+      { tab: "department", icon: Building2, labelKey: "config.tabs.department" },
+      { tab: "departmentTree", icon: Network, labelKey: "config.tabs.departmentTree" },
+    ],
+  },
+  {
+    id: "remote",
+    titleKey: "config.navGroups.remote",
+    items: [
+      { tab: "networkAccess", icon: Wifi, labelKey: "config.tabs.networkAccess" },
+      { tab: "remoteIm", icon: Radio, labelKey: "config.tabs.remoteIm" },
+    ],
+  },
+  {
+    id: "data",
+    titleKey: "config.navGroups.data",
+    collapsible: true,
+    defaultCollapsed: true,
+    items: [
+      { tab: "memory", icon: Database, labelKey: "config.tabs.memory" },
+      { tab: "task", icon: ClipboardList, labelKey: "config.tabs.task" },
+      { tab: "usage", icon: ScrollText, labelKey: "config.tabs.usage" },
+    ],
+  },
+  {
+    id: "system",
+    titleKey: "config.navGroups.system",
+    collapsible: true,
+    defaultCollapsed: true,
+    items: [
+      { tab: "migration", icon: ArrowLeftRight, labelKey: "config.tabs.migration" },
+      { tab: "logs", icon: ScrollText, labelKey: "config.tabs.logs" },
+      { tab: "about", icon: Info, labelKey: "config.tabs.about" },
+      { tab: "demo", icon: Beaker, labelKey: "config.tabs.demo", devOnly: true },
+    ],
+  },
 ];
+
+const CONFIG_NAV_ITEMS: ConfigNavItem[] = CONFIG_NAV_GROUPS.flatMap((group) => group.items);
 
 const props = defineProps<{
   config: AppConfig;
@@ -556,7 +673,50 @@ let cropTarget: AvatarTarget | null = null;
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
 const MAX_RECORD_SECONDS = 600;
-const visibleConfigNavItems = computed(() => CONFIG_NAV_ITEMS.filter((item) => !item.devOnly || SHOW_DEV_DEMO_TAB));
+const collapsedNavGroups = ref<Record<string, boolean>>({
+  data: true,
+  system: true,
+});
+
+function isNavGroupCollapsed(group: ConfigNavGroup): boolean {
+  if (!group.collapsible) return false;
+  return !!collapsedNavGroups.value[group.id];
+}
+
+function toggleNavGroup(group: ConfigNavGroup) {
+  if (!group.collapsible) return;
+  collapsedNavGroups.value[group.id] = !collapsedNavGroups.value[group.id];
+}
+
+function groupHasBadge(group: { items: ConfigNavItem[] }): boolean {
+  return group.items.some((item) => item.tab === "about" && props.hasAvailableUpdate);
+}
+
+function ensureActiveNavGroupExpanded(tab: ConfigTab) {
+  const group = CONFIG_NAV_GROUPS.find((g) => g.items.some((item) => item.tab === tab));
+  if (group && collapsedNavGroups.value[group.id]) {
+    collapsedNavGroups.value[group.id] = false;
+  }
+}
+
+watch(
+  () => props.configTab,
+  (newTab) => {
+    ensureActiveNavGroupExpanded(newTab);
+  },
+  { immediate: true },
+);
+
+const visibleConfigNavGroups = computed(() =>
+  CONFIG_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.devOnly || SHOW_DEV_DEMO_TAB),
+  })).filter((group) => group.items.length > 0),
+);
+
+const visibleConfigNavItems = computed(() =>
+  visibleConfigNavGroups.value.flatMap((group) => group.items),
+);
 const activeConfigNavItem = computed(() =>
   visibleConfigNavItems.value.find((item) => item.tab === props.configTab)
   ?? visibleConfigNavItems.value.find((item) => item.tab === "welcome")

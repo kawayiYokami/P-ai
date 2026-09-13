@@ -62,6 +62,14 @@
       "migration": "儲存",
       "about": "关于"
     },
+    "navGroups": {
+      "general": "常規設定",
+      "ai": "模型能力",
+      "agents": "智能體",
+      "remote": "遠端",
+      "data": "資料與任務",
+      "system": "系統與維護"
+    },
     "search": {
       "placeholder": "搜尋設定並跳轉...",
       "noResults": "沒有找到相關設定"
