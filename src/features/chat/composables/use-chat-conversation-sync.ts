@@ -1,6 +1,7 @@
 import { nextTick } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import {
+  carryStreamingProjection,
   readConversationIdFromPayload,
   readMessagesFromPayload,
   useChatConversationMessageUtils,
@@ -315,21 +316,23 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const nextPayloadMessages = freezeConversationMessages(Array.isArray(payloadMessages) ? payloadMessages : []);
     // 前台以当前 allMessages 为底；后台才回落到 conversationMessageCache。
     // 不能只用过期 cache，否则 stop 冻结的正文会被整表替换冲掉。
-    const baseDisplay = Array.isArray(options?.baseMessages)
-      ? freezeConversationMessages(options.baseMessages)
-      : freezeConversationMessages(bindings.conversationMessageCache.value[cid] || []);
+    const baseSource = Array.isArray(options?.baseMessages)
+      ? options.baseMessages
+      : (bindings.conversationMessageCache.value[cid] || []);
+    const baseDisplay = freezeConversationMessages(baseSource);
     const fallback = String(fallbackMode || "").trim();
     if (fallback === "recent_limit") {
       // recent 页也只做合并，不整表替换，避免盖掉本地已有可见内容。
       const recentMerged = mergeMessagesIntoTimeline(baseDisplay, nextPayloadMessages);
+      const recentBase = recentMerged.length > 0 ? recentMerged : baseDisplay;
       return reuseStableMessageReferences(
-        recentMerged.length > 0 ? recentMerged : baseDisplay,
+        carryStreamingProjection(baseSource, recentBase),
         baseDisplay,
       );
     }
     const nextMerged = mergeMessagesIntoTimeline(baseDisplay, nextPayloadMessages);
     const fallbackMerged = nextMerged.length > 0 ? nextMerged : baseDisplay;
-    return reuseStableMessageReferences(fallbackMerged, baseDisplay);
+    return reuseStableMessageReferences(carryStreamingProjection(baseSource, fallbackMerged), baseDisplay);
   }
 
   async function applyConversationMessagesAfterSynced(payload: Record<string, any>) {
@@ -424,7 +427,11 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const mergedMessages = preserveExistingHistory
       ? mergeMessagesIntoTimeline(formalizeConversationMessages(bindings.allMessages.value), rawNextMessages)
       : replaceConversationHistory(bindings.allMessages.value, rawNextMessages);
-    const nextMessages = reuseStableMessageReferences(mergedMessages, bindings.allMessages.value);
+    // 保留历史分支是「同会话重放」，正在流式的投影不能被持久化副本抹掉。
+    const projectedMessages = preserveExistingHistory
+      ? carryStreamingProjection(bindings.allMessages.value, mergedMessages)
+      : mergedMessages;
+    const nextMessages = reuseStableMessageReferences(projectedMessages, bindings.allMessages.value);
     bindings.currentChatConversationId.value = nextConversationId;
     bindings.currentChatPreferredApiConfigId.value = String(snapshot.preferredApiConfigId || "").trim();
     bindings.currentChatTodos.value = Array.isArray(snapshot.currentTodos)

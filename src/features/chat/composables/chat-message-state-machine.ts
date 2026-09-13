@@ -272,10 +272,17 @@ export function reconcileCompletedAssistantMessage(
   const existingBlocks = assistantContentBlocksFromMessage(existingMessage);
   const incomingBlocks = assistantContentBlocksFromMessage(incomingMessage);
   const contentBlocks = incomingBlocks.length > 0 ? incomingBlocks : existingBlocks;
-  const providerMeta = {
-    ...providerMetaWithoutTransientStreamState(existingMessage),
-    ...providerMetaWithoutTransientStreamState(incomingMessage),
-  };
+  // 流式状态归回合所有：正在流式的投影保留其回合状态（`_streaming` 与状态文案/计时），
+  // 权威/持久化副本只贡献内容与非瞬态权威字段。只有回合结束路径才显式剥离这些瞬态键。
+  const providerMeta: Record<string, unknown> = isStreaming
+    ? {
+        ...((existingMessage.providerMeta || {}) as Record<string, unknown>),
+        ...providerMetaWithoutTransientStreamState(incomingMessage),
+      }
+    : {
+        ...providerMetaWithoutTransientStreamState(existingMessage),
+        ...providerMetaWithoutTransientStreamState(incomingMessage),
+      };
   const stableRenderId = stableRenderIdFromMessage(existingMessage) || normalized(existingMessage.id);
   return messageWithStableRenderId({
     ...existingMessage,
@@ -678,12 +685,23 @@ function reduceRoundFinished(
     messages = mergeAuthoritativeConversationMessages(messages, [event.assistantMessage]);
   }
   if (!matchesActiveRound) {
+    // 机器回合已 idle 时，终态合并也必须剥离流式标记：此时没有任何活动回合会再清除它。
+    if (state.round.phase === "idle" && event.assistantMessage) {
+      const terminalMessageId = normalized(event.assistantMessage.id);
+      const terminalMessage = findMessage(messages, terminalMessageId);
+      if (terminalMessage
+        && ((terminalMessage.providerMeta || {}) as Record<string, unknown>)._streaming === true) {
+        messages = replaceMessage(messages, terminalMessageId, stripStreamingState(terminalMessage));
+      }
+    }
     return messages === state.messages ? state : { ...state, messages };
   }
 
   const existing = findMessage(messages, messageId);
   if (event.assistantMessage || assistantMessageHasCanonicalVisibleContent(existing)) {
-    if (!event.assistantMessage && existing) {
+    // 回合结束：合并不再隐式清除流式状态，这里显式剥离，避免气泡挂死。
+    if (existing && (!event.assistantMessage
+      || ((existing.providerMeta || {}) as Record<string, unknown>)._streaming === true)) {
       messages = replaceMessage(messages, messageId, stripStreamingState(existing));
     }
     return { ...state, messages, round: emptyRound(), error: "" };
@@ -747,7 +765,7 @@ export function reduceChatMessageState(
     };
   }
   if (event.type === "authoritative_messages_merged") {
-    const messages = mergeAuthoritativeConversationMessages(state.messages, event.messages, event.options);
+    let messages = mergeAuthoritativeConversationMessages(state.messages, event.messages, event.options);
     const settledMessageId = normalized(state.round.assistantMessageId);
     const settledMessage = settledMessageId
       ? messages.find((message) => normalized(message.id) === settledMessageId)
@@ -755,6 +773,11 @@ export function reduceChatMessageState(
     const settled = state.round.phase === "settling"
       && !!settledMessage
       && assistantMessageHasCanonicalVisibleContent(settledMessage);
+    if (settled && settledMessage
+      && ((settledMessage.providerMeta || {}) as Record<string, unknown>)._streaming === true) {
+      // settling 收尾即回合结束：显式剥离流式状态，避免气泡挂死。
+      messages = replaceMessage(messages, settledMessageId, stripStreamingState(settledMessage));
+    }
     return {
       ...state,
       messages,

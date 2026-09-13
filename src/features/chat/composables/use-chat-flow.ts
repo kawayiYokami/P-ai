@@ -668,6 +668,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
 
   function clearForegroundRuntimeState() {
     clearContextUsagePreview();
+    // 前台运行态被强制清除（切会话 / 对账收尾）时只清回合、不动消息列表，
+    // 残留的 `_streaming` 会被「流式状态归回合所有」的合并规则保留而挂死。
+    // 先冲刷平滑追赶缓冲（与停轮路径一致），避免结算后残留分片又把流式投影写回；
+    // 再同语义结算一次剩余流式投影。
+    streamingEvents.flushStreamTextBuffer();
+    settleStreamingAssistantMessages();
     foregroundReset.clearForegroundRuntimeState();
   }
 

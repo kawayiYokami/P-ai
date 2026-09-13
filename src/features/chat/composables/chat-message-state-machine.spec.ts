@@ -168,6 +168,8 @@ describe("chat message state machine", () => {
       conversationId: "conversation-1",
       messages: [assistantMessage("assistant-1", "正式正文")],
     });
+    // 同 ID 正式消息先到不覆盖流式投影，回合仍继续接收流式快照（不再被隐式收尾）。
+    expect(state.messages[0].contentBlocks?.[0]?.text).toBe("流式正文");
     state = reduceChatMessageState(state, {
       type: "assistant_stream_snapshot",
       conversationId: "conversation-1",
@@ -186,12 +188,75 @@ describe("chat message state machine", () => {
       }),
     });
 
-    expect(state.messages[0].contentBlocks?.[0]?.text).toBe("流式正文");
+    expect(state.messages[0].contentBlocks?.[0]?.text).toBe("迟到快照");
     expect(state.messages[0].providerMeta?._streaming).toBeUndefined();
     expect(state.messages[0].providerMeta?.planCard).toEqual({
       action: "present",
       path: ".pai/plan/example.md",
     });
+  });
+
+  it("keeps the streaming projection when a same-id persisted message merges mid-round", () => {
+    let state = createChatMessageState("conversation-1");
+    state = reduceChatMessageState(state, {
+      type: "round_started",
+      conversationId: "conversation-1",
+      assistantMessageId: "assistant-1",
+    });
+    state = reduceChatMessageState(state, {
+      type: "assistant_delta",
+      conversationId: "conversation-1",
+      event: { delta: "流式正文" },
+    });
+    state = reduceChatMessageState(state, {
+      type: "authoritative_messages_merged",
+      conversationId: "conversation-1",
+      messages: [assistantMessage("assistant-1", "半截持久化正文")],
+    });
+
+    expect(state.round.phase).toBe("streaming");
+    expect(state.messages[0].providerMeta?._streaming).toBe(true);
+  });
+
+  it("clears the streaming projection when a settling round receives its final content", () => {
+    let state = createChatMessageState("conversation-1");
+    state = reduceChatMessageState(state, {
+      type: "round_started",
+      conversationId: "conversation-1",
+      assistantMessageId: "assistant-1",
+      statusText: "等待回复",
+    });
+    state = reduceChatMessageState(state, {
+      type: "round_finished",
+      conversationId: "conversation-1",
+    });
+    expect(state.round.phase).toBe("settling");
+
+    state = reduceChatMessageState(state, {
+      type: "authoritative_messages_merged",
+      conversationId: "conversation-1",
+      messages: [assistantMessage("assistant-1", "回读正文")],
+    });
+
+    expect(state.round.phase).toBe("idle");
+    expect(state.messages[0].providerMeta?._streaming).toBeUndefined();
+  });
+
+  it("clears a stale streaming projection when a terminal arrives with the machine round idle", () => {
+    let state = createChatMessageState("conversation-1", [
+      { ...assistantMessage("assistant-1", "半截正文"), providerMeta: { _streaming: true } },
+    ]);
+    expect(state.round.phase).toBe("idle");
+
+    state = reduceChatMessageState(state, {
+      type: "round_finished",
+      conversationId: "conversation-1",
+      assistantMessageId: "assistant-1",
+      assistantMessage: assistantMessage("assistant-1", "正式正文"),
+    });
+
+    expect(state.round.phase).toBe("idle");
+    expect(state.messages[0].providerMeta?._streaming).toBeUndefined();
   });
 
   it("enters settling when completion has neither formal nor visible content", () => {

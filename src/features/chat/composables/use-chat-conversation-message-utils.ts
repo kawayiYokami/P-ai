@@ -13,6 +13,32 @@ type ConversationMessageUtilsOptions = {
   ensureConversationMessageIds: (messages: any[]) => any[];
 };
 
+/**
+ * 持久化/权威副本只贡献内容，不得清除正在流式投影的 `_streaming`。
+ * 冻结基准、整表重建等步骤会把 `_streaming` 当瞬态抹掉，这里用合并前的原始消息
+ * 把标记补回同 ID 的消息上；流式状态归回合所有，只有回合结束路径才显式剥离。
+ */
+export function carryStreamingProjection(source: any[], target: any[]): any[] {
+  const streamingIds = new Set<string>();
+  for (const message of Array.isArray(source) ? source : []) {
+    const meta = (message?.providerMeta || {}) as Record<string, unknown>;
+    if (String(message?.role || "").trim() !== "assistant" || meta._streaming !== true) continue;
+    const messageId = String(message?.id || "").trim();
+    if (messageId) streamingIds.add(messageId);
+  }
+  if (streamingIds.size === 0 || !Array.isArray(target) || target.length === 0) return target;
+  let changed = false;
+  const next = target.map((message) => {
+    const messageId = String(message?.id || "").trim();
+    if (!streamingIds.has(messageId)) return message;
+    const meta = (message?.providerMeta || {}) as Record<string, unknown>;
+    if (meta._streaming === true) return message;
+    changed = true;
+    return { ...message, providerMeta: { ...meta, _streaming: true } };
+  });
+  return changed ? next : target;
+}
+
 const TRANSIENT_PROVIDER_META_KEYS = [
   "_streaming",
   "_preStreamingStatusText",
