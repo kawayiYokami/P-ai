@@ -1746,7 +1746,7 @@
     "workspaceStatusPermissionReadOnly": "唯讀",
     "workspaceStatusPermissionApproval": "審查",
     "workspaceStatusPermissionFull": "全權",
-    "workspaceStatusPermissionAutonomous": "全權",
+    "workspaceStatusPermissionAutonomous": "無限制",
     "workspacePickerAutonomous": "給予本會話最大權限",
     "workspacePickerAutonomousHint": "開啟後，終端與補丁工具可存取任意目錄，並跳過目錄權限、智慧評估與人工審批。",
     "workspacePermissionReadOnly": "唯讀",

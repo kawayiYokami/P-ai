@@ -1753,7 +1753,7 @@
     "workspaceStatusPermissionReadOnly": "只读",
     "workspaceStatusPermissionApproval": "审查",
     "workspaceStatusPermissionFull": "全权",
-    "workspaceStatusPermissionAutonomous": "全权",
+    "workspaceStatusPermissionAutonomous": "无限制",
     "workspacePickerAutonomous": "本会话始终批准一切请求",
     "workspacePickerAutonomousHint": "开启后，终端与补丁工具可访问任意目录，并跳过目录权限、智能评估与人工审批。",
     "workspacePermissionReadOnly": "只读",

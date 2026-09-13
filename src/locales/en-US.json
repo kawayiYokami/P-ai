@@ -1626,7 +1626,7 @@
     "workspaceStatusPermissionReadOnly": "Read-only",
     "workspaceStatusPermissionApproval": "Review",
     "workspaceStatusPermissionFull": "Full access",
-    "workspaceStatusPermissionAutonomous": "Full access",
+    "workspaceStatusPermissionAutonomous": "Unrestricted",
     "workspacePickerAutonomous": "Always approve all requests in this conversation",
     "workspacePickerAutonomousHint": "When enabled, terminal and patch tools can access any directory and skip directory permissions, smart assessment, and manual approval.",
     "workspacePermissionReadOnly": "Read-only",
