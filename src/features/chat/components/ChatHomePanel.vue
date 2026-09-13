@@ -10,6 +10,13 @@
           :change-count="changeCount"
           @open-changes="emit('openGitChanges')"
         />
+        <HomeGitCommitsCard
+          v-if="workspaceRootPath"
+          :workspace-root-path="workspaceRootPath"
+          :branch="branch"
+          :commits="recentCommits"
+          @open-commits="emit('openGitCommits')"
+        />
         <HomePlanCard
           v-if="latestPlan"
           :plan="latestPlan"
@@ -94,6 +101,7 @@ import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import HomeGitCard from "./chat-home/HomeGitCard.vue";
+import HomeGitCommitsCard from "./chat-home/HomeGitCommitsCard.vue";
 import HomeFilesCard from "./chat-home/HomeFilesCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
@@ -111,6 +119,8 @@ const props = withDefaults(defineProps<{
   branch?: string;
   gitChanges?: Array<{ path: string; status: string }>;
   changeCount?: number;
+  /** 当前仓库最近几条提交；来源与分支、更改列表同一处 */
+  recentCommits?: Array<{ hash: string; message: string }>;
   /** 已打开文件，path 为绝对路径，label 仅用于展示 */
   openFiles?: Array<{ path: string; label: string }>;
   activePath?: string;
@@ -131,6 +141,7 @@ const props = withDefaults(defineProps<{
   branch: "",
   gitChanges: () => [],
   changeCount: 0,
+  recentCommits: () => [],
   openFiles: () => [],
   activePath: "",
   openFileCount: 0,
@@ -149,6 +160,7 @@ const emit = defineEmits<{
   (e: "createSideChat"): void;
   (e: "openWorkspace"): void;
   (e: "openGitChanges"): void;
+  (e: "openGitCommits"): void;
   (e: "openMonitorTab", value: ChatMonitorPanelMode): void;
 }>();
 

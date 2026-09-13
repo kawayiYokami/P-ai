@@ -1679,6 +1679,8 @@
       "openFileCount": "{n} 個檔案",
       "noOpenFile": "尚無開啟的檔案",
       "gitChanges": "Git 變更",
+      "gitCommits": "Git 提交",
+      "noCommits": "尚無提交",
       "gitMoreFiles": "檢視剩餘 {n} 個檔案",
       "changeCount": "{n} 處變更",
       "cleanWorktree": "工作區乾淨",

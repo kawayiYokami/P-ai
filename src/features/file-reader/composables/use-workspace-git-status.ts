@@ -4,14 +4,17 @@
 // - 独占 git_panel_status 取数与刷新冷却：两个消费方同时触发也只发一次请求
 // - 独占仓库监听（git_panel_watch_start / git_panel_watch_stop）的启停，按消费方引用计数
 // - 独占 gitPanel.watchChanged 订阅，过滤出属于当前仓库的事件后驱动刷新，并转发给订阅者
-// 共享范围只到「分支 + 更改列表」这一层；history / stashes / branches / diff 仍由 Git 面板自理。
+// 共享范围是「分支 + 更改列表 + 最近几条提交」；其中最近提交只给卡片墙用，
+// 面板的完整分页历史、stashes、branches、diff 仍由 Git 面板自理，两边不读写同一份列表。
 import { ref } from "vue";
 import {
   gitPanelDiscover,
+  gitPanelLog,
   gitPanelStatus,
   gitPanelWatchStart,
   gitPanelWatchStop,
   onTransportNotification,
+  type GitPanelLogEntry,
   type GitPanelStatusEntry,
   type GitPanelStatusOutput,
   type GitPanelWatchEventPayload,
@@ -19,6 +22,8 @@ import {
 
 /** 自动刷新冷却：1 秒内重复触发只发一次请求；force 可穿透 */
 const REFRESH_CD_MS = 1000;
+/** 卡片墙的提交卡只看最近几条，与 Git 面板的分页历史互不影响 */
+const RECENT_COMMITS_LIMIT = 5;
 
 // ==================== 共享状态 ====================
 /** 当前仓库根：由 Git 面板选中决定，其他消费方跟随 */
@@ -31,6 +36,8 @@ const stagedTotal = ref(0);
 const unstagedTotal = ref(0);
 const statusLoaded = ref(false);
 const statusError = ref("");
+/** 最近几条提交：只给卡片墙用，与 Git 面板自己那份分页历史无关 */
+const recentCommits = ref<GitPanelLogEntry[]>([]);
 
 /** 需要实时数据的消费方数量，归零时关闭仓库监听与事件订阅 */
 let consumerCount = 0;
@@ -63,6 +70,7 @@ function clearStatus() {
   currentBranch.value = "";
   statusLoaded.value = false;
   statusError.value = "";
+  recentCommits.value = [];
 }
 
 /** 切换当前仓库；数据清空后若已有消费方则立即重载 */
@@ -87,7 +95,10 @@ function setRepoRoot(root: string) {
   // 新仓库的首次加载不受冷却拦截
   lastStatusLoad = 0;
   syncWatcher();
-  if (consumerCount > 0) void loadStatus(true);
+  if (consumerCount > 0) {
+    void loadStatus(true);
+    void loadRecentCommits();
+  }
 }
 
 /** 用一次 git_panel_status 的结果回填共享状态（stage / unstage 等写操作后可直接复用返回值） */
@@ -123,6 +134,27 @@ async function loadStatus(force = false) {
   }
 }
 
+/**
+ * 拉最近几条提交，只服务卡片墙的提交卡。
+ * Git 面板的完整分页历史由面板自理，两边互不读写同一份列表。
+ */
+async function loadRecentCommits() {
+  const root = repoRoot.value;
+  if (!root) {
+    recentCommits.value = [];
+    return;
+  }
+  try {
+    const result = await gitPanelLog(root, RECENT_COMMITS_LIMIT);
+    if (!isSameRepoPath(root, repoRoot.value)) return;
+    recentCommits.value = result.entries || [];
+  } catch (error) {
+    if (!isSameRepoPath(root, repoRoot.value)) return;
+    recentCommits.value = [];
+    console.warn("[Git状态] 读取最近提交失败", error);
+  }
+}
+
 /** 按当前工作区探测默认仓库根（走后端缓存，不强制重扫） */
 async function discoverRepoRoot(workspacePath: string): Promise<string> {
   const workspace = String(workspacePath || "").trim();
@@ -153,6 +185,8 @@ function unsubscribeWatch() {
 function handleWatchEvent(payload: GitPanelWatchEventPayload) {
   if (!repoRoot.value || !isSameRepoPath(payload?.workspacePath || "", repoRoot.value)) return;
   void loadStatus(true);
+  // 最近提交只在 HEAD / refs 真变时才会变；纯工作区文件改动不必多跑一次 git log
+  if (payload?.headChanged || payload?.refsChanged) void loadRecentCommits();
   for (const handler of externalChangeHandlers) handler(payload);
 }
 
@@ -222,9 +256,11 @@ export function useWorkspaceGitStatus() {
     unstagedTotal,
     statusLoaded,
     statusError,
+    recentCommits,
     setRepoRoot,
     applyStatus,
     loadStatus,
+    loadRecentCommits,
     discoverRepoRoot,
     onExternalChange,
     acquire,

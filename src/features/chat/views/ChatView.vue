@@ -650,6 +650,7 @@
           :branch="homeGitBranch"
           :git-changes="homeGitChanges"
           :change-count="homeGitChangeCount"
+          :recent-commits="homeGitRecentCommits"
           :open-files="homeFilePreview.openFiles"
           :active-path="homeFilePreview.activePath"
           :open-file-count="homeFilePreview.openFileCount"
@@ -665,6 +666,7 @@
           @create-side-chat="openHomeSideChatNewPage"
           @open-workspace="openHomeWorkspaceDirectory"
           @open-git-changes="openHomeGitChanges"
+          @open-git-commits="openHomeGitChanges"
           @open-monitor-tab="openMonitorTabFromHome"
         />
         <FileReaderPanel
@@ -2486,6 +2488,9 @@ const {
   unstagedTotal: homeGitUnstagedTotal,
   setRepoRoot: setHomeGitRepoRoot,
   loadStatus: loadHomeGitStatus,
+  loadRecentCommits: loadHomeGitRecentCommits,
+  recentCommits: homeGitRecentCommitsRef,
+  repoRoot: homeGitRepoRoot,
   discoverRepoRoot: discoverHomeGitRepoRoot,
   acquire: acquireHomeGitStatus,
   release: releaseHomeGitStatus,
@@ -2502,6 +2507,13 @@ const homeGitChangeCount = computed(() => {
   const visible = homeGitStatusEntries.value.length;
   return visible || homeGitStagedTotal.value + homeGitUnstagedTotal.value;
 });
+/** 卡片墙提交卡只消费窄类型，避免把面板用的完整条目透传下去 */
+const homeGitRecentCommits = computed(() =>
+  homeGitRecentCommitsRef.value.map((entry) => ({
+    hash: String(entry?.hash || ""),
+    message: String(entry?.message || ""),
+  })),
+);
 
 let homeGitConsuming = false;
 
@@ -2510,8 +2522,17 @@ function syncHomeGitConsume(mode: string) {
   const consuming = mode === "home";
   if (consuming === homeGitConsuming) return;
   homeGitConsuming = consuming;
-  if (consuming) acquireHomeGitStatus();
-  else releaseHomeGitStatus();
+  if (!consuming) {
+    releaseHomeGitStatus();
+    return;
+  }
+  acquireHomeGitStatus();
+  // 离开卡片墙期间仓库监听会停掉，切回来时仓库没换的话 syncHomeGitRepo 不会重载，
+  // 所以在这里补一次：覆盖离开期间发生的提交与外部改动
+  if (homeGitRepoRoot.value) {
+    void loadHomeGitStatus();
+    void loadHomeGitRecentCommits();
+  }
 }
 
 let homeGitWorkspaceKey = "";

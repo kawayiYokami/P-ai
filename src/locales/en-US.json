@@ -1559,6 +1559,8 @@
       "openFileCount": "{n} files",
       "noOpenFile": "No open files",
       "gitChanges": "Git changes",
+      "gitCommits": "Git commits",
+      "noCommits": "No commits",
       "gitMoreFiles": "View {n} more files",
       "changeCount": "{n} changes",
       "cleanWorktree": "Working tree clean",

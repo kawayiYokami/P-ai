@@ -1686,6 +1686,8 @@
       "openFileCount": "{n} 个文件",
       "noOpenFile": "暂无打开的文件",
       "gitChanges": "Git 更改",
+      "gitCommits": "Git 提交",
+      "noCommits": "暂无提交",
       "gitMoreFiles": "查看剩余 {n} 个文件",
       "changeCount": "{n} 处更改",
       "cleanWorktree": "工作区干净",
