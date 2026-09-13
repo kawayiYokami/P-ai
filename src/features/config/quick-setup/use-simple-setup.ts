@@ -56,8 +56,11 @@ export const SIMPLE_SETUP_ENDPOINT_IDS: Record<SimpleModelCard, string> = {
   vision: `${SIMPLE_SETUP_PROVIDER_ID}::${SIMPLE_SETUP_MODEL_IDS.vision}`,
 };
 
+// 历史草稿里存在过的多模态模型名，加载时归一到当前预设名
+const LEGACY_VISION_MODELS = new Set(["deepseek-v4-flash-vision-exp"]);
+
 export const simpleProviderOptions: SimpleProviderPreset[] = [
-  { id: "deepseek", label: "DeepSeek", requestFormat: "deepseek", baseUrl: "https://api.deepseek.com/v1", keyUrl: "https://platform.deepseek.com/api_keys", defaultModel: "deepseek-v4-flash", visionModel: "deepseek-v4-flash-vision-exp" },
+  { id: "deepseek", label: "DeepSeek", requestFormat: "deepseek", baseUrl: "https://api.deepseek.com/v1", keyUrl: "https://platform.deepseek.com/api_keys", defaultModel: "deepseek-v4-flash", visionModel: "deepseek-v4-flash" },
   { id: "opencode", label: "OpenCode", requestFormat: "openai", baseUrl: "https://opencode.ai/zen/v1", keyUrl: "https://opencode.ai/zen", defaultModel: "gpt-4o-mini", visionModel: "mimo-v2.5" },
   { id: "custom", label: "自定义", requestFormat: "auto", baseUrl: "https://api.openai.com/v1", keyUrl: "", defaultModel: "gpt-4o-mini" },
 ];
@@ -183,7 +186,7 @@ function parseDraft(raw: unknown): SimpleSetupDraft | null {
   const preset = simpleProviderOptions.find((item) => item.id === draft.providerId);
   if (preset?.visionModel) {
     const visionModel = String(draft.models.vision.model || "").trim();
-    if (!visionModel || visionModel === preset.defaultModel) {
+    if (!visionModel || visionModel === preset.defaultModel || LEGACY_VISION_MODELS.has(visionModel)) {
       draft.models.vision.model = preset.visionModel;
     }
   }
@@ -373,6 +376,7 @@ export function useSimpleSetup() {
 
   function selectProvider(providerId: SimpleProviderId) {
     draft.providerId = providerId;
+    connectionTestResult.value = null;
     const preset = simpleProviderOptions.find((item) => item.id === providerId) || simpleProviderOptions[0];
     if (providerId === "custom") {
       draft.customBaseUrl = draft.customBaseUrl || preset.baseUrl;
@@ -390,6 +394,78 @@ export function useSimpleSetup() {
   }
 
   const refreshingCustomModels = ref(false);
+  const testingConnection = ref(false);
+  const connectionTestResult = ref<{
+    ok: boolean;
+    message: string;
+    latencyMs?: number;
+  } | null>(null);
+
+  async function testConnection() {
+    const isCustom = draft.providerId === "custom";
+    const baseUrl = (isCustom ? draft.customBaseUrl : selectedProvider.value.baseUrl).trim();
+    const apiKey = draft.apiKey.trim();
+    const requestFormat = isCustom ? draft.customRequestFormat : selectedProvider.value.requestFormat;
+
+    if (!apiKey) {
+      connectionTestResult.value = {
+        ok: false,
+        message: t("simpleSetup.needKeyToTest"),
+      };
+      return;
+    }
+    if (!baseUrl) {
+      connectionTestResult.value = {
+        ok: false,
+        message: t("simpleSetup.needBaseUrlToTest"),
+      };
+      return;
+    }
+
+    testingConnection.value = true;
+    connectionTestResult.value = null;
+    const startTime = performance.now();
+
+    try {
+      const models = await invokeTauri<string[]>("refresh_models", {
+        input: {
+          baseUrl,
+          apiKey,
+          requestFormat,
+          providerId: null,
+          codexAuthMode: "read_local",
+          codexLocalAuthPath: "~/.codex/auth.json",
+        },
+      });
+
+      const latencyMs = Math.max(1, Math.round(performance.now() - startTime));
+
+      if (isCustom && Array.isArray(models) && models.length > 0) {
+        draft.customModelOptions = models.map((v) => String(v || "").trim()).filter(Boolean);
+      }
+
+      connectionTestResult.value = {
+        ok: true,
+        latencyMs,
+        message: t("simpleSetup.connectionSuccess", { latency: latencyMs }),
+      };
+    } catch (error) {
+      connectionTestResult.value = {
+        ok: false,
+        message: t("simpleSetup.connectionFailed", { error: String(error ?? "unknown") }),
+      };
+    } finally {
+      testingConnection.value = false;
+    }
+  }
+
+  function resetHotkeyDefault(target: "summon" | "record") {
+    if (target === "summon") {
+      draft.hotkey = "Alt+·";
+    } else {
+      draft.recordHotkey = "CapsLock";
+    }
+  }
 
   async function refreshCustomModels() {
     const baseUrl = draft.customBaseUrl.trim();
@@ -796,6 +872,10 @@ export function useSimpleSetup() {
     selectedProvider,
     providerApiKeyUrl,
     refreshingCustomModels,
+    testingConnection,
+    connectionTestResult,
+    testConnection,
+    resetHotkeyDefault,
     loadSnapshot,
     selectProvider,
     refreshCustomModels,

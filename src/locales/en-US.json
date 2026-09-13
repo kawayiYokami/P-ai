@@ -2921,6 +2921,16 @@
     "saveAndStart": "Save & Start Chat",
     "introTitle": "Simple Setup",
     "introDesc": "Quick start with a single provider and essential features.",
-    "advancedHint": "To add multiple providers and more features, switch to Advanced Settings."
+    "advancedHint": "To add multiple providers and more features, switch to Advanced Settings.",
+    "welcomeTitle": "Welcome to P-ai! Complete the basic setup below to get started.",
+    "testConnection": "Test Connection",
+    "testingConnection": "Testing...",
+    "connectionSuccess": "Connected ({latency}ms)",
+    "connectionFailed": "Connection failed: {error}",
+    "needKeyToTest": "Please enter API Key before testing",
+    "needBaseUrlToTest": "Please enter base_url before testing",
+    "resetDefault": "Reset",
+    "accelerationTitle": "Speech & Memory Acceleration (Optional)",
+    "accelerationDesc": "Enter a SiliconFlow API Key to unlock high-accuracy STT and memory search acceleration for free. Leave empty to use offline engines."
   }
 }

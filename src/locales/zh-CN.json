@@ -2921,6 +2921,16 @@
     "saveAndStart": "保存并开始对话",
     "introTitle": "简单配置",
     "introDesc": "适合快速开始，仅配置单个供应商与基础能力。",
-    "advancedHint": "如需增加多个供应商和更多功能，请切换到高级设置。"
+    "advancedHint": "如需增加多个供应商和更多功能，请切换到高级设置。",
+    "welcomeTitle": "欢迎使用 P-ai，完成以下基础配置即可开启智能协作",
+    "testConnection": "测试连接",
+    "testingConnection": "测试中...",
+    "connectionSuccess": "连接正常 ({latency}ms)",
+    "connectionFailed": "连接失败：{error}",
+    "needKeyToTest": "测试前请先填写 API Key",
+    "needBaseUrlToTest": "测试前请先填写 base_url",
+    "resetDefault": "恢复默认",
+    "accelerationTitle": "语音与记忆加速（可选推荐）",
+    "accelerationDesc": "填入硅基流动 API Key 可免费解锁高精度语音输入与本地记忆检索加速；留空则使用离线基础引擎。"
   }
 }

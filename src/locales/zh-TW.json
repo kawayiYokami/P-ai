@@ -2915,6 +2915,16 @@
     "saveAndStart": "儲存並開始對話",
     "introTitle": "簡單設定",
     "introDesc": "適合快速開始，僅設定單一供應商與基礎能力。",
-    "advancedHint": "如需增加多個供應商和更多功能，請切換到進階設定。"
+    "advancedHint": "如需增加多個供應商和更多功能，請切換到進階設定。",
+    "welcomeTitle": "歡迎使用 P-ai，完成以下基礎設定即可開啟智慧協作",
+    "testConnection": "測試連線",
+    "testingConnection": "測試中...",
+    "connectionSuccess": "連線正常 ({latency}ms)",
+    "connectionFailed": "連線失敗：{error}",
+    "needKeyToTest": "測試前請先填寫 API Key",
+    "needBaseUrlToTest": "測試前請先填寫 base_url",
+    "resetDefault": "恢復預設",
+    "accelerationTitle": "語音與記憶加速（可選推薦）",
+    "accelerationDesc": "填入矽基流動 API Key 可免費解鎖高精度語音輸入與本地記憶檢索加速；留空則使用離線基礎引擎。"
   }
 }
