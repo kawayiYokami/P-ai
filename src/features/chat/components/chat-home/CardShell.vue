@@ -1,11 +1,11 @@
 <template>
   <div
-    class="ecall-home-card flex min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-300/50 bg-base-100 p-3.5 transition-all duration-150"
+    class="ecall-home-card flex min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
     :class="[
       variant === 'wide' ? 'ecall-home-card-wide' : 'ecall-home-card-small',
       layout === 'tile' ? 'ecall-home-card-tile' : '',
       interactive
-        ? 'cursor-pointer hover:border-base-content/25 hover:shadow-sm active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
+        ? 'cursor-pointer hover:bg-base-200/70 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
         : '',
     ]"
     :role="interactive ? 'button' : undefined"
