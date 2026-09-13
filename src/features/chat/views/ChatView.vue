@@ -2517,6 +2517,9 @@ async function syncHomeGitRepo() {
   if (!workspaceChanged) return;
   const root = await discoverHomeGitRepoRoot(workspace);
   if (!homeGitConsuming) return;
+  // 解析期间会话/工作区可能已经切走，过期结果直接丢弃，
+  // 否则慢返回的那次会把另一个会话的仓库写进共享状态（卡片墙与 Git 面板共用同一份）
+  if (homeGitWorkspaceKey !== workspace) return;
   setHomeGitRepoRoot(root);
   if (root) void loadHomeGitStatus();
 }

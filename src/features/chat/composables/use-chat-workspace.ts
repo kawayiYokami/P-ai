@@ -41,6 +41,9 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspaceWorktreeAvailable = ref(false);
   const chatWorkspaceWorktreeCheckMessage = ref("");
   let gitCheckSequence = 0;
+  // 工作区状态刷新序号：会话切换会并发发起 workspace.list，晚到的旧响应必须丢弃，
+  // 否则会把另一个会话的工作区根路径写进来（卡片墙 Git 卡等按它解析仓库）
+  let workspaceRefreshSequence = 0;
 
   function normalizeWorkspaceChoice(item: ShellWorkspace, index: number): ChatWorkspaceChoice {
     const path = String(item.path || "").trim();
@@ -163,6 +166,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
 
   async function refreshChatWorkspaceState() {
     const conversationId = String(options.activeConversationId.value || "").trim();
+    const sequence = ++workspaceRefreshSequence;
     if (!conversationId) {
       chatWorkspaceName.value = DEFAULT_CHAT_WORKSPACE_NAME;
       chatWorkspacePath.value = "";
@@ -181,8 +185,12 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       const state = await invokeTauri<ChatShellWorkspaceState>("workspace.list", {
         conversationId,
       });
+      // 过期响应丢弃：期间又发起过刷新，或当前会话已经切走
+      if (sequence !== workspaceRefreshSequence) return;
+      if (String(options.activeConversationId.value || "").trim() !== conversationId) return;
       applyChatWorkspaceState(state);
     } catch (error) {
+      if (sequence !== workspaceRefreshSequence) return;
       console.warn("[工作区] refresh chat workspace failed:", error);
     }
   }
