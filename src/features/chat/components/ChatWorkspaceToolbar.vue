@@ -223,7 +223,7 @@
         :running-task-count="runningTaskCount"
         :running-shell-count="runningShellCount"
         @lock-workspace="emit('lockWorkspace')"
-        @open-delegate-summary="emit('openDelegateSummary')"
+        @open-run-summary="emit('openRunSummary')"
       />
   </div>
 </template>
@@ -287,7 +287,7 @@ const emit = defineEmits<{
   (e: "openCodeReview"): void;
   (e: "openTaskCreate"): void;
   (e: "openDelegateSelection"): void;
-  (e: "openDelegateSummary"): void;
+  (e: "openRunSummary"): void;
   (e: "openForwardSelection"): void;
   (e: "openAutoPush"): void;
   (e: "openShareSelection"): void;

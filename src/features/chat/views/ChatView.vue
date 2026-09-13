@@ -242,7 +242,7 @@
               @open-auto-push="openAutoPushCard"
               @open-share-selection="openShareSelectionMenu"
               @open-conversation-in-browser="openActiveConversationInBrowser"
-              @open-delegate-summary="openDelegateSummaryPanel"
+              @open-run-summary="openRunSummaryPanel"
               @open-code-review="openCodeReviewDialog"
               @open-branch-from-current="openBranchFromCurrentMessage"
               @open-side-chat="selectChatRightPanelMode('sideChat')"
@@ -3012,10 +3012,25 @@ async function handleSubmitCodeReview(input: { scope: ToolReviewCodeReviewScope;
   }
   codeReviewDialogOpen.value = false;
 }
-function openDelegateSummaryPanel() {
-  emit("update:chatMonitorPanelMode", "delegate");
-  emit("update:chatRightPanelMode", "monitor");
-  emit("toolReviewPanelOpenChange", true);
+/** 运行监控胶囊点击：按当前在跑的类型分流。只跑委托/任务时打开对应页面；
+ *  只跑后台进程、或多种混合时打开主页卡片墙（即预览）。 */
+function openRunSummaryPanel() {
+  const delegateRunningCount = delegateStatuses.value.filter((delegate) => {
+    const status = String(delegate.status || "").trim();
+    return delegate.active && (status === "running" || status === "delivered");
+  }).length;
+  const taskRunning = Number(runningTaskCount.value) > 0;
+  const shellRunning = Number(runningShellCount.value) > 0;
+  const kindCount = [delegateRunningCount > 0, taskRunning, shellRunning].filter(Boolean).length;
+  if (kindCount === 1 && delegateRunningCount > 0) {
+    openMonitorTabFromHome("delegate");
+    return;
+  }
+  if (kindCount === 1 && taskRunning) {
+    openMonitorTabFromHome("tasks");
+    return;
+  }
+  selectChatRightPanelMode("home");
 }
 
 async function openActiveConversationInBrowser() {

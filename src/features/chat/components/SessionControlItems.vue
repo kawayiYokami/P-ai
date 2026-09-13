@@ -54,7 +54,7 @@
       type="button"
       :class="[SESSION_FLOAT_FROST_PILL, 'max-w-full']"
       :title="delegateTitle"
-      @click="emit('openDelegateSummary')"
+      @click="emit('openRunSummary')"
     >
       <span v-if="activeKindCount >= 2" class="truncate">{{ monitorSummaryText }}</span>
       <template v-else>
@@ -97,7 +97,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   lockWorkspace: [];
-  openDelegateSummary: [];
+  openRunSummary: [];
 }>();
 
 const { t } = useI18n();
