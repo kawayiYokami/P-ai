@@ -64,7 +64,7 @@
 
       <span v-if="activeKindCount >= 2" class="truncate font-medium">
         {{ monitorSummaryText }}
-        <span v-if="elapsedMs > 0" class="ml-1 opacity-70 tabular-nums">· {{ elapsedText }}</span>
+        <span v-if="delegateRunningCount > 0 && elapsedMs > 0" class="ml-1 opacity-70 tabular-nums">· {{ elapsedText }}</span>
       </span>
       <template v-else>
         <span class="shrink-0 font-semibold tabular-nums">{{ monitorPrimaryText }}</span>
