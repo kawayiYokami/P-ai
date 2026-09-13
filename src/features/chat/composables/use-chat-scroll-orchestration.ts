@@ -11,6 +11,8 @@ export interface UseChatScrollOrchestrationOptions {
   resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
   // 把最新用户消息对齐到视口顶部（与时间线跳转同一套 align: "start"）
   alignLatestOwnMessageToTop?: () => void;
+  // 显式解锁贴底跟随（切到正在流式的会话时使用：立即贴底并让后续增长持续跟随）
+  startFollowBottom?: () => void;
   // 手动「回到底部」时按当前离底距离解析真实滚动行为（近平滑、远瞬移）
   resolveManualScrollToBottomBehavior?: () => "auto" | "smooth";
   olderHistoryCorrectionAllowed?: Ref<boolean>;
@@ -22,7 +24,7 @@ export interface UseChatScrollOrchestrationOptions {
     frozen: Ref<boolean>;
     activeConversationId: Ref<string>;
     conversationScrollToBottomRequest: Ref<number>;
-    scrollToBottomBehavior: Ref<"auto" | "smooth" | "own_top" | "manual">;
+    scrollToBottomBehavior: Ref<"auto" | "smooth" | "own_top" | "manual" | "follow">;
     renderItems: Ref<ChatRenderItem[]>;
   };
   emit: {
@@ -40,6 +42,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     scheduleVirtualMeasure,
     resetConversationToBottom,
     alignLatestOwnMessageToTop,
+    startFollowBottom,
     resolveManualScrollToBottomBehavior,
     olderHistoryCorrectionAllowed,
     props,
@@ -209,6 +212,14 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       if (props.scrollToBottomBehavior.value === "own_top") {
         armProgrammaticScrollPaginationSuppression();
         alignLatestOwnMessageToTop?.();
+        return;
+      }
+      if (props.scrollToBottomBehavior.value === "follow") {
+        // 切到正在流式的会话：视为「有滚到最下的意图」——解锁跟随并立即贴底，
+        // 后续无限增长的流式内容由跟随机制持续顶在底部，不再等落库/超时补滚。
+        armProgrammaticScrollPaginationSuppression();
+        startFollowBottom?.();
+        doScrollToBottom("auto");
         return;
       }
       if (props.scrollToBottomBehavior.value === "manual") {

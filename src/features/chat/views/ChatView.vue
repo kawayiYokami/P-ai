@@ -86,8 +86,7 @@
             @wheel="handleConversationWheelInput"
             @pointerdown="beginPointerScrollIntent"
           >
-          <Transition name="chat-conversation-switch" mode="out-in">
-          <div ref="chatContentRoot" :key="activeConversationId || 'conversation-empty'" class="flex min-w-0 shrink-0 flex-col">
+          <div ref="chatContentRoot" class="flex min-w-0 shrink-0 flex-col">
           <DraftRecipientCard
             v-if="activeConversationIsDraft"
             :options="props.createConversationDepartmentOptions"
@@ -124,7 +123,7 @@
               :data="virtualRenderItems"
               :shift="virtuaShift"
               ref="virtuaRef"
-              :key="scrollContainer ? 'virtua-ready' : 'virtua-pending'"
+              :key="virtuaKey"
               :scroll-ref="(scrollContainer as unknown as HTMLElement)"
               class="min-w-0 w-full shrink-0"
             >
@@ -195,7 +194,6 @@
             ></div>
           </div>
           </div>
-          </Transition>
           </div>
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
           </div>
@@ -836,7 +834,7 @@ const props = defineProps<{
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
-  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "own_top" | "manual";
+  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "own_top" | "manual" | "follow";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
@@ -1588,6 +1586,13 @@ const virtuaShift = computed(() => {
 });
 // 初始测高覆盖层已删除：virtua 内部用 ResizeObserver 实时测量，首帧不再出现
 // 估计高度导致的行重叠，这层遮挡没有可挡的对象（停用于 9d3429a35 迁移 virtua 时）。
+
+// Virtualizer 只在 scrollContainer 就绪与会话切换时换实例：外层滚动容器与 chatContentRoot
+// 保持常驻（历史区不再重建），避免离场阶段高度塌陷把 scrollTop 夹到 0；同时清掉 virtua 的
+// 索引型测量缓存，防止新会话尾部继承旧会话的实测高度。
+const virtuaKey = computed(() =>
+  `${scrollContainer.value ? "virtua-ready" : "virtua-pending"}-${String(props.activeConversationId || "conversation-empty").trim()}`,
+);
 
 const showNoMoreHistoryDivider = computed(() =>
   !!String(props.activeConversationId || "").trim()
@@ -2725,6 +2730,7 @@ const {
   prepareBottomAlignmentLayout,
   onScroll, scheduleVirtualMeasure,
   alignLatestOwnMessageToTop,
+  startFollowBottom,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   resolveManualScrollToBottomBehavior,
   olderHistoryCorrectionAllowed,
@@ -3341,32 +3347,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .ecall-panel-enter {
     animation: none;
-  }
-}
-
-.chat-conversation-switch-enter-active,
-.chat-conversation-switch-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-.chat-conversation-switch-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
-.chat-conversation-switch-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-conversation-switch-enter-active,
-  .chat-conversation-switch-leave-active {
-    transition: none;
-  }
-
-  .chat-conversation-switch-enter-from,
-  .chat-conversation-switch-leave-to {
-    opacity: 1;
-    transform: none;
   }
 }
 

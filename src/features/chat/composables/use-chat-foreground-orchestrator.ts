@@ -454,9 +454,9 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
         await nextTick();
         const switchRuntimeState = String(snapshot?.runtimeState || "").trim();
         if (switchRuntimeState === "assistant_streaming") {
-          // 流式中切换：等该轮流式稳定（historyFlushed 落库）后再滚到底，
-          // 避免快照瞬间滚动停在旧高度、消息继续增长导致滚不到最下。
-          bindings.requestScrollToBottomAfterStreamSettle(cid);
+          // 切到正在流式的会话：视为「有滚到最下的意图」——立即贴底并解锁跟随，
+          // 后续无限增长的流式内容由跟随机制持续顶在底部；不再等落库/超时再补滚。
+          bindings.triggerConversationScrollToBottom(cid, "switch_streaming_ready", "follow");
         } else {
           bindings.triggerConversationScrollToBottom(cid, "switch_snapshot_ready");
         }

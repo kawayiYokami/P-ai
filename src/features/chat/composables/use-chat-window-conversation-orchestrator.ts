@@ -85,8 +85,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     buildConversationMessagesAfterAnchor,
     clearPendingManualScrollToBottom: bindings.clearPendingManualScrollToBottom,
     triggerConversationScrollToBottom: bindings.triggerConversationScrollToBottom,
-    requestScrollToBottomAfterStreamSettle: bindings.requestScrollToBottomAfterStreamSettle,
-    settleStreamScrollAfterStable: bindings.settleStreamScrollAfterStable,
     setPendingManualScrollState: bindings.setPendingManualScrollState,
     waitPendingConversationPreferredModelPersist: bindings.waitPendingConversationPreferredModelPersist,
     setConversationChatErrorText: bindings.setConversationChatErrorText,

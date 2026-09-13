@@ -121,10 +121,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
           flushedConversationId || String(bindings.currentChatConversationId.value || "").trim(),
           bindings.allMessages.value,
         );
-        // 流式落库完成：若切会话时登记过「等稳定后滚到底」，现在执行。
-        if (flushedConversationId) {
-          bindings.settleStreamScrollAfterStable?.(flushedConversationId);
-        }
       },
   });
   const confirmPlan = useConfirmPlan({

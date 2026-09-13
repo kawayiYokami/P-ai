@@ -56,7 +56,6 @@ function createBindings(shouldBindStream: boolean, order: string[]) {
       currentChatConversationId.value = snapshot.conversationId;
     }),
     triggerConversationScrollToBottom: vi.fn(),
-    requestScrollToBottomAfterStreamSettle: vi.fn(),
     logForegroundPaintTrace: vi.fn(),
     getChatFlow: () => flow,
   };
@@ -138,6 +137,27 @@ describe("useChatForegroundOrchestrator", () => {
       expect(bindings.triggerConversationScrollToBottom).toHaveBeenCalledWith(
         "conversation-b",
         "switch_snapshot_ready",
+      );
+    });
+  });
+
+  it("切到正在流式的会话时立即贴底并解锁跟随，不等落库", async () => {
+    const order: string[] = [];
+    const { bindings, finishUnbind } = createBindings(true, order);
+    const orchestrator = useChatForegroundOrchestrator(bindings);
+
+    const switching = orchestrator.switchUnarchivedConversation("conversation-b");
+    await vi.waitFor(() => {
+      expect(order).toContain("snapshot-apply");
+    });
+    finishUnbind();
+    await switching;
+
+    await vi.waitFor(() => {
+      expect(bindings.triggerConversationScrollToBottom).toHaveBeenCalledWith(
+        "conversation-b",
+        "switch_streaming_ready",
+        "follow",
       );
     });
   });
