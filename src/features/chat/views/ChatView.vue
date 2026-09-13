@@ -1736,6 +1736,8 @@ function scrollVirtualizerToIndex(
   index: number,
   options?: { align?: "auto" | "start" | "center" | "end"; behavior?: ScrollBehavior },
 ) {
+  // 跳转会把视口挪离底部，先锁定跟随；时间线跳转与跳转到用户消息共用这一出口
+  stopFollowBottom();
   const len = virtualRenderItems.value.length;
   const clampedTarget = len > 0 ? Math.max(0, Math.min(index, len - 1)) : index;
   const smooth = resolveVirtualSmooth(clampedTarget, options?.behavior);

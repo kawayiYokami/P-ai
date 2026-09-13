@@ -72,4 +72,40 @@ describe("followBottom intent", () => {
     layout.startFollowBottom();
     expect(layout.followBottom.value).toBe(true);
   });
+
+  it("未贴底时朝底部方向滚动：有滚到最下的意图即解锁，不必真正滚到底", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 1200, scrollHeight: 4000, clientHeight: 100 });
+    layout.scrollContainer.value = scroller;
+    layout.stopFollowBottom();
+    expect(layout.followBottom.value).toBe(false);
+
+    (scroller as { scrollTop: number }).scrollTop = 1260;
+    layout.noteWheelScrollIntent();
+    layout.onScroll();
+    // 距底仍有 2740px
+    expect(layout.followBottom.value).toBe(true);
+  });
+
+  it("跟随中朝历史方向滚动：锁定跟随", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 900, scrollHeight: 4000, clientHeight: 100 });
+    layout.scrollContainer.value = scroller;
+    layout.startFollowBottom();
+    layout.noteWheelScrollIntent();
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(true);
+
+    (scroller as { scrollTop: number }).scrollTop = 700;
+    layout.noteWheelScrollIntent();
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(false);
+  });
+
+  it("显式跳转（时间线、跳转到用户消息、发送后自动上推）：锁定跟随", () => {
+    const layout = makeLayout();
+    layout.startFollowBottom();
+    layout.stopFollowBottom();
+    expect(layout.followBottom.value).toBe(false);
+  });
 });

@@ -3,6 +3,7 @@ import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { isDesktopTauriHost } from "../../../services/tauri-api";
 import { probeChatScroll } from "./chat-scroll-probe";
 
+const TODO_DROPDOWN_SAFE_GAP = 30;
 const FLOATING_TOOLBAR_MIN_RESERVE = 24;
 const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 
@@ -73,11 +74,17 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       }
       return;
     }
-    // 尾部留白要让「最新用户消息」能正好顶到视口顶部：
-    // 需要 留白 = 可滚动高度 − 尾段内容高，故这里的上限取视口高扣掉容器底部内边距。
+    // 尾部留白给「最新用户消息」留出上滑余量，但不能大到把消息顶出屏幕：
+    // 上限取视口高扣掉工具条保留高度与下拉安全距，再留 5% 富余。
     const scrollStyles = window.getComputedStyle(scrollEl);
-    const paddingBottom = parseFloat(scrollStyles.paddingBottom || "0");
-    const nextMinHeight = Math.max(0, Math.round(scrollEl.clientHeight - paddingBottom));
+    const scrollViewportHeight =
+      scrollEl.clientHeight
+      - parseFloat(scrollStyles.paddingTop || "0")
+      - parseFloat(scrollStyles.paddingBottom || "0");
+    const nextMinHeight = Math.max(
+      0,
+      Math.round((scrollViewportHeight - toolbarReservedHeight.value - TODO_DROPDOWN_SAFE_GAP) * 0.95),
+    );
     if (latestOwnElasticMinHeight.value !== nextMinHeight) {
       latestOwnElasticMinHeight.value = nextMinHeight;
     }
@@ -148,11 +155,15 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     }
     lastScrollTop.value = nextScrollTop;
     const nearBottom = updateScrollPositionState(el, { notifyReachedBottom: true });
-    // 只有用户主动滚动才改变跟随意图：滚到底进入、离开底部退出；
-    // 程序化滚动（切会话、发送定位、跟随自身贴底）不改动它
+    // 跟随意图只由用户手势或显式跳转决定，程序化滚动（跳转落点、跟随自身贴底）不改动它：
+    // 用户朝底部方向滚动＝有「滚到最下」的意图，解锁跟随；朝历史方向滚动＝离开底部，锁定。
     if (userInitiatedScroll) {
       const before = followBottom.value;
-      followBottom.value = nearBottom;
+      if (nextScrollTop > previousScrollTop) {
+        followBottom.value = true;
+      } else if (nextScrollTop < previousScrollTop) {
+        followBottom.value = false;
+      }
       if (before !== followBottom.value) {
         probeChatScroll("followBottom变化", {
           to: followBottom.value,
@@ -164,7 +175,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     }
   }
 
-  // 显式表达贴底意图（如点击「回到底部」）：进入跟随
+  // 显式表达贴底意图（如点击「回到底部」）：解锁跟随
   function startFollowBottom() {
     if (!followBottom.value) {
       probeChatScroll("startFollowBottom", { followBottom: true });
@@ -172,7 +183,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     followBottom.value = true;
   }
 
-  // 显式退出贴底跟随（发送消息后改为对齐到顶部，不再贴底）
+  // 显式锁定跟随：跳转（时间线、跳转到用户消息、发送后的自动上推）都会把视口挪走，
+  // 锁定后流式内容增长不再贴底，直到用户再次表达「滚到最下」的意图
   function stopFollowBottom() {
     if (followBottom.value) {
       probeChatScroll("stopFollowBottom", {});
