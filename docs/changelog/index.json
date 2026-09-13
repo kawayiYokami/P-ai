@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-11T03:39:37.367Z",
-  "latestVersion": "v0.88.0",
+  "generatedAt": "2026-09-13T11:49:03.821Z",
+  "latestVersion": "v0.89.0",
   "releases": [
+    {
+      "version": "v0.89.0",
+      "path": "docs/changelog/releases/v0.89.0.md",
+      "summary": "**PAI CLI（Beta）**：在终端里也能用 PAI。不开窗口、不弹界面，给一句任务跑完一整轮（含多轮工具调用），最终回答直接打在终端上；桌面端配好的 skill 与 MCP 在 CLI 里同样可用。用法 `p-ai run \"<任务>\" --model <配置>`。"
+    },
     {
       "version": "v0.88.0",
       "path": "docs/changelog/releases/v0.88.0.md",
