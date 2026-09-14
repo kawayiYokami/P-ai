@@ -17,6 +17,7 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "open_chat_shell_workspace_dir"
             | "mcp_open_workspace_dir"
             | "skill_open_workspace_dir"
+            | "skill_open_item_dir"
             | "copy_local_chat_image_to_clipboard"
             | "save_local_chat_image_as"
             | "export_archive_to_file"
@@ -510,6 +511,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "mcp_undeploy_server" => ide_chat_mcp_undeploy_server_for_web_settings(state, request.params).await,
         "mcp_set_tool_enabled" => ide_chat_mcp_set_tool_enabled_for_web_settings(state, request.params),
         "mcp_list_skills" => ide_chat_mcp_list_skills_for_web_settings(state),
+        "mcp_save_skill" => ide_chat_mcp_save_skill_for_web_settings(state, request.params),
+        "mcp_read_skill_file" => ide_chat_mcp_read_skill_file_for_web_settings(state, request.params),
+        "skill_open_item_dir" => ide_chat_skill_open_item_dir_for_web_settings(state, request.params),
         "mcp_refresh_mcp_and_skills" => ide_chat_mcp_refresh_mcp_and_skills_for_web_settings(state).await,
         "get_usage_overview" => ide_chat_get_usage_overview_for_web_settings(state).await,
         "refresh_usage_overview" => ide_chat_refresh_usage_overview_for_web_settings(state).await,

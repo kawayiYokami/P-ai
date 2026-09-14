@@ -33,7 +33,16 @@
       :aria-checked="isSelected(option.value)"
       @click="selectValue(option.value)"
     >
-      {{ option.label }}
+      <slot name="option" :option="option" :selected="isSelected(option.value)" :index="index">
+        <span>{{ option.label }}</span>
+        <span
+          v-if="option.badge !== undefined && option.badge !== null && option.badge !== ''"
+          class="badge badge-xs ml-1.5 transition-colors font-mono"
+          :class="isSelected(option.value) ? 'badge-neutral' : 'badge-ghost opacity-70'"
+        >
+          {{ option.badge }}
+        </span>
+      </slot>
     </button>
   </div>
 </template>
@@ -44,6 +53,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 export type SegmentedControlOption<T extends string | number | boolean> = {
   value: T;
   label: string;
+  badge?: string | number;
   disabled?: boolean;
 };
 
@@ -68,9 +78,9 @@ const emit = defineEmits<{
 
 // DaisyUI 5 的 tab 尺寸类（tab-sm 等）已不存在，尺寸全部用 utility 自控
 const sizeClass = computed(() => {
-  if (props.size === "xs") return "h-6 px-2 text-xs leading-none";
-  if (props.size === "sm") return "h-7 px-3 text-xs leading-none";
-  return "h-8 px-3.5 text-sm leading-none";
+  if (props.size === "xs") return "h-6 px-2 text-xs leading-none gap-1";
+  if (props.size === "sm") return "h-7 px-2.5 text-xs leading-none gap-1.5";
+  return "h-8 px-3.5 text-xs font-medium leading-none gap-1.5";
 });
 
 const rootRef = ref<HTMLElement | null>(null);

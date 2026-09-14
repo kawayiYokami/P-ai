@@ -1,289 +1,484 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <div class="flex w-full flex-col gap-3">
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-semibold">{{ t("config.department.settings") }}</span>
-            <span v-if="selectedDepartmentIsPrivateWorkspace" class="badge badge-soft badge-secondary">{{ t("config.department.privateWorkspaceBadge") }}</span>
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级菜单头部：面包屑导航 + 部门专属操作 -->
+        <div v-if="inDetailMode && selectedDepartment" :key="'detail-hdr-' + selectedDepartment.id" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <button
+              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
+              type="button"
+              :title="t('config.department.backToList')"
+              @click="backToList"
+            >
+              <ArrowLeft class="h-5 w-5" />
+            </button>
+            <div class="breadcrumbs text-sm p-0">
+              <ul>
+                <li>
+                  <a
+                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
+                    @click="backToList"
+                  >
+                    {{ selectedDepartmentIsSystemBuiltIn ? t("config.department.presetDepartments") : t("config.department.customDepartments") }}
+                  </a>
+                </li>
+                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
+                  {{ selectedDepartment.name }}
+                </li>
+              </ul>
+            </div>
+            <!-- 状态徽章 -->
+            <span v-if="selectedDepartment.isBuiltInAssistant" class="badge badge-primary badge-sm shrink-0 flex items-center gap-1">
+              <Crown class="h-3 w-3" />
+              <span>{{ t("config.department.assistantBadge") }}</span>
+            </span>
+            <span v-else-if="selectedDepartmentIsSystemBuiltIn" class="badge badge-neutral badge-sm shrink-0 flex items-center gap-1 opacity-80">
+              <ShieldCheck class="h-3 w-3" />
+              <span>{{ t("config.persona.systemTag") }}</span>
+            </span>
+            <span v-if="departmentDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.skill.unsaved") }}
+            </span>
           </div>
 
-          <button
-            v-if="selectedDepartment && !selectedDepartmentIsSystemBuiltIn"
-            class="btn btn-sm btn-error"
-            type="button"
-            :disabled="savingConfig"
-            @click="handleSelectedDepartmentPrimaryAction"
-          >
-            <Trash2 class="h-4 w-4" />
-            {{ t("config.department.remove") }}
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- 系统内置部门支持恢复初始化 -->
+            <button
+              v-if="selectedDepartmentIsSystemBuiltIn"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+              type="button"
+              :disabled="savingConfig"
+              :title="t('config.department.restoreInitial')"
+              @click="handleSelectedDepartmentPrimaryAction"
+            >
+              <RotateCcw class="h-4 w-4" />
+              <span>{{ t("config.department.restoreInitial") }}</span>
+            </button>
+            <!-- 自定义部门支持删除 -->
+            <button
+              v-else
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error hover:bg-error/10 gap-1.5 px-3"
+              type="button"
+              :disabled="savingConfig"
+              :title="t('config.department.remove')"
+              @click="handleSelectedDepartmentPrimaryAction"
+            >
+              <Trash2 class="h-4 w-4" />
+              <span>{{ t("config.department.remove") }}</span>
+            </button>
+
+            <!-- 还原未保存草稿 -->
+            <button
+              v-if="departmentDirty"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+              type="button"
+              :disabled="savingConfig"
+              :title="t('common.reset')"
+              @click="restoreDepartmentDraftsFromSaved"
+            >
+              <RotateCcw class="h-4 w-4" />
+              <span>{{ t("common.reset") }}</span>
+            </button>
+
+            <!-- 保存部门 -->
+            <button
+              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+              :class="departmentDirty ? 'btn-primary' : 'bg-base-100'"
+              type="button"
+              :disabled="!selectedDepartment || !!departmentValidationMessage || !departmentDirty || savingConfig"
+              :title="savingConfig ? t('config.api.saving') : departmentDirty ? t('common.save') : t('status.configSaved')"
+              @click="saveDepartments"
+            >
+              <span v-if="savingConfig" class="loading loading-spinner loading-xs"></span>
+              <Save v-else class="h-4 w-4" />
+              <span>{{ savingConfig ? t("common.saving") : t("common.save") }}</span>
+            </button>
+          </div>
         </div>
 
-        <div class="flex gap-1">
-          <select
-            :value="selectedDepartmentId"
-            class="select select-bordered select-sm flex-1"
-            @change="switchSelectedDepartment(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="department in sortedDepartments" :key="department.id" :value="department.id">
-              {{ department.name }}{{ department.isBuiltInAssistant ? `（${t("config.department.assistantBadge")}）` : (department.source === "private_workspace" ? `（${t("config.department.privateWorkspaceBadge")}）` : "") }}
-            </option>
-          </select>
+        <!-- 一级概览头部：分类筛选（自定义部门 vs 系统预设）+ 搜索过滤 + 新增按钮 -->
+        <div v-else key="overview-hdr" class="flex flex-col gap-3">
+          <SegmentedControl
+            :model-value="activeCategoryTab"
+            :options="departmentCategoryOptions"
+            size="md"
+            @change="(val) => { activeCategoryTab = val; departmentSearchQuery = ''; }"
+          />
 
-          <button
-            class="btn btn-sm btn-square btn-ghost"
-            type="button"
-            :title="t('config.department.add')"
-            :disabled="savingConfig"
-            @click="addDepartment"
-          >
-            <Plus class="h-3.5 w-3.5" />
-          </button>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <!-- 部门搜索过滤框 -->
+            <div class="relative min-w-[12rem] flex-1">
+              <input
+                v-model="departmentSearchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.department.searchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+              <button
+                v-if="departmentSearchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                :title="t('common.clear')"
+                @click="departmentSearchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
 
-          <button
-            class="btn btn-sm btn-square btn-ghost"
-            type="button"
-            :title="t('common.reset')"
-            :disabled="!departmentDirty || savingConfig"
-            @click="restoreDepartmentDraftsFromSaved"
-          >
-            <RotateCcw class="h-3.5 w-3.5" />
-          </button>
-
-          <button
-            class="btn btn-sm btn-square"
-            type="button"
-            :class="departmentDirty ? 'btn-primary' : 'btn-ghost'"
-            :disabled="!selectedDepartment || !!departmentValidationMessage || !departmentDirty || savingConfig"
-            :title="savingConfig ? t('config.api.saving') : departmentDirty ? t('common.save') : t('status.configSaved')"
-            @click="saveDepartments"
-          >
-            <Save v-if="!savingConfig" class="h-3.5 w-3.5" />
-            <span v-else class="loading loading-spinner loading-sm"></span>
-          </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="activeCategoryTab === 'custom'"
+                class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+                type="button"
+                :disabled="savingConfig"
+                @click="addDepartment"
+              >
+                <Plus class="h-4 w-4" />
+                <span>{{ t("config.department.add") }}</span>
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div class="text-sm opacity-60">{{ t("config.department.hint") }}</div>
-      </div>
+      </Transition>
     </template>
 
-    <div v-if="selectedDepartment" class="grid gap-3">
-      <ConfigCard flush>
-          <div v-if="departmentValidationMessage" class="border-b border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-content">
-            {{ departmentValidationMessage }}
+    <!-- 主体区域切换：一级卡片矩阵 ↔ 二级详情页 -->
+    <Transition name="ecall-config-content" mode="out-in">
+      <!-- 二级菜单：部门详情视图 -->
+      <div v-if="inDetailMode && selectedDepartment" :key="'detail-body-' + selectedDepartment.id" class="grid gap-4 pb-8">
+        <!-- 验证错误提示 -->
+        <div v-if="departmentValidationMessage" class="rounded-box border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-warning-content font-medium">
+          {{ departmentValidationMessage }}
+        </div>
+
+        <!-- 卡片一：基本信息与负责人格 -->
+        <div class="card bg-base-100 border border-base-300 card-sm shadow-xs">
+          <div class="card-header border-b border-base-300/60 bg-base-200/40 px-4 py-2.5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Building class="h-4 w-4 opacity-70" />
+              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.department.basicSection") }}</span>
+            </div>
           </div>
 
-          <div class="divide-y divide-base-300">
-            <div class="min-w-0 px-4 py-4">
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <div class="text-sm font-medium">{{ t("config.department.name") }}</div>
-                <button
-                  v-if="selectedDepartmentIsSystemBuiltIn"
-                  class="btn btn-sm btn-ghost"
-                  type="button"
-                  :disabled="savingConfig"
-                  @click="handleSelectedDepartmentPrimaryAction"
-                >
-                  <RotateCcw class="h-3.5 w-3.5" />
-                  {{ t("config.department.restoreInitial") }}
-                </button>
-              </div>
+          <div class="card-body p-4 gap-4">
+            <!-- 部门名称 -->
+            <div class="flex flex-col gap-1.5">
+              <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.department.name") }}</label>
               <input
                 v-model.trim="selectedDepartment.name"
-                class="input input-bordered input-sm w-full"
+                class="input input-bordered input-sm h-9 w-full text-xs font-bold"
                 :placeholder="t('config.department.namePlaceholder')"
                 :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
-              <div v-if="selectedDepartmentNameEmpty" class="mt-2 text-xs text-error opacity-80">
+              <div v-if="selectedDepartmentNameEmpty" class="text-caption text-error">
                 {{ t("config.department.emptyName") }}
               </div>
-              <div v-if="selectedDepartmentNameDuplicated" class="mt-2 text-xs text-error opacity-80">
+              <div v-if="selectedDepartmentNameDuplicated" class="text-caption text-error">
                 {{ t("config.department.duplicateName") }}
               </div>
             </div>
 
-            <div class="px-4 py-4">
-              <div class="mb-2 text-sm font-medium">{{ t("config.department.assigneeLabel") }}</div>
-              <div class="grid gap-2">
-                <div v-if="availableAssigneePersonas.length === 0" class="text-sm opacity-60">
-                  {{ t("config.department.assigneePlaceholder") }}
-                </div>
-                <div v-else class="flex max-h-56 flex-wrap gap-y-2 overflow-y-auto">
-                  <label
-                    v-for="persona in availableAssigneePersonas"
-                    :key="persona.id"
-                    class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
-                  >
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-primary checkbox-sm"
-                      :checked="selectedDepartmentAssigneeIds.includes(persona.id)"
-                      :disabled="savingConfig"
-                      @change="toggleDepartmentAssignee(persona.id)"
-                    />
-                    <span class="min-w-0 truncate text-sm">{{ persona.name || persona.id }}</span>
-                  </label>
-                </div>
-                <div v-if="selectedDepartmentAssigneeIds.length === 0" class="text-xs leading-snug text-warning">
-                  {{ t("config.department.assigneeWarning") }}
-                </div>
+            <!-- 负责人格勾选 -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.department.assigneeLabel") }}</label>
+                <span class="text-caption opacity-50">{{ t("config.department.memberCount", { count: selectedDepartmentAssigneeIds.length }) }}</span>
               </div>
-            </div>
-
-            <div class="px-4 py-4">
-              <div class="mb-2 text-sm font-medium">{{ t("config.department.model") }}</div>
-              <div class="grid min-w-0 gap-3">
-                <div
-                  v-for="(apiId, idx) in selectedDepartmentVisibleApiConfigIds"
-                  :key="`${selectedDepartment.id}-api-${idx}`"
-                  class="flex items-center gap-2"
+              <div v-if="availableAssigneePersonas.length === 0" class="text-xs opacity-60 italic py-1">
+                {{ t("config.department.assigneePlaceholder") }}
+              </div>
+              <OverlayScrollArea v-else scroller-class="flex max-h-48 flex-wrap items-center gap-2">
+                <label
+                  v-for="persona in availableAssigneePersonas"
+                  :key="persona.id"
+                  class="flex min-h-[2rem] cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors select-none"
+                  :class="selectedDepartmentAssigneeIds.includes(persona.id)
+                    ? 'border-primary bg-primary text-primary-content'
+                    : 'border-base-300 bg-base-100 text-base-content/70 hover:border-primary/50 hover:text-base-content'"
                 >
-                  <ApiConfigPicker
-                    class="flex-1"
-                    :model-value="apiId"
-                    :api-configs="availableDepartmentApiConfigsForIndex(idx)"
-                    :extra-options="availableDepartmentRoleOptionsForIndex(idx).map((role) => ({ id: role.id, label: role.name }))"
-                    @update:model-value="updateDepartmentApiConfigAt(idx, $event)"
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    :checked="selectedDepartmentAssigneeIds.includes(persona.id)"
+                    :disabled="savingConfig"
+                    @change="toggleDepartmentAssignee(persona.id)"
                   />
-
-                  <div class="join">
-                    <button
-                      v-if="selectedDepartmentModelFailureFallbackEnabled"
-                      class="btn btn-sm btn-square join-item opacity-60 hover:opacity-100"
-                      type="button"
-                      :disabled="idx <= 0"
-                      :title="t('config.department.moveUp')"
-                      @click="moveDepartmentApiConfig(idx, -1)"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      v-if="selectedDepartmentModelFailureFallbackEnabled"
-                      class="btn btn-sm btn-square join-item opacity-60 hover:opacity-100"
-                      type="button"
-                      :disabled="idx >= selectedDepartmentApiConfigIds.length - 1"
-                      :title="t('config.department.moveDown')"
-                      @click="moveDepartmentApiConfig(idx, 1)"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      v-if="selectedDepartmentModelFailureFallbackEnabled"
-                      class="btn btn-sm btn-square join-item opacity-60 hover:opacity-100"
-                      type="button"
-                      :disabled="selectedDepartmentApiConfigIds.length <= 1"
-                      :title="t('config.department.removeModel')"
-                      @click="removeDepartmentApiConfigAt(idx)"
-                    >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  v-if="selectedDepartmentModelFailureFallbackEnabled"
-                  class="btn btn-sm"
-                  type="button"
-                  :disabled="remainingDepartmentRoleOptions.length <= 0 && remainingDepartmentApiConfigs.length <= 0"
-                  @click="addDepartmentApiConfig"
-                >
-                  {{ t("config.department.addModel") }}
-                </button>
+                  <Check
+                    v-if="selectedDepartmentAssigneeIds.includes(persona.id)"
+                    class="h-3.5 w-3.5 shrink-0"
+                  />
+                  <span class="font-medium truncate max-w-[10rem]">{{ persona.name || persona.id }}</span>
+                </label>
+              </OverlayScrollArea>
+              <div v-if="selectedDepartmentAssigneeIds.length === 0" class="text-caption text-warning">
+                {{ t("config.department.assigneeWarning") }}
               </div>
-              <div class="mt-1 text-xs opacity-40">{{ t("config.department.allowedModelsNote") }}</div>
             </div>
 
-            <div class="px-4 py-4">
-              <div class="mb-2 text-sm font-medium">{{ t("config.department.summary") }}</div>
+            <!-- 什么时候呼唤我 -->
+            <div class="flex flex-col gap-1.5">
+              <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.department.summary") }}</label>
               <textarea
                 v-model="selectedDepartment.summary"
-                class="textarea textarea-bordered textarea-sm min-h-20 w-full"
+                class="textarea textarea-bordered text-xs leading-relaxed min-h-20 w-full"
                 :placeholder="t('config.department.summaryPlaceholder')"
                 :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
             </div>
 
-            <div class="px-4 py-4">
-              <div class="mb-2 text-sm font-medium">{{ t("config.department.guide") }}</div>
+            <!-- 办事指南 -->
+            <div class="flex flex-col gap-1.5">
+              <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.department.guide") }}</label>
               <textarea
                 v-model="selectedDepartment.guide"
-                class="textarea textarea-bordered textarea-sm min-h-28 w-full"
+                class="textarea textarea-bordered text-xs leading-relaxed min-h-24 w-full"
                 :placeholder="t('config.department.guidePlaceholder')"
                 :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
-              <div class="mt-2 text-xs opacity-40">{{ t("config.department.guideHint") }}</div>
+              <span class="text-caption opacity-50">{{ t("config.department.guideHint") }}</span>
             </div>
-
-            <div class="px-4 py-4">
-              <div class="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm font-medium">{{ t("config.department.permissionTitle") }}</div>
-                  <div class="mt-1 text-xs opacity-60">{{ t("config.department.permissionHint") }}</div>
-                </div>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-sm toggle-primary"
-                  :checked="permissionControlEnabled"
-                  :disabled="selectedDepartmentIsFrozenHr"
-                  @change="updateDepartmentPermissionControl({ enabled: !!($event.target as HTMLInputElement).checked })"
-                />
-              </div>
-
-              <div class="grid min-w-0 gap-3 overflow-hidden" :class="selectedDepartmentIsFrozenHr ? 'pointer-events-none opacity-50' : ''">
-                <select
-                  class="select select-bordered select-sm w-full"
-                  :disabled="permissionListDisabled"
-                  :value="selectedDepartmentPermissionControl?.mode || 'blacklist'"
-                  @change="updateDepartmentPermissionControl({ mode: (($event.target as HTMLSelectElement).value === 'whitelist' ? 'whitelist' : 'blacklist') })"
-                >
-                  <option value="blacklist">{{ t("config.department.permissionModeBlacklist") }}</option>
-                  <option value="whitelist">{{ t("config.department.permissionModeWhitelist") }}</option>
-                </select>
-                <div v-if="permissionControlEnabled" class="text-xs opacity-60">
-                  {{
-                    selectedDepartmentPermissionControl?.mode === "whitelist"
-                      ? t("config.department.permissionModeWhitelistHint")
-                      : t("config.department.permissionModeBlacklistHint")
-                  }}
-                </div>
-
-                <div v-if="permissionCatalogLoading" class="text-xs opacity-60">
-                  {{ t("config.department.permissionCatalogLoading") }}
-                </div>
-                <div v-else-if="permissionCatalogError" class="break-all text-xs text-error">
-                  {{ t("config.department.permissionCatalogLoadFailed", { err: permissionCatalogError }) }}
-                </div>
-                <template v-else>
-                  <div v-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
-                    {{ t("config.department.permissionSkillsRequireExec") }}
-                  </div>
-                  <DepartmentToolTree
-                    :sections="toolTreeSections"
-                    @leaf-toggle="handleToolTreeLeafToggle"
-                    @group-toggle="handleToolTreeGroupToggle"
-                  />
-                </template>
-              </div>
-            </div>
+          </div>
         </div>
-      </ConfigCard>
-    </div>
 
-    <ConfigCard v-else flush>
-      <div class="p-12 text-center text-sm opacity-40">
-        {{ t("config.department.selectHint") }}
+        <!-- 卡片二：驱动模型与容灾回退 -->
+        <div class="card bg-base-100 border border-base-300 card-sm shadow-xs">
+          <div class="card-header border-b border-base-300/60 bg-base-200/40 px-4 py-2.5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Sparkles class="h-4 w-4 opacity-70" />
+              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.department.modelSection") }}</span>
+            </div>
+          </div>
+
+          <div class="card-body p-4 gap-3">
+            <div class="grid min-w-0 gap-2.5">
+              <div
+                v-for="(apiId, idx) in selectedDepartmentVisibleApiConfigIds"
+                :key="`${selectedDepartment.id}-api-${idx}`"
+                class="flex items-center gap-2"
+              >
+                <ApiConfigPicker
+                  class="flex-1"
+                  :model-value="apiId"
+                  :api-configs="availableDepartmentApiConfigsForIndex(idx)"
+                  :extra-options="availableDepartmentRoleOptionsForIndex(idx).map((role) => ({ id: role.id, label: role.name }))"
+                  @update:model-value="updateDepartmentApiConfigAt(idx, $event)"
+                />
+
+                <div class="join shrink-0">
+                  <button
+                    v-if="selectedDepartmentModelFailureFallbackEnabled"
+                    class="btn btn-sm h-9 min-h-[2.25rem] btn-square join-item opacity-60 hover:opacity-100"
+                    type="button"
+                    :disabled="idx <= 0"
+                    :title="t('config.department.moveUp')"
+                    @click="moveDepartmentApiConfig(idx, -1)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    v-if="selectedDepartmentModelFailureFallbackEnabled"
+                    class="btn btn-sm h-9 min-h-[2.25rem] btn-square join-item opacity-60 hover:opacity-100"
+                    type="button"
+                    :disabled="idx >= selectedDepartmentApiConfigIds.length - 1"
+                    :title="t('config.department.moveDown')"
+                    @click="moveDepartmentApiConfig(idx, 1)"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    v-if="selectedDepartmentModelFailureFallbackEnabled"
+                    class="btn btn-sm h-9 min-h-[2.25rem] btn-square join-item opacity-60 hover:opacity-100 text-error"
+                    type="button"
+                    :disabled="selectedDepartmentApiConfigIds.length <= 1"
+                    :title="t('config.department.removeModel')"
+                    @click="removeDepartmentApiConfigAt(idx)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <button
+                v-if="selectedDepartmentModelFailureFallbackEnabled"
+                class="btn btn-sm min-h-[2.25rem] self-start"
+                type="button"
+                :disabled="remainingDepartmentRoleOptions.length <= 0 && remainingDepartmentApiConfigs.length <= 0"
+                @click="addDepartmentApiConfig"
+              >
+                <Plus class="h-4 w-4 mr-1" />
+                {{ t("config.department.addModel") }}
+              </button>
+            </div>
+            <div class="text-caption opacity-50">{{ t("config.department.allowedModelsNote") }}</div>
+          </div>
+        </div>
+
+        <!-- 卡片三：权限与工具控制 -->
+        <div class="card bg-base-100 border border-base-300 card-sm shadow-xs">
+          <div class="card-header border-b border-base-300/60 bg-base-200/40 px-4 py-2.5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Wrench class="h-4 w-4 opacity-70" />
+              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.department.permissionSection") }}</span>
+            </div>
+            <input
+              type="checkbox"
+              class="toggle toggle-sm toggle-primary"
+              :checked="permissionControlEnabled"
+              :disabled="selectedDepartmentIsFrozenHr"
+              @change="updateDepartmentPermissionControl({ enabled: !!($event.target as HTMLInputElement).checked })"
+            />
+          </div>
+
+          <div class="card-body p-4 gap-3" :class="selectedDepartmentIsFrozenHr ? 'pointer-events-none opacity-50' : ''">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <span class="text-xs opacity-60">{{ t("config.department.permissionHint") }}</span>
+              <select
+                class="select select-bordered select-sm h-9 min-h-[2.25rem] w-full sm:w-40 text-xs shrink-0"
+                :disabled="permissionListDisabled"
+                :value="selectedDepartmentPermissionControl?.mode || 'blacklist'"
+                @change="updateDepartmentPermissionControl({ mode: (($event.target as HTMLSelectElement).value === 'whitelist' ? 'whitelist' : 'blacklist') })"
+              >
+                <option value="blacklist">{{ t("config.department.permissionModeBlacklist") }}</option>
+                <option value="whitelist">{{ t("config.department.permissionModeWhitelist") }}</option>
+              </select>
+            </div>
+
+            <div v-if="permissionCatalogLoading" class="py-8 text-center text-xs opacity-60">
+              <span class="loading loading-spinner loading-sm mr-2"></span>
+              {{ t("config.department.permissionCatalogLoading") }}
+            </div>
+            <div v-else-if="permissionCatalogError" class="py-4 text-xs text-error">
+              {{ t("config.department.permissionCatalogLoadFailed", { err: permissionCatalogError }) }}
+            </div>
+            <template v-else>
+              <div v-if="skillPermissionRequiresExec" class="text-caption text-warning">
+                {{ t("config.department.permissionSkillsRequireExec") }}
+              </div>
+              <DepartmentToolTree
+                :sections="toolTreeSections"
+                @leaf-toggle="handleToolTreeLeafToggle"
+                @group-toggle="handleToolTreeGroupToggle"
+              />
+            </template>
+          </div>
+        </div>
       </div>
-    </ConfigCard>
+
+      <!-- 一级概览：部门卡片矩阵 -->
+      <div v-else key="overview-grid" class="flex flex-col gap-4 pb-8">
+        <!-- 空状态 -->
+        <div v-if="displayedDepartments.length === 0" class="card border border-dashed border-base-300 bg-base-100 py-12">
+          <div class="card-body items-center justify-center text-center">
+            <Users class="h-10 w-10 opacity-30" />
+            <h3 class="text-sm font-medium opacity-70">
+              {{ departmentSearchQuery ? t("config.department.noSearchMatch") : (activeCategoryTab === 'custom' ? t("config.department.noCustomDepartments") : t("config.department.noPresetDepartments")) }}
+            </h3>
+            <p class="text-xs opacity-50">
+              {{ departmentSearchQuery ? t("common.clear") : (activeCategoryTab === 'custom' ? t("config.department.noCustomDepartmentsHint") : "") }}
+            </p>
+            <div class="card-actions mt-3">
+              <button
+                v-if="departmentSearchQuery"
+                class="btn btn-sm min-h-[2.25rem] btn-ghost text-xs"
+                type="button"
+                @click="departmentSearchQuery = ''"
+              >
+                {{ t("common.clear") }}
+              </button>
+              <button
+                v-else-if="activeCategoryTab === 'custom'"
+                class="btn btn-sm min-h-[2.25rem] btn-primary text-xs"
+                type="button"
+                @click="addDepartment"
+              >
+                <Plus class="h-4 w-4" />
+                <span>{{ t("config.department.add") }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 自适应卡片网格 -->
+        <div v-else class="config-grid-auto-md">
+          <div
+            v-for="dept in displayedDepartments"
+            :key="dept.id"
+            role="button"
+            tabindex="0"
+            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            @click="enterDepartment(dept.id)"
+            @keydown.enter.prevent="enterDepartment(dept.id)"
+            @keydown.space.prevent="enterDepartment(dept.id)"
+          >
+            <!-- 头部：部门名称 + 徽章 + 模型名称 -->
+            <div class="flex items-start justify-between gap-2.5 min-w-0">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                    {{ dept.name }}
+                  </span>
+                  <span v-if="dept.isBuiltInAssistant" class="badge badge-primary badge-xs shrink-0">
+                    {{ t("config.department.assistantBadge") }}
+                  </span>
+                  <span v-else-if="isSystemBuiltInDepartment(dept)" class="badge badge-neutral badge-xs opacity-70 shrink-0">
+                    {{ t("config.persona.systemTag") }}
+                  </span>
+                </div>
+                <div class="text-caption opacity-50 truncate mt-0.5">
+                  {{ getDepartmentModelName(dept) || t("config.department.model") }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 中间：部门简介 -->
+            <p class="text-xs text-base-content/70 line-clamp-2 leading-relaxed min-h-[2.5rem] break-words">
+              {{ dept.summary || dept.guide || t("config.department.hint") }}
+            </p>
+
+            <!-- 底栏：成员数 + 权限模式 + 进入指示 -->
+            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+              <div class="flex items-center gap-1.5">
+                <Users class="h-3.5 w-3.5 opacity-60" />
+                <span>{{ t("config.department.memberCount", { count: (dept.agentIds || []).length }) }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span v-if="dept.permissionControl?.enabled" class="font-mono text-xs">
+                  {{ dept.permissionControl.mode === 'whitelist' ? t("config.department.permissionModeWhitelist") : t("config.department.permissionModeBlacklist") }}
+                </span>
+                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </SettingsStickyLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
+import {
+  ArrowLeft,
+  Briefcase,
+  Check,
+  ChevronRight,
+  Crown,
+  Lock,
+  Plus,
+  RotateCcw,
+  Save,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Users,
+  Wrench,
+} from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { ApiConfigItem, AppConfig, DepartmentConfig, DepartmentPermissionCatalog, PersonaProfile } from "../../../../types/app";
@@ -306,6 +501,8 @@ import { MODEL_ROLE_EXPERT_API_CONFIG_ID, MODEL_ROLE_QUICK_API_CONFIG_ID } from 
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
+import SegmentedControl from "../../components/SegmentedControl.vue";
+import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const props = defineProps<{
   config: AppConfig;
@@ -317,6 +514,8 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const inDetailMode = ref(false);
+const departmentSearchQuery = ref("");
 const selectedDepartmentId = ref("assistant-department");
 const SYSTEM_DEPARTMENT_IDS = new Set([
   "assistant-department",
@@ -450,12 +649,82 @@ const sortedDepartments = computed(() =>
   }),
 );
 
+const activeCategoryTab = ref<"custom" | "preset">(
+  props.config.departments?.some((d) => !isSystemBuiltInDepartment(d)) ? "custom" : "preset"
+);
+
+const presetDepartments = computed(() =>
+  sortedDepartments.value.filter((d) => isSystemBuiltInDepartment(d))
+);
+
+const customDepartments = computed(() =>
+  sortedDepartments.value.filter((d) => !isSystemBuiltInDepartment(d))
+);
+
+const departmentCategoryOptions = computed(() => [
+  {
+    value: "custom" as const,
+    label: t("config.department.customDepartments"),
+    badge: customDepartments.value.length,
+  },
+  {
+    value: "preset" as const,
+    label: t("config.department.presetDepartments"),
+    badge: presetDepartments.value.length,
+  },
+]);
+
+const displayedDepartments = computed(() => {
+  const sourceList = activeCategoryTab.value === "custom" ? customDepartments.value : presetDepartments.value;
+  const q = departmentSearchQuery.value.trim().toLowerCase();
+  if (!q) return sourceList;
+  return sourceList.filter(
+    (d) =>
+      (d.name || "").toLowerCase().includes(q) ||
+      (d.summary || "").toLowerCase().includes(q) ||
+      (d.guide || "").toLowerCase().includes(q) ||
+      (d.id || "").toLowerCase().includes(q)
+  );
+});
+
+function enterDepartment(deptId: string) {
+  selectedDepartmentId.value = deptId;
+  const dept = departmentDrafts.value.find((d) => d.id === deptId);
+  if (dept) {
+    activeCategoryTab.value = isSystemBuiltInDepartment(dept) ? "preset" : "custom";
+  }
+  inDetailMode.value = true;
+}
+
+function backToList() {
+  if (departmentDirty.value) {
+    const confirmLeave = window.confirm(t("config.skill.confirmLeaveUnsaved") || "当前部门有未保存的修改，确认返回列表吗？");
+    if (!confirmLeave) return;
+  }
+  inDetailMode.value = false;
+}
+
+function getDepartmentModelName(department: DepartmentConfig): string {
+  const primaryId = (department.apiConfigIds && department.apiConfigIds[0]) || department.apiConfigId;
+  if (!primaryId) return "";
+  if (primaryId === MODEL_ROLE_EXPERT_API_CONFIG_ID) return t("config.modelRoles.expert");
+  if (primaryId === MODEL_ROLE_QUICK_API_CONFIG_ID) return t("config.modelRoles.quick");
+  const found = props.apiConfigs.find((c) => c.id === primaryId);
+  return found?.name || primaryId;
+}
+
+function getDepartmentPersonaNames(department: DepartmentConfig): string[] {
+  const ids = department.agentIds || [];
+  return ids
+    .map((id) => props.personas.find((p) => p.id === id)?.name || id)
+    .filter(Boolean);
+}
+
 const selectedDepartment = computed(
   () => departmentDrafts.value.find((item) => item.id === selectedDepartmentId.value) ?? sortedDepartments.value[0] ?? null,
 );
 const selectedDepartmentIsSystemBuiltIn = computed(() => isSystemBuiltInDepartment(selectedDepartment.value));
 const selectedDepartmentIsFrozenHr = computed(() => isFrozenHrDepartment(selectedDepartment.value));
-const selectedDepartmentIsPrivateWorkspace = computed(() => selectedDepartment.value?.source === "private_workspace");
 const textDepartmentApiConfigs = computed(() =>
   props.apiConfigs.filter((api) => !!api.enableText && isTextRequestFormat(api.requestFormat)),
 );
@@ -466,9 +735,7 @@ const departmentRoleApiConfigOptions = computed(() => [
 const selectedDepartmentApiConfigIds = computed(() =>
   currentDepartmentApiConfigIdsForEditor(selectedDepartment.value),
 );
-const selectedDepartmentCanEnableModelFailureFallback = computed(() =>
-  !selectedDepartmentIsPrivateWorkspace.value,
-);
+const selectedDepartmentCanEnableModelFailureFallback = computed(() => true);
 const selectedDepartmentModelFailureFallbackEnabled = computed(() =>
   selectedDepartmentCanEnableModelFailureFallback.value && !!selectedDepartment.value?.modelFailureFallbackEnabled,
 );
@@ -790,6 +1057,7 @@ function nextDepartmentName() {
 
 async function addDepartment() {
   if (props.savingConfig) return;
+  activeCategoryTab.value = "custom";
   const previousDepartments = cloneDepartmentList(props.config.departments || []);
   const previousSelectedDepartmentId = selectedDepartmentId.value;
   const now = new Date().toISOString();
@@ -827,6 +1095,7 @@ async function addDepartment() {
   }
   syncDepartmentDraftsFromSource();
   selectedDepartmentId.value = id;
+  inDetailMode.value = true;
 }
 
 function removeSelectedDepartment() {
@@ -853,6 +1122,7 @@ function removeSelectedDepartment() {
       };
     });
   selectedDepartmentId.value = nextSelectedId;
+  inDetailMode.value = false;
 }
 
 async function restoreSelectedDepartment() {
@@ -915,8 +1185,8 @@ function currentDepartmentApiConfigIds(target: DepartmentConfig | null | undefin
   return ids.map((id) => String(id || "").trim()).filter(Boolean);
 }
 
-function departmentCanEnableModelFailureFallback(target: DepartmentConfig | null | undefined) {
-  return String(target?.source || "").trim() !== "private_workspace";
+function departmentCanEnableModelFailureFallback(_target: DepartmentConfig | null | undefined) {
+  return true;
 }
 
 function apiConfigName(apiConfigId: string): string {

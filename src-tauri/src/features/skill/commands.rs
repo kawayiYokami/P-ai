@@ -29,3 +29,60 @@ pub(crate) fn skill_open_workspace_dir(state: State<'_, AppState>) -> Result<Str
     open_skills_workspace_dir(&state)
 }
 
+#[tauri::command]
+pub(crate) fn skill_open_item_dir(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    skill_open_item_dir_inner(state.inner(), &path)
+}
+
+pub(crate) fn skill_open_item_dir_inner(
+    state: &AppState,
+    path: &str,
+) -> Result<String, String> {
+    open_skill_item_dir(state, path)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_save_skill(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<SkillSummaryItem, String> {
+    mcp_save_skill_inner(
+        state.inner(),
+        &path,
+        &content,
+        name.as_deref(),
+        description.as_deref(),
+    )
+}
+
+pub(crate) fn mcp_save_skill_inner(
+    state: &AppState,
+    path: &str,
+    content: &str,
+    name: Option<&str>,
+    description: Option<&str>,
+) -> Result<SkillSummaryItem, String> {
+    save_workspace_skill_content(state, path, content, name, description)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_read_skill_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    mcp_read_skill_file_inner(state.inner(), &path)
+}
+
+pub(crate) fn mcp_read_skill_file_inner(
+    state: &AppState,
+    path: &str,
+) -> Result<String, String> {
+    read_workspace_skill_file(state, path)
+}
+

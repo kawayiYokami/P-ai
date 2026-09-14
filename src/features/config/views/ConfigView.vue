@@ -189,6 +189,7 @@
       <div v-else-if="props.configTab === 'persona'" class="flex-1 min-h-0">
         <PersonaTab
           :personas="personas"
+          :persona-avatar-url-map="props.personaAvatarUrlMap"
           :assistant-personas="assistantPersonas"
           :persona-editor-id="personaEditorId"
           :selected-persona="selectedPersona"

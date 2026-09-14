@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiConfigDisplayName, formatApiConfigOptionLabel } from "./api-config-display";
+import { apiConfigDisplayName, formatApiConfigOptionLabel, formatEndpointDisplay } from "./api-config-display";
 
 describe("formatApiConfigOptionLabel", () => {
   it("应以 reasoningEffort 实时补全历史 name 缺失的思维等级，并使用中点分隔", () => {
@@ -35,5 +35,25 @@ describe("formatApiConfigOptionLabel", () => {
       model: "gpt-5.6-terra",
       reasoningEffort: "high",
     }, undefined, { providerMaxCharacters: 2 })).toBe("超长 · gpt-5.6-terra · 高");
+  });
+});
+
+describe("formatEndpointDisplay", () => {
+  it("去掉默认的 https:// 前缀", () => {
+    expect(formatEndpointDisplay("https://api.deepseek.com/v1")).toBe("api.deepseek.com/v1");
+  });
+
+  it("保留 http:// 以暴露非加密端点", () => {
+    expect(formatEndpointDisplay("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
+  });
+
+  it("仅剥离开头的协议前缀，不误伤路径中的 https", () => {
+    expect(formatEndpointDisplay("https://gateway.ai.cloudflare.com/v1/https://x")).toBe("gateway.ai.cloudflare.com/v1/https://x");
+  });
+
+  it("空值与空白返回空串", () => {
+    expect(formatEndpointDisplay("")).toBe("");
+    expect(formatEndpointDisplay(undefined)).toBe("");
+    expect(formatEndpointDisplay("   ")).toBe("");
   });
 });

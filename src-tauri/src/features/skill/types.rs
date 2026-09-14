@@ -46,11 +46,23 @@ pub struct WorkspaceFailedGroup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SkillFileItem {
+    pub name: String,
+    pub relative_path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SkillSummaryItem {
     pub name: String,
     pub description: String,
     pub content: String,
     pub path: String,
+    #[serde(default)]
+    pub additional_files: Vec<SkillFileItem>,
+    #[serde(default)]
+    pub is_builtin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -578,11 +578,19 @@ export type McpListServerToolsResult = {
   elapsedMs: number;
 };
 
+export type SkillFileItem = {
+  name: string;
+  relativePath: string;
+  sizeBytes: number;
+};
+
 export type SkillSummaryItem = {
   name: string;
   description: string;
   content: string;
   path: string;
+  additionalFiles?: SkillFileItem[];
+  isBuiltin?: boolean;
 };
 
 export type SkillListResult = {

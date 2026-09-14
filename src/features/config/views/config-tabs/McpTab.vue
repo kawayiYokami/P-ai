@@ -1,88 +1,330 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <div class="flex items-center gap-2">
-        <div class="text-sm font-semibold">{{ t('config.tabs.mcp') }}</div>
-        <select
-          v-if="servers.length > 0"
-          v-model="selectedServerId"
-          class="select select-sm select-bordered min-w-0 flex-1"
-          :disabled="loading"
-        >
-          <option v-for="server in servers" :key="server.id" :value="server.id">
-            {{ server.name || server.id }}
-          </option>
-        </select>
-        <button class="btn btn-sm bg-base-100 shrink-0" type="button" @click="reloadServers" :disabled="loading">
-          <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
-          {{ t('config.mcp.refresh') }}
-        </button>
-        <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-100 shrink-0" type="button" @click="openMcpDir" :disabled="loading">
-          <FolderOpen class="h-4 w-4" />
-          {{ t('config.mcp.openDir') }}
-        </button>
-        <button class="btn btn-sm bg-base-100 shrink-0" type="button" @click="addServer">
-          <Plus class="h-4 w-4" />
-          {{ t('config.mcp.add') }}
-        </button>
-      </div>
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级详情导航 -->
+        <div v-if="inDetailMode && selectedServer" :key="'detail-' + selectedServer.id" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <button
+              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
+              type="button"
+              :title="t('config.mcp.backToList')"
+              @click="backToList"
+            >
+              <ArrowLeft class="h-5 w-5" />
+            </button>
+            <div class="breadcrumbs text-sm p-0">
+              <ul>
+                <li>
+                  <a
+                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
+                    @click="backToList"
+                  >
+                    {{ t("config.tabs.mcp") }}
+                  </a>
+                </li>
+                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
+                  {{ selectedServer.name || selectedServer.id }}
+                </li>
+              </ul>
+            </div>
+            <span v-if="selectedServer.isDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.mcp.unsaved") }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="validateDefinition(selectedServer)"
+            >
+              <CheckCircle class="h-4 w-4" />
+              <span>{{ t('config.mcpServerCard.validate') }}</span>
+            </button>
+            <button
+              v-if="issueList.length > 0"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-warning gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="fixDefinition(selectedServer)"
+            >
+              <Wrench class="h-4 w-4" />
+              <span>{{ t('config.mcp.fixFormat') }}</span>
+            </button>
+            <button
+              v-if="selectedServer.isDirty"
+              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              type="button"
+              :disabled="loading"
+              @click="saveServer(selectedServer)"
+            >
+              <Save class="h-4 w-4" />
+              <span>{{ t('common.save') }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3"
+              :class="selectedServer.enabled ? 'btn-warning' : 'btn-success'"
+              type="button"
+              :disabled="loading"
+              @click="toggleDeploy(selectedServer)"
+            >
+              <Power class="h-4 w-4" />
+              <span>{{ selectedServer.enabled ? t('config.mcp.stop') : t('config.mcp.deploy') }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="confirmRemoveServer(selectedServer)"
+            >
+              <Trash2 class="h-4 w-4" />
+              <span>{{ t('config.mcpServerCard.delete') }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 一级概览导航 -->
+        <div v-else key="overview" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold">{{ t("config.tabs.mcp") }}</span>
+              <span class="badge badge-sm badge-neutral">{{ servers.length }}</span>
+            </div>
+
+            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.mcp.searchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+              <button
+                v-if="searchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                :title="t('config.mcp.clearSearch')"
+                @click="searchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="reloadServers"
+            >
+              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+              <span>{{ t('config.mcp.refresh') }}</span>
+            </button>
+            <button
+              v-if="localFileSystemAvailable"
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="openMcpDir"
+            >
+              <FolderOpen class="h-4 w-4" />
+              <span>{{ t('config.mcp.openDir') }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              type="button"
+              @click="addServer"
+            >
+              <Plus class="h-4 w-4" />
+              <span>{{ t('config.mcp.add') }}</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
     </template>
 
-    <div class="grid gap-3">
-      <div v-if="loading" class="text-sm opacity-70">{{ t('config.mcp.loading') }}</div>
-
-    <McpServerCard
-      v-if="selectedServer"
-      :key="selectedServer.id"
-      :server="selectedServer"
-      :disabled="loading"
-      :has-issues="issueList.length > 0"
-      @remove="removeServer"
-      @validate="validateDefinition"
-      @fix="fixDefinition"
-      @toggle-deploy="toggleDeploy"
-      @toggle-tool="onToggleTool"
-      @refresh-tools="refreshTools"
-    />
-
-    <div v-if="issueList.length > 0" class="space-y-1">
-      <div v-for="(issue, idx) in issueList" :key="idx" class="flex items-start gap-2 text-sm text-error">
-        <span class="mt-0.5">•</span>
-        <span>{{ issue }}</span>
-      </div>
-    </div>
-
-    <div v-if="statusText" class="text-sm" :class="statusError ? 'text-error' : 'opacity-70'">
-      {{ statusText }}
-    </div>
-
-    <div
-      v-if="nodeMissing && !nodeInstalling"
-      class="card card-border border-warning/40 bg-warning/10 card-sm"
-    >
-      <div class="card-body flex-row flex-wrap items-center gap-2 px-4 py-3">
-        <div class="flex flex-col gap-0.5">
-          <span class="text-sm font-medium">{{ t('config.mcp.nodeRequired') }}</span>
-          <span class="text-xs opacity-70">{{ t('config.mcp.nodeRequiredHint') }}</span>
+    <div class="space-y-4">
+      <!-- 缺失 Node.js 提示条 -->
+      <div
+        v-if="nodeMissing && !nodeInstalling"
+        class="card card-border border-warning/40 bg-warning/10 card-sm"
+      >
+        <div class="card-body flex-row flex-wrap items-center gap-2 px-4 py-3">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-medium">{{ t('config.mcp.nodeRequired') }}</span>
+            <span class="text-xs opacity-70">{{ t('config.mcp.nodeRequiredHint') }}</span>
+          </div>
+          <div class="flex-1" />
+          <span v-if="nodeInstallError" class="text-xs text-error max-w-56 text-right">{{ nodeInstallError }}</span>
+          <button class="btn btn-sm btn-warning min-h-[2rem]" type="button" @click="installNode">
+            {{ t('config.mcp.installNode') }}
+          </button>
         </div>
-        <div class="flex-1" />
-        <span v-if="nodeInstallError" class="text-xs text-error max-w-56 text-right">{{ nodeInstallError }}</span>
-        <button class="btn btn-xs btn-warning" type="button" @click="installNode">
-          {{ t('config.mcp.installNode') }}
-        </button>
+      </div>
+      <div v-if="nodeInstalling" class="text-sm opacity-70">{{ t('config.mcp.installingNode') }}</div>
+
+      <!-- 校验问题列表 -->
+      <div v-if="issueList.length > 0" class="card card-border border-error/40 bg-error/10 card-sm">
+        <div class="card-body p-3.5 space-y-1">
+          <div v-for="(issue, idx) in issueList" :key="idx" class="flex items-start gap-2 text-xs text-error">
+            <span class="mt-0.5">•</span>
+            <span>{{ issue }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态文字反馈 -->
+      <div v-if="statusText" class="text-xs px-1" :class="statusError ? 'text-error' : 'opacity-70'">
+        {{ statusText }}
+      </div>
+
+      <!-- 二级详情视图 -->
+      <div v-if="inDetailMode && selectedServer">
+        <McpServerCard
+          :key="selectedServer.id"
+          :server="selectedServer"
+          :disabled="loading"
+          :has-issues="issueList.length > 0"
+          @change="onServerChange"
+          @remove="removeServer"
+          @validate="validateDefinition"
+          @fix="fixDefinition"
+          @toggle-deploy="toggleDeploy"
+          @toggle-tool="onToggleTool"
+          @refresh-tools="refreshTools"
+        />
+      </div>
+
+      <!-- 一级卡片矩阵总览视图 -->
+      <div v-else class="space-y-3">
+        <div v-if="loading && servers.length === 0" class="text-sm opacity-70 py-8 text-center">
+          {{ t('config.mcp.loading') }}
+        </div>
+
+        <div
+          v-else-if="servers.length === 0"
+          class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3"
+        >
+          <div class="flex justify-center">
+            <Cpu class="h-10 w-10 opacity-30" />
+          </div>
+          <div class="space-y-1">
+            <div class="font-semibold text-sm">{{ t('config.mcp.noServers') }}</div>
+            <div class="text-xs opacity-60">{{ t('config.mcp.noServersHint') }}</div>
+          </div>
+          <div class="pt-2">
+            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="addServer">
+              <Plus class="h-4 w-4" />
+              {{ t('config.mcp.add') }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-else-if="filteredServers.length === 0"
+          class="card card-border border-base-300 bg-base-100 p-8 text-center"
+        >
+          <div class="text-xs opacity-60">{{ t('config.mcp.noMatches') }}</div>
+        </div>
+
+        <div v-else class="config-grid-auto-md">
+          <div
+            v-for="server in filteredServers"
+            :key="server.id"
+            role="button"
+            tabindex="0"
+            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
+            @click="enterServer(server.id)"
+            @keydown.enter.prevent="enterServer(server.id)"
+            @keydown.space.prevent="enterServer(server.id)"
+          >
+            <!-- 头部：名称/命令 + 启用开关 -->
+            <div class="flex items-start justify-between gap-2.5 min-w-0">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                    {{ server.name || server.id }}
+                  </span>
+                  <span v-if="server.isDirty" class="badge badge-warning badge-xs shrink-0">
+                    {{ t('config.mcp.unsaved') }}
+                  </span>
+                </div>
+                <div v-if="getServerSubtitle(server)" class="font-mono text-caption opacity-50 truncate mt-0.5">
+                  {{ getServerSubtitle(server) }}
+                </div>
+              </div>
+
+              <div @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="server.enabled"
+                  class="toggle toggle-sm toggle-success shrink-0"
+                  :disabled="loading"
+                  :title="server.enabled ? t('config.mcp.stop') : t('config.mcp.deploy')"
+                  @change="toggleDeploy(server)"
+                />
+              </div>
+            </div>
+
+            <!-- 多成员聚合提示（仅当存在 >1 个不同子服务时展示，单体服务不占位不复读） -->
+            <div v-if="getMultiMemberSummary(server.definitionJson)" class="text-caption opacity-60 truncate font-mono">
+              {{ getMultiMemberSummary(server.definitionJson) }}
+            </div>
+
+            <!-- 底栏：启用时显示状态与工具数；未启用时左侧留空，右上角 Toggle 已经自明 -->
+            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption">
+              <div class="flex items-center gap-1.5 min-h-[1.5rem]">
+                <template v-if="server.enabled">
+                  <span class="badge badge-sm" :class="getStatusBadgeClass(server.lastStatus)">
+                    {{ getStatusLabel(server.lastStatus) }}
+                  </span>
+                  <span class="badge badge-sm badge-ghost">
+                    {{ server.toolItems.length > 0 ? t('config.mcp.toolCount', { count: server.toolItems.length }) : t('config.mcp.probingTools') }}
+                  </span>
+                </template>
+              </div>
+              <div class="flex items-center gap-1.5 opacity-70">
+                <span v-if="getProtocolBadge(server.definitionJson)" class="font-mono text-caption opacity-60">
+                  {{ getProtocolBadge(server.definitionJson) }}
+                </span>
+                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-    <div v-if="nodeInstalling" class="text-sm opacity-70">{{ t('config.mcp.installingNode') }}</div>
-  </div>
-
   </SettingsStickyLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderOpen, Plus, RefreshCw } from "@lucide/vue";
-import { getTransportCapabilities, getTransportHostRuntimePrerequisites, installTransportHostRuntimePrerequisite, invokeTauri, openTransportMcpWorkspaceDirectory } from "../../../../services/tauri-api";
+import {
+  ArrowLeft,
+  CheckCircle,
+  ChevronRight,
+  FolderOpen,
+  Plus,
+  Power,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  Trash2,
+  Wrench,
+} from "@lucide/vue";
+import {
+  getTransportCapabilities,
+  getTransportHostRuntimePrerequisites,
+  installTransportHostRuntimePrerequisite,
+  invokeTauri,
+  openTransportMcpWorkspaceDirectory,
+} from "../../../../services/tauri-api";
 import type {
   McpDefinitionValidateResult,
   McpFixDefinitionResult,
@@ -92,6 +334,7 @@ import type {
   McpValidationIssue,
 } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
+import { formatEndpointDisplay } from "../../utils/api-config-display";
 import McpServerCard from "./mcp/McpServerCard.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 
@@ -105,6 +348,8 @@ type McpServerView = McpServerConfig & {
 };
 
 const loading = ref(false);
+const inDetailMode = ref(false);
+const searchQuery = ref("");
 const statusText = ref("");
 const statusError = ref(false);
 const servers = ref<McpServerView[]>([]);
@@ -121,9 +366,243 @@ const selectedServer = computed(() =>
   servers.value.find((s) => s.id === selectedServerId.value) ?? null,
 );
 
+const filteredServers = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return servers.value;
+  return servers.value.filter((s) => {
+    const nameMatch = (s.name || "").toLowerCase().includes(query);
+    const idMatch = (s.id || "").toLowerCase().includes(query);
+    const memberMatch = parseMemberNames(s.definitionJson).some((m) =>
+      m.toLowerCase().includes(query),
+    );
+    return nameMatch || idMatch || memberMatch;
+  });
+});
+
 function setStatus(text: string, isError = false) {
   statusText.value = text;
   statusError.value = isError;
+}
+
+function enterServer(id: string) {
+  selectedServerId.value = id;
+  inDetailMode.value = true;
+  clearIssues();
+}
+
+function backToList() {
+  inDetailMode.value = false;
+  clearIssues();
+}
+
+function getStatusBadgeClass(status?: string): string {
+  if (status === "ready" || status === "deployed") return "badge-success";
+  if (status === "starting" || status === "deploying") return "badge-warning";
+  if (status === "stale") return "badge-warning";
+  if (status === "timeout" || status === "failed") return "badge-error";
+  if (status === "stopped" || status === "disabled") return "badge-neutral";
+  return "badge-ghost";
+}
+
+function getStatusLabel(status?: string): string {
+  if (status === "ready" || status === "deployed") return t("config.mcp.statusReady");
+  if (status === "stopped") return t("config.mcp.statusStopped");
+  if (status === "starting" || status === "deploying") return t("config.mcp.statusStarting");
+  if (status === "stale") return t("config.mcp.statusStale");
+  if (status === "timeout") return t("config.mcp.statusTimeout");
+  if (status === "disabled") return t("config.mcp.statusDisabled");
+  if (status === "failed") return t("config.mcp.statusFailed");
+  return status || t("config.mcp.statusUnknown");
+}
+
+interface McpServerEntry {
+  name: string;
+  command?: string;
+  args?: string[];
+  url?: string;
+  transport?: string;
+  type?: string;
+}
+
+/**
+ * 从 definitionJson 中解析出所有有效的 server 配置条目（支持多格式展开）
+ * 1. { "mcpServers": { "<name>": { ... } } } （最主流标准格式）
+ * 2. { "mcpServers": [ { "name": "...", ... } ] }
+ * 3. 根对象为直接字段单服务：{ "url": "...", "type": "streamable-http" } 或 { "command": "..." }
+ * 4. 根对象为命名集合：{ "<name>": { ... } }
+ * 5. 根对象为数组：[ { "name": "...", ... } ]
+ */
+function parseMcpServerEntries(definitionJson: string): McpServerEntry[] {
+  try {
+    const parsed = JSON.parse(definitionJson) as unknown;
+    if (!parsed || typeof parsed !== "object") return [];
+
+    // 格式 5：根级数组
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        .map((item, idx) => ({
+          name: String(item.name || `server-${idx + 1}`),
+          command: item.command ? String(item.command) : undefined,
+          args: Array.isArray(item.args) ? item.args.map(String) : undefined,
+          url: item.url ? String(item.url) : undefined,
+          transport: item.transport ? String(item.transport) : undefined,
+          type: item.type ? String(item.type) : undefined,
+        }));
+    }
+
+    const root = parsed as Record<string, unknown>;
+
+    // 格式 1 & 2：包含 mcpServers
+    if (root.mcpServers && typeof root.mcpServers === "object") {
+      const ms = root.mcpServers;
+      if (Array.isArray(ms)) {
+        return ms
+          .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+          .map((item, idx) => ({
+            name: String(item.name || `server-${idx + 1}`),
+            command: item.command ? String(item.command) : undefined,
+            args: Array.isArray(item.args) ? item.args.map(String) : undefined,
+            url: item.url ? String(item.url) : undefined,
+            transport: item.transport ? String(item.transport) : undefined,
+            type: item.type ? String(item.type) : undefined,
+          }));
+      }
+      return Object.entries(ms as Record<string, unknown>)
+        .filter((entry): entry is [string, Record<string, unknown>] => !!entry[1] && typeof entry[1] === "object")
+        .map(([name, item]) => ({
+          name,
+          command: item.command ? String(item.command) : undefined,
+          args: Array.isArray(item.args) ? item.args.map(String) : undefined,
+          url: item.url ? String(item.url) : undefined,
+          transport: item.transport ? String(item.transport) : undefined,
+          type: item.type ? String(item.type) : undefined,
+        }));
+    }
+
+    // 格式 3：单服务直接字段
+    const directKeys = ["command", "args", "url", "transport", "type", "env", "cwd"];
+    if (directKeys.some((k) => k in root)) {
+      return [{
+        name: String(root.name || ""),
+        command: root.command ? String(root.command) : undefined,
+        args: Array.isArray(root.args) ? root.args.map(String) : undefined,
+        url: root.url ? String(root.url) : undefined,
+        transport: root.transport ? String(root.transport) : undefined,
+        type: root.type ? String(root.type) : undefined,
+      }];
+    }
+
+    // 格式 4：平铺命名集合
+    const entries = Object.entries(root)
+      .filter((entry): entry is [string, Record<string, unknown>] => !!entry[1] && typeof entry[1] === "object");
+    if (entries.length > 0) {
+      return entries.map(([name, item]) => ({
+        name,
+        command: item.command ? String(item.command) : undefined,
+        args: Array.isArray(item.args) ? item.args.map(String) : undefined,
+        url: item.url ? String(item.url) : undefined,
+        transport: item.transport ? String(item.transport) : undefined,
+        type: item.type ? String(item.type) : undefined,
+      }));
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+/**
+ * 解析 MCP 运行协议/执行器标签（第一性原理精准识别）
+ * 1. 网络服务：
+ *    - sse -> "sse"
+ *    - streamable_http / streamable-http / http / url 端点 -> "流式 http"
+ * 2. 本地子进程 (stdio)：
+ *    - uvx / uv -> "uvx" / "uv"
+ *    - npx / npm / bunx / bun / pnpm -> "npx" / "bunx" 等
+ *    - node -> "node"
+ *    - python / python3 / py -> "python"
+ *    - docker -> "docker"
+ *    - 其他本地命令 -> "stdio"
+ */
+function getProtocolBadge(definitionJson: string): string {
+  const entries = parseMcpServerEntries(definitionJson);
+  if (entries.length === 0) return "";
+
+  const first = entries[0];
+  const transport = String(first.transport ?? first.type ?? "").toLowerCase();
+
+  // 1. 网络协议判断
+  if (transport === "sse") return "sse";
+  if (
+    transport === "streamable_http" ||
+    transport === "streamable-http" ||
+    transport === "http" ||
+    transport === "https" ||
+    first.url
+  ) {
+    return "流式 http";
+  }
+
+  // 2. 本地执行器/环境判断
+  if (first.command) {
+    const rawCmd = first.command.trim().toLowerCase();
+    const baseName = rawCmd.split(/[/\\]/).pop()?.replace(/\.(exe|cmd|bat|ps1)$/, "") || "";
+    const args = (first.args ?? []).map((a) => a.toLowerCase());
+
+    if (baseName === "uvx") return "uvx";
+    if (baseName === "uv") {
+      return args.includes("run") ? "uv run" : "uv";
+    }
+    if (baseName === "npx") return "npx";
+    if (baseName === "node") return "node";
+    if (baseName === "bunx" || baseName === "bun") return baseName;
+    if (baseName === "pnpm" || baseName === "npm" || baseName === "yarn") return baseName;
+    if (baseName === "docker") return "docker";
+    if (baseName === "python" || baseName === "python3" || baseName === "py") return "python";
+
+    return "stdio";
+  }
+
+  return "";
+}
+
+/** 获取卡片副标题（优先展示命令/URL；若无且名称与 ID 相同或为时间戳 ID，则不展示无意义复读） */
+function getServerSubtitle(server: McpServerConfig): string {
+  const entries = parseMcpServerEntries(server.definitionJson);
+  if (entries.length > 0) {
+    const first = entries[0];
+    if (first.command) {
+      const cmd = first.command;
+      const args = first.args ? first.args.join(" ") : "";
+      const full = args ? `${cmd} ${args}` : cmd;
+      return full.length > 50 ? full.slice(0, 47) + "..." : full;
+    }
+    if (first.url) {
+      const url = formatEndpointDisplay(first.url);
+      return url.length > 50 ? url.slice(0, 47) + "..." : url;
+    }
+  }
+  if (server.id && server.name && server.id !== server.name && !server.id.startsWith("mcp-")) {
+    return server.id;
+  }
+  return "";
+}
+
+/** 从 definitionJson 解析组内成员名（用于跨卡片重名检测与概览展示） */
+function parseMemberNames(definitionJson: string): string[] {
+  return parseMcpServerEntries(definitionJson)
+    .map((e) => e.name)
+    .filter(Boolean);
+}
+
+/** 获取多成员聚合服务的概览（仅在包含 >1 个不同子服务时展示） */
+function getMultiMemberSummary(definitionJson: string): string {
+  const members = parseMemberNames(definitionJson);
+  if (members.length > 1) {
+    return `${members.length} 个子服务: ${members.join(", ")}`;
+  }
+  return "";
 }
 
 function issueText(issue: McpValidationIssue): string {
@@ -138,47 +617,6 @@ function issueText(issue: McpValidationIssue): string {
     return t(key, params);
   }
   return t("config.mcp.issues.fallback", params);
-}
-
-/** 从 definitionJson 解析组内成员名（用于跨卡片重名检测） */
-function parseMemberNames(definitionJson: string): string[] {
-  try {
-    const parsed = JSON.parse(definitionJson) as unknown;
-    const names: string[] = [];
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) {
-        if (item && typeof item === "object") {
-          names.push(String((item as Record<string, unknown>).name ?? ""));
-        }
-      }
-    } else if (parsed && typeof parsed === "object") {
-      const root = parsed as Record<string, unknown>;
-      const ms = root.mcpServers;
-      if (Array.isArray(ms)) {
-        for (const item of ms) {
-          if (item && typeof item === "object") {
-            names.push(String((item as Record<string, unknown>).name ?? ""));
-          }
-        }
-      } else if (ms && typeof ms === "object") {
-        names.push(...Object.keys(ms as Record<string, unknown>));
-      } else {
-        const hasDirectField = ["command", "url", "transport", "type", "args", "env", "cwd", "headers", "httpHeaders", "envHttpHeaders", "bearerTokenEnvVar", "enabledTools", "disabledTools"].some(
-          (key) => key in root,
-        );
-        if (hasDirectField) {
-          // 单 server 直接字段：取 name 字段
-          const singleName = String(root.name ?? "");
-          if (singleName) names.push(singleName);
-        } else {
-          names.push(...Object.keys(root));
-        }
-      }
-    }
-    return names.filter(Boolean);
-  } catch {
-    return [];
-  }
 }
 
 function applyIssues(issues: McpValidationIssue[] | undefined) {
@@ -245,9 +683,9 @@ async function reloadServers() {
         target.lastElapsedMs = result.value.elapsedMs;
       }
     }
-    setStatus(t('config.mcp.loadedCount', { count: servers.value.length }));
+    setStatus(t("config.mcp.loadedCount", { count: servers.value.length }));
   } catch (error) {
-    setStatus(`${t('config.mcp.loadFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.loadFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -257,9 +695,10 @@ function addServer() {
   const seed = Date.now();
   const next: McpServerView = {
     id: `mcp-${seed}`,
-    name: `${t('config.tabs.mcp')} ${servers.value.length + 1}`,
+    name: `${t("config.tabs.mcp")} ${servers.value.length + 1}`,
     enabled: false,
-    definitionJson: '{\n  "name": "mcp-server",\n  "transport": "stdio",\n  "command": "npx",\n  "args": ["-y", "@upstash/context7-mcp"]\n}',
+    definitionJson:
+      '{\n  "name": "mcp-server",\n  "transport": "stdio",\n  "command": "npx",\n  "args": ["-y", "@upstash/context7-mcp"]\n}',
     toolPolicies: [],
     cachedTools: [],
     lastStatus: "",
@@ -272,6 +711,33 @@ function addServer() {
   };
   servers.value.unshift(next);
   selectedServerId.value = next.id;
+  inDetailMode.value = true;
+}
+
+function onServerChange(updated: McpServerView) {
+  const idx = servers.value.findIndex((s) => s.id === updated.id);
+  if (idx >= 0) {
+    servers.value[idx] = { ...servers.value[idx], ...updated, isDirty: true };
+  }
+}
+
+async function saveServer(server: McpServerView) {
+  loading.value = true;
+  try {
+    const saved = await _saveServerCore(server);
+    upsertServer({ ...server, ...saved, isDirty: false });
+    setStatus(t("config.mcp.saved"));
+  } catch (error) {
+    setStatus(`${t("config.mcp.saveFailed")}: ${toErrorMessage(error)}`, true);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function confirmRemoveServer(server: McpServerView) {
+  if (window.confirm(t("config.mcp.deleteConfirm", { name: server.name || server.id }))) {
+    void removeServer(server.id);
+  }
 }
 
 async function removeServer(serverId: string) {
@@ -281,10 +747,13 @@ async function removeServer(serverId: string) {
       input: { serverId },
     });
     servers.value = servers.value.filter((s) => s.id !== serverId);
+    if (selectedServerId.value === serverId) {
+      inDetailMode.value = false;
+    }
     ensureSelectedServer();
-    setStatus(t('config.mcp.deleted', { id: serverId }));
+    setStatus(t("config.mcp.deleted", { id: serverId }));
   } catch (error) {
-    setStatus(`${t('config.mcp.deleteFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.deleteFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -304,21 +773,25 @@ async function validateDefinition(server: McpServerView) {
     });
     if (!result.ok) {
       applyIssues(result.issues);
-      const detailText = result.issues && result.issues.length > 0
-        ? ""
-        : (Array.isArray(result.details) && result.details.length > 0
-          ? ` | ${result.details.join(" ; ")}`
-          : "");
+      const detailText =
+        result.issues && result.issues.length > 0
+          ? ""
+          : Array.isArray(result.details) && result.details.length > 0
+            ? ` | ${result.details.join(" ; ")}`
+            : "";
       const codeText = result.errorCode ? ` [${result.errorCode}]` : "";
-      setStatus(`${t('config.mcp.validateFailed')}${codeText}: ${result.message}${detailText}`, true);
+      setStatus(
+        `${t("config.mcp.validateFailed")}${codeText}: ${result.message}${detailText}`,
+        true,
+      );
       return;
     }
     const serverCountText = result.serverName
-      ? ` (${result.serverName}${result.transport ? `, ${t('config.mcp.transport', { transport: result.transport })}` : ""})`
+      ? ` (${result.serverName}${result.transport ? `, ${t("config.mcp.transport", { transport: result.transport })}` : ""})`
       : "";
-    setStatus(`${t('config.mcp.validateSuccess')}${serverCountText}`);
+    setStatus(`${t("config.mcp.validateSuccess")}${serverCountText}`);
   } catch (error) {
-    setStatus(`${t('config.mcp.validateFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.validateFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -333,20 +806,26 @@ async function fixDefinition(server: McpServerView) {
     });
     if (result.fixedDefinitionJson) {
       server.definitionJson = result.fixedDefinitionJson;
+      server.isDirty = true;
     }
     if (result.ok) {
       if (result.fixedDefinitionJson === server.definitionJson && result.issues.length === 0) {
-        setStatus(t('config.mcp.fixNoNeed'));
+        setStatus(t("config.mcp.fixNoNeed"));
       } else {
         applyIssues(result.issues);
-        setStatus(`${t('config.mcp.fixSuccess')}${result.modelName ? `（${result.modelName}）` : ""}`);
+        setStatus(
+          `${t("config.mcp.fixSuccess")}${result.modelName ? `（${result.modelName}）` : ""}`,
+        );
       }
       return;
     }
     applyIssues(result.issues);
-    setStatus(`${t('config.mcp.fixStillIssues')}${result.modelName ? `（${result.modelName}）` : ""}: ${result.message}`, true);
+    setStatus(
+      `${t("config.mcp.fixStillIssues")}${result.modelName ? `（${result.modelName}）` : ""}: ${result.message}`,
+      true,
+    );
   } catch (error) {
-    setStatus(`${t('config.mcp.fixFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.fixFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -371,7 +850,7 @@ async function installNode() {
     await installTransportHostRuntimePrerequisite<{ installed: boolean; message: string }>("node");
     await checkNodeInstalled();
     if (!nodeMissing.value) {
-      setStatus(t('config.mcp.nodeInstalled'));
+      setStatus(t("config.mcp.nodeInstalled"));
     }
   } catch (error) {
     nodeInstallError.value = toErrorMessage(error);
@@ -393,12 +872,12 @@ async function toggleDeploy(server: McpServerView) {
         toolItems: [],
         lastElapsedMs: 0,
       });
-      setStatus(`${t('config.mcp.stopped')}: ${server.name}`);
+      setStatus(`${t("config.mcp.stopped")}: ${server.name}`);
       return;
     }
 
     const savedBeforeDeploy = await _saveServerCore(server);
-    upsertServer({ ...server, ...savedBeforeDeploy });
+    upsertServer({ ...server, ...savedBeforeDeploy, isDirty: false });
     const deployResult = await invokeTauri<McpListServerToolsResult>("mcp_deploy_server", {
       input: { serverId: server.id },
     });
@@ -413,19 +892,18 @@ async function toggleDeploy(server: McpServerView) {
       });
     }
     if (deployResult.tools.length === 0) {
-      setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（${t('config.mcp.probingTools')}）`);
+      setStatus(`${t("config.mcp.deploySuccess")}: ${server.name}（${t("config.mcp.probingTools")}）`);
       void pollServerTools(server.id);
     } else {
-      setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（tools=${deployResult.tools.length}）`);
+      setStatus(`${t("config.mcp.deploySuccess")}: ${server.name}（tools=${deployResult.tools.length}）`);
     }
   } catch (error) {
-    setStatus(`${t('config.mcp.deployFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.deployFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
 }
 
-// 部署是异步探测：返回为空时轮询运行时状态，探测完成即自动填充工具列表
 async function pollServerTools(serverId: string) {
   for (let attempt = 0; attempt < 6; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -439,7 +917,9 @@ async function pollServerTools(serverId: string) {
         target.lastElapsedMs = result.elapsedMs;
       }
       if (result.tools.length > 0) {
-        setStatus(`${t('config.mcp.deploySuccess')}: ${target?.name ?? serverId}（tools=${result.tools.length}）`);
+        setStatus(
+          `${t("config.mcp.deploySuccess")}: ${target?.name ?? serverId}（tools=${result.tools.length}）`,
+        );
         return;
       }
     } catch {
@@ -472,9 +952,11 @@ async function onToggleTool(payload: { serverId: string; toolName: string; enabl
         tool.enabled = payload.enabled;
       }
     }
-    setStatus(`${payload.enabled ? t('config.mcp.toolEnabled') : t('config.mcp.toolDisabled')}: ${payload.toolName}`);
+    setStatus(
+      `${payload.enabled ? t("config.mcp.toolEnabled") : t("config.mcp.toolDisabled")}: ${payload.toolName}`,
+    );
   } catch (error) {
-    setStatus(`${t('config.mcp.toolSwitchFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.toolSwitchFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }
@@ -491,9 +973,9 @@ async function refreshTools(serverId: string) {
       server.toolItems = result.tools;
       server.lastElapsedMs = result.elapsedMs;
     }
-    setStatus(t('config.mcp.loadedCount', { count: servers.value.length }));
+    setStatus(t("config.mcp.loadedCount", { count: servers.value.length }));
   } catch (error) {
-    setStatus(`${t('config.mcp.loadFailed')}: ${toErrorMessage(error)}`, true);
+    setStatus(`${t("config.mcp.loadFailed")}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
   }

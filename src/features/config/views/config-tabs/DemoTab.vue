@@ -19,6 +19,7 @@
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
             <option value="session-float-dock">会话悬浮操作区</option>
+            <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -125,6 +126,16 @@
           <p class="text-sm text-base-content/70">下排改成一个个彼此独立的磨砂元素，左对齐、放不下换行；元素之间不互斥，有就显示、没有就隐藏。开关可逐项试「有／没有」，勾「窄容器」看换行。</p>
         </div>
         <SessionFloatDockDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'config-cards'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">配置卡片画廊（六大卡片第一性原理）</h3>
+          <p class="text-sm text-base-content/70">集中渲染联系人渠道、部门、连接器、供应商、人格、技能 6 类卡片的真实模拟数据与自适应网格，支持切换宽度与主题进行视觉检验。</p>
+        </div>
+        <ConfigCardsGalleryDemo />
       </div>
     </div>
 
@@ -424,6 +435,7 @@ import ChatThinkingPreviewBarDemo from "../../../chat/components/ChatThinkingPre
 import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.vue";
 import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vue";
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
+import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
 import type { ToolReviewBatchSummary } from "../../../chat/composables/use-chat-tool-review";
@@ -466,17 +478,22 @@ type BubbleDemoDisplayMessage = BubbleDemoMessage & {
 };
 
 const props = withDefaults(defineProps<{
-  config: AppConfig;
-  personas: PersonaProfile[];
+  config?: AppConfig;
+  personas?: PersonaProfile[];
   personaAvatarUrlMap?: Record<string, string>;
   assistantDepartmentAgentId?: string;
+  initialKey?: string;
 }>(), {
+  config: () => ({} as AppConfig),
+  personas: () => [],
   personaAvatarUrlMap: () => ({}),
   assistantDepartmentAgentId: "",
+  initialKey: "question",
 });
 
 const sending = ref(false);
 const restarting = ref(false);
+
 const loadingMemoryStats = ref(false);
 const errorText = ref("");
 const resultText = ref("");
@@ -491,8 +508,9 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock">("question");
+const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "config-cards">((props.initialKey as any) || "question");
 const demoComponentLabel = computed(() => {
+  if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";
   if (demoComponentKey.value === "double-deck") return "双层卡";

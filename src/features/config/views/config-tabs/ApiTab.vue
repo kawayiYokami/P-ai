@@ -1,65 +1,164 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <div class="flex flex-col gap-3">
-        <div class="join w-full">
-          <button v-for="tab in capabilityTabs" :key="tab.id" class="btn btn-sm join-item flex-1" type="button"
-            :class="activeTopTab === tab.id ? 'btn-primary' : 'bg-base-100'" @click="switchCapabilityTab(tab.id)">
-            {{ tab.label }}
-          </button>
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级详情模式头部：面包屑导航 + 操作按钮 -->
+        <div v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)" :key="'detail-' + (activeTopTab === 'imageGeneration' ? imageToolbarSelectedProviderId : selectedProvider?.id)" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <button
+              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
+              type="button"
+              :title="t('config.api.backToList')"
+              @click="backToList"
+            >
+              <ArrowLeft class="h-5 w-5" />
+            </button>
+            <div class="breadcrumbs text-sm p-0">
+              <ul>
+                <li>
+                  <a
+                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
+                    @click="backToList"
+                  >
+                    {{ t("config.tabs.api") }}
+                  </a>
+                </li>
+                <li class="opacity-70 py-1">
+                  {{ capabilityTabLabel(activeTopTab) }}
+                </li>
+                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
+                  {{ currentDetailTitle }}
+                </li>
+              </ul>
+            </div>
+            <span v-if="isCurrentDetailDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.api.unsaved") }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <template v-if="activeTopTab !== 'imageGeneration'">
+              <button
+                v-if="currentProviderDirty"
+                class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+                type="button"
+                :disabled="props.savingConfig"
+                :title="t('config.api.restoreProviderDraft')"
+                @click="handleRestoreProviderDraft"
+              >
+                <RotateCcw class="h-4 w-4" />
+                <span>{{ t("config.api.restoreProviderDraft") }}</span>
+              </button>
+              <button
+                class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+                :class="currentProviderDirty ? 'btn-primary' : 'bg-base-100'"
+                type="button"
+                :disabled="!currentProviderDirty || props.savingConfig"
+                :title="props.savingConfig ? t('config.api.saving') : t('config.api.saveConfig')"
+                @click="handleSaveApiConfig"
+              >
+                <span v-if="props.savingConfig" class="loading loading-spinner loading-xs"></span>
+                <Save v-else class="h-4 w-4" />
+                <span>{{ props.savingConfig ? t("config.api.saving") : t("common.save") }}</span>
+              </button>
+              <button
+                class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+                type="button"
+                :disabled="scopedProviderList.length <= 1"
+                :title="t('config.api.removeProvider')"
+                @click="removeProvider(selectedProviderId)"
+              >
+                <Trash2 class="h-4 w-4" />
+                <span>{{ t("common.delete") }}</span>
+              </button>
+            </template>
+            <template v-else>
+              <button
+                v-if="imageToolbarDirty"
+                class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+                type="button"
+                :disabled="imageToolbarSaving"
+                @click="restoreImageProviderConfig"
+              >
+                <RotateCcw class="h-4 w-4" />
+                <span>{{ t("common.reset") }}</span>
+              </button>
+              <button
+                class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+                :class="imageToolbarDirty ? 'btn-primary' : 'bg-base-100'"
+                type="button"
+                :disabled="!imageToolbarDirty || imageToolbarSaving"
+                @click="saveImageProviderConfig"
+              >
+                <span v-if="imageToolbarSaving" class="loading loading-spinner loading-xs"></span>
+                <Save v-else class="h-4 w-4" />
+                <span>{{ imageToolbarSaving ? t("config.api.saving") : t("common.save") }}</span>
+              </button>
+              <button
+                class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+                type="button"
+                :disabled="imageToolbarRemoveDisabled"
+                @click="removeImageProvider"
+              >
+                <Trash2 class="h-4 w-4" />
+                <span>{{ t("common.delete") }}</span>
+              </button>
+            </template>
+          </div>
         </div>
 
-        <ProviderToolbar
-          v-if="activeTopTab !== 'imageGeneration'"
-          :providers="providerToolbarOptions"
-          :model-value="selectedProviderId"
-          :empty-label="t('config.api.currentProvider')"
-          :add-title="t('config.api.addProvider')"
-          :remove-title="t('config.api.removeProvider')"
-          :restore-title="t('config.api.restoreProviderDraft')"
-          :save-title="props.savingConfig ? t('config.api.saving') : currentProviderDirty ? t('config.api.saveConfig') : t('config.api.saved')"
-          :dirty="currentProviderDirty"
-          :saving="props.savingConfig"
-          :remove-disabled="scopedProviderList.length <= 1"
-          :restore-disabled="!currentProviderDirty || props.savingConfig"
-          :save-disabled="!currentProviderDirty || props.savingConfig"
-          @update:model-value="selectProvider"
-          @add="addProvider"
-          @remove="removeProvider(selectedProviderId)"
-          @restore="handleRestoreProviderDraft"
-          @save="handleSaveApiConfig"
-        />
-        <ProviderToolbar
-          v-else
-          :providers="imageToolbarProviderOptions"
-          :model-value="imageToolbarSelectedProviderId"
-          :empty-label="t('config.imageGeneration.emptyProviders')"
-          :add-title="t('config.imageGeneration.addProvider')"
-          :remove-title="t('config.imageGeneration.removeProvider')"
-          :restore-title="t('common.reset')"
-          :save-title="imageToolbarSaveTitle"
-          :dirty="imageToolbarDirty"
-          :saving="imageToolbarSaving"
-          :remove-disabled="imageToolbarRemoveDisabled"
-          :restore-disabled="imageToolbarRestoreDisabled"
-          :save-disabled="imageToolbarSaveDisabled"
-          :select-disabled="imageToolbarProviderOptions.length === 0"
-          @update:model-value="selectImageProvider"
-          @add="addImageProvider"
-          @remove="removeImageProvider"
-          @restore="restoreImageProviderConfig"
-          @save="saveImageProviderConfig"
-        />
-      </div>
+        <!-- 一级概览模式头部：分类切换 + 搜索过滤 + 新增操作 -->
+        <div v-else key="overview" class="flex flex-col gap-3">
+          <SegmentedControl
+            :model-value="activeTopTab"
+            :options="capabilitySegmentOptions"
+            size="md"
+            @change="(val) => switchCapabilityTab(val as ApiTopTab)"
+          />
+
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="relative min-w-[14rem] flex-1">
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.api.searchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+              <button
+                v-if="searchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                :title="t('config.api.clearSearch')"
+                @click="searchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+                type="button"
+                @click="onAddProviderClick"
+              >
+                <Plus class="h-4 w-4" />
+                <span>{{ t("config.api.addProvider") }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </template>
 
-    <div v-if="activeTopTab !== 'imageGeneration' && selectedProvider" class="grid gap-3">
+    <div v-if="inDetailMode">
+      <div v-if="activeTopTab !== 'imageGeneration' && selectedProvider" class="grid gap-3">
       <ConfigTemplate v-model="providerTemplateValues" :groups="providerTemplateGroups">
         <template #field-baseUrl="{ field, value, update }">
           <label class="grid min-w-0 gap-2">
             <div class="flex items-center gap-2">
               <div class="text-sm">{{ field.label }}</div>
-              <button class="btn btn-xs bg-base-200" type="button" @click="baseUrlHelperOpen = !baseUrlHelperOpen">
+              <button class="btn btn-sm bg-base-200 min-h-[2rem]" type="button" @click="baseUrlHelperOpen = !baseUrlHelperOpen">
                 <WandSparkles class="h-3 w-3" />
                 <span>{{ t("config.api.linkHelper") }}</span>
               </button>
@@ -203,15 +302,114 @@
       </ConfigCard>
     </div>
 
-    <div v-else-if="activeTopTab === 'imageGeneration'" class="grid gap-3">
-      <ImageGenerationTab
-        ref="imageGenerationTabRef"
-        :config="config"
-        :saving-config="savingConfig"
-        :save-config-action="saveApiConfigAction"
-        :last-saved-config-json="lastSavedConfigJson"
-        :set-status-action="setStatusAction"
-      />
+      <div v-else-if="activeTopTab === 'imageGeneration'" class="grid gap-3">
+        <ImageGenerationTab
+          ref="imageGenerationTabRef"
+          :config="config"
+          :saving-config="savingConfig"
+          :save-config-action="saveApiConfigAction"
+          :last-saved-config-json="lastSavedConfigJson"
+          :set-status-action="setStatusAction"
+        />
+      </div>
+    </div>
+
+    <!-- 一级概览卡片矩阵 -->
+    <div v-else class="space-y-3">
+      <!-- 图像生成分类 -->
+      <template v-if="activeTopTab === 'imageGeneration'">
+        <div v-if="filteredImageProviders.length === 0" class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3">
+          <div class="font-semibold text-sm">{{ t('config.api.noProviders') }}</div>
+          <div class="text-xs opacity-60">{{ t('config.api.noProvidersHint') }}</div>
+          <div class="pt-2">
+            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="onAddProviderClick">
+              <Plus class="h-4 w-4" />
+              {{ t('config.api.addProvider') }}
+            </button>
+          </div>
+        </div>
+        <div v-else class="config-grid-auto-md">
+          <div
+            v-for="provider in filteredImageProviders"
+            :key="provider.id"
+            role="button"
+            tabindex="0"
+            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            @click="enterImageProvider(provider.id)"
+            @keydown.enter.prevent="enterImageProvider(provider.id)"
+            @keydown.space.prevent="enterImageProvider(provider.id)"
+          >
+            <!-- 头部：供应商名称 + 类型 -->
+            <div class="flex items-start justify-between gap-2.5 min-w-0">
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                  {{ provider.name || provider.id }}
+                </div>
+                <div class="text-caption opacity-50 truncate mt-0.5 font-mono">
+                  {{ formatEndpointDisplay(provider.baseUrl) || '-' }}
+                </div>
+              </div>
+
+              <span class="badge badge-ghost badge-xs uppercase font-mono shrink-0">{{ provider.providerType }}</span>
+            </div>
+
+            <!-- 底栏：模型数 + Key 数 + 进入指示 -->
+            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+              <div class="flex items-center gap-1.5">
+                <span class="badge badge-sm badge-neutral">{{ t('config.api.modelCount', { count: provider.models?.length || 0 }) }}</span>
+                <span v-if="provider.providerType !== 'codex'" class="badge badge-sm badge-ghost">{{ t('config.api.keyCount', { count: provider.apiKeys?.length || 0 }) }}</span>
+              </div>
+              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- LLM (text, voice, embedding, rerank) 分类 -->
+      <template v-else>
+        <div v-if="filteredScopedProviders.length === 0" class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3">
+          <div class="font-semibold text-sm">{{ t('config.api.noProviders') }}</div>
+          <div class="text-xs opacity-60">{{ t('config.api.noProvidersHint') }}</div>
+          <div class="pt-2">
+            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="onAddProviderClick">
+              <Plus class="h-4 w-4" />
+              {{ t('config.api.addProvider') }}
+            </button>
+          </div>
+        </div>
+        <div v-else class="config-grid-auto-md">
+          <div
+            v-for="provider in filteredScopedProviders"
+            :key="provider.id"
+            role="button"
+            tabindex="0"
+            class="rounded-xl border border-base-200/80 bg-base-100 p-3.5 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            @click="enterProvider(provider.id)"
+            @keydown.enter.prevent="enterProvider(provider.id)"
+            @keydown.space.prevent="enterProvider(provider.id)"
+          >
+            <!-- 左侧：供应商名称 + 徽章 + 端点地址 -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                  {{ provider.name || provider.id }}
+                </span>
+                <span v-if="isDefaultProvider(provider.id)" class="badge badge-primary badge-xs shrink-0">{{ t('config.api.defaultProvider') }}</span>
+                <span v-if="isProviderDirty(provider)" class="badge badge-warning badge-xs shrink-0">{{ t('config.api.unsaved') }}</span>
+              </div>
+              <div class="font-mono text-caption opacity-50 truncate mt-1">
+                {{ formatEndpointDisplay(provider.baseUrl) || '-' }}
+              </div>
+            </div>
+
+            <!-- 右侧：请求格式 + 进入指示 -->
+            <div class="shrink-0 flex items-center gap-2">
+              <span class="badge badge-ghost badge-xs font-mono">{{ provider.requestFormat }}</span>
+              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
     <dialog ref="providerDeleteDialogRef" class="modal" @close="closeDeleteProviderDialog" @cancel.prevent="closeDeleteProviderDialog">
       <div class="modal-box max-w-sm">
@@ -236,14 +434,26 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ExternalLink, Plus, RefreshCw, WandSparkles } from "@lucide/vue";
+import {
+  ArrowLeft,
+  ChevronRight,
+  ExternalLink,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Search,
+  Settings,
+  Trash2,
+  WandSparkles,
+} from "@lucide/vue";
 import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus } from "../../../../types/app";
 import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/ApiKeyListCard.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
-import ProviderToolbar, { type ProviderToolbarOption } from "../../components/ProviderToolbar.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SegmentedControl from "../../components/SegmentedControl.vue";
 import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
@@ -251,6 +461,7 @@ import { normalizeApiRequestFormat } from "../../utils/api-request-format";
 import {
   CODEX_REASONING_EFFORTS,
   LEGAL_REASONING_EFFORTS,
+  formatEndpointDisplay,
   reasoningEffortDisplayLabel as sharedReasoningEffortDisplayLabel,
   sortReasoningEffortValues,
 } from "../../utils/api-config-display";
@@ -298,6 +509,11 @@ type FetchModelMetadataResult = {
 type ModelCapabilityLimits = Partial<ModelCapabilitySnapshot> & {
   metadataFound?: boolean;
 };
+export type ProviderToolbarOption = {
+  id: string;
+  label: string;
+};
+
 type ImageGenerationToolbarState = {
   providers: ProviderToolbarOption[];
   selectedProviderId: string;
@@ -421,6 +637,13 @@ const capabilityTabs = computed<Array<{ id: ApiTopTab; label: string }>>(() => [
   { id: "rerank", label: t("config.api.capabilityRerank") },
   { id: "imageGeneration", label: t("config.tabs.imageGeneration") },
 ]);
+const capabilitySegmentOptions = computed(() =>
+  capabilityTabs.value.map((tab) => ({
+    value: tab.id,
+    label: tab.label,
+    badge: getCapabilityCount(tab.id),
+  }))
+);
 // 本地补充项：genai 无对应 adapter，但项目自身支持（auto=自动探测、codex=本地协议）。
 const LOCAL_TEXT_PROTOCOL_OPTIONS: ProtocolOption[] = [
   { value: "auto", label: "Auto" },
@@ -741,8 +964,71 @@ function commitDraftGroups() {
   }
 }
 
-const selectedCapability = computed<ApiCapability>(() => capabilityFromRequestFormat(selectedProvider.value?.requestFormat || "openai"));
-const activeTopTab = ref<ApiTopTab>(selectedCapability.value);
+const activeTopTab = ref<ApiTopTab>("text");
+const inDetailMode = ref(false);
+const searchQuery = ref("");
+
+const selectedCapability = computed<ApiCapability>(() => {
+  if (activeTopTab.value !== "imageGeneration") {
+    return activeTopTab.value as ApiCapability;
+  }
+  return capabilityFromRequestFormat(selectedProvider.value?.requestFormat || "openai");
+});
+
+function enterProvider(id: string) {
+  selectProvider(id);
+  inDetailMode.value = true;
+}
+
+function backToList() {
+  inDetailMode.value = false;
+}
+
+function enterImageProvider(id: string) {
+  selectImageProvider(id);
+  inDetailMode.value = true;
+}
+
+function onAddProviderClick() {
+  if (activeTopTab.value === "imageGeneration") {
+    addImageProvider();
+  } else {
+    void addProvider();
+  }
+  inDetailMode.value = true;
+}
+
+function isDefaultProvider(providerId: string): boolean {
+  const [id] = String(props.config.selectedApiConfigId || "").split("::");
+  return id === providerId;
+}
+
+function isProviderDirty(provider: ApiProviderConfigItem): boolean {
+  return provider.id === selectedProvider.value?.id ? currentProviderDirty.value : false;
+}
+
+function capabilityTabLabel(cap: ApiTopTab): string {
+  const tab = capabilityTabs.value.find((t) => t.id === cap);
+  return tab?.label || "";
+}
+
+const currentDetailTitle = computed(() => {
+  if (activeTopTab.value === "imageGeneration") {
+    return imageGenerationTabRef.value?.toolbarState.providers.find((p) => p.id === imageToolbarSelectedProviderId.value)?.label || "";
+  }
+  return selectedProvider.value?.name || selectedProvider.value?.id || "";
+});
+
+const isCurrentDetailDirty = computed(() => {
+  if (activeTopTab.value === "imageGeneration") return imageToolbarDirty.value;
+  return currentProviderDirty.value;
+});
+
+function getCapabilityCount(cap: ApiTopTab): number {
+  if (cap === "imageGeneration") return props.config.imageProviders?.length || 0;
+  return activeProviderList.value.filter((p) => capabilityFromRequestFormat(p.requestFormat) === cap).length;
+}
+
 const emptyImageToolbarState: ImageGenerationToolbarState = {
   providers: [],
   selectedProviderId: "",
@@ -770,6 +1056,29 @@ const imageToolbarSaveTitle = computed(() => (
 const scopedProviderList = computed(() =>
   activeProviderList.value.filter((provider) => capabilityFromRequestFormat(provider.requestFormat) === selectedCapability.value),
 );
+
+const filteredScopedProviders = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return scopedProviderList.value;
+  return scopedProviderList.value.filter((p) =>
+    (p.name || "").toLowerCase().includes(q)
+    || (p.id || "").toLowerCase().includes(q)
+    || (p.requestFormat || "").toLowerCase().includes(q)
+    || (p.models || []).some((m) => (m.displayName || m.model || "").toLowerCase().includes(q)),
+  );
+});
+
+const filteredImageProviders = computed(() => {
+  const list = props.config.imageProviders || [];
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((p) =>
+    (p.name || "").toLowerCase().includes(q)
+    || (p.id || "").toLowerCase().includes(q)
+    || (p.providerType || "").toLowerCase().includes(q),
+  );
+});
+
 const providerToolbarOptions = computed<ProviderToolbarOption[]>(() => scopedProviderList.value.map((provider) => ({
   id: provider.id,
   label: `${provider.name || provider.id}（${provider.requestFormat}）`,
@@ -1444,6 +1753,7 @@ function addImageProvider() {
 
 function removeImageProvider() {
   imageGenerationTabRef.value?.removeSelectedProvider();
+  inDetailMode.value = false;
 }
 
 function restoreImageProviderConfig() {
@@ -1555,24 +1865,21 @@ async function confirmDeleteProvider() {
     props.config.selectedApiConfigId = "";
   }
   closeDeleteProviderDialog();
+  inDetailMode.value = false;
   await Promise.resolve(props.saveApiConfigAction());
 }
 
 async function switchCapabilityTab(capability: ApiTopTab) {
   revertUnsavedConfigIfNeeded();
   activeTopTab.value = capability;
+  searchQuery.value = "";
   if (capability === "imageGeneration") {
     return;
   }
   const nextProvider = activeProviderList.value.find((provider) => capabilityFromRequestFormat(provider.requestFormat) === capability);
   if (nextProvider) {
     selectProvider(nextProvider.id);
-    return;
   }
-  const seed = buildProviderSeed();
-  const provider = createProvider(seed, capability);
-  props.config.apiProviders.push(provider);
-  props.config.selectedApiConfigId = `${provider.id}::${provider.models[0].id}`;
 }
 
 function revertUnsavedConfigIfNeeded() {

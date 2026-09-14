@@ -1,15 +1,39 @@
 <script setup lang="ts">
-import { defineComponent, h, type PropType, type VNodeChild } from "vue";
+import { computed, defineComponent, h, type PropType, type VNodeChild } from "vue";
 import { parseInlineSegments, type InlineSegment } from "./parse-markdown";
 
 /**
- * 行内 simple Markdown 渲染：只保留行内格式（粗体/斜体/删除线/行内代码/kbd/mark/上下标），
- * 不渲染块级结构、不生成链接锚点（预览卡整体是按钮，链接会让点击语义打架）。
- * 用于思维链预览条这类「单行紧凑」场景。
+ * 行内 simple Markdown 渲染：保留行内格式（粗体/斜体/删除线/行内代码/kbd/mark/上下标），
+ * 并把 `#{1,6} 标题` 这类标题行按加粗渲染（剥掉 # 前缀，不生成块级 <h1>）。
+ * 不生成链接锚点（预览卡整体是按钮，链接会让点击语义打架）。
+ * 用于思维链预览条、配置卡片预览这类「紧凑」场景。
  */
-defineProps<{
+const props = defineProps<{
   text: string;
 }>();
+
+const HEADING_LINE_PATTERN = /^\s{0,3}#{1,6}\s+(.*)$/;
+
+function parseInlineWithHeadings(text: string): InlineSegment[] {
+  const segments: InlineSegment[] = [];
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) segments.push({ type: "html_br" });
+    const heading = line.match(HEADING_LINE_PATTERN);
+    if (heading) {
+      const children = parseInlineSegments(heading[1]);
+      if (children.length > 0) {
+        segments.push({ type: "strong", children });
+        return;
+      }
+    }
+    segments.push(...parseInlineSegments(line));
+  });
+  return segments;
+}
+
+const inlineSegments = computed<InlineSegment[]>(() =>
+  parseInlineWithHeadings(String(props.text || "")),
+);
 
 function renderSegments(segments: InlineSegment[]): VNodeChild[] {
   return segments.map((seg) => {
@@ -49,7 +73,7 @@ const InlineRenderer = defineComponent({
 </script>
 
 <template>
-  <InlineRenderer :segments="parseInlineSegments(String(text || ''))" />
+  <InlineRenderer :segments="inlineSegments" />
 </template>
 
 <style scoped>

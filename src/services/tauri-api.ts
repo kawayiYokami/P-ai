@@ -3,6 +3,7 @@ import { emit, emitTo, listen, type EventCallback, type UnlistenFn } from "@taur
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { AttachmentReceipt } from "./attachment-transfer";
+import type { SkillSummaryItem } from "../types/app";
 
 type WebBridgeConfig = {
   chatUrl: string;
@@ -970,6 +971,23 @@ export function openTransportSkillWorkspaceDirectory(): Promise<string> {
   return invokeRequiredNativeTransport<string>("Skill 工作区目录", "skill_open_workspace_dir");
 }
 
+export function openTransportSkillDirectory(path: string): Promise<string> {
+  return invokeRequiredNativeTransport<string>("Skill 目录", "skill_open_item_dir", { path });
+}
+
+export function saveTransportSkill(
+  path: string,
+  content: string,
+  name?: string,
+  description?: string
+): Promise<SkillSummaryItem> {
+  return invokeTauri<SkillSummaryItem>("mcp_save_skill", { path, content, name, description });
+}
+
+export function readTransportSkillFile(path: string): Promise<string> {
+  return invokeTauri<string>("mcp_read_skill_file", { path });
+}
+
 export function openTransportStorageUsageItemDirectory(itemId: string): Promise<void> {
   return invokeRequiredNativeTransport<void>("存储项目录", "open_storage_usage_item_directory", {
     input: { itemId: String(itemId || "").trim() },
@@ -1441,6 +1459,7 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "open_chat_shell_workspace_dir",
   "mcp_open_workspace_dir",
   "skill_open_workspace_dir",
+  "skill_open_item_dir",
   "copy_local_chat_image_to_clipboard",
   "save_local_chat_image_as",
   "export_archive_to_file",

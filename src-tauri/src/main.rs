@@ -1572,7 +1572,10 @@ fn main() {
             commands::mcp_refresh_mcp_and_skills,
             commands::mcp_list_skills,
             mcp_open_workspace_dir,
-            commands::skill_open_workspace_dir
+            commands::skill_open_workspace_dir,
+            commands::skill_open_item_dir,
+            commands::mcp_save_skill,
+            commands::mcp_read_skill_file
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

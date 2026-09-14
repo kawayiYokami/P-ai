@@ -175,3 +175,8 @@ export function formatApiConfigOptionLabel(
   );
   return label ? `${displayBase} · ${label}` : displayBase;
 }
+
+/** 卡片概览展示端点：去掉默认的 https:// 前缀降噪，保留 http:// 以暴露非加密端点。 */
+export function formatEndpointDisplay(url: unknown): string {
+  return String(url || "").trim().replace(/^https:\/\//i, "");
+}

@@ -14,6 +14,7 @@ const htmlEntryAliases = new Set([
   "/runtime-logs.html",
   "/sidebar.html",
   "/settings.html",
+  "/demo.html",
 ]);
 
 export default defineConfig({

@@ -95,6 +95,7 @@ fn parse_skill_file(skill_md_path: &PathBuf) -> Result<(String, String, String),
             let last = bytes[value.len() - 1];
             if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
                 value = value[1..value.len() - 1].to_string();
+                value = value.replace("\\\"", "\"").replace("\\\\", "\\");
             }
         }
         if key == "name" {
@@ -142,6 +143,11 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
             ));
             continue;
         }
+        let additional_files = scan_skill_additional_files(&dir, &skill_md);
+        let dir_name_str = dir.file_name().and_then(|v| v.to_str()).unwrap_or_default();
+        let is_builtin = workspace_preset_skills()
+            .iter()
+            .any(|preset| preset.dir_name == dir_name_str);
         match parse_skill_file(&skill_md) {
             Ok((name, description, content)) => {
                 skills.push(SkillSummaryItem {
@@ -149,6 +155,8 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
                     description,
                     content,
                     path: skill_md.to_string_lossy().to_string(),
+                    additional_files,
+                    is_builtin,
                 });
             }
             Err(err) => errors.push(WorkspaceLoadError::with_hint(
@@ -159,6 +167,219 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
         }
     }
     Ok((skills, errors))
+}
+
+fn scan_skill_additional_files(skill_dir: &Path, skill_md: &Path) -> Vec<SkillFileItem> {
+    let mut files = Vec::new();
+    let mut dirs_to_visit = vec![skill_dir.to_path_buf()];
+    while let Some(current_dir) = dirs_to_visit.pop() {
+        if let Ok(entries) = fs::read_dir(&current_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                // 用 file_type() 而非 path.is_dir()/is_file()，不跟随符号链接：
+                // 既不因指向父目录的链接遍历成环，也不越出技能目录
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => continue,
+                };
+                if file_type.is_symlink() {
+                    continue;
+                }
+                if file_type.is_dir() {
+                    if file_name.starts_with('.') || file_name == "node_modules" || file_name == "target" || file_name == "__pycache__" {
+                        continue;
+                    }
+                    dirs_to_visit.push(path);
+                } else if file_type.is_file() {
+                    if path == *skill_md {
+                        continue;
+                    }
+                    if let Ok(rel) = path.strip_prefix(skill_dir) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        files.push(SkillFileItem {
+                            name: file_name,
+                            relative_path: rel_str,
+                            size_bytes,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    files
+}
+
+fn update_skill_frontmatter(
+    raw: &str,
+    new_name: Option<&str>,
+    new_description: Option<&str>,
+    fallback_name: &str,
+) -> String {
+    let raw_clean = raw.trim_start_matches('\u{feff}');
+    let existing_lines = if raw_clean.starts_with("---") {
+        if let Some(pos) = raw_clean[3..].find("\n---") {
+            let inner = &raw_clean[3..3 + pos];
+            inner.lines().map(|s| s.to_string()).collect::<Vec<String>>()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let mut lines = existing_lines;
+
+    let format_yaml_str = |val: &str| -> String {
+        let trimmed = val.trim();
+        if trimmed.contains(':')
+            || trimmed.contains('#')
+            || trimmed.contains('\'')
+            || trimmed.contains('"')
+            || trimmed.contains('\n')
+            || trimmed.starts_with('@')
+            || trimmed.starts_with('`')
+            || trimmed.starts_with('%')
+            || trimmed.is_empty()
+        {
+            let escaped = trimmed
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\r', "")
+                .replace('\n', " ");
+            format!("\"{escaped}\"")
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    if let Some(name) = new_name {
+        let trimmed_name = name.trim();
+        let effective_name = if trimmed_name.is_empty() {
+            fallback_name
+        } else {
+            trimmed_name
+        };
+        let name_val = format_yaml_str(effective_name);
+        let name_line = format!("name: {name_val}");
+        let mut found = false;
+        for line in lines.iter_mut() {
+            if line.trim().starts_with("name:") {
+                *line = name_line.clone();
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            lines.insert(0, name_line);
+        }
+    } else if !lines.iter().any(|l| l.trim().starts_with("name:")) {
+        lines.insert(0, format!("name: {}", format_yaml_str(fallback_name)));
+    }
+
+    if let Some(desc) = new_description {
+        let desc_val = format_yaml_str(desc);
+        let desc_line = format!("description: {desc_val}");
+        let mut found = false;
+        for line in lines.iter_mut() {
+            if line.trim().starts_with("description:") {
+                *line = desc_line.clone();
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            let insert_idx = lines
+                .iter()
+                .position(|l| l.trim().starts_with("name:"))
+                .map(|i| i + 1)
+                .unwrap_or(lines.len());
+            lines.insert(insert_idx, desc_line);
+        }
+    }
+
+    format!("---\n{}\n---", lines.join("\n").trim())
+}
+
+pub(crate) fn save_workspace_skill_content(
+    state: &AppState,
+    path: &str,
+    new_content: &str,
+    new_name: Option<&str>,
+    new_description: Option<&str>,
+) -> Result<SkillSummaryItem, String> {
+    let skill_path = PathBuf::from(path);
+    if !skill_path.is_file() {
+        return Err(format!("Skill file not found: {path}"));
+    }
+    let skills_root = llm_workspace_skills_root(state)?;
+    let canonical_root = skills_root.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_file = skill_path.canonicalize().map_err(|e| e.to_string())?;
+    if !canonical_file.starts_with(&canonical_root) {
+        return Err("Permission denied: skill file is outside the skills workspace directory".to_string());
+    }
+
+    let skill_dir_name = canonical_file
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|v| v.to_str())
+        .unwrap_or_default();
+    let is_builtin = workspace_preset_skills()
+        .iter()
+        .any(|preset| preset.dir_name == skill_dir_name);
+    if is_builtin {
+        return Err("系统内置技能不可修改".to_string());
+    }
+
+    let raw_existing = fs::read_to_string(&canonical_file)
+        .map_err(|e| format!("Failed to read SKILL.md: {e}"))?;
+
+    let fallback_name = if skill_dir_name.is_empty() { "skill" } else { skill_dir_name };
+    let frontmatter = update_skill_frontmatter(&raw_existing, new_name, new_description, fallback_name);
+
+    let updated_full_text = format!("{}\n\n{}", frontmatter.trim_end(), new_content.trim());
+    fs::write(&canonical_file, updated_full_text)
+        .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
+
+    let (name, description, content) = parse_skill_file(&canonical_file)?;
+    let skill_dir = canonical_file.parent().unwrap_or(&canonical_root);
+    let additional_files = scan_skill_additional_files(skill_dir, &canonical_file);
+
+    let summary_item = SkillSummaryItem {
+        name,
+        description,
+        content,
+        path: canonical_file.to_string_lossy().to_string(),
+        additional_files,
+        is_builtin,
+    };
+
+    if let Ok((skills, _)) = load_workspace_skill_summaries_with_errors(state) {
+        let _ = update_hidden_skill_snapshot_cache(state, &skills, None);
+    }
+
+    Ok(summary_item)
+}
+
+pub(crate) fn read_workspace_skill_file(
+    state: &AppState,
+    path: &str,
+) -> Result<String, String> {
+    let target_path = PathBuf::from(path);
+    if !target_path.is_file() {
+        return Err(format!("File not found: {path}"));
+    }
+    let skills_root = llm_workspace_skills_root(state)?;
+    let canonical_root = skills_root.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_file = target_path.canonicalize().map_err(|e| e.to_string())?;
+    if !canonical_file.starts_with(&canonical_root) {
+        return Err("Permission denied: file is outside the skills workspace directory".to_string());
+    }
+
+    fs::read_to_string(&canonical_file)
+        .map_err(|e| format!("Failed to read file: {e}"))
 }
 
 pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
@@ -658,4 +879,19 @@ pub(crate) fn open_skills_workspace_dir(state: &AppState) -> Result<String, Stri
     let path = llm_workspace_skills_root(state)?;
     open_path_in_file_manager(&path)?;
     Ok(path.to_string_lossy().to_string())
+}
+
+pub(crate) fn open_skill_item_dir(state: &AppState, skill_path: &str) -> Result<String, String> {
+    let p = PathBuf::from(skill_path);
+    let target = if p.is_file() {
+        p.parent().unwrap_or(&p).to_path_buf()
+    } else {
+        p
+    };
+    if target.exists() {
+        open_path_in_file_manager(&target)?;
+        Ok(target.to_string_lossy().to_string())
+    } else {
+        open_skills_workspace_dir(state)
+    }
 }

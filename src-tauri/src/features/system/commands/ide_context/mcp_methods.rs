@@ -80,3 +80,42 @@ async fn ide_chat_mcp_refresh_mcp_and_skills_for_web_settings(
 fn ide_chat_mcp_list_skills_for_web_settings(state: &AppState) -> Result<Value, String> {
     ide_chat_serialize(crate::commands::mcp_list_skills_inner(state)?)
 }
+
+fn ide_chat_mcp_save_skill_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter 'path'".to_string())?;
+    let content = params
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
+    let name = params.get("name").and_then(|v| v.as_str());
+    let description = params.get("description").and_then(|v| v.as_str());
+    ide_chat_serialize(crate::commands::mcp_save_skill_inner(state, path, content, name, description)?)
+}
+
+fn ide_chat_mcp_read_skill_file_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter 'path'".to_string())?;
+    ide_chat_serialize(crate::commands::mcp_read_skill_file_inner(state, path)?)
+}
+
+fn ide_chat_skill_open_item_dir_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter 'path'".to_string())?;
+    ide_chat_serialize(crate::commands::skill_open_item_dir_inner(state, path)?)
+}

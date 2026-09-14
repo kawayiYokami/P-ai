@@ -1,202 +1,463 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <div class="flex w-full flex-col gap-3">
-        <div class="text-sm font-semibold">{{ t("config.persona.title") }}</div>
-        <div class="flex gap-1">
-          <select :value="personaEditorId" class="select select-bordered select-sm flex-1" @change="$emit('update:personaEditorId', ($event.target as HTMLSelectElement).value)">
-            <option v-for="p in sortedPersonas" :key="p.id" :value="p.id">
-              {{ p.name }}{{ p.isBuiltInUser ? `（${t("config.persona.userTag")}）` : (isPresetPersona(p) ? `（${t("config.persona.systemTag")}）` : (p.source === "private_workspace" ? `（${t("config.persona.privateWorkspaceTag")}）` : "")) }}
-            </option>
-          </select>
-          <button class="btn btn-sm btn-square btn-ghost" :title="t('config.persona.add')" @click="$emit('addPersona')">
-            <Plus class="h-3.5 w-3.5" />
-          </button>
-          <button
-            class="btn btn-sm btn-square btn-error"
-            :title="t('config.persona.remove')"
-            :disabled="!selectedPersona || selectedPersona.isBuiltInUser || selectedPersona.isBuiltInSystem || assistantPersonas.length <= 1"
-            @click="$emit('removeSelectedPersona')"
-          >
-            <Trash2 class="h-3.5 w-3.5" />
-          </button>
-          <button
-            class="btn btn-sm btn-square btn-ghost"
-            :title="t('common.reset')"
-            :disabled="!personaDirty || personaSaving"
-            @click="$emit('resetPersonas')"
-          >
-            <RotateCcw class="h-3.5 w-3.5" />
-          </button>
-          <button
-            class="btn btn-sm btn-square"
-            :class="personaDirty ? 'btn-primary' : 'btn-ghost'"
-            :disabled="!selectedPersona || !personaDirty || personaSaving"
-            :title="personaSaving ? t('config.api.saving') : personaDirty ? t('common.save') : t('status.personaSaved')"
-            @click="$emit('savePersonas')"
-          >
-            <Save v-if="!personaSaving" class="h-3.5 w-3.5" />
-            <span v-else class="loading loading-spinner loading-sm"></span>
-          </button>
-        </div>
-        <div class="text-sm opacity-60">{{ t("config.persona.hint") }}</div>
-      </div>
-    </template>
-
-    <div v-if="selectedPersona" class="grid gap-3">
-      <ConfigTemplate :model-value="templateValues" :groups="templateGroups">
-        <template #row-persona-name>
-          <div class="flex min-w-0 flex-wrap items-center gap-3">
-            <div class="shrink-0 text-sm font-medium">{{ t('config.persona.name') }}</div>
-            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <input v-model="selectedPersona.name" class="input input-bordered input-sm w-52 max-w-full shrink-0" :placeholder="t('config.persona.name')" />
-              <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary shrink-0">{{ t("config.persona.privateWorkspaceTag") }}</span>
-              <button
-                v-if="selectedPersonaIsPrivateWorkspace"
-                class="btn btn-xs btn-outline shrink-0"
-                :disabled="personaSaving"
-                @click="emitConvertPrivatePersona"
-              >
-                {{ t("config.persona.convertToPublic") }}
-              </button>
+      <Transition name="fade" mode="out-in">
+        <!-- 二级详情模式头部：面包屑导航 + 返回按钮 + 操作区 -->
+        <div v-if="inDetailMode" key="detail" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <button
+              class="btn btn-ghost btn-sm min-h-[2.25rem] gap-1.5 px-2.5"
+              type="button"
+              :title="t('config.persona.backToList')"
+              @click="backToList"
+            >
+              <ArrowLeft class="h-4 w-4" />
+              <span class="text-xs">{{ t("config.persona.backToList") }}</span>
+            </button>
+            <div class="divider divider-horizontal my-1 py-0 opacity-40"></div>
+            <div class="breadcrumbs p-0 text-xs">
+              <ul>
+                <li>
+                  <button
+                    type="button"
+                    class="link link-hover font-normal opacity-70 hover:opacity-100"
+                    @click="backToList"
+                  >
+                    {{ t("config.persona.overview") }}
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="link link-hover font-normal opacity-70 hover:opacity-100"
+                    @click="backToList"
+                  >
+                    {{ isPresetPersona(selectedPersona) ? t("config.persona.presetPersonas") : t("config.persona.customPersonas") }}
+                  </button>
+                </li>
+                <li class="font-semibold text-base-content">
+                  {{ selectedPersona?.name || t("config.persona.title") }}
+                </li>
+              </ul>
             </div>
           </div>
-        </template>
 
-        <template #row-persona-avatar>
-          <div class="grid min-w-0 gap-2">
-            <div class="flex items-center justify-between gap-4">
-              <div class="text-sm font-medium">{{ t('config.persona.avatar') }}</div>
-              <button
-                class="btn btn-ghost btn-circle h-auto min-h-0 w-auto shrink-0 p-0"
-                :disabled="avatarSaving"
-                :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
-                @click="$emit('openAvatarEditor')"
-              >
-                <div v-if="selectedPersonaAvatarUrl" class="avatar">
-                  <div class="w-10 rounded-full">
-                    <img :src="selectedPersonaAvatarUrl" :alt="selectedPersona.name" :title="selectedPersona.name" />
-                  </div>
-                </div>
-                <div v-else class="avatar placeholder">
-                  <div class="w-10 rounded-full bg-neutral text-neutral-content">
-                    <span>{{ avatarInitial(selectedPersona.name) }}</span>
-                  </div>
-                </div>
-              </button>
-            </div>
-            <div v-if="avatarError" class="break-all text-error">{{ avatarError }}</div>
-          </div>
-        </template>
-
-        <template #row-persona-prompt>
-          <div class="grid min-w-0 gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <div class="text-sm font-medium">{{ t('config.persona.prompt') }}</div>
-              <button v-if="selectedPersonaIsPreset" class="btn btn-ghost btn-sm gap-2" @click="restoreSelectedPersonaPreset">
-                <RotateCcw class="h-3.5 w-3.5" />
-                {{ t("config.persona.restoreInitial") }}
-              </button>
-            </div>
-            <textarea
-              v-model="selectedPersona.systemPrompt"
-              class="textarea textarea-bordered textarea-sm w-full"
-              rows="12"
-              :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.id === 'system-persona' ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
-            ></textarea>
-          </div>
-        </template>
-
-        <template #row-persona-departments>
-          <div class="grid min-w-0 gap-2">
-            <div class="text-sm font-medium">{{ t('config.persona.departments') }}</div>
-            <div v-if="!selectedPersonaCanJoinDepartment" class="text-xs leading-snug text-base-content/60">
-              {{ t('config.persona.departmentsUnavailable') }}
-            </div>
-            <template v-else>
-              <div v-if="joinableDepartments.length === 0" class="text-sm opacity-60">
-                {{ t('config.persona.departmentsEmpty') }}
-              </div>
-              <div v-else class="flex flex-wrap gap-y-2">
-                <label
-                  v-for="department in joinableDepartments"
-                  :key="department.id"
-                  class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
-                >
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-primary checkbox-sm"
-                    :checked="selectedPersonaDepartmentIds.includes(String(department.id || '').trim())"
-                    :disabled="configSaving"
-                    @change="togglePersonaDepartment(department.id, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span class="min-w-0 truncate text-sm">{{ department.name || department.id }}</span>
-                </label>
-              </div>
-              <div v-if="selectedPersonaDepartmentIds.length === 0" class="text-xs leading-snug text-warning">
-                {{ t('config.persona.departmentsWarning') }}
-              </div>
-            </template>
-          </div>
-        </template>
-
-        <template #row-private-memory>
-          <div class="grid min-w-0 gap-2">
-            <div>
-              <div class="text-sm">{{ t('config.persona.privateMemory') }}</div>
-              <div class="mt-1 text-xs leading-snug text-base-content/60">{{ t('config.persona.privateMemoryHint') }}</div>
-            </div>
-            <SegmentedControl
-              :model-value="!!selectedPersona.privateMemoryEnabled"
-              :options="privateMemoryModeOptions"
-              :disabled="privateMemoryCounting || privateMemorySwitching"
-              size="sm"
-              @change="setPrivateMemoryMode"
-            />
-          </div>
-        </template>
-
-        <template #row-memory-recall-mode>
-          <div class="grid min-w-0 gap-2">
-            <div>
-              <div class="text-sm">{{ t('config.persona.memoryRecallMode') }}</div>
-              <div class="mt-1 text-xs leading-snug text-base-content/60">{{ memoryRecallModeHint }}</div>
-            </div>
-            <SegmentedControl
-              :model-value="selectedPersonaMemoryRecallMode"
-              :options="memoryRecallModeOptions"
-              :disabled="memoryRecallModeSwitching"
-              size="sm"
-              @change="setMemoryRecallMode"
-            />
-          </div>
-        </template>
-
-        <template #row-memory-import>
-          <div class="flex min-w-0 items-center justify-between gap-4">
-            <div class="text-sm">{{ t('config.persona.import') }}</div>
-            <button class="btn btn-sm btn-ghost shrink-0" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-              {{ t('config.persona.import') }}
+          <div class="flex items-center gap-2">
+            <button
+              v-if="personaDirty"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+              type="button"
+              :disabled="personaSaving"
+              @click="$emit('resetPersonas')"
+            >
+              <RotateCcw class="h-4 w-4" />
+              <span>{{ t("config.persona.restoreDraft") }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+              :class="personaDirty ? 'btn-primary' : 'bg-base-100'"
+              type="button"
+              :disabled="!selectedPersona || !personaDirty || personaSaving"
+              :title="personaSaving ? t('config.persona.saving') : personaDirty ? t('common.save') : t('status.personaSaved')"
+              @click="$emit('savePersonas')"
+            >
+              <span v-if="personaSaving" class="loading loading-spinner loading-xs"></span>
+              <Save v-else class="h-4 w-4" />
+              <span>{{ personaSaving ? t("config.persona.saving") : t("common.save") }}</span>
+            </button>
+            <button
+              v-if="selectedPersona && canDeletePersona(selectedPersona)"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+              type="button"
+              :title="t('config.persona.remove')"
+              @click="promptDelete(selectedPersona)"
+            >
+              <Trash2 class="h-4 w-4" />
+              <span>{{ t("common.delete") }}</span>
             </button>
           </div>
-        </template>
-      </ConfigTemplate>
+        </div>
 
-      <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
-        {{ privateMemoryError }}
+        <!-- 一级概览模式头部：分类筛选（自定义人格 vs 系统预设）+ 搜索过滤 + 新增操作 -->
+        <div v-else key="overview" class="flex flex-col gap-3">
+          <SegmentedControl
+            :model-value="activeCategoryTab"
+            :options="personaCategoryOptions"
+            size="md"
+            @change="(val) => { activeCategoryTab = val; searchQuery = ''; }"
+          />
+
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="relative min-w-[14rem] flex-1">
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.persona.searchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+              <button
+                v-if="searchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                :title="t('config.persona.clearSearch')"
+                @click="searchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                v-if="activeCategoryTab === 'custom'"
+                class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+                type="button"
+                @click="onAddPersonaClick"
+              >
+                <Plus class="h-4 w-4" />
+                <span>{{ t("config.persona.add") }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </template>
+
+    <!-- 二级详情模式内容 -->
+    <div v-if="inDetailMode">
+      <div v-if="selectedPersona" class="grid gap-3">
+        <ConfigTemplate :model-value="templateValues" :groups="templateGroups">
+          <template #row-persona-name>
+            <div class="flex min-w-0 flex-wrap items-center gap-3">
+              <div class="shrink-0 text-sm font-medium">{{ t('config.persona.name') }}</div>
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <input v-model="selectedPersona.name" class="input input-bordered input-sm w-52 max-w-full shrink-0" :placeholder="t('config.persona.name')" />
+                <span v-if="isPresetPersona(selectedPersona)" class="badge badge-neutral shrink-0">{{ t("config.persona.systemTag") }}</span>
+                <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary shrink-0">{{ t("config.persona.privateWorkspaceTag") }}</span>
+                <button
+                  v-if="selectedPersonaIsPrivateWorkspace"
+                  class="btn btn-sm min-h-[2.25rem] btn-outline shrink-0 gap-1.5"
+                  type="button"
+                  :disabled="personaSaving"
+                  @click="emitConvertPrivatePersona"
+                >
+                  {{ t("config.persona.convertToPublic") }}
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template #row-persona-avatar>
+            <div class="grid min-w-0 gap-2">
+              <div class="flex items-center justify-between gap-4">
+                <div class="text-sm font-medium">{{ t('config.persona.avatar') }}</div>
+                <button
+                  class="btn btn-ghost btn-circle h-12 w-12 min-h-[3rem] shrink-0 p-0 hover:ring-2 hover:ring-primary/40"
+                  :disabled="avatarSaving"
+                  :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
+                  @click="$emit('openAvatarEditor')"
+                >
+                  <div v-if="selectedPersonaAvatarUrl" class="avatar">
+                    <div class="w-11 rounded-full">
+                      <img :src="selectedPersonaAvatarUrl" :alt="selectedPersona.name" :title="selectedPersona.name" />
+                    </div>
+                  </div>
+                  <div v-else class="avatar placeholder">
+                    <div class="w-11 rounded-full bg-neutral text-neutral-content font-bold">
+                      <span>{{ avatarInitial(selectedPersona.name) }}</span>
+                    </div>
+                  </div>
+                </button>
+              </div>
+              <div v-if="avatarError" class="break-all text-error">{{ avatarError }}</div>
+            </div>
+          </template>
+
+          <template #row-persona-prompt>
+            <div class="grid min-w-0 gap-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-medium">{{ t('config.persona.prompt') }}</div>
+                <button v-if="selectedPersonaIsPreset" class="btn btn-ghost btn-sm min-h-[2rem] gap-2" @click="restoreSelectedPersonaPreset">
+                  <RotateCcw class="h-4 w-4" />
+                  {{ t("config.persona.restoreInitial") }}
+                </button>
+              </div>
+              <MarkdownEditor
+                v-model="selectedPersona.systemPrompt"
+                :placeholder="selectedPersona.isBuiltInUser ? t('config.persona.userPlaceholder') : (selectedPersona.id === 'system-persona' ? t('config.persona.systemPlaceholder') : t('config.persona.assistantPlaceholder'))"
+              />
+            </div>
+          </template>
+
+          <template #row-persona-departments>
+            <div class="grid min-w-0 gap-2">
+              <div class="text-sm font-medium">{{ t('config.persona.departments') }}</div>
+              <div v-if="!selectedPersonaCanJoinDepartment" class="text-xs leading-snug text-base-content/60">
+                {{ t('config.persona.departmentsUnavailable') }}
+              </div>
+              <template v-else>
+                <div v-if="joinableDepartments.length === 0" class="text-sm opacity-60">
+                  {{ t('config.persona.departmentsEmpty') }}
+                </div>
+                <div v-else class="flex flex-wrap gap-y-2">
+                  <label
+                    v-for="department in joinableDepartments"
+                    :key="department.id"
+                    class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      :checked="selectedPersonaDepartmentIds.includes(String(department.id || '').trim())"
+                      :disabled="configSaving"
+                      @change="togglePersonaDepartment(department.id, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span class="min-w-0 truncate text-sm">{{ department.name || department.id }}</span>
+                  </label>
+                </div>
+                <div v-if="selectedPersonaDepartmentIds.length === 0" class="text-xs leading-snug text-warning">
+                  {{ t('config.persona.departmentsWarning') }}
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <template #row-private-memory>
+            <div class="grid min-w-0 gap-2">
+              <div>
+                <div class="text-sm">{{ t('config.persona.privateMemory') }}</div>
+                <div class="mt-1 text-xs leading-snug text-base-content/60">{{ t('config.persona.privateMemoryHint') }}</div>
+              </div>
+              <SegmentedControl
+                :model-value="!!selectedPersona.privateMemoryEnabled"
+                :options="privateMemoryModeOptions"
+                :disabled="privateMemoryCounting || privateMemorySwitching"
+                size="sm"
+                @change="setPrivateMemoryMode"
+              />
+            </div>
+          </template>
+
+          <template #row-memory-recall-mode>
+            <div class="grid min-w-0 gap-2">
+              <div>
+                <div class="text-sm">{{ t('config.persona.memoryRecallMode') }}</div>
+                <div class="mt-1 text-xs leading-snug text-base-content/60">{{ memoryRecallModeHint }}</div>
+              </div>
+              <SegmentedControl
+                :model-value="selectedPersonaMemoryRecallMode"
+                :options="memoryRecallModeOptions"
+                :disabled="memoryRecallModeSwitching"
+                size="sm"
+                @change="setMemoryRecallMode"
+              />
+            </div>
+          </template>
+
+          <template #row-memory-import>
+            <div class="flex min-w-0 items-center justify-between gap-4">
+              <div class="text-sm">{{ t('config.persona.import') }}</div>
+              <button class="btn btn-sm min-h-[2rem] btn-ghost shrink-0" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                {{ t('config.persona.import') }}
+              </button>
+            </div>
+          </template>
+        </ConfigTemplate>
+
+        <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
+          {{ privateMemoryError }}
+        </div>
+
+        <input
+          ref="personaMemoryImportInput"
+          type="file"
+          accept=".json,application/json"
+          class="hidden"
+          @change="onPersonaMemoryImportFile"
+        />
+      </div>
+    </div>
+
+    <!-- 一级概览模式内容：2 列卡片矩阵（保持与供应商和连接器统一的列宽与间距） -->
+    <div v-else class="flex flex-col gap-4">
+      <!-- 空状态 -->
+      <div v-if="displayedPersonas.length === 0" class="card border border-dashed border-base-300 bg-base-100 py-12">
+        <div class="card-body items-center justify-center text-center">
+          <User class="h-10 w-10 opacity-30" />
+          <h3 class="text-sm font-medium opacity-70">
+            {{ searchQuery ? t("config.persona.noPersonas") : (activeCategoryTab === 'custom' ? t("config.persona.noCustomPersonas") : t("config.persona.noPresetPersonas")) }}
+          </h3>
+          <p class="text-xs opacity-50">
+            {{ searchQuery ? t("config.persona.clearSearch") : (activeCategoryTab === 'custom' ? t("config.persona.noCustomPersonasHint") : "") }}
+          </p>
+          <div class="card-actions mt-3">
+            <button
+              v-if="searchQuery"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-xs"
+              type="button"
+              @click="searchQuery = ''"
+            >
+              {{ t("config.persona.clearSearch") }}
+            </button>
+            <button
+              v-else-if="activeCategoryTab === 'custom'"
+              class="btn btn-sm min-h-[2.25rem] btn-primary text-xs"
+              type="button"
+              @click="onAddPersonaClick"
+            >
+              <Plus class="h-4 w-4" />
+              <span>{{ t("config.persona.add") }}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      <input
-        ref="personaMemoryImportInput"
-        type="file"
-        accept=".json,application/json"
-        class="hidden"
-        @change="onPersonaMemoryImportFile"
-      />
+      <!-- 自适应卡片网格 -->
+      <div v-else class="config-grid-auto-md">
+        <div
+          v-for="persona in displayedPersonas"
+          :key="persona.id"
+          role="button"
+          tabindex="0"
+          class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+          :class="persona.id === selectedPersona?.id ? 'ring-1 ring-primary/40 border-primary/40' : ''"
+          @click="enterPersona(persona)"
+          @keydown.enter.prevent="enterPersona(persona)"
+          @keydown.space.prevent="enterPersona(persona)"
+        >
+          <!-- 头部：头像 + 姓名/标识 + 标签 + 删除操作 -->
+          <div class="flex items-start justify-between gap-2.5 min-w-0">
+            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+              <div class="avatar shrink-0">
+                <div class="w-11 h-11 rounded-full ring-1 ring-base-200 overflow-hidden">
+                  <img
+                    v-if="resolveAvatarUrl(persona)"
+                    :src="resolveAvatarUrl(persona)"
+                    :alt="persona.name"
+                    class="w-full h-full object-cover rounded-full"
+                  />
+                  <div
+                    v-else
+                    class="flex h-full w-full items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm"
+                  >
+                    {{ avatarInitial(persona.name) }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    {{ persona.name }}
+                  </span>
+                  <span v-if="persona.isBuiltInUser" class="badge badge-info badge-xs shrink-0 font-medium">
+                    {{ t("config.persona.userTag") }}
+                  </span>
+                  <span v-else-if="isPresetPersona(persona)" class="badge badge-neutral badge-xs shrink-0 font-medium">
+                    {{ t("config.persona.systemTag") }}
+                  </span>
+                </div>
+
+                <!-- 部门归属 / 角色标识 -->
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  <template v-if="getPersonaDepartments(persona.id).length > 0">
+                    <span
+                      v-for="dept in getPersonaDepartments(persona.id)"
+                      :key="dept.id"
+                      class="badge badge-ghost badge-xs gap-1 font-mono text-caption"
+                    >
+                      <Building2 class="h-3 w-3 opacity-60" />
+                      {{ dept.name || dept.id }}
+                    </span>
+                  </template>
+                  <span
+                    v-if="persona.id === 'default-agent'"
+                    class="badge badge-primary badge-outline badge-xs text-caption"
+                  >
+                    {{ t("config.persona.defaultAgent") }}
+                  </span>
+                  <span
+                    v-else-if="persona.id === 'deputy-agent'"
+                    class="badge badge-secondary badge-outline badge-xs text-caption"
+                  >
+                    {{ t("config.persona.deputyAgent") }}
+                  </span>
+                  <span
+                    v-else-if="persona.id === 'system-persona'"
+                    class="badge badge-neutral badge-outline badge-xs text-caption"
+                  >
+                    {{ t("config.persona.systemPersona") }}
+                  </span>
+                  <span
+                    v-else-if="persona.id === 'user-persona' || persona.isBuiltInUser"
+                    class="badge badge-info badge-outline badge-xs text-caption"
+                  >
+                    {{ t("config.persona.userPersona") }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片右上角独立删除按钮（仅限自定义人格） -->
+            <button
+              v-if="canDeletePersona(persona)"
+              type="button"
+              class="btn btn-ghost btn-xs btn-circle opacity-0 group-hover:opacity-100 hover:text-error transition-opacity shrink-0"
+              :title="t('config.persona.remove')"
+              @click.stop="promptDelete(persona)"
+            >
+              <Trash2 class="h-4 w-4" />
+            </button>
+          </div>
+
+          <!-- 中部：Prompt 预览（简单 Markdown：行内格式 + 标题加粗） -->
+          <p class="text-xs text-base-content/70 line-clamp-2 leading-relaxed min-h-[2.5rem] break-words">
+            <InlineMarkdownText :text="persona.systemPrompt?.trim() || t('config.persona.noPrompt')" />
+          </p>
+
+          <!-- 底栏：记忆特性标签 + 进入提示 -->
+          <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+            <div class="flex items-center gap-1.5">
+              <span v-if="persona.privateMemoryEnabled" class="badge badge-sm badge-accent badge-outline text-caption">
+                {{ t("config.persona.privateMemory") }}
+              </span>
+              <span v-if="persona.memoryRecallMode && persona.memoryRecallMode !== 'auto'" class="badge badge-sm badge-ghost text-caption">
+                {{ recallModeLabel(persona.memoryRecallMode) }}
+              </span>
+            </div>
+            <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all ml-auto" />
+          </div>
+        </div>
+      </div>
     </div>
   </SettingsStickyLayout>
 
+  <!-- 删除人格确认对话框 -->
+  <dialog ref="deleteDialogRef" class="modal">
+    <div class="modal-box max-w-sm">
+      <h3 class="text-sm font-semibold mb-2 text-error flex items-center gap-2">
+        <Trash2 class="h-4 w-4" />
+        {{ t("config.persona.deletePersona") }}
+      </h3>
+      <p class="text-sm text-base-content/80">
+        {{ t("config.persona.deleteConfirm", { name: pendingDeletePersona?.name || "" }) }}
+      </p>
+      <div class="modal-action">
+        <button class="btn btn-sm min-h-[2.25rem]" type="button" @click="cancelDelete">
+          {{ t("common.cancel") }}
+        </button>
+        <button class="btn btn-sm min-h-[2.25rem] btn-error" type="button" @click="confirmDelete">
+          {{ t("common.delete") }}
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="cancelDelete">close</button>
+    </form>
+  </dialog>
+
+  <!-- 私有记忆关闭对话框 -->
   <dialog ref="privateMemoryDialog" class="modal">
     <div class="modal-box max-w-md">
       <h3 class="text-sm font-semibold mb-2">{{ t('config.persona.closePrivateMemoryConfirm') }}</h3>
@@ -211,7 +472,7 @@
       </div>
       <div v-if="!privateMemoryCounting && privateMemoryCount > 0" class="mt-3">
         <button
-          class="btn btn-sm btn-warning"
+          class="btn btn-sm min-h-[2.25rem] btn-warning"
           :disabled="privateMemoryExporting || privateMemoryExported"
           @click="exportPrivateMemoriesBeforeDisable"
         >
@@ -219,9 +480,9 @@
         </button>
       </div>
       <div class="modal-action">
-        <button class="btn btn-sm" :disabled="privateMemoryCounting || privateMemoryExporting || privateMemorySwitching" @click="cancelDisablePrivateMemory">{{ t('common.cancel') }}</button>
+        <button class="btn btn-sm min-h-[2.25rem]" :disabled="privateMemoryCounting || privateMemoryExporting || privateMemorySwitching" @click="cancelDisablePrivateMemory">{{ t('common.cancel') }}</button>
         <button
-          class="btn btn-sm btn-primary"
+          class="btn btn-sm min-h-[2.25rem] btn-primary"
           :disabled="privateMemoryCounting || privateMemoryExporting || privateMemorySwitching || (privateMemoryCount > 0 && !privateMemoryExported)"
           @click="confirmDisablePrivateMemory"
         >
@@ -238,7 +499,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
+import { ArrowLeft, Building2, ChevronRight, Plus, RotateCcw, Save, Search, Trash2, User } from "@lucide/vue";
 import type { DepartmentConfig, MemoryRecallMode, PersonaProfile } from "../../../../types/app";
 import { exportTransportAgentPrivateMemories, invokeTauri } from "../../../../services/tauri-api";
 import { resolvePersonaDepartmentIds } from "../../../shared/department-persona-options";
@@ -246,20 +507,25 @@ import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import MarkdownEditor from "../../components/MarkdownEditor.vue";
+import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   personas: PersonaProfile[];
   assistantPersonas: PersonaProfile[];
   personaEditorId: string;
   selectedPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
+  personaAvatarUrlMap?: Record<string, string>;
   departments: DepartmentConfig[];
   avatarSaving: boolean;
   avatarError: string;
   personaSaving: boolean;
   personaDirty: boolean;
   configSaving: boolean;
-}>();
+}>(), {
+  personaAvatarUrlMap: () => ({}),
+});
 
 const emit = defineEmits<{
   (e: "update:personaEditorId", value: string): void;
@@ -274,6 +540,131 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+const inDetailMode = ref(false);
+const searchQuery = ref("");
+type PersonaCategoryTab = "custom" | "preset";
+const activeCategoryTab = ref<PersonaCategoryTab>("custom");
+
+function isPresetPersona(persona: PersonaProfile | null | undefined): boolean {
+  const id = String(persona?.id || "").trim();
+  if (!id) return false;
+  return id === "default-agent"
+    || id === "deputy-agent"
+    || id === "user-persona"
+    || id === "system-persona"
+    || !!persona?.isBuiltInUser
+    || !!persona?.isBuiltInSystem;
+}
+
+const customPersonas = computed(() =>
+  props.personas.filter((p) => !isPresetPersona(p)),
+);
+
+const presetPersonas = computed(() =>
+  sortPersonasForSelect(props.personas.filter((p) => isPresetPersona(p))),
+);
+
+const personaCategoryOptions = computed(() => [
+  {
+    value: "custom" as const,
+    label: t("config.persona.customPersonas"),
+    badge: customPersonas.value.length,
+  },
+  {
+    value: "preset" as const,
+    label: t("config.persona.presetPersonas"),
+    badge: presetPersonas.value.length,
+  },
+]);
+
+const displayedPersonas = computed(() => {
+  const sourceList = activeCategoryTab.value === "custom" ? customPersonas.value : presetPersonas.value;
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return sourceList;
+
+  return sourceList.filter((p) => {
+    const nameMatch = (p.name || "").toLowerCase().includes(q);
+    const promptMatch = (p.systemPrompt || "").toLowerCase().includes(q);
+    const idMatch = (p.id || "").toLowerCase().includes(q);
+    const depts = getPersonaDepartments(p.id);
+    const deptMatch = depts.some((d) => (d.name || d.id || "").toLowerCase().includes(q));
+    return nameMatch || promptMatch || idMatch || deptMatch;
+  });
+});
+
+function resolveAvatarUrl(persona: PersonaProfile): string {
+  if (persona.id === props.selectedPersona?.id && props.selectedPersonaAvatarUrl) {
+    return props.selectedPersonaAvatarUrl;
+  }
+  return props.personaAvatarUrlMap?.[persona.id] || "";
+}
+
+function avatarInitial(name: string): string {
+  const text = (name || "").trim();
+  if (!text) return "?";
+  return text[0].toUpperCase();
+}
+
+function getPersonaDepartments(personaId: string): DepartmentConfig[] {
+  const assignedIds = new Set(resolvePersonaDepartmentIds(props.departments, personaId));
+  return (props.departments || []).filter((d) => assignedIds.has(String(d.id || "").trim()));
+}
+
+function canPersonaJoinDepartment(persona: PersonaProfile): boolean {
+  const id = String(persona.id || "").trim();
+  if (!id || id === "user-persona" || persona.isBuiltInUser) return false;
+  return id === "deputy-agent" || !persona.isBuiltInSystem;
+}
+
+function canDeletePersona(persona: PersonaProfile | null | undefined): boolean {
+  if (!persona) return false;
+  return !isPresetPersona(persona) && props.assistantPersonas.length > 1;
+}
+
+function recallModeLabel(mode?: string): string {
+  if (mode === "manual") return t("config.persona.memoryRecallManual");
+  if (mode === "off") return t("config.persona.memoryRecallOff");
+  return t("config.persona.memoryRecallAuto");
+}
+
+const deleteDialogRef = ref<HTMLDialogElement | null>(null);
+const pendingDeletePersona = ref<PersonaProfile | null>(null);
+
+function promptDelete(persona: PersonaProfile) {
+  pendingDeletePersona.value = persona;
+  deleteDialogRef.value?.showModal();
+}
+
+function cancelDelete() {
+  deleteDialogRef.value?.close();
+  pendingDeletePersona.value = null;
+}
+
+function confirmDelete() {
+  if (!pendingDeletePersona.value) return;
+  emit("update:personaEditorId", pendingDeletePersona.value.id);
+  emit("removeSelectedPersona");
+  deleteDialogRef.value?.close();
+  pendingDeletePersona.value = null;
+  inDetailMode.value = false;
+}
+
+function enterPersona(persona: PersonaProfile) {
+  emit("update:personaEditorId", persona.id);
+  inDetailMode.value = true;
+}
+
+function backToList() {
+  inDetailMode.value = false;
+}
+
+function onAddPersonaClick() {
+  activeCategoryTab.value = "custom";
+  emit("addPersona");
+  inDetailMode.value = true;
+}
+
 const templateValues = {};
 const templateGroups = computed<ConfigTemplateGroup[]>(() => {
   const groups: ConfigTemplateGroup[] = [
@@ -289,7 +680,7 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => {
     },
   ];
   const persona = props.selectedPersona;
-  if (persona && !persona.isBuiltInUser && !persona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace.value) {
+  if (persona && !persona.isBuiltInUser && !persona.isBuiltInSystem) {
     groups.push({
       key: "persona-memory",
       title: t("config.persona.memorySettings"),
@@ -302,15 +693,18 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => {
   }
   return groups;
 });
+
 const privateMemoryModeOptions = computed(() => [
   { value: false, label: t("config.persona.global") },
   { value: true, label: t("config.persona.private") },
 ]);
+
 const memoryRecallModeOptions = computed(() => [
   { value: "auto" as MemoryRecallMode, label: t("config.persona.memoryRecallAuto") },
   { value: "manual" as MemoryRecallMode, label: t("config.persona.memoryRecallManual") },
   { value: "off" as MemoryRecallMode, label: t("config.persona.memoryRecallOff") },
 ]);
+
 const personaMemoryImportInput = ref<HTMLInputElement | null>(null);
 const privateMemoryDialog = ref<HTMLDialogElement | null>(null);
 const privateMemoryCounting = ref(false);
@@ -322,12 +716,11 @@ const privateMemoryError = ref("");
 const privateMemoryCount = ref(0);
 const privateMemoryExported = ref(false);
 const pendingDisableAgentId = ref("");
-const selectedPersonaIsPrivateWorkspace = computed(
-  () => props.selectedPersona?.source === "private_workspace",
-);
+
 const selectedPersonaDepartmentIds = computed(() =>
   resolvePersonaDepartmentIds(props.departments, props.selectedPersona?.id),
 );
+
 // 内置用户人格与内置系统人格不能作为部门成员，与部门页的候选规则保持一致
 const selectedPersonaCanJoinDepartment = computed(() => {
   const persona = props.selectedPersona;
@@ -336,12 +729,11 @@ const selectedPersonaCanJoinDepartment = computed(() => {
   if (!id || id === "user-persona" || persona.isBuiltInUser) return false;
   return id === "deputy-agent" || !persona.isBuiltInSystem;
 });
-// 可勾选的部门：私域部门由私有工作区文件维护，不在人格页改动
+
 const joinableDepartments = computed(() =>
   (props.departments || []).filter((department) => {
     const departmentId = String(department.id || "").trim();
-    if (!departmentId) return false;
-    return String(department.source || "").trim() !== "private_workspace";
+    return !!departmentId;
   }),
 );
 
@@ -355,13 +747,25 @@ function togglePersonaDepartment(departmentId: string, member: boolean) {
     member: !!member,
   });
 }
+
 const selectedPersonaIsPreset = computed(
   () => isPresetPersona(props.selectedPersona),
 );
-const sortedPersonas = computed(() => sortPersonasForSelect(props.personas));
+
+const selectedPersonaIsPrivateWorkspace = computed(
+  () => props.selectedPersona?.source === "private_workspace",
+);
+
+function emitConvertPrivatePersona() {
+  const agentId = props.selectedPersona?.id;
+  if (!agentId || !selectedPersonaIsPrivateWorkspace.value) return;
+  emit("convertPrivatePersonaToPublic", agentId);
+}
+
 const selectedPersonaMemoryRecallMode = computed(() =>
   normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode),
 );
+
 const memoryRecallModeHint = computed(() => {
   if (selectedPersonaMemoryRecallMode.value === "manual") {
     return t("config.persona.memoryRecallModeHintManual");
@@ -391,23 +795,6 @@ function sortPersonasForSelect(personas: PersonaProfile[]): PersonaProfile[] {
     .map((persona, index) => ({ persona, index }))
     .sort((a, b) => personaSelectRank(a.persona) - personaSelectRank(b.persona) || a.index - b.index)
     .map((item) => item.persona);
-}
-
-function avatarInitial(name: string): string {
-  const text = (name || "").trim();
-  if (!text) return "?";
-  return text[0].toUpperCase();
-}
-
-function isPresetPersona(persona: PersonaProfile | null | undefined): boolean {
-  const id = String(persona?.id || "").trim();
-  if (!id) return false;
-  return id === "default-agent"
-    || id === "deputy-agent"
-    || id === "user-persona"
-    || id === "system-persona"
-    || !!persona?.isBuiltInUser
-    || !!persona?.isBuiltInSystem;
 }
 
 function personaDefaultSeed(persona: PersonaProfile | null | undefined): PersonaDefaultSeed | null {
@@ -448,12 +835,6 @@ function triggerPersonaMemoryImport() {
   if (!personaMemoryImportInput.value) return;
   personaMemoryImportInput.value.value = "";
   personaMemoryImportInput.value.click();
-}
-
-function emitConvertPrivatePersona() {
-  const agentId = props.selectedPersona?.id;
-  if (!agentId || !selectedPersonaIsPrivateWorkspace.value) return;
-  emit("convertPrivatePersonaToPublic", agentId);
 }
 
 function onPersonaMemoryImportFile(event: Event) {
@@ -499,7 +880,7 @@ async function setPrivateMemoryMode(enabled: boolean) {
     privateMemoryCount.value = count;
     privateMemoryDialogMessage.value = count <= 0
       ? t('config.persona.noPrivateMemorySafe')
-      : `t('config.persona.hasPrivateMemory', { count })\n\n请先点击“导出私有记忆”，导出成功后才可确认关闭。\n关闭后这些私有记忆将从本 App 永久删除。\n你需要手动重新导入才能恢复。`;
+      : `${t('config.persona.hasPrivateMemory', { count: count.toLocaleString() })}\n\n${t('config.persona.mustExportFirstHint')}`;
   } catch {
     privateMemoryCount.value = 0;
     privateMemoryDialogMessage.value = t('config.persona.countFailedButCanClose');
@@ -546,10 +927,10 @@ async function exportPrivateMemoriesBeforeDisable() {
   try {
     const result = await exportTransportAgentPrivateMemories<{ count: number; path: string }>({ agentId });
     privateMemoryExported.value = true;
-    privateMemoryDialogMessage.value = `t('config.persona.exportSuccess', { count: result.count })\n路径：${result.path}\n\n现在可以点击“确认”关闭私有记忆。`;
+    privateMemoryDialogMessage.value = `${t('config.persona.exportSuccess', { count: result.count.toLocaleString() })}\n${t('config.persona.exportSuccessPathHint', { path: result.path })}`;
   } catch (error) {
     privateMemoryExported.value = false;
-    privateMemoryError.value = `导出失败：${String(error ?? "unknown")}`;
+    privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
   } finally {
     privateMemoryExporting.value = false;
   }

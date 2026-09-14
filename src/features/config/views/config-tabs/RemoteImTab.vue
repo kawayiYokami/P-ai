@@ -1,260 +1,519 @@
 <template>
-  <div class="flex flex-wrap items-start gap-4 min-h-0 h-full pr-1">
-    <!-- 左侧：渠道列表 -->
-    <div class="self-start h-auto bg-base-100 rounded-box border border-base-300 min-w-88 flex-1 basis-104 flex flex-col overflow-hidden">
-      <div class="flex items-center justify-between px-3 py-2 shrink-0">
-        <span class="font-semibold text-sm">{{ t("config.remoteIm.title") }}</span>
-        <div class="flex gap-1">
-          <button class="btn btn-square btn-ghost" :title="t('config.remoteIm.addChannel')" @click="openAddChannelModal">
-            <Plus class="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      <div v-if="channels.length === 0" class="text-xs italic opacity-60 py-4 text-center">
-        {{ t("config.remoteIm.empty") }}
-      </div>
-      <div v-else class="flex-1 overflow-y-auto px-3 py-3">
-        <div class="flex flex-wrap gap-3">
-          <div
-            v-for="ch in channels"
-            :key="ch.id"
-            class="w-48 max-w-full shrink-0 rounded-box border transition-colors"
-            :class="selectedChannelId === ch.id ? 'border-primary bg-primary/8' : 'border-base-300 bg-base-200 hover:border-base-content/20'"
-            @click="selectedChannelId = ch.id"
-          >
-            <div class="flex items-start justify-between gap-3 px-4 py-2">
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-semibold">
-                  {{ ch.name || t('config.remoteIm.channelName') }}
-                </div>
-                <div class="mt-1 text-xs opacity-60 truncate">
-                  {{ platformLabelText(ch.platform) }}
-                </div>
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    class="badge badge-sm h-7 shrink-0 whitespace-nowrap px-3 text-xs leading-none transition-colors"
-                    :class="ch.filterMarkdown ? 'badge-accent text-accent-content' : 'bg-base-300 text-base-content border-transparent'"
-                    :title="t('config.remoteIm.filterMarkdownHint')"
-                    :disabled="saving || isChannelOperationBusy(ch.id)"
-                    @click.stop="toggleChannelFilterMarkdown(ch)"
+  <SettingsStickyLayout>
+    <template #header>
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级菜单头部：面包屑导航 + 渠道操作 -->
+        <div v-if="inDetailMode && selectedChannel" :key="'detail-hdr-' + selectedChannel.id" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <button
+              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
+              type="button"
+              :title="t('config.remoteIm.backToChannels')"
+              @click="backToChannels"
+            >
+              <ArrowLeft class="h-5 w-5" />
+            </button>
+            <div class="breadcrumbs text-sm p-0">
+              <ul>
+                <li>
+                  <a
+                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
+                    @click="backToChannels"
                   >
-                    {{ ch.filterMarkdown ? t('config.remoteIm.sendAsPlainText') : t('config.remoteIm.sendAsMarkdown') }}
-                  </button>
+                    {{ t("config.tabs.remoteIm") }}
+                  </a>
+                </li>
+                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
+                  {{ selectedChannel.name || platformLabelText(selectedChannel.platform) }}
+                </li>
+              </ul>
+            </div>
+            <!-- 状态指示徽章 -->
+            <span class="badge badge-sm shrink-0 flex items-center gap-1.5" :class="selectedChannel.enabled ? 'badge-neutral' : 'badge-ghost opacity-60'">
+              <span class="size-2 rounded-full shrink-0" :class="getChannelStatusInfo(selectedChannel).dot"></span>
+              <span>{{ getChannelStatusInfo(selectedChannel).text }}</span>
+            </span>
+            <span v-if="channelDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.skill.unsaved") }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <ChannelBehaviorSettingsModal
+              :channel="selectedChannel"
+              :save-config-action="props.saveConfigAction"
+              :set-status-action="props.setStatusAction"
+            />
+            <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              :title="t('config.remoteIm.viewLogs')"
+              @click="openChannelLogsModalForChannel(selectedChannel.id)"
+            >
+              <ScrollText class="h-4 w-4" />
+              <span>{{ t("config.remoteIm.viewLogs") }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              :title="t('common.refresh')"
+              :disabled="contactsLoading"
+              @click="refreshContacts"
+            >
+              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': contactsLoading }" />
+              <span>{{ t("common.refresh") }}</span>
+            </button>
+            <button
+              v-if="channelDirty"
+              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              type="button"
+              :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
+              :title="t('common.save')"
+              @click="saveChannels"
+            >
+              <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+              <Save v-else class="h-4 w-4" />
+              <span>{{ t("common.save") }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 一级概览头部：标题 + 数量徽章 + 搜索 + 顶部操作 -->
+        <div v-else key="overview-hdr" class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold">{{ t("config.tabs.remoteIm") }}</span>
+              <span class="badge badge-sm badge-neutral">{{ channels.length }}</span>
+            </div>
+
+            <!-- 渠道搜索框 -->
+            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+              <input
+                v-model="channelSearchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.remoteIm.searchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+              <button
+                v-if="channelSearchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                :title="t('common.clear')"
+                @click="channelSearchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              type="button"
+              @click="openAddChannelModal"
+            >
+              <Plus class="h-4 w-4" />
+              <span>{{ t("config.remoteIm.addChannel") }}</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </template>
+
+    <!-- 主体区域切换：一级卡片列表 ↔ 二级详情页 -->
+    <Transition name="ecall-config-content" mode="out-in">
+      <!-- 二级菜单：渠道详情与联系人视图 -->
+      <div v-if="inDetailMode && selectedChannel" :key="'detail-body-' + selectedChannel.id" class="grid gap-4 pb-8">
+        <!-- 区块一：渠道基本与平台凭证配置 -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between px-1">
+            <div class="flex items-center gap-2">
+              <Settings class="h-4 w-4 opacity-70" />
+              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.remoteIm.channelSettings") }}</span>
+              <span v-if="channelDirty" class="badge badge-sm badge-warning">{{ t("config.skill.modified") }}</span>
+            </div>
+            <button
+              class="btn btn-sm min-h-[2rem] btn-ghost text-error gap-1 px-2.5 text-xs hover:bg-error/10"
+              type="button"
+              :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
+              @click="deleteSelectedChannel"
+            >
+              <Trash2 class="h-3.5 w-3.5" />
+              <span>{{ t("common.delete") }}</span>
+            </button>
+          </div>
+
+          <div class="rounded-xl border border-base-200/80 bg-base-100 p-4 space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="flex flex-col gap-1.5">
+                <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.remoteIm.channelName") }}</label>
+                <input v-model="selectedChannel.name" class="input input-bordered input-sm h-9 w-full text-xs" :placeholder="t('config.remoteIm.channelName')" />
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.remoteIm.platform") }}</label>
+                <select v-model="selectedChannel.platform" class="select select-bordered select-sm h-9 w-full text-xs">
+                  <option value="onebot_v11">{{ t("config.remoteIm.platformOptions.onebotV11") }}</option>
+                  <option value="feishu">{{ t("config.remoteIm.platformOptions.feishu") }}</option>
+                  <option value="dingtalk">{{ t("config.remoteIm.platformOptions.dingtalk") }}</option>
+                  <option value="weixin_oc">{{ t('config.remoteIm.platformOptions.weixinOc') }}</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 过滤 Markdown 开关 -->
+            <div class="flex items-center justify-between rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="flex flex-col gap-0.5 min-w-0 pr-2">
+                <span class="text-xs font-semibold">{{ t("config.remoteIm.filterMarkdown") }}</span>
+                <span class="text-caption opacity-60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
+              </div>
+              <input v-model="selectedChannel.filterMarkdown" type="checkbox" class="toggle toggle-primary toggle-sm shrink-0" />
+            </div>
+
+            <!-- OneBot 凭证配置 -->
+            <template v-if="selectedChannel.platform === 'onebot_v11'">
+              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+                <div class="text-xs font-bold">{{ t("config.remoteIm.napcatConfig") }}</div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsHost") }}</label>
+                    <input v-model="napcatCredentials.wsHost" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="0.0.0.0" />
+                  </div>
+                  <div>
+                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsPort") }}</label>
+                    <input v-model.number="napcatCredentials.wsPort" type="number" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="6199" />
+                  </div>
+                  <div>
+                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsToken") }}</label>
+                    <input v-model="napcatCredentials.wsToken" class="input input-bordered input-sm h-9 w-full text-xs" :placeholder="t('config.remoteIm.wsTokenPlaceholder')" />
+                  </div>
                 </div>
               </div>
-              <input
-                type="checkbox"
-                class="toggle toggle-primary toggle-sm mt-0.5 shrink-0"
-                :checked="ch.enabled"
-                :disabled="saving || isChannelOperationBusy(ch.id)"
-                @mousedown.stop
-                @click.stop
-                @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
-              />
+            </template>
+
+            <!-- 钉钉凭证 -->
+            <template v-else-if="selectedChannel.platform === 'dingtalk'">
+              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+                <div class="text-xs font-bold">{{ t("config.remoteIm.dingtalkCredentials") }}</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label class="text-caption opacity-60">{{ t("config.remoteIm.dingtalkClientId") }}</label>
+                    <input v-model="dingtalkCredentials.clientId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="dingxxxxxxxxxxxxxxxx" />
+                  </div>
+                  <div>
+                    <label class="text-caption opacity-60">{{ t("config.remoteIm.dingtalkClientSecret") }}</label>
+                    <div class="flex items-center gap-2">
+                      <input
+                        v-model="dingtalkCredentials.clientSecret"
+                        :type="showDingtalkSecret ? 'text' : 'password'"
+                        class="input input-bordered input-sm h-9 w-full text-xs"
+                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      />
+                      <button
+                        class="btn btn-sm min-h-[2.25rem] h-9 px-2.5 btn-ghost shrink-0 text-xs"
+                        type="button"
+                        @click="showDingtalkSecret = !showDingtalkSecret"
+                      >
+                        {{ showDingtalkSecret ? t('config.remoteIm.hide') : t('config.remoteIm.show') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- 微信扫码登录 -->
+            <template v-else-if="selectedChannel.platform === 'weixin_oc'">
+              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+                <div class="text-xs font-bold">{{ t('config.remoteIm.weixinScanLogin') }}</div>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="flex flex-col gap-1 min-w-0">
+                    <span class="text-xs font-medium">{{ weixinStatusText }}</span>
+                    <span v-if="weixinStatusMessage" class="text-caption opacity-60 break-all">{{ weixinStatusMessage }}</span>
+                  </div>
+                  <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="weixinLoginBusy" @click="onWeixinLoginButtonClick">
+                    {{ weixinLoginBusy ? t('config.remoteIm.processing') : (isWeixinLoggedIn ? t('config.remoteIm.logoutAndRescan') : t('config.remoteIm.scanLogin')) }}
+                  </button>
+                </div>
+                <div v-if="!isWeixinLoggedIn && weixinLoginState.qrcodeImgContent" class="flex flex-col items-center gap-2 pt-2">
+                  <img :src="weixinQrImageSrc" alt="weixin login qr" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
+                  <span class="text-caption opacity-60">{{ t('config.remoteIm.scanQrCode') }}</span>
+                </div>
+              </div>
+            </template>
+
+            <!-- 飞书凭证 JSON -->
+            <template v-else>
+              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-2">
+                <div class="text-xs font-bold">{{ t("config.remoteIm.credentialsJson") }}</div>
+                <textarea
+                  v-model="credentialDrafts[selectedChannel.id]"
+                  class="textarea textarea-bordered w-full min-h-20 font-mono text-xs"
+                  spellcheck="false"
+                  @blur="syncCredentialJson(selectedChannel)"
+                />
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 区块二：联系人列表（直接一张一张列出，去除外层大卡片包裹） -->
+        <div class="space-y-3 pt-2">
+          <div class="flex flex-wrap items-center justify-between gap-3 px-1">
+            <div class="flex items-center gap-2">
+              <Users class="h-4 w-4 opacity-70" />
+              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.remoteIm.contactsTitle") }}</span>
+              <span class="badge badge-sm badge-neutral">{{ currentChannelContacts.length }}</span>
             </div>
-            <div class="px-4 pb-2 flex items-center gap-2">
+
+            <!-- 联系人过滤搜索框 -->
+            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+              <input
+                v-model="contactSearchQuery"
+                type="text"
+                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+                :placeholder="t('config.remoteIm.contactsSearchPlaceholder')"
+              />
+              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
               <button
-                class="btn btn-sm flex-1 border"
-                :class="selectedChannelId === ch.id ? 'btn-primary border-primary' : 'border-base-300 bg-base-300 text-base-content hover:bg-base-content/10'"
-                :title="t('config.remoteIm.channelDetails')"
-                @click.stop="openChannelConfigModal(ch.id)"
+                v-if="contactSearchQuery"
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+                @click="contactSearchQuery = ''"
               >
-                {{ t("common.edit") }}
+                ✕
               </button>
-              <button
-                class="btn btn-sm btn-square border shrink-0"
-                :class="selectedChannelId === ch.id ? 'btn-primary border-primary' : 'border-base-300 bg-base-300 text-base-content hover:bg-base-content/10'"
-                :title="t('config.remoteIm.viewLogs')"
-                @click.stop="openChannelLogsModalForChannel(ch.id)"
-              >
-                <ScrollText class="h-4 w-4" />
-              </button>
+            </div>
+          </div>
+
+          <div v-if="contactsDisabledReason" class="rounded-xl px-4 py-2.5 text-xs text-warning bg-warning/10 border border-warning/20">
+            {{ contactsDisabledReason }}
+          </div>
+
+          <div v-if="contactsError" class="rounded-xl px-4 py-3 text-xs text-error bg-error/10 border border-error/20">
+            {{ contactsError }}
+          </div>
+          <div v-else-if="currentChannelContacts.length === 0" class="rounded-xl border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
+            {{ t("config.remoteIm.contactsEmpty") }}
+          </div>
+          <div v-else class="space-y-4">
+            <div v-for="group in groupedContacts" :key="group.mode" class="space-y-2">
+              <div class="text-xs font-bold text-base-content/70 px-1 flex items-center gap-1.5">
+                <span>{{ group.label }}</span>
+                <span class="badge badge-ghost badge-xs">{{ group.items.length }}</span>
+              </div>
+              <div class="space-y-2">
+                <div
+                  v-for="item in group.items"
+                  :key="item.id"
+                  class="rounded-xl border border-base-200/80 bg-base-100 p-3.5 hover:border-base-300 hover:bg-base-200/30 transition-all flex items-start gap-3.5 shadow-2xs"
+                >
+                  <div class="avatar placeholder shrink-0">
+                    <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
+                      <img v-if="contactAvatarUrl(item)" :src="contactAvatarUrl(item)" :alt="contactSafeDisplayName(item)" class="block h-full w-full object-cover" />
+                      <span v-else>{{ contactAvatarFallbackText(item) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="min-w-0 flex-1 truncate font-semibold text-sm">
+                        <span class="font-normal opacity-60 text-xs">[{{ contactDepartmentLabel(item) }}]</span>
+                        {{ " " }}
+                        {{ contactSafeDisplayName(item) }}
+                        <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
+                      </div>
+
+                      <!-- 权限与通信操作栏 -->
+                      <div class="flex shrink-0 items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          class="toggle toggle-sm"
+                          :class="contactCommunicationToggleClass(item)"
+                          :checked="contactCommunicationToggleEnabled(item)"
+                          :disabled="contactsDisabled"
+                          :title="`${t('config.remoteIm.allowReceive')} / ${t('config.remoteIm.allowSend')}`"
+                          @click.stop
+                          @change="toggleContactCommunication(item, ($event.target as HTMLInputElement).checked)"
+                        />
+                        <button
+                          class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
+                          :title="t('config.remoteIm.viewLogs')"
+                          @click.stop="openContactLogsModal(item.id)"
+                        >
+                          <ScrollText class="h-4 w-4" />
+                        </button>
+                        <button
+                          class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
+                          :title="t('config.remoteIm.channelDetails')"
+                          :disabled="contactsDisabled"
+                          @click.stop="openContactConfigModal(item.id)"
+                        >
+                          <Settings class="h-4 w-4" />
+                        </button>
+                        <button
+                          class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
+                          :title="t('common.copy')"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                          @click.stop="copyContactSettings(item)"
+                        >
+                          <Copy class="h-4 w-4" />
+                        </button>
+                        <button
+                          class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
+                          :title="t('common.paste')"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id) || !contactSettingsClipboard"
+                          @click.stop="pasteContactSettings(item)"
+                        >
+                          <ClipboardPaste class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 标签徽章栏 -->
+                    <div class="mt-2 flex flex-wrap gap-1.5 overflow-visible whitespace-nowrap text-xs">
+                      <span class="badge badge-sm shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">
+                        {{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}
+                      </span>
+                      <div>
+                        <button
+                          type="button"
+                          class="badge badge-sm shrink-0 gap-1.5 transition-colors"
+                          :class="contactActivationBadgeClass(item)"
+                          :title="contactActivationHintText(item)"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                          @click.stop="openContactPillMenu($event, item, 'activation')"
+                        >
+                          {{ contactActivationModeLabel(item) }}
+                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                        </button>
+                      </div>
+                      <span
+                        v-if="contactKeywordModeMissingKeywords(item)"
+                        class="badge badge-sm badge-warning shrink-0 gap-1.5"
+                        :title="t('config.remoteIm.keywordMissingHint')"
+                      >
+                        <AlertTriangle class="h-3.5 w-3.5" />
+                        {{ t('config.remoteIm.keywordEmpty') }}
+                      </span>
+                      <div>
+                        <button
+                          type="button"
+                          class="badge badge-sm shrink-0 gap-1.5 transition-colors"
+                          :class="contactProcessingModeBadgeClass(item)"
+                          :title="processingModeHintText(item)"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                          @click.stop="openContactPillMenu($event, item, 'processing')"
+                        >
+                          {{ contactProcessingModeLabel(item) }}
+                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                        </button>
+                      </div>
+                      <div v-if="!isPrivateContact(item)">
+                        <button
+                          type="button"
+                          class="badge badge-sm shrink-0 gap-1.5"
+                          :class="contactResponseStrategy(item) === 'smart_judge' ? 'badge-accent' : 'badge-ghost'"
+                          :title="contactResponseStrategyHintText(item)"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id) || isPrivateContact(item)"
+                          @click.stop="!isPrivateContact(item) && openContactPillMenu($event, item, 'response')"
+                        >
+                          {{ contactResponseStrategyLabel(item) }}
+                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                        </button>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          class="badge badge-sm shrink-0 gap-1.5"
+                          :class="item.allowSendFiles ? 'badge-warning' : 'badge-ghost'"
+                          :title="t('config.remoteIm.allowSendFiles')"
+                          :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                          @click.stop="openContactPillMenu($event, item, 'files')"
+                        >
+                          {{ contactSendFilesLabel(item) }}
+                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 右侧：联系人列表 -->
-    <div class="self-start h-auto bg-base-100 rounded-box border border-base-300 min-w-88 flex-1 basis-md flex flex-col overflow-hidden">
-      <div class="flex items-center justify-between px-3 py-2 shrink-0">
-        <span class="flex items-center gap-2 font-semibold text-sm">
-          {{ t("config.remoteIm.contactsTitle") }}
-          <span class="badge badge-ghost badge-xs">{{ currentChannelContacts.length }}</span>
-        </span>
-        <div class="flex items-center gap-1">
-          <ChannelBehaviorSettingsModal
-            :channel="selectedChannel"
-            :save-config-action="props.saveConfigAction"
-            :set-status-action="props.setStatusAction"
-          />
-          <button class="btn btn-square btn-ghost" :title="t('common.refresh')" @click="refreshContacts">
-            <RefreshCw class="h-3.5 w-3.5" :class="contactsLoading ? 'animate-spin' : ''" />
-          </button>
+      <!-- 一级概览：渠道 2 列卡片矩阵 -->
+      <div v-else key="overview-grid" class="grid gap-4 pb-8">
+        <div v-if="filteredChannels.length === 0" class="rounded-xl border border-dashed border-base-300 p-8 text-center">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/50">
+            <MessageSquare class="h-6 w-6" />
+          </div>
+          <div class="mt-3 text-sm font-medium">
+            {{ channelSearchQuery ? t("config.remoteIm.empty") : t("config.remoteIm.empty") }}
+          </div>
+          <div class="mt-4 flex justify-center gap-2">
+            <button class="btn btn-sm min-h-[2.25rem] btn-primary" type="button" @click="openAddChannelModal">
+              <Plus class="h-4 w-4 mr-1" />
+              {{ t("config.remoteIm.addChannel") }}
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="config-grid-auto-sm">
+          <div
+            v-for="ch in filteredChannels"
+            :key="ch.id"
+            role="button"
+            tabindex="0"
+            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            @click="enterChannel(ch.id)"
+            @keydown.enter.prevent="enterChannel(ch.id)"
+            @keydown.space.prevent="enterChannel(ch.id)"
+          >
+            <!-- 头部：平台图标 + 渠道名称 + 平台标识 + 启停开关 -->
+            <div class="flex items-start justify-between gap-2.5 min-w-0">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border font-bold text-xs shadow-2xs" :class="getPlatformIconColor(ch.platform)">
+                  {{ platformBadgeText(ch.platform) }}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                    {{ ch.name || platformLabelText(ch.platform) }}
+                  </div>
+                  <div class="text-caption opacity-50 truncate mt-0.5">
+                    {{ platformLabelText(ch.platform) }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- 启用开关 -->
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm shrink-0"
+                :checked="ch.enabled"
+                :disabled="saving || isChannelOperationBusy(ch.id)"
+                @click.stop
+                @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
+              />
+            </div>
+
+            <!-- 底栏：在线状态 + 联系人计数 + 进入箭头 -->
+            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption">
+              <div class="flex items-center gap-1.5">
+                <span class="size-2 rounded-full shrink-0" :class="getChannelStatusInfo(ch).dot"></span>
+                <span class="opacity-70">{{ getChannelStatusInfo(ch).text }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="font-mono opacity-60">{{ t("config.remoteIm.contactsCount", { count: getChannelContactCount(ch.id).toLocaleString() }) }}</span>
+                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div v-if="contactsDisabledReason" class="px-3 pb-2 text-xs text-warning">
-        {{ contactsDisabledReason }}
-      </div>
-      <ul class="w-full flex-1 overflow-y-auto px-0">
-        <li v-if="contactsError" class="menu-title px-3 py-1">
-          <span class="text-xs text-error">{{ contactsError }}</span>
-        </li>
-        <li v-if="currentChannelContacts.length === 0" class="menu-title px-3 py-4 text-center">
-          <span class="text-xs italic opacity-60">{{ t("config.remoteIm.contactsEmpty") }}</span>
-        </li>
-        <template v-else>
-          <template v-for="group in groupedContacts" :key="group.mode">
-            <li class="menu-title text-base-content px-3 pt-3 pb-1">
-              <span class="text-sm font-bold">{{ group.label }}（{{ group.items.length }}）</span>
-            </li>
-            <li
-              v-for="item in group.items"
-              :key="item.id"
-              class="border-b border-base-200 last:border-b-0"
-            >
-            <div class="flex items-start gap-2 px-3 py-2">
-                <div class="avatar placeholder shrink-0">
-                  <div class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
-                    <img v-if="contactAvatarUrl(item)" :src="contactAvatarUrl(item)" :alt="contactSafeDisplayName(item)" class="block h-full w-full object-cover" />
-                    <span v-else>{{ contactAvatarFallbackText(item) }}</span>
-                  </div>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <div class="min-w-0 flex-1 truncate font-semibold">
-                      <span class="font-normal opacity-70">[{{ contactDepartmentLabel(item) }}]</span>
-                      {{ " " }}
-                      {{ contactSafeDisplayName(item) }}
-                      <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
-                    </div>
-                    <div class="flex shrink-0 items-center gap-1">
-                      <input
-                        type="checkbox"
-                        class="toggle toggle-sm"
-                        :class="contactCommunicationToggleClass(item)"
-                        :checked="contactCommunicationToggleEnabled(item)"
-                        :disabled="contactsDisabled"
-                        :title="`${t('config.remoteIm.allowReceive')} / ${t('config.remoteIm.allowSend')}`"
-                        @click.stop
-                        @change="toggleContactCommunication(item, ($event.target as HTMLInputElement).checked)"
-                      />
-                      <div v-if="contactNeedsQuickModel(item) && !props.config.toolReviewApiConfigId" class="dropdown dropdown-end">
-                        <div tabindex="0" role="button" class="btn btn-ghost btn-square btn-sm text-error hover:bg-error hover:text-error-content">
-                          <AlertTriangle class="h-4 w-4" />
-                        </div>
-                        <div tabindex="0" class="dropdown-content card card-sm bg-base-100 border border-error/30 shadow-lg z-10 w-64">
-                          <div class="card-body p-3">
-                            <p class="text-error text-xs">{{ t('config.remoteIm.quickModelMissingHint') }}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                        :title="t('config.remoteIm.viewLogs')"
-                        @click.stop="openContactLogsModal(item.id)"
-                      >
-                        <ScrollText class="h-4 w-4" />
-                      </button>
-                      <button
-                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                        :title="t('config.remoteIm.channelDetails')"
-                        :disabled="contactsDisabled"
-                        @click.stop="openContactConfigModal(item.id)"
-                      >
-                        <Settings class="h-4 w-4" />
-                      </button>
-                      <button
-                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                        :title="t('common.copy')"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
-                        @click.stop="copyContactSettings(item)"
-                      >
-                        <Copy class="h-4 w-4" />
-                      </button>
-                      <button
-                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                        :title="t('common.paste')"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id) || !contactSettingsClipboard"
-                        @click.stop="pasteContactSettings(item)"
-                      >
-                        <ClipboardPaste class="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div class="mt-1.5 flex flex-wrap gap-1.5 overflow-visible whitespace-nowrap text-xs">
-                    <span class="badge badge-sm shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">
-                      {{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}
-                    </span>
-                    <div>
-                      <button
-                        type="button"
-                        class="badge badge-sm shrink-0 gap-1.5 transition-colors"
-                        :class="contactActivationBadgeClass(item)"
-                        :title="contactActivationHintText(item)"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
-                        @click.stop="openContactPillMenu($event, item, 'activation')"
-                      >
-                        {{ contactActivationModeLabel(item) }}
-                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
-                      </button>
-                    </div>
-                    <span
-                      v-if="contactKeywordModeMissingKeywords(item)"
-                      class="badge badge-sm badge-warning shrink-0 gap-1.5"
-                      :title="t('config.remoteIm.keywordMissingHint')"
-                    >
-                      <AlertTriangle class="h-3.5 w-3.5" />
-                      {{ t('config.remoteIm.keywordEmpty') }}
-                    </span>
-                    <div>
-                      <button
-                        type="button"
-                        class="badge badge-sm shrink-0 gap-1.5 transition-colors"
-                        :class="contactProcessingModeBadgeClass(item)"
-                        :title="processingModeHintText(item)"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
-                        @click.stop="openContactPillMenu($event, item, 'processing')"
-                      >
-                        {{ contactProcessingModeLabel(item) }}
-                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
-                      </button>
-                    </div>
-                    <div v-if="!isPrivateContact(item)">
-                      <button
-                        type="button"
-                        class="badge badge-sm shrink-0 gap-1.5"
-                        :class="contactResponseStrategy(item) === 'smart_judge' ? 'badge-accent' : 'badge-ghost'"
-                        :title="contactResponseStrategyHintText(item)"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id) || isPrivateContact(item)"
-                        @click.stop="!isPrivateContact(item) && openContactPillMenu($event, item, 'response')"
-                      >
-                        {{ contactResponseStrategyLabel(item) }}
-                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
-                      </button>
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        class="badge badge-sm shrink-0 gap-1.5"
-                        :class="item.allowSendFiles ? 'badge-warning' : 'badge-ghost'"
-                        :title="t('config.remoteIm.allowSendFiles')"
-                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
-                        @click.stop="openContactPillMenu($event, item, 'files')"
-                      >
-                        {{ contactSendFilesLabel(item) }}
-                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-            </div>
-          </li>
-          </template>
-        </template>
-      </ul>
-    </div>
+    </Transition>
 
     <Teleport to="body">
       <div
@@ -799,15 +1058,34 @@
         <button @click.prevent="closeContactConfigModal">close</button>
       </form>
     </dialog>
-  </div>
+  </SettingsStickyLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { AlertTriangle, ChevronUp, ClipboardPaste, Copy, Plus, RefreshCw, RotateCcw, Save, ScrollText, Settings, SquareTerminal, Trash2 } from "@lucide/vue";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  ChevronUp,
+  ClipboardPaste,
+  Copy,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  ScrollText,
+  Search,
+  Settings,
+  SquareTerminal,
+  Trash2,
+  Users,
+} from "@lucide/vue";
 import { invokeTauri, openTransportFileDialog } from "../../../../services/tauri-api";
 import type { AppConfig, DepartmentConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
+import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import DepartmentPersonaSelect from "../../../shared/components/DepartmentPersonaSelect.vue";
 import ChannelBehaviorSettingsModal from "./remote-im/ChannelBehaviorSettingsModal.vue";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
@@ -880,9 +1158,89 @@ const weixinCredentials = ref({
 });
 const showDingtalkSecret = ref(false);
 const suppressCredentialSync = ref(false);
-const newWorkspacePath = ref("");
+const inDetailMode = ref(false);
+const channelSearchQuery = ref("");
+const contactSearchQuery = ref("");
+
 const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
+
+const filteredChannels = computed(() => {
+  const q = channelSearchQuery.value.trim().toLowerCase();
+  if (!q) return channels.value;
+  return channels.value.filter(
+    (ch) =>
+      (ch.name || "").toLowerCase().includes(q) ||
+      platformLabelText(ch.platform).toLowerCase().includes(q)
+  );
+});
+
+function enterChannel(channelId: string) {
+  selectedChannelId.value = channelId;
+  inDetailMode.value = true;
+}
+
+function backToChannels() {
+  if (channelDirty.value) {
+    const confirmLeave = window.confirm(t("config.skill.confirmLeaveUnsaved") || "当前渠道有未保存的修改，确认返回列表吗？");
+    if (!confirmLeave) return;
+  }
+  inDetailMode.value = false;
+}
+
+function getChannelContactCount(channelId: string): number {
+  return contacts.value.filter((c) => c.channelId === channelId).length;
+}
+
+function getChannelStatusInfo(channel: RemoteImChannelConfig) {
+  if (!channel.enabled) {
+    return { dot: "bg-base-300", text: t("config.remoteIm.statusDisabled"), connected: false };
+  }
+  const runtime = channelRuntimeStates.value[channel.id];
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk") {
+    if (runtime?.connected) {
+      return { dot: "bg-success", text: t("config.remoteIm.statusConnected"), connected: true };
+    }
+    return { dot: "bg-warning", text: t("config.remoteIm.statusConnecting"), connected: false };
+  }
+  if (channel.platform === "weixin_oc") {
+    const wLogin = weixinLoginStates.value[channel.id];
+    if (runtime?.connected || wLogin?.connected) {
+      return { dot: "bg-success", text: t("config.remoteIm.statusConnected"), connected: true };
+    }
+    return { dot: "bg-warning", text: t("config.remoteIm.waitingScan"), connected: false };
+  }
+  if (channel.platform === "feishu") {
+    return { dot: "bg-info", text: t("config.remoteIm.statusConnected"), connected: true };
+  }
+  return { dot: "bg-success", text: t("config.remoteIm.statusConnected"), connected: true };
+}
+
+function platformBadgeText(platform: RemoteImPlatform): string {
+  switch (platform) {
+    case "weixin_oc": return "微";
+    case "dingtalk": return "钉";
+    case "feishu": return "飞";
+    case "onebot_v11": return "QQ";
+    default: return "IM";
+  }
+}
+
+function getPlatformIconColor(platform: RemoteImPlatform): string {
+  switch (platform) {
+    case "weixin_oc":
+      return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+    case "dingtalk":
+      return "text-blue-500 bg-blue-500/10 border-blue-500/20";
+    case "feishu":
+      return "text-cyan-500 bg-cyan-500/10 border-cyan-500/20";
+    case "onebot_v11":
+      return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    default:
+      return "text-primary bg-primary/10 border-primary/20";
+  }
+}
+
 const channelStatus = ref<ChannelConnectionStatus | null>(null);
 const channelLogs = ref<ChannelLogEntry[]>([]);
 const channelLogsDialogRef = ref<HTMLDialogElement | null>(null);
@@ -1101,6 +1459,19 @@ const currentChannelContacts = computed(() => {
   if (!selectedChannelId.value) return [];
   return contacts.value.filter((c) => c.channelId === selectedChannelId.value);
 });
+
+const filteredCurrentContacts = computed(() => {
+  const all = currentChannelContacts.value;
+  const q = contactSearchQuery.value.trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((c) => {
+    const name = contactSafeDisplayName(c).toLowerCase();
+    const dept = contactDepartmentLabel(c).toLowerCase();
+    const sec = contactSecondaryText(c).toLowerCase();
+    return name.includes(q) || dept.includes(q) || sec.includes(q);
+  });
+});
+
 const contactsDisabledReason = computed(() => {
   const channel = selectedChannel.value;
   if (!channel) return "";
@@ -1130,7 +1501,7 @@ const contactActivationModeOrder: RemoteImContact["activationMode"][] = ["always
 
 type ContactGroup = { mode: "always" | "keyword" | "never"; label: string; items: typeof currentChannelContacts.value };
 const groupedContacts = computed<ContactGroup[]>(() => {
-  const all = currentChannelContacts.value;
+  const all = filteredCurrentContacts.value;
   const groups: { mode: ContactGroup["mode"]; label: string; items: typeof all }[] = [
     { mode: "always", label: t("config.remoteIm.activateModeAlways"), items: [] },
     { mode: "keyword", label: t("config.remoteIm.activateModeKeyword"), items: [] },
