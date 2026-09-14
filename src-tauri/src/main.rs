@@ -1422,6 +1422,7 @@ fn main() {
             batch_archive_conversations,
             compact_conversation,
             refresh_models,
+            codex_get_builtin_models,
             quick_genai_chat,
             test_embedding_connection,
             test_rerank_connection,

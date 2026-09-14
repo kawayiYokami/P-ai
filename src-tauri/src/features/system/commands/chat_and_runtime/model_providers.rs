@@ -245,6 +245,11 @@ fn codex_builtin_models() -> Vec<String> {
     ]
 }
 
+#[tauri::command]
+fn codex_get_builtin_models() -> Vec<String> {
+    codex_builtin_models()
+}
+
 fn push_unique_refresh_strategy(
     strategies: &mut Vec<ModelRefreshStrategy>,
     strategy: ModelRefreshStrategy,

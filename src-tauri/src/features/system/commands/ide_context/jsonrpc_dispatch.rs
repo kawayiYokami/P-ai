@@ -475,6 +475,7 @@ async fn ide_chat_handle_jsonrpc_request(
             ide_chat_codex_consume_rate_limit_reset_credit_for_web_settings(request.params).await
         }
         "codex_logout" => ide_chat_codex_logout_for_web_settings(request.params),
+        "codex_get_builtin_models" => ide_chat_serialize(codex_get_builtin_models()),
         "generate_image" => ide_chat_generate_image_for_web_settings(state, request.params).await,
         "list_memories" => ide_chat_list_memories_for_web_settings(state),
         "delete_memory" => ide_chat_delete_memory_for_web_settings(state, request.params),
@@ -1051,6 +1052,7 @@ mod web_native_capability_tests {
             "codex_get_rate_limits",
             "codex_consume_rate_limit_reset_credit",
             "codex_logout",
+            "codex_get_builtin_models",
             "save_agent_avatar",
             "clear_agent_avatar",
             "generate_image",

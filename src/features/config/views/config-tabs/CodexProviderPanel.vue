@@ -154,7 +154,7 @@
       <template #actions>
         <select
           class="select select-bordered select-sm w-36 shrink-0"
-          :disabled="allCodexModelsEnabled"
+          :disabled="!builtinCodexModelsLoaded || allCodexModelsEnabled"
           :value="''"
           @change="onAddModelSelect"
         >
@@ -186,7 +186,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Eye, EyeOff, Trash2 } from "@lucide/vue";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -216,7 +216,6 @@ const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_CODEX_CONTEXT_WINDOW_TOKENS = 262144;
 const CODEX_SPARK_CONTEXT_WINDOW_TOKENS = 131072;
-const DEFAULT_CODEX_MODELS = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"];
 
 function codexContextWindowTokens(modelName: string): number {
   return modelName.trim().toLowerCase().includes("gpt-5.3-codex-spark")
@@ -235,6 +234,8 @@ const emit = defineEmits<{
 }>();
 
 const codexAuthBusy = ref(false);
+const builtinCodexModels = ref<string[]>([]);
+const builtinCodexModelsLoaded = ref(false);
 const showCodexCustomApiKey = ref(false);
 const codexAuthStatusByProvider = ref<Record<string, CodexAuthStatus>>({});
 const codexAuthPollTimer = ref<number | null>(null);
@@ -663,11 +664,21 @@ function createModel(seed: string, modelName: string): ApiModelConfigItem {
 }
 
 const candidateModels = computed(() =>
-  DEFAULT_CODEX_MODELS.filter(
+  builtinCodexModels.value.filter(
     (name) => !props.draftGroups.some((group) => String(group.primary.model || "").trim() === name),
   ),
 );
 const allCodexModelsEnabled = computed(() => candidateModels.value.length === 0);
+
+async function loadBuiltinCodexModels() {
+  try {
+    builtinCodexModels.value = await invokeTauri<string[]>("codex_get_builtin_models");
+  } catch (error) {
+    console.warn("[codex] 获取内置模型清单失败", error);
+  } finally {
+    builtinCodexModelsLoaded.value = true;
+  }
+}
 
 function onAddModelSelect(event: Event) {
   const target = event.target as HTMLSelectElement;
@@ -723,6 +734,10 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  void loadBuiltinCodexModels();
+});
 
 onUnmounted(() => {
   stopCodexAuthPolling();
