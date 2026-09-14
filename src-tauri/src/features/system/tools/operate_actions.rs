@@ -165,11 +165,78 @@ fn foreground_keyboard_layout() -> windows_sys::Win32::UI::Input::KeyboardAndMou
     unsafe { GetKeyboardLayout(thread_id) }
 }
 
-/// 发送单字符按键。组合键（prefer_real_key=true）在 Windows 上用
-/// VK→scan code→enigo.raw 注入真实按键事件；单键文本输入保持 Unicode 注入
-/// （绕过输入法直接上屏，现状行为不变）。组合键遇到不可映射字符直接报错，
-/// 不回退 Unicode——enigo 对 Unicode 键的 Press/Release 会各自注入一次完整
-/// 文本（down+up），回退会导致字符重复输入且快捷键仍不生效。
+/// ASCII 字符到 macOS 虚拟键码的映射。与 Windows 的 `char_to_vk` 对称：
+/// 组合键必须注入真实按键事件才能触发系统与应用快捷键；
+/// 非 ASCII 字符（如中文）返回 None，由调用方决定报错还是改走文本注入。
+/// 键码表示物理位置，按标准 ANSI 布局固定映射，不查系统当前输入源布局。
+#[cfg(target_os = "macos")]
+fn char_to_macos_keycode(ch: char) -> Option<u16> {
+    use core_graphics::event::KeyCode;
+    let lower = ch.to_ascii_lowercase();
+    let keycode = match lower {
+        'a' => KeyCode::ANSI_A,
+        'b' => KeyCode::ANSI_B,
+        'c' => KeyCode::ANSI_C,
+        'd' => KeyCode::ANSI_D,
+        'e' => KeyCode::ANSI_E,
+        'f' => KeyCode::ANSI_F,
+        'g' => KeyCode::ANSI_G,
+        'h' => KeyCode::ANSI_H,
+        'i' => KeyCode::ANSI_I,
+        'j' => KeyCode::ANSI_J,
+        'k' => KeyCode::ANSI_K,
+        'l' => KeyCode::ANSI_L,
+        'm' => KeyCode::ANSI_M,
+        'n' => KeyCode::ANSI_N,
+        'o' => KeyCode::ANSI_O,
+        'p' => KeyCode::ANSI_P,
+        'q' => KeyCode::ANSI_Q,
+        'r' => KeyCode::ANSI_R,
+        's' => KeyCode::ANSI_S,
+        't' => KeyCode::ANSI_T,
+        'u' => KeyCode::ANSI_U,
+        'v' => KeyCode::ANSI_V,
+        'w' => KeyCode::ANSI_W,
+        'x' => KeyCode::ANSI_X,
+        'y' => KeyCode::ANSI_Y,
+        'z' => KeyCode::ANSI_Z,
+        '0' => KeyCode::ANSI_0,
+        '1' => KeyCode::ANSI_1,
+        '2' => KeyCode::ANSI_2,
+        '3' => KeyCode::ANSI_3,
+        '4' => KeyCode::ANSI_4,
+        '5' => KeyCode::ANSI_5,
+        '6' => KeyCode::ANSI_6,
+        '7' => KeyCode::ANSI_7,
+        '8' => KeyCode::ANSI_8,
+        '9' => KeyCode::ANSI_9,
+        '-' => KeyCode::ANSI_MINUS,
+        '=' => KeyCode::ANSI_EQUAL,
+        '[' => KeyCode::ANSI_LEFT_BRACKET,
+        ']' => KeyCode::ANSI_RIGHT_BRACKET,
+        '\\' => KeyCode::ANSI_BACKSLASH,
+        ';' => KeyCode::ANSI_SEMICOLON,
+        '\'' => KeyCode::ANSI_QUOTE,
+        ',' => KeyCode::ANSI_COMMA,
+        '.' => KeyCode::ANSI_PERIOD,
+        '/' => KeyCode::ANSI_SLASH,
+        '`' => KeyCode::ANSI_GRAVE,
+        ' ' => KeyCode::SPACE,
+        _ => return None,
+    };
+    Some(keycode)
+}
+
+/// 发送单字符按键。组合键（prefer_real_key=true）必须注入真实按键事件，
+/// 否则系统与应用不识别快捷键；单键文本输入（prefer_real_key=false，仅用于 Click）
+/// 走文本注入，绕过输入法直接上屏。
+///
+/// Windows 用 VK→scan code→enigo.raw；macOS 用固定键码表→enigo.raw，或
+/// enigo.text（底层 CGEventKeyboardSetUnicodeString）。macOS 两条路径都不查
+/// 输入源布局——macOS 26 起 TIS 强制在主线程调用，非主线程查布局会直接 SIGTRAP。
+///
+/// 组合键遇到不可映射字符直接报错，不回退 Unicode——enigo 对 Unicode 键的
+/// Press/Release 会各自注入一次完整文本（down+up），回退会导致字符重复输入且快捷键仍不生效。
 fn send_char_key(
     enigo: &mut enigo::Enigo,
     ch: char,
@@ -195,6 +262,27 @@ fn send_char_key(
             "{context}: 按键字符 `{ch}` 无法映射为扫描码（VK={vk:#04x}）"
         )));
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        if prefer_real_key {
+            let Some(keycode) = char_to_macos_keycode(ch) else {
+                return Err(DesktopToolError::internal_error(format!(
+                    "{context}: 不支持的按键字符 `{ch}`，组合键请使用基础键并显式携带修饰键（如 Cmd+Shift+/ 而非 Cmd+?）"
+                )));
+            };
+            return enigo
+                .raw(keycode, direction)
+                .map_err(|err| map_input_err(err, context));
+        }
+        // 单字符上屏：走 enigo 的文本注入（macOS 上是 CGEventKeyboardSetUnicodeString），
+        // 同样不查布局，且保留绕过输入法直接上屏的语义。
+        return enigo
+            .text(&ch.to_string())
+            .map_err(|err| map_input_err(err, context));
+    }
+
+    #[cfg(not(target_os = "macos"))]
     enigo
         .key(enigo::Key::Unicode(ch), direction)
         .map_err(|err| map_input_err(err, context))
@@ -666,7 +754,7 @@ async fn execute_key_action(enigo: &mut enigo::Enigo, keys: &[String], line: usi
     let parsed = keys.iter().map(|key| parse_key(key, line)).collect::<DesktopToolResult<Vec<_>>>()?;
     for idx in 0..repeat {
         if parsed.len() == 1 && press.is_zero() {
-            // 单键点击：命名键直接 tap，字符键走 Unicode 注入（输入场景直接上屏）
+            // 单键点击：命名键直接 tap，字符键走文本注入（绕过输入法直接上屏）
             match parsed[0] {
                 ParsedKey::Named(key) => enigo.key(key, enigo::Direction::Click).map_err(|err| map_input_err(err, "key tap failed"))?,
                 ParsedKey::Char(ch) => send_char_key(enigo, ch, enigo::Direction::Click, "key tap failed", false)?,
