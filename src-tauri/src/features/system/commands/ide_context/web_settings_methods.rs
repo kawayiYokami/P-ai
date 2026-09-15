@@ -315,6 +315,8 @@ async fn ide_chat_task_optimize_draft_for_web_settings(
 
 include!("mcp_methods.rs");
 
+include!("catalog_methods.rs");
+
 async fn ide_chat_get_usage_overview_for_web_settings(state: &AppState) -> Result<Value, String> {
     ide_chat_serialize(start_usage_overview_refresh_if_needed(state.clone(), false).await)
 }

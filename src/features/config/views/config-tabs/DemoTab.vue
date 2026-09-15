@@ -20,6 +20,7 @@
             <option value="thinking-preview">思考预览 bar</option>
             <option value="session-float-dock">会话悬浮操作区</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
+            <option value="catalog-store">能力商店</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -136,6 +137,16 @@
           <p class="text-sm text-base-content/70">集中渲染联系人渠道、部门、连接器、供应商、人格、技能 6 类卡片的真实模拟数据与自适应网格，支持切换宽度与主题进行视觉检验。</p>
         </div>
         <ConfigCardsGalleryDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'catalog-store'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">能力商店</h3>
+          <p class="text-sm text-base-content/70">模拟数据。搜索跨源聚合，一条一行，只留「这是什么」和「一个动作」。</p>
+        </div>
+        <CatalogStoreDemo />
       </div>
     </div>
 
@@ -436,6 +447,7 @@ import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.
 import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vue";
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
+import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
 import type { ToolReviewBatchSummary } from "../../../chat/composables/use-chat-tool-review";
@@ -508,8 +520,9 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "config-cards">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "config-cards" | "catalog-store">((props.initialKey as any) || "question");
 const demoComponentLabel = computed(() => {
+  if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";

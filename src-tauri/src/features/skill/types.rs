@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// Skill 全局启用状态的缺省值：启用。
+fn default_skill_enabled() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceLoadError {
@@ -63,6 +68,9 @@ pub struct SkillSummaryItem {
     pub additional_files: Vec<SkillFileItem>,
     #[serde(default)]
     pub is_builtin: bool,
+    /// 全局启用状态；缺省为启用。
+    #[serde(default = "default_skill_enabled")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -591,6 +591,57 @@ export type SkillSummaryItem = {
   path: string;
   additionalFiles?: SkillFileItem[];
   isBuiltin?: boolean;
+  enabled?: boolean;
+};
+
+export type CatalogSourceInfo = {
+  id: string;
+  name: string;
+  kind: string;
+  description: string;
+};
+
+export type CatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  kind: string;
+  source: string;
+  categories: string[];
+  popularity: number;
+  author: string;
+  homepage: string;
+  icon: string;
+  transport: string;
+  definitionJson: string;
+  requiredEnv: string[];
+  tools: string[];
+  detailUrl: string;
+  installReady: boolean;
+  /** 是否已安装到本地工作区。 */
+  installed: boolean;
+  /** 已安装时的启用状态；未安装时无意义。 */
+  enabled: boolean;
+  /** 本地标识：Skill 为 frontmatter 技能名，MCP 为服务器本地标识。 */
+  localId: string;
+};
+
+export type CatalogPage = {
+  source: string;
+  kind: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  entries: CatalogEntry[];
+  fromCache: boolean;
+  updatedAt: string;
+};
+
+export type CatalogInstallResult = {
+  kind: string;
+  localId: string;
+  enabled: boolean;
+  writtenPaths: string[];
 };
 
 export type SkillListResult = {

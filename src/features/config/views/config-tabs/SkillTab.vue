@@ -85,6 +85,16 @@
               <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
               <span>{{ t("common.refresh") }}</span>
             </button>
+            <button
+              v-if="!selectedSkill.isBuiltin"
+              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+              type="button"
+              :disabled="loading"
+              @click="confirmRemoveSkill(selectedSkill)"
+            >
+              <Trash2 class="h-4 w-4" />
+              <span>{{ t("config.skill.delete") }}</span>
+            </button>
           </div>
         </div>
 
@@ -127,6 +137,14 @@
             >
               <FolderOpen class="h-4 w-4" />
               <span>{{ t("config.skill.openWorkspace") }}</span>
+            </button>
+            <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              @click="emit('open-catalog')"
+            >
+              <Store class="h-4 w-4" />
+              <span>{{ t("config.catalog.entry") }}</span>
             </button>
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
@@ -455,7 +473,7 @@
                 :key="item.path"
                 role="button"
                 tabindex="0"
-                class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+                class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                 @click="selectSkill(item.path)"
                 @keydown.enter.prevent="selectSkill(item.path)"
                 @keydown.space.prevent="selectSkill(item.path)"
@@ -470,7 +488,7 @@
                   {{ item.description || t("config.skill.noDescription") }}
                 </p>
 
-                <!-- 底栏：内容规模 + 进入指示 -->
+                <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
                 <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-60 font-mono">
                   <span
                     class="hover:text-primary transition-colors cursor-help"
@@ -478,7 +496,20 @@
                   >
                     {{ t("config.skill.contentWords", { count: (item.content || '').length.toLocaleString() }) }}
                   </span>
-                  <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-xs toggle-primary"
+                      :checked="item.enabled ?? true"
+                      :disabled="togglingSkillName === item.name"
+                      :title="(item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff')"
+                      @click.stop
+                      @keydown.enter.stop
+                      @keydown.space.stop
+                      @change="toggleSkillEnabled(item)"
+                    />
+                    <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -518,7 +549,7 @@
                   :key="item.path"
                   role="button"
                   tabindex="0"
-                  class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+                  class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                   @click="selectSkill(item.path)"
                   @keydown.enter.prevent="selectSkill(item.path)"
                   @keydown.space.prevent="selectSkill(item.path)"
@@ -536,7 +567,7 @@
                     {{ item.description || t("config.skill.noDescription") }}
                   </p>
 
-                  <!-- 底栏：内容规模 + 进入指示 -->
+                  <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
                   <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-60 font-mono">
                     <span
                       class="hover:text-primary transition-colors cursor-help"
@@ -544,7 +575,20 @@
                     >
                       {{ t("config.skill.contentWords", { count: (item.content || '').length.toLocaleString() }) }}
                     </span>
-                    <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-primary"
+                        :checked="item.enabled ?? true"
+                        :disabled="togglingSkillName === item.name"
+                        :title="(item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff')"
+                        @click.stop
+                        @keydown.enter.stop
+                        @keydown.space.stop
+                        @change="toggleSkillEnabled(item)"
+                      />
+                      <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -636,6 +680,8 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Store,
+  Trash2,
 } from "@lucide/vue";
 import {
   getTransportCapabilities,
@@ -643,7 +689,9 @@ import {
   openTransportSkillDirectory,
   openTransportSkillWorkspaceDirectory,
   readTransportSkillFile,
+  removeTransportSkill,
   saveTransportSkill,
+  setTransportSkillEnabled,
 } from "../../../../services/tauri-api";
 import type { SkillFileItem, SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
@@ -652,6 +700,8 @@ import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue"
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();
+
+const emit = defineEmits<{ (e: "open-catalog"): void }>();
 
 const loading = ref(false);
 const savingSkill = ref(false);
@@ -760,6 +810,23 @@ function selectSkill(path: string) {
   selectedSkillPath.value = path;
 }
 
+const togglingSkillName = ref<string | null>(null);
+
+async function toggleSkillEnabled(item: SkillSummaryItem) {
+  if (togglingSkillName.value) return;
+  const target = !(item.enabled ?? true);
+  togglingSkillName.value = item.name;
+  try {
+    const result = await setTransportSkillEnabled(item.name, target);
+    skills.value = result?.skills || [];
+    setStatus(t("config.skill.toggleSuccess", { name: item.name }));
+  } catch (error) {
+    setStatus(`${t("config.skill.toggleFailed")}: ${toErrorMessage(error)}`, true);
+  } finally {
+    togglingSkillName.value = null;
+  }
+}
+
 function startEditName() {
   if (!selectedSkill.value || selectedSkill.value.isBuiltin) return;
   isEditingName.value = true;
@@ -797,6 +864,23 @@ function cancelEditDesc() {
     editingDescription.value = selectedSkill.value.description || "";
   }
   isEditingDesc.value = false;
+}
+
+function confirmRemoveSkill(skill: SkillSummaryItem) {
+  if (window.confirm(t("config.skill.deleteConfirm", { name: skill.name }))) {
+    void removeSkill(skill);
+  }
+}
+
+async function removeSkill(skill: SkillSummaryItem) {
+  try {
+    const result = await removeTransportSkill(skill.path);
+    skills.value = result?.skills || [];
+    selectedSkillPath.value = null;
+    setStatus(t("config.skill.deleted", { name: skill.name }));
+  } catch (error) {
+    setStatus(`${t("config.skill.deleteFailed")}: ${toErrorMessage(error)}`, true);
+  }
 }
 
 function backToList() {

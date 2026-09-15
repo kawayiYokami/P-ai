@@ -2,64 +2,6 @@ const MODELS_DEV_CACHE_FILE_NAME: &str = "models_dev_api_cache.json";
 const MODELS_DEV_CACHE_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
 const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelsDevCacheFile {
-    updated_at: String,
-    fetched_at_ms: i64,
-    root: Value,
-}
-
-fn models_dev_cache_path(state: &AppState) -> std::path::PathBuf {
-    state
-        .config_path
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(MODELS_DEV_CACHE_FILE_NAME)
-}
-
-fn read_models_dev_cache_file(state: &AppState) -> Result<Option<ModelsDevCacheFile>, String> {
-    let path = models_dev_cache_path(state);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = std::fs::read(&path)
-        .map_err(|err| format!("Read models.dev cache failed ({}): {err}", path.display()))?;
-    let cache = serde_json::from_slice::<ModelsDevCacheFile>(&raw)
-        .map_err(|err| format!("Parse models.dev cache failed ({}): {err}", path.display()))?;
-    Ok(Some(cache))
-}
-
-fn write_models_dev_cache_file(
-    state: &AppState,
-    root: &Value,
-) -> Result<ModelsDevCacheFile, String> {
-    let path = models_dev_cache_path(state);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "Create models.dev cache directory failed ({}): {err}",
-                parent.display()
-            )
-        })?;
-    }
-    let cache = ModelsDevCacheFile {
-        updated_at: now_iso(),
-        fetched_at_ms: chrono::Utc::now().timestamp_millis(),
-        root: root.clone(),
-    };
-    let raw = serde_json::to_vec_pretty(&cache)
-        .map_err(|err| format!("Serialize models.dev cache failed: {err}"))?;
-    std::fs::write(&path, raw)
-        .map_err(|err| format!("Write models.dev cache failed ({}): {err}", path.display()))?;
-    Ok(cache)
-}
-
-fn models_dev_cache_is_stale(cache: &ModelsDevCacheFile) -> bool {
-    let age_ms = chrono::Utc::now().timestamp_millis() - cache.fetched_at_ms;
-    age_ms > MODELS_DEV_CACHE_MAX_AGE_MS
-}
-
 async fn fetch_models_dev_root(state: &AppState) -> Result<Value, String> {
     let resp = state
         .shared_http_client
@@ -80,29 +22,23 @@ async fn fetch_models_dev_root(state: &AppState) -> Result<Value, String> {
         .map_err(|err| format!("Parse models.dev metadata failed: {err}"))
 }
 
-async fn ensure_models_dev_cache_current(state: &AppState) -> Result<ModelsDevCacheFile, String> {
-    let cached = read_models_dev_cache_file(state)?;
-    match cached {
-        Some(cache) if !models_dev_cache_is_stale(&cache) => Ok(cache),
-        Some(cache) => match fetch_models_dev_root(state).await {
-            Ok(root) => write_models_dev_cache_file(state, &root),
-            Err(err) => {
-                runtime_log_error(format!(
-                    "[models.dev缓存] 刷新失败，回退旧缓存: error={:?}, updated_at={}, fetched_at_ms={}",
-                    err, cache.updated_at, cache.fetched_at_ms
-                ));
-                Ok(cache)
-            }
-        },
-        None => {
-            let root = fetch_models_dev_root(state).await?;
-            write_models_dev_cache_file(state, &root)
-        }
-    }
+async fn ensure_models_dev_cache_current(
+    state: &AppState,
+) -> Result<RemoteCatalogCacheFile, String> {
+    ensure_remote_catalog_cache(
+        state,
+        MODELS_DEV_CACHE_FILE_NAME,
+        MODELS_DEV_CACHE_MAX_AGE_MS,
+        "models.dev缓存",
+        || fetch_models_dev_root(state),
+    )
+    .await
 }
 
-fn read_models_dev_cache_only(state: &AppState) -> Result<Option<ModelsDevCacheFile>, String> {
-    read_models_dev_cache_file(state)
+fn read_models_dev_cache_only(
+    state: &AppState,
+) -> Result<Option<RemoteCatalogCacheFile>, String> {
+    read_remote_catalog_cache(state, MODELS_DEV_CACHE_FILE_NAME)
 }
 
 async fn fetch_models_gemini_native(input: &RefreshModelsInput) -> Result<Vec<String>, String> {
@@ -652,7 +588,7 @@ async fn fetch_model_metadata_inner(
             documentation_url: None,
         });
     };
-    let root = cache.root;
+    let root = cache.payload;
     let providers = root
         .as_object()
         .ok_or_else(|| "Invalid models.dev payload: expected root object.".to_string())?;

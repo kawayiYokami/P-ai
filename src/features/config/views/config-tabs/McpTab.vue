@@ -134,6 +134,14 @@
               <span>{{ t('config.mcp.openDir') }}</span>
             </button>
             <button
+              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              type="button"
+              @click="emit('open-catalog')"
+            >
+              <Store class="h-4 w-4" />
+              <span>{{ t('config.catalog.entry') }}</span>
+            </button>
+            <button
               class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
               type="button"
               @click="addServer"
@@ -236,7 +244,7 @@
             :key="server.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-2xl border border-base-200 border-l-4 border-l-info bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
             :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
             @click="enterServer(server.id)"
             @keydown.enter.prevent="enterServer(server.id)"
@@ -315,6 +323,7 @@ import {
   Save,
   Search,
   Settings,
+  Store,
   Trash2,
   Wrench,
 } from "@lucide/vue";
@@ -339,6 +348,8 @@ import McpServerCard from "./mcp/McpServerCard.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 
 const { t, te } = useI18n();
+
+const emit = defineEmits<{ (e: "open-catalog"): void }>();
 
 type McpServerView = McpServerConfig & {
   toolItems: McpToolDescriptor[];

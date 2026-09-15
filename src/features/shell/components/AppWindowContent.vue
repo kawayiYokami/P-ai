@@ -571,7 +571,7 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
-  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -763,7 +763,7 @@ const props = defineProps<{
   setPromptPreviewDialogRef: (el: Element | null) => void;
   promptPreviewDialogOpen: boolean;
   markPromptPreviewDialogClosed: () => void;
-  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;

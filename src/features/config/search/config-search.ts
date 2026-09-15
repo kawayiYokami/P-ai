@@ -5,6 +5,7 @@ export type ConfigSearchTab =
   | "api"
   | "mcp"
   | "skill"
+  | "catalog"
   | "persona"
   | "department"
   | "departmentTree"
@@ -45,6 +46,7 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "api", titleKey: "config.tabs.api", titleFallback: "API", prefixes: ["config.api", "config.imageGeneration"] },
   { tab: "mcp", titleFallback: "MCP", prefixes: ["config.mcp"] },
   { tab: "skill", titleKey: "config.tabs.skill", titleFallback: "Skill", prefixes: [] },
+  { tab: "catalog", titleKey: "config.tabs.catalog", titleFallback: "Store", prefixes: ["config.catalog"] },
   { tab: "persona", titleKey: "config.tabs.persona", titleFallback: "Persona", prefixes: ["config.persona"] },
   { tab: "department", titleKey: "config.tabs.department", titleFallback: "Department", prefixes: ["config.department"] },
   { tab: "departmentTree", titleKey: "config.tabs.departmentTree", titleFallback: "Department Tree", prefixes: ["config.departmentTree"] },

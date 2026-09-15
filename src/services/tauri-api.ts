@@ -3,7 +3,7 @@ import { emit, emitTo, listen, type EventCallback, type UnlistenFn } from "@taur
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { AttachmentReceipt } from "./attachment-transfer";
-import type { SkillSummaryItem } from "../types/app";
+import type { CatalogInstallResult, CatalogPage, CatalogSourceInfo, SkillSummaryItem, SkillListResult } from "../types/app";
 
 type WebBridgeConfig = {
   chatUrl: string;
@@ -986,6 +986,40 @@ export function saveTransportSkill(
 
 export function readTransportSkillFile(path: string): Promise<string> {
   return invokeTauri<string>("mcp_read_skill_file", { path });
+}
+
+/** 设置单个 Skill 的全局启用状态。 */
+export function setTransportSkillEnabled(name: string, enabled: boolean): Promise<SkillListResult> {
+  return invokeTauri<SkillListResult>("skill_set_enabled", { name, enabled });
+}
+
+/** 删除单个 Skill（按 SKILL.md 绝对路径定位）。 */
+export function removeTransportSkill(path: string): Promise<SkillListResult> {
+  return invokeTauri<SkillListResult>("skill_remove", { path });
+}
+
+/** 列出能力商店的可用来源。 */
+export function listTransportCatalogSources(kind: string): Promise<CatalogSourceInfo[]> {
+  return invokeTauri<CatalogSourceInfo[]>("catalog_list_sources", { kind });
+}
+
+/** 按来源检索能力商店条目。 */
+export function searchTransportCatalog(input: {
+  source: string;
+  query: string;
+  page: number;
+  pageSize: number;
+}): Promise<CatalogPage> {
+  return invokeTauri<CatalogPage>("catalog_search", { input });
+}
+
+/** 安装能力商店条目到本地工作区。 */
+export function installTransportCatalogEntry(input: {
+  source: string;
+  entryId: string;
+  envValues?: Record<string, string>;
+}): Promise<CatalogInstallResult> {
+  return invokeTauri<CatalogInstallResult>("catalog_install", { input });
 }
 
 export function openTransportStorageUsageItemDirectory(itemId: string): Promise<void> {

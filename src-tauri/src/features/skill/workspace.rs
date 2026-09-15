@@ -16,7 +16,7 @@ fn llm_workspace_skills_root_at(workspace_root: &Path) -> PathBuf {
     workspace_root.join("skills")
 }
 
-fn llm_workspace_skills_root(state: &AppState) -> Result<PathBuf, String> {
+pub(crate) fn llm_workspace_skills_root(state: &AppState) -> Result<PathBuf, String> {
     Ok(llm_workspace_skills_root_at(&configured_workspace_root_path(state)?))
 }
 
@@ -64,7 +64,7 @@ pub(crate) fn ensure_workspace_skills_layout_at_root(workspace_root: &Path) -> R
     Ok(())
 }
 
-fn parse_skill_file(skill_md_path: &PathBuf) -> Result<(String, String, String), String> {
+pub(crate) fn parse_skill_file(skill_md_path: &PathBuf) -> Result<(String, String, String), String> {
     let content = fs::read_to_string(skill_md_path)
         .map_err(|err| format!("Read SKILL.md failed ({}): {err}", skill_md_path.display()))?;
     let mut lines = content.lines();
@@ -126,6 +126,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
     ensure_workspace_skills_layout(state)?;
     let mut skills = Vec::<SkillSummaryItem>::new();
     let mut errors = Vec::<WorkspaceLoadError>::new();
+    let enabled_map = load_skill_enabled_map(state)?;
     let skills_dir = llm_workspace_skills_root(state)?;
     let mut dirs = fs::read_dir(&skills_dir)
         .map_err(|err| format!("Read skills dir failed ({}): {err}", skills_dir.display()))?
@@ -150,6 +151,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
             .any(|preset| preset.dir_name == dir_name_str);
         match parse_skill_file(&skill_md) {
             Ok((name, description, content)) => {
+                let enabled = enabled_map.get(&name).copied().unwrap_or(true);
                 skills.push(SkillSummaryItem {
                     name,
                     description,
@@ -157,6 +159,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
                     path: skill_md.to_string_lossy().to_string(),
                     additional_files,
                     is_builtin,
+                    enabled,
                 });
             }
             Err(err) => errors.push(WorkspaceLoadError::with_hint(
@@ -354,6 +357,7 @@ pub(crate) fn save_workspace_skill_content(
         path: canonical_file.to_string_lossy().to_string(),
         additional_files,
         is_builtin,
+        enabled: true,
     };
 
     if let Ok((skills, _)) = load_workspace_skill_summaries_with_errors(state) {
@@ -462,7 +466,13 @@ pub(crate) fn update_hidden_skill_snapshot_cache(
     skills: &[SkillSummaryItem],
     scan_error: Option<&str>,
 ) -> Result<String, String> {
-    let snapshot = render_hidden_skill_snapshot_block(state, skills, scan_error);
+    // 全局关闭的 Skill 不进入提示词注入链路，也不参与部门白名单过滤。
+    let injectable = skills
+        .iter()
+        .filter(|item| item.enabled)
+        .cloned()
+        .collect::<Vec<_>>();
+    let snapshot = render_hidden_skill_snapshot_block(state, &injectable, scan_error);
     let mut guard = state
         .hidden_skill_snapshot_cache
         .lock()
@@ -473,7 +483,7 @@ pub(crate) fn update_hidden_skill_snapshot_cache(
     let mut summaries_guard = hidden_skill_summaries_cache()
         .lock()
         .map_err(|_| "Failed to lock hidden skill summaries cache".to_string())?;
-    summaries_guard.insert(hidden_skill_cache_scope_key(state), skills.to_vec());
+    summaries_guard.insert(hidden_skill_cache_scope_key(state), injectable);
     Ok(snapshot)
 }
 
@@ -768,8 +778,18 @@ fn collect_workspace_load_snapshot(
     let mut agents = state_read_agents_cached(state)?;
     let private_org = merge_private_organization_into_runtime(&state.data_path, &mut config, &mut agents)?;
     let mcp_loaded = servers.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
-    let skills_loaded = skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
-    let skill_summary = render_skill_summary(&skills);
+    let skills_loaded = skills
+        .iter()
+        .filter(|s| s.enabled)
+        .map(|s| s.name.clone())
+        .collect::<Vec<_>>();
+    // 摘要反映实际参与运行的 Skill，与注入内容保持一致。
+    let enabled_skills = skills
+        .iter()
+        .filter(|s| s.enabled)
+        .cloned()
+        .collect::<Vec<_>>();
+    let skill_summary = render_skill_summary(&enabled_skills);
     let result = RefreshMcpAndSkillsResult {
         mcp_loaded,
         ok: false,

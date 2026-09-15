@@ -94,6 +94,7 @@ include!("features/memory/providers.rs");
 // ==================== MCP ====================
 include!("features/mcp.rs");
 include!("features/skill.rs");
+include!("features/catalog.rs");
 include!("features/goal.rs");
 include!("features/task.rs");
 include!("features/delegate.rs");
@@ -1423,6 +1424,11 @@ fn main() {
             compact_conversation,
             refresh_models,
             codex_get_builtin_models,
+            catalog_list_sources,
+            catalog_search,
+            catalog_install,
+            commands::skill_set_enabled,
+            commands::skill_remove,
             quick_genai_chat,
             test_embedding_connection,
             test_rerank_connection,

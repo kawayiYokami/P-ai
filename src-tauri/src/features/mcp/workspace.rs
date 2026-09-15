@@ -48,7 +48,8 @@ fn ensure_workspace_mcp_layout_at_root(workspace_root: &Path) -> Result<(), Stri
 
 fn ensure_workspace_mcp_layout(state: &AppState) -> Result<(), String> {
     let root = ensure_workspace_root_ready(&configured_workspace_root_path(state)?)?;
-    ensure_workspace_mcp_layout_at_root(&root)
+    ensure_workspace_mcp_layout_at_root(&root)?;
+    Ok(())
 }
 
 fn sanitize_mcp_server_id_for_filename(raw: &str) -> String {

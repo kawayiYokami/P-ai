@@ -367,6 +367,7 @@ type ConfigTab =
   | "api"
   | "mcp"
   | "skill"
+  | "catalog"
   | "persona"
   | "department"
   | "departmentTree"
