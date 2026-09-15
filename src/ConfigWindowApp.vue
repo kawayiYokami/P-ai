@@ -301,6 +301,12 @@
 
     <ConfigStatusToast :text="status" :tone="statusTone" />
 
+    <FileLinkContextMenu
+      :state="fileLinkMenuState"
+      :can-use-local-file-actions="false"
+      @close="closeFileLinkMenu"
+    />
+
     <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
@@ -317,6 +323,8 @@ import ConfigStatusToast from "./features/config/components/ConfigStatusToast.vu
 import MemoryDialog from "./features/memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "./features/chat/components/dialogs/PromptPreviewDialog.vue";
 import { getTransportCapabilities, invokeTauri, openTransportWindow } from "./services/tauri-api";
+import FileLinkContextMenu from "./features/shared/components/FileLinkContextMenu.vue";
+import { useFileLinkContextMenu } from "./features/shared/composables/use-file-link-context-menu";
 import type { AppConfig, PromptCommandPreset } from "./types/app";
 import { normalizeLocale } from "./i18n";
 import { useWindowShell } from "./features/shell/composables/use-window-shell";
@@ -348,6 +356,10 @@ import { formatI18nError } from "./utils/error";
 
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => t(key, params as never);
+
+// 设置窗口只做配置展示，不提供需要本机文件的动作；文件链接右键只留「复制路径」，
+// 复制内容就是链接原文，因此不需要工作区根。
+const { state: fileLinkMenuState, close: closeFileLinkMenu } = useFileLinkContextMenu();
 const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(window.navigator.platform || "");
 const windowControlsVisible = getTransportCapabilities().windowControls;
 

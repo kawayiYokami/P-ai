@@ -1720,6 +1720,16 @@
     "teaching": "教學"
   },
   "chat": {
+    "fileLinkMenu": {
+      "openInSidebar": "在側邊開啟",
+      "revealInFolder": "定位檔案",
+      "openInVscode": "在 VS Code 中開啟",
+      "saveAs": "另存新檔",
+      "copyPath": "複製路徑",
+      "openInBrowser": "在瀏覽器開啟",
+      "copyLink": "複製連結",
+      "actionFailed": "操作失敗：{err}"
+    },
     "loadingOlderMessages": "載入更早訊息中",
     "command": "指令",
     "noInstructionPresets": "暫無指令預設",

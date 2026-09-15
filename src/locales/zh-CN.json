@@ -1724,6 +1724,16 @@
     "teaching": "教学"
   },
   "chat": {
+    "fileLinkMenu": {
+      "openInSidebar": "在侧边打开",
+      "revealInFolder": "定位文件",
+      "openInVscode": "在 VS Code 中打开",
+      "saveAs": "另存为",
+      "copyPath": "复制路径",
+      "openInBrowser": "在浏览器打开",
+      "copyLink": "复制链接",
+      "actionFailed": "操作失败：{err}"
+    },
     "loadingOlderMessages": "加载更早消息中",
     "command": "指令",
     "noInstructionPresets": "暂无指令预设",

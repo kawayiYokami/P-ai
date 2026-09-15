@@ -1724,6 +1724,16 @@
     "teaching": "Teaching"
   },
   "chat": {
+    "fileLinkMenu": {
+      "openInSidebar": "Open in sidebar",
+      "revealInFolder": "Reveal file",
+      "openInVscode": "Open in VS Code",
+      "saveAs": "Save as",
+      "copyPath": "Copy path",
+      "openInBrowser": "Open in browser",
+      "copyLink": "Copy link",
+      "actionFailed": "Action failed: {err}"
+    },
     "loadingOlderMessages": "Loading older messages",
     "command": "Command",
     "noInstructionPresets": "No instruction presets yet",

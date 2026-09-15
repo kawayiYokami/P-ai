@@ -92,6 +92,12 @@
       @add-context-reference="addContextReferenceToChat"
     />
 
+    <FileLinkContextMenu
+      :state="fileLinkMenuState"
+      :can-open-in-sidebar="false"
+      @close="closeFileLinkMenu"
+    />
+
     <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
@@ -101,6 +107,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { FilePlus, FileText, Minus, Square, X } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import FileReaderPanel from "../../features/file-reader/components/FileReaderPanel.vue";
+import { directoryFromPath } from "../../features/file-reader/utils";
+import FileLinkContextMenu from "../../features/shared/components/FileLinkContextMenu.vue";
+import { useFileLinkContextMenu } from "../../features/shared/composables/use-file-link-context-menu";
 import type { AppThemeState } from "../../features/shell/theme/theme-types";
 import { isDarkAppTheme, useAppTheme } from "../../features/shell/composables/use-app-theme";
 import Win10ResizeHandles from "../../features/shell/components/Win10ResizeHandles.vue";
@@ -133,6 +142,12 @@ const maximized = ref(false);
 const fileReaderPanelRef = ref<InstanceType<typeof FileReaderPanel> | null>(null);
 const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 const tabMenu = ref<{ path: string; x: number; y: number } | null>(null);
+
+// 文件链接右键菜单：本窗口自己就是阅读器，不再提供「在侧边打开」；
+// 相对路径以当前打开文件所在目录为基准，与面板内左键打开口径一致。
+const { state: fileLinkMenuState, close: closeFileLinkMenu } = useFileLinkContextMenu({
+  workspaceRoot: () => directoryFromPath(fileReaderPanelRef.value?.activePath || ""),
+});
 
 let unlistenOpenPath: (() => void) | null = null;
 let unlistenThemeChanged: (() => void) | null = null;

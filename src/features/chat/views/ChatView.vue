@@ -729,6 +729,11 @@
       </Transition>
     </div>
 
+    <FileLinkContextMenu
+      :state="fileLinkMenuState"
+      @open-in-sidebar="handleFileLinkOpenInSidebar"
+      @close="closeFileLinkMenu"
+    />
 
   </div>
 </template>
@@ -764,6 +769,8 @@ import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import { SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
+import { useFileLinkContextMenu } from "../../shared/composables/use-file-link-context-menu";
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
@@ -3322,6 +3329,36 @@ function openLocalFileInChatReader(path: string, line?: number) {
 
 function openLocalDirectoryInChatReader(path: string, line?: number) {
   emit("openChatReaderDirectory", path, line);
+}
+
+// Markdown 文件链接的右键菜单：命中判定与菜单状态由共享组合式函数管理。
+const { state: fileLinkMenuState, close: closeFileLinkMenu } = useFileLinkContextMenu({
+  workspaceRoot: () => props.currentWorkspaceRootPath,
+});
+
+/** 菜单「在侧边打开」：与左键点击同一套打开口径。 */
+function handleFileLinkOpenInSidebar(payload: { path: string; line?: number }) {
+  const path = String(payload?.path || "").trim();
+  if (!path) return;
+  void openFileLinkReferenceInReader(path, payload?.line);
+}
+
+async function openFileLinkReferenceInReader(path: string, line?: number) {
+  try {
+    if (canOpenInFileReader(path) || !fileExtensionFromPath(path)) {
+      if (!fileExtensionFromPath(path)) {
+        // 无扩展名：先按目录展开，失败由上层回退按文件读（如 Makefile）
+        openLocalDirectoryInChatReader(path, line);
+      } else {
+        await openLocalFileInChatReader(path, line);
+      }
+      linkOpenErrorText.value = "";
+    } else {
+      await openTransportLocalDirectory(path);
+    }
+  } catch (error) {
+    linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) });
+  }
 }
 
 async function openFileInReader(path: string, line?: number) {

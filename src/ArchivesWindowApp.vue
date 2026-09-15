@@ -147,6 +147,12 @@
 
     <StartupOverlay v-if="startupOverlayVisible" />
 
+    <FileLinkContextMenu
+      :state="fileLinkMenuState"
+      :can-use-local-file-actions="false"
+      @close="closeFileLinkMenu"
+    />
+
     <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
@@ -155,6 +161,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri, onTransportNotification } from "./services/tauri-api";
+import FileLinkContextMenu from "./features/shared/components/FileLinkContextMenu.vue";
+import { useFileLinkContextMenu } from "./features/shared/composables/use-file-link-context-menu";
 import type { AppBootstrapSnapshot, AppConfig } from "./types/app";
 import { normalizeLocale } from "./i18n";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
@@ -176,6 +184,10 @@ import { formatI18nError } from "./utils/error";
 
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => t(key, params as never);
+
+// 归档窗口只做历史阅读，不提供需要本机文件的动作；文件链接右键只留「复制路径」，
+// 复制内容就是链接原文，因此不需要工作区根。
+const { state: fileLinkMenuState, close: closeFileLinkMenu } = useFileLinkContextMenu();
 
 const viewMode = ref<"chat" | "archives" | "config">("archives");
 const status = ref("");
